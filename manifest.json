@@ -1,0 +1,79 @@
+{
+  "manifest_version": 3,
+  "name": "Kemono & Coomer Downloader",
+  "version": "1.0.0",
+  "description": "Batch download from coomer.st / kemono.cr with cloud storage sync",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "cookies",
+    "downloads",
+    "webRequest",
+    "notifications",
+    "alarms",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "*://coomer.st/*",
+    "*://kemono.cr/*",
+    "*://*.coomer.st/*",
+    "*://*.kemono.cr/*",
+    "https://api.github.com/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://coomer.st/*",
+        "*://kemono.cr/*"
+      ],
+      "js": [
+        "content/injector.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://coomer.st/*/user/*/post/*",
+        "*://kemono.cr/*/user/*/post/*",
+        "*://coomer.st/*/user/*",
+        "*://kemono.cr/*/user/*"
+      ],
+      "js": [
+        "content/helpers.js",
+        "content/ui.js",
+        "content/download.js",
+        "content/actions.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "injected/creators_page.js"
+      ],
+      "matches": [
+        "*://coomer.st/*",
+        "*://kemono.cr/*"
+      ]
+    }
+  ]
+}

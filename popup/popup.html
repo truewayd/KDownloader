@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kemono Downloader</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+
+    <div class="stats hidden">
+      <h2>Favorites Watcher</h2>
+      <div class="stat-item">
+        <span>Enable</span>
+        <span>
+          <label class="row">
+            <input type="checkbox" id="fav-enabled" class="custom-checkbox">
+            <span id="fav-enabled-label">Off</span>
+          </label>
+        </span>
+      </div>
+      
+      <div class="stat-item">
+        <span>Interval (minutes)</span>
+        <span>
+          <input id="fav-interval" type="number" min="1" step="1" value="360" class="small-input">
+        </span>
+      </div>
+      <div class="row mt-10">
+        <button class="btn secondary" id="fav-save-btn">Save Settings</button>
+        <button class="btn" id="fav-check-btn">Check Now</button>
+      </div>
+    </div>
+
+    <div class="stats mt-10">
+      <h2>ABDM Integration</h2>
+      <div class="row" style="margin-bottom:8px;">
+        <label class="row">
+          <input type="checkbox" id="backend-enabled" class="custom-checkbox">
+          <span id="backend-enabled-label">Off</span>
+        </label>
+      </div>
+      <div class="row">
+        <input id="backend-host" type="text" placeholder="127.0.0.1" class="input-flex">
+        <input id="backend-port" type="number" placeholder="15151" class="small-input">
+      </div>
+      <div class="row mt-8 align-right">
+        <button class="btn secondary" id="backend-save-btn">Save Backend</button>
+      </div>
+    </div>
+
+        <div class="stats mt-10">
+      <h2>Search Page Cache</h2>
+      <div class="row" style="margin-bottom:8px;">
+        <label class="row">
+          <input type="checkbox" id="creators-enabled" class="custom-checkbox">
+          <span id="creators-enabled-label">Off</span>
+        </label>
+      </div>
+      <div class="column">
+        <div class="row" style="justify-content:space-between;align-items:center;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn" id="creators-update-coomer">Cache Coomer</button>
+            <div class="muted" id="creators-last-updated-coomer">Never</div>
+          </div>
+        </div>
+        <div class="row" style="justify-content:space-between;align-items:center;margin-top:8px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn" id="creators-update-kemono">Cache Kemono</button>
+            <div class="muted" id="creators-last-updated-kemono">Never</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+        <div class="stats mt-10">
+      <h2>GitHub Gist Sync</h2>
+      <div class="stat-item no-border column">
+        <input id="gist-token" type="password" placeholder="GitHub Token" class="input-flex mt-6" />
+        <input id="gist-id" type="text" placeholder="Gist ID (optional)" class="input-flex mt-6" />
+        <div class="row mt-10" style="justify-content:flex-end;">
+          <button class="btn" id="gist-upload-btn">⬆️Upload</button>
+          <button class="btn secondary" id="gist-download-btn">⬇️Download</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions mt-12">
+      <div class="row">
+        <button class="btn" id="export-btn">
+          <span class="btn-icon">💾</span>
+          <span>Export</span>
+        </button>
+        <button class="btn secondary" id="import-btn">
+          <span class="btn-icon">📂</span>
+          <span>Import</span>
+        </button>
+        <button class="btn danger ml-auto" id="clear-btn">
+          <span class="btn-icon">🗑️</span>
+          <span>Clear</span>
+        </button>
+      </div>
+    </div>
+
+    <input type="file" id="file-input" class="file-input" accept="application/json">
+
+    <div class="stats mt-12 row space-between center-align">
+      <div class="column">
+        <div class="stat-item no-border">
+          <span>History Storage Used:&nbsp;</span>
+          <span class="stat-value" id="storage-used">Calculating...</span>
+        </div>
+      </div>
+      <div id="popup-version" class="muted">v?</div>
+    </div>
+
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div>Processing...</div>
+  </div>
+  <div class="success-message" id="success-message"></div>
+  <div class="error-message" id="error-message"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
+
