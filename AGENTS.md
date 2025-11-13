@@ -1,8 +1,8 @@
 Purpose
 -------
-This document defines repository layout, conventions, and collaboration rules for agents and developers.
-It prescribes concrete steps for splitting content scripts, batching downloads, minimizing storage writes, and integrating third-party downloaders safely.
-When a user proposes adding a feature, update this file to reflect API, manifest, config, storage, and test changes.
+- This document defines repository layout, conventions, and collaboration rules for agents and developers.
+- It prescribes concrete steps for splitting content scripts, batching downloads, minimizing storage writes, and integrating third-party downloaders safely.
+- When a user proposes adding a feature, update this file to reflect API, manifest, config, storage, and test changes.
 
 Repository structure (current)
 ------------------------------
