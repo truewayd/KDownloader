@@ -92,8 +92,9 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
 
     const sendProgress = (sent, total) => {
       const payload = { action: 'downloadProgress', service, userId, postId, progress: Math.round(100 * (sent / Math.max(1, total))), sentCount: sent, totalCount: total };
-      try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { }); else chrome.runtime.sendMessage(payload, () => { }); } catch (e) { }
+      try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; }); else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; }); } catch (e) { }
     };
+
 
     for (let b = 0; b < batches.length; b++) {
       const batchTasks = batches[b];
@@ -163,7 +164,7 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
   // 4. Local chrome.downloads fallback
   const progressCallback = ({ processed, total, successCount }) => {
     const payload = { action: 'downloadProgress', service, userId, postId, progress: Math.round(100 * (processed / Math.max(1, total))), sentCount: successCount, totalCount: total };
-    try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { }); else chrome.runtime.sendMessage(payload, () => { }); } catch (e) { }
+    try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; }); else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; }); } catch (e) { }
   };
 
   const { successCount, results } = await runSequentialDownloads(tasks, progressCallback);

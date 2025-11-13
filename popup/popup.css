@@ -14,10 +14,14 @@ body {
   padding: 0;
 }
 
-
+/* Keep header progress fixed and not overlapping content; content container pads top accordingly */
 .container {
-  padding: 20px;
+  padding: 20px 20px 80px 20px; /* bottom padding keeps footer visible */
+  padding-top: 56px; /* space for fixed header */
 }
+
+.header-spacer { height: 56px; }
+
 
 .stats {
   background: rgba(255, 255, 255, 0.08);
@@ -109,20 +113,66 @@ body {
 
 .file-input { display: none; }
 
-.footer {
-  background: rgba(0, 0, 0, 0.2);
-  padding: 12px 20px;
-  text-align: center;
-  font-size: 11px;
-  opacity: 0.7;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+
+/* legacy footer replaced by fixed popup-footer */
+.popup-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10000;
+  background: linear-gradient(180deg, rgba(32,34,36,0.98), rgba(18,20,22,0.98));
+  border-top: 1px solid rgba(255,255,255,0.04);
+  padding: 8px 12px;
+  box-sizing: border-box;
 }
+.popup-footer .footer-inner { display:flex; gap:12px; align-items:center; justify-content:space-between; }
+.popup-footer .muted { opacity:0.8; font-size:12px; }
+
+
+
+/* Header progress bar pinned at top as page header (doesn't overlap content) */
+.global-progress {
+  display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  z-index: 10000;
+  background: linear-gradient(180deg, rgba(20,22,24,0.96), rgba(32,34,36,0.95));
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  color: #fff;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  display:flex; align-items:center;
+}
+.global-progress-inner { display:flex; gap:12px; align-items:center; width:100%; }
+.global-progress-label { font-size:13px; min-width:160px; }
+.global-progress-track { flex:1; height:12px; background: rgba(255,255,255,0.08); border-radius:8px; overflow:hidden; }
+.global-progress-fill { height:100%; background: linear-gradient(90deg,#2d9cdb,#1b7fb0); width:0%; transition: width 0.18s linear; }
+.global-progress.hidden { display:none; }
+
+
+/* Accordion styles for compact popup layout */
+.accordion { background: transparent; border-radius:8px; overflow:hidden; }
+.accordion-header { display:flex; align-items:center; cursor:pointer; padding:6px 8px; gap:8px; }
+.accordion-header:focus { outline:2px solid rgba(45,156,219,0.24); }
+.accordion-toggle { font-size:14px; color: #cfd8dc; transform: rotate(90deg); transition: transform 0.14s ease; }
+.accordion[aria-expanded="true"] .accordion-toggle { transform: rotate(270deg); }
+.accordion-body { max-height: 0; overflow: hidden; transition: max-height 0.28s ease, padding 0.22s ease; padding: 0 8px; }
+.accordion[aria-expanded="true"] .accordion-body { padding: 8px; max-height: 520px; }
+
+.divider { height:1px; background: rgba(255,255,255,0.04); margin: 10px 0; }
+
+
 
 /* Loading and messages fixed at the top */
+
 .loading {
   display: none;
   position: fixed;
-  top: 10px;
+  top: 66px; /* below header */
   left: 50%;
   transform: translateX(-50%);
   z-index: 9998;
@@ -135,7 +185,9 @@ body {
   align-items: center;
 }
 
+
 .loading.active { display: flex; gap:8px; }
+
 
 .spinner {
   border: 3px solid rgba(255, 255, 255, 0.22);
@@ -152,7 +204,7 @@ body {
   position: fixed;
   left: 20px;
   right: 20px;
-  top: 10px;
+  top: 66px; /* below header */
   z-index: 9999;
   padding: 10px;
   border-radius: 6px;
@@ -160,6 +212,7 @@ body {
   display: none;
   animation: fadeIn 0.3s ease-out;
 }
+
 
 .success-message {
   background: rgba(76, 175, 80, 0.95);

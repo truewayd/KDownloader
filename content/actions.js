@@ -168,86 +168,61 @@ function addDownloadAllButton() {
       if (!parsedPage) {
         updateButtonStatus(btn, 'ERROR', '✗ Invalid page', false);
         setTimeout(() => { btn.disabled = false; updateButtonStatus(btn, 'IDLE', null, false); }, 2000);
-
         return;
       }
 
       const service = parsedPage.service;
       const userId = parsedPage.userId;
 
-      // Collect posts on the page
-      const articles = Array.from(document.querySelectorAll('article.post-card.post-card--preview, article.post-card'));
-      const posts = [];
-      for (const article of articles) {
-        const a = article.querySelector('a.fancy-link, a[href*="/post/"], a.post__link');
-        if (!a) continue;
-        const href = a.getAttribute('href') || a.href;
-        const path = new URL(href, location.origin).pathname;
-        const p = parseUrlPath(path);
-        if (p && p.postId) posts.push({ service: p.service, userId: p.userId, postId: p.postId, path });
-      }
-
-      if (posts.length === 0) {
-        updateButtonStatus(btn, 'SUCCESS', 'No posts', false);
-        setTimeout(() => { btn.disabled = false; updateButtonStatus(btn, 'IDLE', null, false); }, 2000);
-
-        return;
-      }
-
-      // Filter out already downloaded posts
-      const toDispatch = [];
-      for (const p of posts) {
-        try {
-          const done = await isPostDownloaded(p.service, p.userId, p.postId);
-          if (!done) toDispatch.push(p);
-        } catch (e) {
-          // if check fails, include the post so user can attempt download
-          toDispatch.push(p);
+      // require backend configured to avoid many browser downloads
+      try {
+        const cfg = await safeSendMessage({ action: 'backend.getConfig' }, 3000, { retries: 1, retryDelay: 200 });
+        if (!cfg || !cfg.success || !cfg.config || !cfg.config.enabled) {
+          updateButtonStatus(btn, 'ERROR', 'Please enable backend first', false);
+          setTimeout(() => { btn.disabled = false; updateButtonStatus(btn, 'IDLE', null, false); }, 2500);
+          return;
         }
-      }
-
-      if (toDispatch.length === 0) {
-        updateButtonStatus(btn, 'SUCCESS', '✓ All Downloaded', false);
-        btn.disabled = true;
+      } catch (err) {
+        console.warn('[Content] backend.getConfig failed', err);
+        updateButtonStatus(btn, 'ERROR', 'Backend check failed', false);
+        setTimeout(() => { btn.disabled = false; updateButtonStatus(btn, 'IDLE', null, false); }, 2000);
         return;
-
       }
 
-      updateButtonStatus(btn, 'SENDING', `Sending 0/${toDispatch.length}`, false);
+      // Determine offset from current URL (?o=)
+      const offsetParam = (new URL(location.href)).searchParams.get('o');
+      const offset = offsetParam ? Number(offsetParam) : null;
 
-      // Use batch RPC to dispatch all posts in one request. This reduces message overhead
-      // and allows the background to batch mark downloaded posts.
-      let dispatched = 0;
+      updateButtonStatus(btn, 'SENDING', `Dispatching page...`, false);
+
+      // Listen for progress & completion from background (scoped by service/user)
+      let total = null;
       let completed = 0;
       let successCount = 0;
 
       const onBatchMessage = (message) => {
         if (!message) return;
-
         if (message.action === 'downloadProgress' && message.batch) {
-          // Batch-level progress update
           if (message.service !== service || message.userId !== userId) return;
+          total = message.totalCount || total;
           const sent = message.sentCount || 0;
-          const total = message.totalCount || toDispatch.length;
-          if (!isCreatorPage) btn.textContent = `Sending ${sent}/${total}`;
-          else btn.title = `Sending ${sent}/${total}`;
+          if (!isCreatorPage) btn.textContent = `Sending ${sent}/${total || '?'} `; else btn.title = `Sending ${sent}/${total || '?'} `;
           return;
         }
 
         if (message.action !== 'downloadComplete') return;
-        // Only count completions that match this creator
         if (message.service !== service || message.userId !== userId) return;
 
         completed++;
         const res = message.result || {};
         if (res.success) successCount++;
-        // Update progress text
-        btn.textContent = `ACK ${completed}/${toDispatch.length}`;
+        btn.textContent = `ACK ${completed}/${total || '?'} `;
 
-        if (completed >= toDispatch.length) {
+        // when we know total and completed >= total, finalize
+        if (total && completed >= total) {
           try { chrome.runtime.onMessage.removeListener(onBatchMessage); } catch (e) { }
           if (successCount > 0) {
-            updateButtonStatus(btn, 'SUCCESS', `✓ ${successCount}/${toDispatch.length}`, true);
+            updateButtonStatus(btn, 'SUCCESS', `✓ ${successCount}/${total}`, true);
             btn.disabled = true;
           } else {
             updateButtonStatus(btn, 'ERROR', '✗ Failed', true);
@@ -258,18 +233,17 @@ function addDownloadAllButton() {
 
       chrome.runtime.onMessage.addListener(onBatchMessage);
 
-      // Send batch request
+      // send request to background to fetch this page's posts & dispatch
       try {
-        const ack = await safeSendMessage({ action: 'startDownloadBatch', items: toDispatch }, 7000, { retries: 2, retryDelay: 400 });
-        if (ack && ack.accepted) {
-          dispatched = toDispatch.length;
-          btn.textContent = `Sent ${dispatched}/${toDispatch.length}`;
+        const ack = await safeSendMessage({ action: 'creator.pageFetch', service, userId, offset }, 7000, { retries: 2, retryDelay: 400 });
+        if (ack && (ack.accepted || ack.success)) {
+          updateButtonStatus(btn, 'SENDING', 'Dispatched, awaiting progress...', false);
         } else {
           throw new Error('No ack');
         }
       } catch (err) {
         try { chrome.runtime.onMessage.removeListener(onBatchMessage); } catch (e) { }
-        console.warn('[Content] Download all batch ack failed', err);
+        console.warn('[Content] creator.pageFetch ack failed', err);
         updateButtonStatus(btn, 'ERROR', '✗ No ack', false);
         setTimeout(() => { btn.disabled = false; updateButtonStatus(btn, 'IDLE', null, false); }, 2000);
       }

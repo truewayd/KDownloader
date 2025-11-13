@@ -304,6 +304,108 @@ loadBackendConfig();
 loadGistConfig();
 loadCreatorsState();
 
+// Global progress UI
+const globalProgressEl = document.getElementById('global-progress');
+const globalProgressFill = document.getElementById('global-progress-fill');
+const globalProgressLabel = document.getElementById('global-progress-label');
+
+function renderGlobalProgress(total, processed, acked) {
+    if (!globalProgressEl || !globalProgressFill || !globalProgressLabel) return;
+    total = Number(total || 0);
+    processed = Number(processed || 0);
+    acked = Number(acked || 0);
+    // Always show the progress header. When no tasks, display 0/0 or Idle.
+    const pct = total > 0 ? Math.round(100 * (processed / Math.max(1, total))) : 0;
+    globalProgressFill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+    if (total > 0) {
+        globalProgressLabel.textContent = `${processed}/${total} sent · ${acked} ACK`;
+    } else {
+        globalProgressLabel.textContent = `Idle · ${acked} ACK`;
+    }
+    globalProgressEl.classList.remove('hidden');
+}
+
+
+// request initial global progress when popup opens
+(async function initGlobalProgress() {
+    try {
+        console.debug('[Popup] initGlobalProgress request');
+        const r = await safeSendMessage({ action: 'status.getGlobalProgress' }, 3000, { retries: 1, retryDelay: 200 }).catch(() => null);
+        console.debug('[Popup] initGlobalProgress response', r);
+        if (r && r.success && r.progress) {
+            renderGlobalProgress(r.progress.total, r.progress.processed, r.progress.acked);
+        } else {
+            // fallback: try to read snapshot from storage.local
+            chrome.storage.local.get(['globalProgressSnapshot'], (res) => {
+                try {
+                    const snap = res && res.globalProgressSnapshot ? res.globalProgressSnapshot : null;
+                    if (snap && (snap.total || snap.processed)) {
+                        renderGlobalProgress(snap.total || 0, snap.processed || 0, snap.acked || 0);
+                    }
+                } catch (e) { console.warn('[Popup] read globalProgressSnapshot failed', e); }
+            });
+        }
+    } catch (e) { console.warn('[Popup] initGlobalProgress failed', e); }
+})();
+
+// Listen for storage changes so popup updates if background wrote a snapshot
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes.globalProgressSnapshot && changes.globalProgressSnapshot.newValue) {
+        const v = changes.globalProgressSnapshot.newValue;
+        renderGlobalProgress(v.total || 0, v.processed || 0, v.acked || 0);
+    }
+});
+
+
+
+
+// Creator Fetch elements (now nested under ABDM accordion in popup.html)
+const creatorUrlInput = document.getElementById('creator-url');
+const creatorFetchBtn = document.getElementById('creator-fetch-btn');
+const creatorStatus = document.getElementById('creator-status');
+
+// ABDM accordion controls
+const abdmAccordion = document.getElementById('abdm-accordion');
+
+
+
+// Safe send message helper (robust to service worker cold start)
+async function safeSendMessage(message, timeout = 7000, opts = { retries: 1, retryDelay: 300 }) {
+    const attempt = () => new Promise((resolve, reject) => {
+        try {
+            chrome.runtime.sendMessage(message, (r) => {
+                if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message || 'runtime error'));
+                if (!r) return reject(new Error('No response from runtime')); // treat as error
+                resolve(r);
+            });
+        } catch (e) { reject(e); }
+    });
+
+    let lastErr = null;
+    for (let i = 0; i <= (opts.retries || 1); i++) {
+        try {
+            const p = attempt();
+            if (typeof timeout === 'number' && timeout > 0) {
+                const r = await Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), timeout))]);
+                return r;
+            }
+            return await p;
+        } catch (e) {
+            lastErr = e;
+            // retry on specific transient errors
+            const msg = (e && e.message) ? e.message : '';
+            if (/Receiving end does not exist|The message port closed/i.test(msg) && i < (opts.retries || 1)) {
+                await new Promise(r => setTimeout(r, opts.retryDelay || 300));
+                continue;
+            }
+            break;
+        }
+    }
+    throw lastErr || new Error('safeSendMessage failed');
+}
+
+
 // Listen for storage changes
 storage.onChangedAddListener((changes, namespace) => {
     // Refresh when our version (sync) increments or the local downloaded key changes
@@ -311,6 +413,143 @@ storage.onChangedAddListener((changes, namespace) => {
     const hasDownloaded = !!changes[STORAGE_KEY];
     if (hasVersion || hasDownloaded) loadStats();
 });
+
+// ---------------- Creator Fetch logic ----------------
+function parseCreatorUrl(urlStr) {
+    try {
+        const u = new URL(urlStr);
+        const host = u.hostname.toLowerCase();
+        // path pattern: /{service}/user/{user}
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (parts.length < 3) return null;
+        const service = parts[0];
+        if (parts[1] !== 'user') return null;
+        const userId = parts[2];
+        const offset = u.searchParams.get('o') ? Number(u.searchParams.get('o')) : null;
+        return { origin: u.origin, host, service, userId, offset };
+    } catch (e) { return null; }
+}
+
+
+
+// Track batch state in popup to support retry and per-task marking
+let currentBatchState = null; // { items: [...], total, processed, ackedMap, retried, service, userId }
+
+function resetCreatorStatus() { /* no-op; global progress bar displays status */ }
+
+function updateCreatorStatus(text) { /* intentionally no-op: global progress bar is authoritative */ }
+
+
+// Local aggregator as a fallback (aggregate downloadProgress if globalProgress not received)
+const AGG_MAP = new Map(); // key -> { total, processed }
+const AGG_ACK = new Map(); // key -> ackedCount
+function aggKey(service, userId) { return `${service}::${userId}`; }
+function computeAggTotals() {
+    let total = 0, processed = 0, acked = 0;
+    for (const v of AGG_MAP.values()) { total += Number(v.total || 0); processed += Number(v.processed || 0); }
+    for (const a of AGG_ACK.values()) acked += Number(a || 0);
+    return { total, processed, acked };
+}
+
+// Handle runtime messages (progress & completion)
+chrome.runtime.onMessage.addListener((message) => {
+    if (!message || !message.action) return;
+
+    if (message.action === 'globalProgress') {
+        // live update global progress bar
+        const total = Number(message.total || 0);
+        const processed = Number(message.processed || 0);
+        const acked = Number(message.acked || 0);
+        console.debug('[Popup] globalProgress received', { total, processed, acked });
+        renderGlobalProgress(total, processed, acked);
+        return;
+    }
+
+    if (message.action === 'downloadProgress' && message.batch) {
+        // update local aggregator fallback
+        try {
+            const srv = message.service || '__unknown__';
+            const uid = message.userId || '__unknown__';
+            const key = aggKey(srv, uid);
+            const t = Number(message.totalCount || 0);
+            const p = Number(message.sentCount || 0);
+            const prev = AGG_MAP.get(key) || { total: 0, processed: 0 };
+            // keep latest numbers (total and processed for that batch)
+            prev.total = t;
+            prev.processed = p;
+            AGG_MAP.set(key, prev);
+            const agg = computeAggTotals();
+            renderGlobalProgress(agg.total, agg.processed, agg.acked);
+        } catch (e) { console.warn('[Popup] aggregate downloadProgress failed', e); }
+
+
+        if (!currentBatchState) return;
+        // match service/user
+        if (message.service !== currentBatchState.service || message.userId !== currentBatchState.userId) return;
+        currentBatchState.processed = message.sentCount || currentBatchState.processed;
+        // if total provided, set it
+        if (message.totalCount) currentBatchState.total = message.totalCount;
+        updateCreatorStatus(`Sent: ${currentBatchState.processed}/${currentBatchState.total || '?'} | ACKed: ${Object.keys(currentBatchState.ackedMap || {}).length}`);
+    }
+
+    if (message.action === 'downloadComplete') {
+        const pid = message.postId;
+        const res = message.result || {};
+        // update aggregator ack counts (only when a file was actually dispatched)
+        try {
+            const srv = message.service || '__unknown__';
+            const uid = message.userId || '__unknown__';
+            const key = aggKey(srv, uid);
+            if (res && res.success && (res.backend === true || (typeof res.successCount === 'number' && res.successCount > 0))) {
+                AGG_ACK.set(key, (AGG_ACK.get(key) || 0) + 1);
+            }
+            const agg = computeAggTotals();
+            renderGlobalProgress(agg.total, agg.processed, agg.acked);
+        } catch (e) { console.warn('[Popup] aggregate ACK update failed', e); }
+
+
+        // If we have an active currentBatchState for this creator, update it as before
+        if (!currentBatchState) return;
+        if (message.service !== currentBatchState.service || message.userId !== currentBatchState.userId) return;
+
+        if (res && res.success && (res.backend === true || (typeof res.successCount === 'number' && res.successCount > 0))) {
+            currentBatchState.ackedMap[pid] = true;
+            // mark downloaded in DB immediately
+            try { chrome.runtime.sendMessage({ action: 'db.markDownloaded', service: message.service, userId: message.userId, postId: pid }); } catch (e) { }
+        }
+
+        // update status
+        updateCreatorStatus(`Sent: ${currentBatchState.processed}/${currentBatchState.total || '?'} | ACKed: ${Object.keys(currentBatchState.ackedMap || {}).length}`);
+
+        // if processed reached total, handle retry of unacked once
+        if (currentBatchState.total && currentBatchState.processed >= currentBatchState.total) {
+            const unacked = currentBatchState.items.filter(it => !currentBatchState.ackedMap[it.postId]);
+            if (unacked.length > 0 && !currentBatchState.retried) {
+                currentBatchState.retried = true;
+                updateCreatorStatus(`Retrying ${unacked.length} unacked tasks...`);
+                // resend once
+                safeSendMessage({ action: 'startDownloadBatch', items: unacked }, 7000, { retries: 2, retryDelay: 400 }).then(ack => {
+                    if (ack && ack.accepted) {
+                        // merge items (they may overlap) and keep existing ack map
+                        currentBatchState.items = currentBatchState.items.concat(unacked);
+                        currentBatchState.total += unacked.length;
+                        updateCreatorStatus(`Retry sent: ${Object.keys(currentBatchState.ackedMap).length}/${currentBatchState.total}`);
+                    }
+                }).catch(err => {
+                    console.warn('[Popup] retry send failed', err);
+                    updateCreatorStatus(`Retry failed: ${err && err.message ? err.message : err}`);
+                });
+            } else {
+                updateCreatorStatus(`Completed. ACKed: ${Object.keys(currentBatchState.ackedMap || {}).length}/${currentBatchState.total}`);
+                // finalize and reset state after short delay
+                setTimeout(() => { currentBatchState = null; resetCreatorStatus(); }, 5000);
+            }
+        }
+    }
+
+});
+
+
 
 // Creators override handlers
 async function loadCreatorsState() {
@@ -340,6 +579,74 @@ async function loadCreatorsState() {
         creatorsEnabledLabel.textContent = 'Off';
     }
 }
+
+// Creator Fetch button handlers
+async function handleCreatorFetchClick() {
+    try {
+        updateCreatorStatus('Preparing...');
+        const urlStr = creatorUrlInput && creatorUrlInput.value && creatorUrlInput.value.trim();
+        if (!urlStr) return updateCreatorStatus('Please enter a creator URL');
+        const parsed = parseCreatorUrl(urlStr);
+        if (!parsed) return updateCreatorStatus('Invalid creator URL');
+
+        // ensure backend configured
+        const backendCfg = await new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({ action: 'backend.getConfig' }, (r) => {
+                if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message || 'runtime error'));
+                if (!r) return reject(new Error('No response from backend.getConfig'));
+                if (!r.success) return reject(new Error(r.error || 'backend.getConfig failed'));
+                resolve(r.config);
+            });
+        });
+        if (!backendCfg.enabled) return updateCreatorStatus('Please configure and enable backend first');
+
+        // delegate fetch + dispatch to background to centralize paging/concurrency
+        currentBatchState = { items: [], total: 0, processed: 0, ackedMap: {}, service: parsed.service, userId: parsed.userId, retried: false };
+        const ack = await safeSendMessage({ action: 'creator.fetch', origin: parsed.origin, service: parsed.service, userId: parsed.userId }, 7000, { retries: 2, retryDelay: 400 });
+        if (ack && (ack.accepted || ack.success)) {
+            // show success and clear input to avoid duplicate submissions
+            showSuccess('✓ Task added');
+            try { creatorUrlInput.value = ''; creatorUrlInput.blur(); } catch (e) { }
+            // briefly disable button to avoid accidental double clicks
+            try { creatorFetchBtn.disabled = true; setTimeout(() => { creatorFetchBtn.disabled = false; }, 1200); } catch (e) { }
+            // keep global progress reliance; no per-creator text shown here
+        } else {
+            updateCreatorStatus('Failed to dispatch request');
+            currentBatchState = null;
+        }
+
+    } catch (e) {
+        console.error('[Popup] handleCreatorFetchClick error', e);
+        updateCreatorStatus('Error: ' + (e && e.message ? e.message : String(e)));
+    }
+}
+
+// attach handler
+if (creatorFetchBtn) creatorFetchBtn.addEventListener('click', handleCreatorFetchClick);
+
+// Accordion behaviour: toggle expand/collapse
+function enableAccordion(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const header = el.querySelector('.accordion-header');
+    if (!header) return;
+    header.addEventListener('click', () => {
+        const expanded = el.getAttribute('aria-expanded') === 'true';
+        el.setAttribute('aria-expanded', String(!expanded));
+    });
+    header.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); header.click(); }
+    });
+}
+
+enableAccordion('abdm-accordion');
+enableAccordion('creators-accordion');
+enableAccordion('gist-accordion');
+
+
+
+
+
 
 
 

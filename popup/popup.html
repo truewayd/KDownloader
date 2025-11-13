@@ -7,6 +7,12 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
+  <div id="global-progress" class="global-progress hidden">
+    <div class="global-progress-inner">
+      <div class="global-progress-label" id="global-progress-label">Sending...</div>
+      <div class="global-progress-track"><div class="global-progress-fill" id="global-progress-fill" style="width:0%"></div></div>
+    </div>
+  </div>
   <div class="container">
 
     <div class="stats hidden">
@@ -33,60 +39,95 @@
       </div>
     </div>
 
+            <div class="stats mt-10">
+      <div class="accordion" id="abdm-accordion" aria-expanded="false">
+        <div class="accordion-header" role="button" tabindex="0" aria-controls="abdm-body">
+          <h2 style="flex:1;margin:0;font-size:14px;">ABDM Backend</h2>
+          <div class="accordion-toggle" aria-hidden="true">▸</div>
+        </div>
+        <div class="accordion-body" id="abdm-body">
+          <div class="row" style="margin-bottom:8px;">
+            <label class="row">
+              <input type="checkbox" id="backend-enabled" class="custom-checkbox">
+              <span id="backend-enabled-label">Off</span>
+            </label>
+          </div>
+          <div class="row">
+            <input id="backend-host" type="text" placeholder="127.0.0.1" class="input-flex">
+            <input id="backend-port" type="number" placeholder="15151" class="small-input">
+          </div>
+          <div class="row mt-8 align-right">
+            <button class="btn secondary" id="backend-save-btn">Save Backend</button>
+          </div>
+
+          <div class="divider" style="height:1px;margin:10px 0;background:rgba(255,255,255,0.04)"></div>
+
+          <!-- Creator Fetch inside ABDM Backend -->
+          <div>
+            <h3 style="font-size:13px;margin:6px 0 8px 0;opacity:0.95;">Creator Fetch</h3>
+            <div class="column">
+              <input id="creator-url" type="text" placeholder="https://coomer.st/onlyfans/user/worldstudz" class="input-flex mt-6" />
+              <div class="row mt-8" style="justify-content:flex-start;">
+                <button class="btn" id="creator-fetch-btn">Creator Fetch</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+            <div class="stats mt-10">
+      <div class="accordion" id="creators-accordion" aria-expanded="false">
+        <div class="accordion-header" role="button" tabindex="0" aria-controls="creators-body">
+          <h2 style="flex:1;margin:0;font-size:14px;">Search Page Cache</h2>
+          <div class="accordion-toggle" aria-hidden="true">▸</div>
+        </div>
+        <div class="accordion-body" id="creators-body">
+          <div class="row" style="margin-bottom:8px;">
+            <label class="row">
+              <input type="checkbox" id="creators-enabled" class="custom-checkbox">
+              <span id="creators-enabled-label">Off</span>
+            </label>
+          </div>
+          <div class="column">
+            <div class="row" style="justify-content:space-between;align-items:center;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <button class="btn" id="creators-update-coomer">Cache Coomer</button>
+                <div class="muted" id="creators-last-updated-coomer">Never</div>
+              </div>
+            </div>
+            <div class="row" style="justify-content:space-between;align-items:center;margin-top:8px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <button class="btn" id="creators-update-kemono">Cache Kemono</button>
+                <div class="muted" id="creators-last-updated-kemono">Never</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="stats mt-10">
-      <h2>ABDM Integration</h2>
-      <div class="row" style="margin-bottom:8px;">
-        <label class="row">
-          <input type="checkbox" id="backend-enabled" class="custom-checkbox">
-          <span id="backend-enabled-label">Off</span>
-        </label>
-      </div>
-      <div class="row">
-        <input id="backend-host" type="text" placeholder="127.0.0.1" class="input-flex">
-        <input id="backend-port" type="number" placeholder="15151" class="small-input">
-      </div>
-      <div class="row mt-8 align-right">
-        <button class="btn secondary" id="backend-save-btn">Save Backend</button>
-      </div>
-    </div>
-
-        <div class="stats mt-10">
-      <h2>Search Page Cache</h2>
-      <div class="row" style="margin-bottom:8px;">
-        <label class="row">
-          <input type="checkbox" id="creators-enabled" class="custom-checkbox">
-          <span id="creators-enabled-label">Off</span>
-        </label>
-      </div>
-      <div class="column">
-        <div class="row" style="justify-content:space-between;align-items:center;">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <button class="btn" id="creators-update-coomer">Cache Coomer</button>
-            <div class="muted" id="creators-last-updated-coomer">Never</div>
-          </div>
+      <div class="accordion" id="gist-accordion" aria-expanded="false">
+        <div class="accordion-header" role="button" tabindex="0" aria-controls="gist-body">
+          <h2 style="flex:1;margin:0;font-size:14px;">GitHub Gist Sync</h2>
+          <div class="accordion-toggle" aria-hidden="true">▸</div>
         </div>
-        <div class="row" style="justify-content:space-between;align-items:center;margin-top:8px;">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <button class="btn" id="creators-update-kemono">Cache Kemono</button>
-            <div class="muted" id="creators-last-updated-kemono">Never</div>
+        <div class="accordion-body" id="gist-body">
+          <div class="stat-item no-border column">
+            <input id="gist-token" type="password" placeholder="GitHub Token" class="input-flex mt-6" />
+            <input id="gist-id" type="text" placeholder="Gist ID (optional)" class="input-flex mt-6" />
+            <div class="row mt-10" style="justify-content:flex-end;">
+              <button class="btn" id="gist-upload-btn">⬆️Upload</button>
+              <button class="btn secondary" id="gist-download-btn">⬇️Download</button>
+            </div>
           </div>
-        </div>
-      </div>
-    </div>
-
-        <div class="stats mt-10">
-      <h2>GitHub Gist Sync</h2>
-      <div class="stat-item no-border column">
-        <input id="gist-token" type="password" placeholder="GitHub Token" class="input-flex mt-6" />
-        <input id="gist-id" type="text" placeholder="Gist ID (optional)" class="input-flex mt-6" />
-        <div class="row mt-10" style="justify-content:flex-end;">
-          <button class="btn" id="gist-upload-btn">⬆️Upload</button>
-          <button class="btn secondary" id="gist-download-btn">⬇️Download</button>
         </div>
       </div>
     </div>
 
     <div class="actions mt-12">
+
       <div class="row">
         <button class="btn" id="export-btn">
           <span class="btn-icon">💾</span>
@@ -105,17 +146,7 @@
 
     <input type="file" id="file-input" class="file-input" accept="application/json">
 
-    <div class="stats mt-12 row space-between center-align">
-      <div class="column">
-        <div class="stat-item no-border">
-          <span>History Storage Used:&nbsp;</span>
-          <span class="stat-value" id="storage-used">Calculating...</span>
-        </div>
-      </div>
-      <div id="popup-version" class="muted">v?</div>
     </div>
-
-  </div>
 
   <div class="loading" id="loading">
     <div class="spinner"></div>
@@ -124,7 +155,19 @@
   <div class="success-message" id="success-message"></div>
   <div class="error-message" id="error-message"></div>
 
+  <!-- Footer: fixed history storage used + version -->
+  <div class="popup-footer">
+    <div class="footer-inner">
+      <div class="stat-item no-border">
+        <span>History Storage Used:&nbsp;</span>
+        <span class="stat-value" id="storage-used">Calculating...</span>
+      </div>
+      <div id="popup-version" class="muted">v?</div>
+    </div>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>
+
 

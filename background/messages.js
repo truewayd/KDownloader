@@ -8,6 +8,53 @@ import { startFullDownload } from './download.js';
 import { gistUpload, gistDownload } from './gist.js';
 import { setCreatorsOverrideEnabled, updateCacheFromNetwork, getCachedCreators, ensureRuleState } from './creators.js';
 
+// Global progress tracking for active batches (per-post granularity)
+const GLOBAL_BATCHES = new Map(); // batchId -> { total, processed, acked }
+
+function emitGlobalProgress() {
+  let total = 0, processed = 0, acked = 0;
+  for (const v of GLOBAL_BATCHES.values()) {
+    total += v.total || 0;
+    processed += v.processed || 0;
+    acked += v.acked || 0;
+  }
+  try { console.debug('[Background] emitGlobalProgress', { total, processed, acked }); chrome.runtime.sendMessage({ action: 'globalProgress', total, processed, acked }); } catch (e) { console.warn('[Background] emitGlobalProgress failed', e); }
+  // write snapshot to storage as a fallback so popup can read it when opening
+  try { chrome.storage.local.set({ globalProgressSnapshot: { total, processed, acked, updatedAt: Date.now() } }, () => { /* ignore */ }); } catch (e) { console.warn('[Background] write snapshot failed', e); }
+}
+
+// safe broadcast helper (swallow chrome.runtime.lastError so console doesn't spam)
+function safeBroadcast(payload, tabId) {
+  try {
+    if (typeof tabId === 'number') {
+      chrome.tabs.sendMessage(tabId, payload, () => { void chrome.runtime.lastError; });
+    } else {
+      chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; });
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function registerBatch(batchId, total) {
+  GLOBAL_BATCHES.set(batchId, { total: total || 0, processed: 0, acked: 0 });
+  emitGlobalProgress();
+}
+function updateProcessed(batchId, delta = 1) {
+  const b = GLOBAL_BATCHES.get(batchId);
+  if (!b) return;
+  b.processed = (b.processed || 0) + delta;
+  emitGlobalProgress();
+}
+function updateAcked(batchId, delta = 1) {
+  const b = GLOBAL_BATCHES.get(batchId);
+  if (!b) return;
+  b.acked = (b.acked || 0) + delta;
+  emitGlobalProgress();
+}
+function completeBatch(batchId) {
+  GLOBAL_BATCHES.delete(batchId);
+  emitGlobalProgress();
+}
+
 export function registerMessageHandlers() {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
@@ -50,6 +97,16 @@ export function registerMessageHandlers() {
         case 'fetchAPI':
           handleAPIRequest(message.url, message.headers).then(data => sendResponse({ success: true, data })).catch(err => sendResponse({ success: false, error: err.message }));
           return true;
+        case 'status.getGlobalProgress':
+          // return aggregated progress for currently active batches
+          (async () => {
+            try {
+              let total = 0, processed = 0, acked = 0;
+              for (const v of GLOBAL_BATCHES.values()) { total += v.total || 0; processed += v.processed || 0; acked += v.acked || 0; }
+              sendResponse({ success: true, progress: { total, processed, acked } });
+            } catch (e) { sendResponse({ success: false, error: e && e.message ? e.message : String(e) }); }
+          })();
+          return true;
         case 'getCookies':
           getCookies(message.domain).then(c => sendResponse({ success: true, cookies: c })).catch(err => sendResponse({ success: false, error: err.message }));
           return true;
@@ -69,7 +126,7 @@ export function registerMessageHandlers() {
                 if (shouldMark) { try { await markDownloaded(message.service, message.userId, message.postId); } catch (e) { console.warn('[Background] markDownloaded failed', e); } }
               } catch (e) { }
               const payload = { action: 'downloadComplete', service: message.service, userId: message.userId, postId: message.postId, result: r };
-              try { if (tabId) chrome.tabs.sendMessage(tabId, payload, () => { }); else chrome.runtime.sendMessage(payload, () => { }); } catch (e) { }
+              try { safeBroadcast(payload, tabId); } catch (e) { }
             } catch (err) {
               const payload = { action: 'downloadComplete', service: message.service, userId: message.userId, postId: message.postId, result: { success: false, error: err && err.message ? err.message : String(err) } };
               try { const tabId = sender && sender.tab && sender.tab.id ? sender.tab.id : undefined; if (tabId) chrome.tabs.sendMessage(tabId, payload, () => { }); else chrome.runtime.sendMessage(payload, () => { }); } catch (e) { }
@@ -85,22 +142,164 @@ export function registerMessageHandlers() {
             const total = items.length;
             let processed = 0;
             const succeeded = [];
+            const batchId = `batch:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+            registerBatch(batchId, total);
             for (const it of items) {
               try {
                 const res = await startFullDownload(it.service, it.userId, it.postId, it.path, sender && sender.tab && sender.tab.url ? sender.tab.url : undefined, tabId);
                 const payload = { action: 'downloadComplete', service: it.service, userId: it.userId, postId: it.postId, result: res };
-                try { if (tabId) chrome.tabs.sendMessage(tabId, payload, () => { }); else chrome.runtime.sendMessage(payload, () => { }); } catch (e) { }
-                if (res && res.success && (res.backend === true || (typeof res.successCount === 'number' && res.successCount > 0))) succeeded.push({ service: it.service, userId: it.userId, postId: it.postId });
+                try { safeBroadcast(payload, tabId); } catch (e) { }
+                if (res && res.success && (res.backend === true || (typeof res.successCount === 'number' && res.successCount > 0))) {
+                  succeeded.push({ service: it.service, userId: it.userId, postId: it.postId });
+                  updateAcked(batchId, 1);
+                }
               } catch (e) {
                 const payload = { action: 'downloadComplete', service: it.service, userId: it.userId, postId: it.postId, result: { success: false, error: e && e.message ? e.message : String(e) } };
                 try { if (tabId) chrome.tabs.sendMessage(tabId, payload, () => { }); else chrome.runtime.sendMessage(payload, () => { }); } catch (ee) { }
               }
               processed++;
+              updateProcessed(batchId, 1);
               const batchProgress = { action: 'downloadProgress', batch: true, service: items[0] && items[0].service, userId: items[0] && items[0].userId, sentCount: processed, totalCount: total, progress: Math.round(100 * processed / Math.max(1, total)) };
-              try { if (tabId) chrome.tabs.sendMessage(tabId, batchProgress, () => { }); else chrome.runtime.sendMessage(batchProgress, () => { }); } catch (e) { }
+              try { safeBroadcast(batchProgress, tabId); } catch (e) { }
               await new Promise(r => setTimeout(r, 200));
             }
             if (succeeded.length > 0) { try { await markMultipleDownloaded(succeeded); } catch (e) { console.warn('[Background] markMultipleDownloaded failed', e); } }
+            completeBatch(batchId);
+          })();
+          return false;
+
+        case 'creator.fetch':
+          try { sendResponse({ success: true, accepted: true }); } catch (e) { }
+          (async () => {
+            try {
+              const origin = message.origin || API.DEFAULT_ORIGIN;
+              const service = message.service;
+              const userId = message.userId;
+              if (!service || !userId) return;
+
+              const profileUrl = `${origin}${API.API_PREFIX}/${service}/user/${userId}/profile`;
+              const headers = { 'Accept': 'text/css', 'Content-Type': 'text/css', 'Referer': `${origin}/${service}/user/${userId}` };
+              const profile = await handleAPIRequest(profileUrl, headers);
+              const postCount = profile && typeof profile.post_count === 'number' ? profile.post_count : 0;
+
+              const perPage = 50;
+              const allPosts = [];
+              for (let o = 0; o < postCount; o += perPage) {
+                try {
+                  const url = `${origin}${API.API_PREFIX}/${service}/user/${userId}/posts?o=${o}`;
+                  const pageData = await handleAPIRequest(url, headers);
+                  if (Array.isArray(pageData)) allPosts.push(...pageData);
+                  await new Promise(r => setTimeout(r, 200));
+                } catch (e) {
+                  console.warn('[Background] fetch posts page failed', e);
+                }
+              }
+
+              const postMap = new Map();
+              for (const p of allPosts) if (p && p.id) postMap.set(String(p.id), p);
+              const uniquePosts = Array.from(postMap.values());
+
+              const toDispatch = [];
+              for (const p of uniquePosts) {
+                try {
+                  const downloaded = await checkDownloaded(service, userId, String(p.id));
+                  if (!downloaded) toDispatch.push({ service, userId, postId: String(p.id), path: `${origin}${p.file && p.file.path ? p.file.path : ''}` });
+                } catch (e) {
+                  toDispatch.push({ service, userId, postId: String(p.id), path: `${origin}${p.file && p.file.path ? p.file.path : ''}` });
+                }
+              }
+
+              // dispatch via existing startFullDownload logic (reusing startDownloadBatch behavior)
+              const tabId = sender && sender.tab && sender.tab.id ? sender.tab.id : undefined;
+              const total = toDispatch.length;
+              let processed = 0;
+              const succeeded = [];
+              const batchId = `batch:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+              registerBatch(batchId, total);
+
+              for (const it of toDispatch) {
+                try {
+                  const res = await startFullDownload(it.service, it.userId, it.postId, it.path, sender && sender.tab && sender.tab.url ? sender.tab.url : undefined, tabId);
+                  const payload = { action: 'downloadComplete', service: it.service, userId: it.userId, postId: it.postId, result: res };
+                  try { safeBroadcast(payload, tabId); } catch (e) { }
+                  if (res && res.success && (res.backend === true || (typeof res.successCount === 'number' && res.successCount > 0))) { succeeded.push({ service: it.service, userId: it.userId, postId: it.postId }); updateAcked(batchId, 1); }
+                } catch (e) {
+                  const payload = { action: 'downloadComplete', service: it.service, userId: it.userId, postId: it.postId, result: { success: false, error: e && e.message ? e.message : String(e) } };
+                  try { if (tabId) chrome.tabs.sendMessage(tabId, payload, () => { }); else chrome.runtime.sendMessage(payload, () => { }); } catch (ee) { }
+                }
+                processed++;
+                updateProcessed(batchId, 1);
+                const batchProgress = { action: 'downloadProgress', batch: true, service: service, userId: userId, sentCount: processed, totalCount: total, progress: Math.round(100 * processed / Math.max(1, total)) };
+                try { safeBroadcast(batchProgress, tabId); } catch (e) { }
+                await new Promise(r => setTimeout(r, 200));
+              }
+
+              if (succeeded.length > 0) { try { await markMultipleDownloaded(succeeded); } catch (e) { console.warn('[Background] markMultipleDownloaded failed', e); } }
+              completeBatch(batchId);
+
+            } catch (e) {
+              console.error('[Background] creator.fetch failed', e);
+            }
+          })();
+          return false;
+
+        case 'creator.pageFetch':
+          try { sendResponse({ success: true, accepted: true }); } catch (e) { }
+          (async () => {
+            try {
+              const service = message.service;
+              const userId = message.userId;
+              const offset = Number.isFinite(message.offset) ? Number(message.offset) : (message.offset ? Number(message.offset) : null);
+              const origin = sender && sender.tab && sender.tab.url ? new URL(sender.tab.url).origin : (message.origin || API.DEFAULT_ORIGIN);
+              if (!service || !userId) return;
+
+              const headers = { 'Accept': 'text/css', 'Content-Type': 'text/css', 'Referer': `${origin}/${service}/user/${userId}` };
+              const url = `${origin}${API.API_PREFIX}/${service}/user/${userId}/posts${offset ? ('?o=' + offset) : ''}`;
+              let pageData = [];
+              try { pageData = await handleAPIRequest(url, headers); } catch (e) { console.warn('[Background] creator.pageFetch page request failed', e); }
+              if (!Array.isArray(pageData)) pageData = [];
+
+              const toDispatch = [];
+              for (const p of pageData) {
+                if (!p || !p.id) continue;
+                try {
+                  const downloaded = await checkDownloaded(service, userId, String(p.id));
+                  if (!downloaded) toDispatch.push({ service, userId, postId: String(p.id), path: `${origin}${p.file && p.file.path ? p.file.path : ''}` });
+                } catch (e) {
+                  toDispatch.push({ service, userId, postId: String(p.id), path: `${origin}${p.file && p.file.path ? p.file.path : ''}` });
+                }
+              }
+
+              const tabId = sender && sender.tab && sender.tab.id ? sender.tab.id : undefined;
+              const total = toDispatch.length;
+              let processed = 0;
+              const succeeded = [];
+              const batchId = `batch:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+              registerBatch(batchId, total);
+
+              for (const it of toDispatch) {
+                try {
+                  const res = await startFullDownload(it.service, it.userId, it.postId, it.path, sender && sender.tab && sender.tab.url ? sender.tab.url : undefined, tabId);
+                  const payload = { action: 'downloadComplete', service: it.service, userId: it.userId, postId: it.postId, result: res };
+                  try { safeBroadcast(payload, tabId); } catch (e) { }
+                  if (res && res.success && (res.backend === true || (typeof res.successCount === 'number' && res.successCount > 0))) { succeeded.push({ service: it.service, userId: it.userId, postId: it.postId }); updateAcked(batchId, 1); }
+                } catch (e) {
+                  const payload = { action: 'downloadComplete', service: it.service, userId: it.userId, postId: it.postId, result: { success: false, error: e && e.message ? e.message : String(e) } };
+                  try { if (tabId) chrome.tabs.sendMessage(tabId, payload, () => { }); else chrome.runtime.sendMessage(payload, () => { }); } catch (ee) { }
+                }
+                processed++;
+                updateProcessed(batchId, 1);
+                const batchProgress = { action: 'downloadProgress', batch: true, service: it.service, userId: it.userId, sentCount: processed, totalCount: total, progress: Math.round(100 * processed / Math.max(1, total)) };
+                try { safeBroadcast(batchProgress, tabId); } catch (e) { }
+                await new Promise(r => setTimeout(r, 200));
+              }
+
+              if (succeeded.length > 0) { try { await markMultipleDownloaded(succeeded); } catch (e) { console.warn('[Background] markMultipleDownloaded failed', e); } }
+              completeBatch(batchId);
+
+            } catch (e) {
+              console.error('[Background] creator.pageFetch failed', e);
+            }
           })();
           return false;
 
