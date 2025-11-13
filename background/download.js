@@ -4,6 +4,123 @@ import UTIL from './util.js';
 import { loadBackendConfig } from './config.js';
 import { handleAPIRequest, getCookies } from './network.js';
 
+// Unified in-memory task queue singleton to manage all outgoing dispatches to backends
+class TaskQueue {
+  constructor(concurrency = CONFIG.MAX_CONCURRENT_DOWNLOADS) {
+    this.queue = [];
+    this.waiters = [];
+    this.concurrency = concurrency;
+    this.activeWorkers = 0;
+    this.started = false;
+    this.totalDispatched = 0;
+    this._startWorkers();
+  }
+
+  _startWorkers() {
+    if (this.started) return;
+    this.started = true;
+    for (let i = 0; i < this.concurrency; i++) this._workerLoop(i);
+  }
+
+  _notifyNew() {
+    while (this.waiters.length && this.queue.length) {
+      const w = this.waiters.shift();
+      w();
+    }
+  }
+
+  async _waitForItem() {
+    if (this.queue.length) return;
+    await new Promise(resolve => this.waiters.push(resolve));
+  }
+
+  // Enqueue an array of file tasks. Returns a Promise resolving to results array for those tasks.
+  enqueueTasks(batchTasks, options = {}) {
+    return new Promise((resolve) => {
+      const id = Date.now() + Math.random();
+      const meta = { id, remaining: batchTasks.length, results: [], resolve, total: batchTasks.length };
+      for (const t of batchTasks) {
+        this.queue.push({ meta, task: t, options });
+      }
+      this._notifyNew();
+    });
+  }
+
+  async _workerLoop(workerIndex) {
+    // Each worker keeps its own adaptive delay state
+    let currentDelay = CONFIG.TASK_INTERVAL_INITIAL || CONFIG.TASK_INTERVAL;
+    const factor = CONFIG.TASK_INTERVAL_BACKOFF_FACTOR || 1.5;
+    const linearInc = CONFIG.TASK_INTERVAL_LINEAR_INC || 50;
+    const maxDelay = CONFIG.TASK_INTERVAL_MAX || 5000;
+
+    while (true) {
+      if (!this.queue.length) await this._waitForItem();
+      const item = this.queue.shift();
+      if (!item) continue;
+
+      const { meta, task, options } = item;
+      const { endpoint, cookieString, origin, service, userId, postId, headers, perFileRetry = 0, sendProgress } = options;
+
+      // Wait the adaptive delay before sending to avoid spikes
+      if (currentDelay > 0) await new Promise(r => setTimeout(r, currentDelay));
+
+      // Build payload
+      const filePayload = {
+        downloadSource: {
+          link: task.url,
+          headers: {
+            Cookie: cookieString,
+            Referer: `${origin}/${service}/user/${userId}/post/${postId}`,
+            'User-Agent': headers['User-Agent'] || 'Mozilla/5.0',
+            Origin: `chrome-extension://${chrome.runtime.id}`,
+            Accept: headers['Accept'] || 'text/css',
+            'Accept-Language': headers['Accept-Language'] || 'zh-CN,zh;q=0.9'
+          }
+        },
+        name: task.fileName,
+        queueId: 0,
+      };
+
+      // Attempt with retries (simple per-file retry with incremental backoff)
+      let attempts = 0;
+      let success = false;
+      let lastError = null;
+      while (attempts <= perFileRetry && !success) {
+        try {
+          attempts++;
+          await fetch(endpoint, { method: 'POST', body: JSON.stringify(filePayload), mode: 'no-cors', credentials: 'include' });
+          success = true;
+        } catch (e) {
+          lastError = e;
+          if (attempts > perFileRetry) break;
+          // simple incremental wait on retry
+          await new Promise(r => setTimeout(r, 1000 * attempts));
+        }
+      }
+
+      // Update adaptive delay (linear + exponential)
+      currentDelay = Math.min(maxDelay, Math.ceil(currentDelay * factor + linearInc));
+
+      // Record result
+      const record = success ? { task, success: true, attempts } : { task, success: false, attempts, error: lastError && lastError.message ? lastError.message : String(lastError) };
+      meta.results.push(record);
+      meta.remaining--;
+
+      // Global dispatched counter
+      this.totalDispatched++;
+      try { if (typeof sendProgress === 'function') sendProgress(this.totalDispatched, meta && meta.total ? meta.total : 0); } catch (e) { }
+
+      // Resolve when all items for this batch are done
+      if (meta.remaining <= 0) {
+        try { meta.resolve(meta.results); } catch (e) { }
+      }
+    }
+  }
+}
+
+// Single global queue instance (will use default concurrency, can be adjusted later)
+const GLOBAL_TASK_QUEUE = new TaskQueue();
+
 export async function runSequentialDownloads(tasks, onProgress) {
   const results = [];
   let successCount = 0;
@@ -76,14 +193,14 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
   const cookieString = cookies;
   const backendCfg = await loadBackendConfig();
 
-  // 3. Backend forwarding (with batching/concurrency/throttle)
+  // 3. Backend forwarding (with centralized queue/batching and adaptive throttle)
   if (backendCfg.enabled) {
     const endpoint = `${backendCfg.protocol}://${backendCfg.host}:${backendCfg.port}/start-headless-download`;
     const perFileRetry = Math.min(10, Math.max(0, Number(backendCfg.retryCount) || 0));
-    const baseIntervalMs = 500;
-    const concurrency = Math.max(1, Math.min(6, Math.floor(backendCfg.concurrency || 3)));
+    const concurrency = Math.max(1, Math.min(6, Math.floor(backendCfg.concurrency || CONFIG.MAX_CONCURRENT_DOWNLOADS)));
     const perPostFileLimit = Number.isFinite(backendCfg.perPostFileLimit) ? backendCfg.perPostFileLimit : 200;
 
+    // Respect per-post file limit by slicing into batches, but submit each batch to the centralized queue
     const batches = [];
     for (let i = 0; i < tasks.length; i += perPostFileLimit) batches.push(tasks.slice(i, i + perPostFileLimit));
 
@@ -95,63 +212,17 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
       try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; }); else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; }); } catch (e) { }
     };
 
+    // Increase global queue concurrency if backendCfg requests more
+    GLOBAL_TASK_QUEUE.concurrency = concurrency;
+    GLOBAL_TASK_QUEUE._startWorkers();
 
     for (let b = 0; b < batches.length; b++) {
       const batchTasks = batches[b];
-      let idx = 0;
-      const total = batchTasks.length;
-      const fileResults = [];
-
-      const worker = async () => {
-        while (true) {
-          const i = idx++;
-          if (i >= total) break;
-          const t = batchTasks[i];
-
-          let success = false;
-          let attempts = 0;
-          while (attempts <= perFileRetry && !success) {
-            try {
-              attempts++;
-              const filePayload = {
-                downloadSource: {
-                  link: t.url,
-                  headers: {
-                    Cookie: cookieString,
-                    Referer: `${origin}/${service}/user/${userId}/post/${postId}`,
-                    'User-Agent': headers['User-Agent'] || 'Mozilla/5.0',
-                    Origin: `chrome-extension://${chrome.runtime.id}`,
-                    Accept: headers['Accept'] || 'text/css',
-                    'Accept-Language': headers['Accept-Language'] || 'zh-CN,zh;q=0.9'
-                  }
-                },
-                name: t.fileName,
-                queueId: 0,
-              };
-
-              await fetch(endpoint, { method: 'POST', body: JSON.stringify(filePayload), mode: 'no-cors', credentials: 'include' });
-              fileResults.push({ task: t, success: true, attempts });
-              success = true;
-            } catch (e) {
-              if (attempts > perFileRetry) {
-                fileResults.push({ task: t, success: false, attempts, error: e && e.message ? e.message : String(e) });
-              } else {
-                await new Promise(r => setTimeout(r, 1000 * attempts));
-              }
-            }
-
-            if (baseIntervalMs > 0) await new Promise(r => setTimeout(r, baseIntervalMs));
-            globalDispatched++;
-            sendProgress(globalDispatched, tasks.length);
-          }
-        }
-      };
-
-      const workers = [];
-      for (let w = 0; w < concurrency; w++) workers.push(worker());
-      await Promise.all(workers);
-
-      allFileResults.push(...fileResults);
+      // Enqueue batch and wait for completion
+      const results = await GLOBAL_TASK_QUEUE.enqueueTasks(batchTasks, { endpoint, cookieString, origin, service, userId, postId, headers, perFileRetry, sendProgress, totalCount: tasks.length });
+      allFileResults.push(...results);
+      globalDispatched += results.length;
+      // small pause between batches to avoid bursts
       if (b < batches.length - 1) await new Promise(r => setTimeout(r, 1000));
     }
 
