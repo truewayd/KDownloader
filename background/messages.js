@@ -55,6 +55,18 @@ function completeBatch(batchId) {
   emitGlobalProgress();
 }
 
+function shouldMarkResult(result) {
+  if (!result || !result.success) return false;
+  if (result.noFiles === true) return true;
+  if (result.backend === true) return true;
+  if (result.alreadyDownloaded === true) return true;
+  if (typeof result.successCount === 'number' && result.successCount > 0) return true;
+  if (Array.isArray(result.results)) {
+    return result.results.some(item => item && item.success);
+  }
+  return false;
+}
+
 export function registerMessageHandlers() {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
@@ -122,7 +134,7 @@ export function registerMessageHandlers() {
               const tabId = sender && sender.tab && sender.tab.id ? sender.tab.id : undefined;
               const r = await startFullDownload(message.service, message.userId, message.postId, message.path, sender && sender.tab && sender.tab.url ? sender.tab.url : undefined, tabId);
               try {
-                const shouldMark = r && r.success && (r.backend === true || (typeof r.successCount === 'number' && r.successCount > 0));
+                const shouldMark = shouldMarkResult(r);
                 if (shouldMark) { try { await markDownloaded(message.service, message.userId, message.postId); } catch (e) { console.warn('[Background] markDownloaded failed', e); } }
               } catch (e) { }
               const payload = { action: 'downloadComplete', service: message.service, userId: message.userId, postId: message.postId, result: r };
@@ -149,7 +161,7 @@ export function registerMessageHandlers() {
                 const res = await startFullDownload(it.service, it.userId, it.postId, it.path, sender && sender.tab && sender.tab.url ? sender.tab.url : undefined, tabId);
                 const payload = { action: 'downloadComplete', service: it.service, userId: it.userId, postId: it.postId, result: res };
                 try { safeBroadcast(payload, tabId); } catch (e) { }
-                if (res && res.success && (res.backend === true || (typeof res.successCount === 'number' && res.successCount > 0))) {
+                if (shouldMarkResult(res)) {
                   succeeded.push({ service: it.service, userId: it.userId, postId: it.postId });
                   updateAcked(batchId, 1);
                 }
@@ -222,7 +234,11 @@ export function registerMessageHandlers() {
                   const res = await startFullDownload(it.service, it.userId, it.postId, it.path, sender && sender.tab && sender.tab.url ? sender.tab.url : undefined, tabId);
                   const payload = { action: 'downloadComplete', service: it.service, userId: it.userId, postId: it.postId, result: res };
                   try { safeBroadcast(payload, tabId); } catch (e) { }
-                  if (res && res.success && (res.backend === true || (typeof res.successCount === 'number' && res.successCount > 0))) { succeeded.push({ service: it.service, userId: it.userId, postId: it.postId }); updateAcked(batchId, 1); }
+                  if (shouldMarkResult(res)) {
+                    succeeded.push({ service: it.service, userId: it.userId, postId: it.postId });
+                    updateAcked(batchId, 1);
+                  }
+
                 } catch (e) {
                   const payload = { action: 'downloadComplete', service: it.service, userId: it.userId, postId: it.postId, result: { success: false, error: e && e.message ? e.message : String(e) } };
                   try { if (tabId) chrome.tabs.sendMessage(tabId, payload, () => { }); else chrome.runtime.sendMessage(payload, () => { }); } catch (ee) { }
@@ -282,7 +298,11 @@ export function registerMessageHandlers() {
                   const res = await startFullDownload(it.service, it.userId, it.postId, it.path, sender && sender.tab && sender.tab.url ? sender.tab.url : undefined, tabId);
                   const payload = { action: 'downloadComplete', service: it.service, userId: it.userId, postId: it.postId, result: res };
                   try { safeBroadcast(payload, tabId); } catch (e) { }
-                  if (res && res.success && (res.backend === true || (typeof res.successCount === 'number' && res.successCount > 0))) { succeeded.push({ service: it.service, userId: it.userId, postId: it.postId }); updateAcked(batchId, 1); }
+                  if (shouldMarkResult(res)) {
+                    succeeded.push({ service: it.service, userId: it.userId, postId: it.postId });
+                    updateAcked(batchId, 1);
+                  }
+
                 } catch (e) {
                   const payload = { action: 'downloadComplete', service: it.service, userId: it.userId, postId: it.postId, result: { success: false, error: e && e.message ? e.message : String(e) } };
                   try { if (tabId) chrome.tabs.sendMessage(tabId, payload, () => { }); else chrome.runtime.sendMessage(payload, () => { }); } catch (ee) { }

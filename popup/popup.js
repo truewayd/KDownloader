@@ -451,8 +451,21 @@ function computeAggTotals() {
     return { total, processed, acked };
 }
 
+function isResultSuccessful(res) {
+    if (!res || !res.success) return false;
+    if (res.noFiles === true) return true;
+    if (res.backend === true) return true;
+    if (res.alreadyDownloaded === true) return true;
+    if (typeof res.successCount === 'number' && res.successCount > 0) return true;
+    if (Array.isArray(res.results)) {
+        return res.results.some(item => item && item.success);
+    }
+    return false;
+}
+
 // Handle runtime messages (progress & completion)
 chrome.runtime.onMessage.addListener((message) => {
+
     if (!message || !message.action) return;
 
     if (message.action === 'globalProgress') {
@@ -500,9 +513,10 @@ chrome.runtime.onMessage.addListener((message) => {
             const srv = message.service || '__unknown__';
             const uid = message.userId || '__unknown__';
             const key = aggKey(srv, uid);
-            if (res && res.success && (res.backend === true || (typeof res.successCount === 'number' && res.successCount > 0))) {
+            if (isResultSuccessful(res)) {
                 AGG_ACK.set(key, (AGG_ACK.get(key) || 0) + 1);
             }
+
             const agg = computeAggTotals();
             renderGlobalProgress(agg.total, agg.processed, agg.acked);
         } catch (e) { console.warn('[Popup] aggregate ACK update failed', e); }
@@ -512,11 +526,12 @@ chrome.runtime.onMessage.addListener((message) => {
         if (!currentBatchState) return;
         if (message.service !== currentBatchState.service || message.userId !== currentBatchState.userId) return;
 
-        if (res && res.success && (res.backend === true || (typeof res.successCount === 'number' && res.successCount > 0))) {
+        if (isResultSuccessful(res)) {
             currentBatchState.ackedMap[pid] = true;
             // mark downloaded in DB immediately
             try { chrome.runtime.sendMessage({ action: 'db.markDownloaded', service: message.service, userId: message.userId, postId: pid }); } catch (e) { }
         }
+
 
         // update status
         updateCreatorStatus(`Sent: ${currentBatchState.processed}/${currentBatchState.total || '?'} | ACKed: ${Object.keys(currentBatchState.ackedMap || {}).length}`);

@@ -187,7 +187,7 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
   const externalLinks = UTIL.extractExternalLinks(postData.post && postData.post.content ? postData.post.content : '');
 
   if (tasks.length === 0) {
-    return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found' };
+    return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
   }
 
   const cookieString = cookies;

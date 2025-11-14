@@ -62,18 +62,28 @@ async function handleDownload(btn, service, userId, postId, path, isCreatorPage 
           if (message.service !== service || message.userId !== userId || message.postId !== postId) return;
 
           const result = message.result || {};
+          const noFiles = result.noFiles === true;
           if (result.externalLinks && result.externalLinks.length > 0) showExternalLinksModal(result.externalLinks);
 
           if (result.success) {
-            const anyDownloaded = (result.backend === true) || (typeof result.successCount === 'number' && result.successCount > 0) || (Array.isArray(result.results) && result.results.some(r => r && r.success));
+            const anyDownloaded = noFiles || (result.backend === true) || (typeof result.successCount === 'number' && result.successCount > 0) || (Array.isArray(result.results) && result.results.some(r => r && r.success));
 
             if (result.alreadyDownloaded) {
               updateButtonStatus(btn, 'SUCCESS', '✓ Downloaded', isCreatorPage);
               btn.disabled = true;
             } else if (anyDownloaded) {
-              updateButtonStatus(btn, 'SUCCESS', null, isCreatorPage);
+              if (noFiles) {
+                updateButtonStatus(btn, 'SUCCESS', isCreatorPage ? null : 'No files', isCreatorPage);
+                if (isCreatorPage) btn.title = 'No downloadable files';
+              } else {
+                updateButtonStatus(btn, 'SUCCESS', null, isCreatorPage);
+              }
               if (!isCreatorPage) {
-                setTimeout(() => { btn.disabled = false; setTimeout(() => updateButtonStatus(btn, 'IDLE', null, false), 2000); }, 200);
+                if (!noFiles) {
+                  setTimeout(() => { btn.disabled = false; setTimeout(() => updateButtonStatus(btn, 'IDLE', null, false), 2000); }, 200);
+                } else {
+                  btn.disabled = false;
+                }
               } else {
                 btn.disabled = true;
               }
