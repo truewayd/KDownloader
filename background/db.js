@@ -79,7 +79,18 @@ export async function exportDB() {
 
 export async function importDB(jsonString) {
   try {
-    const parsed = JSON.parse(jsonString);
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonString);
+    } catch (parseErr) {
+      console.warn('[Background] Initial JSON parse failed, attempting repair', parseErr);
+      const cleaned = jsonString
+        .replace(/\r\n/g, '\\n')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t');
+      parsed = JSON.parse(cleaned);
+    }
     const data = {};
     for (const [service, users] of Object.entries(parsed)) {
       data[service] = {};
