@@ -98,8 +98,12 @@ class TaskQueue {
         }
       }
 
-      // Update adaptive delay (linear + exponential)
-      currentDelay = Math.min(maxDelay, Math.ceil(currentDelay * factor + linearInc));
+      // Update adaptive delay: reset on success, backoff on failure
+      if (success) {
+        currentDelay = CONFIG.TASK_INTERVAL_INITIAL || CONFIG.TASK_INTERVAL;
+      } else {
+        currentDelay = Math.min(maxDelay, Math.ceil(currentDelay * factor + linearInc));
+      }
 
       // Record result
       const record = success ? { task, success: true, attempts } : { task, success: false, attempts, error: lastError && lastError.message ? lastError.message : String(lastError) };
@@ -223,7 +227,7 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
       allFileResults.push(...results);
       globalDispatched += results.length;
       // small pause between batches to avoid bursts
-      if (b < batches.length - 1) await new Promise(r => setTimeout(r, 1000));
+      if (b < batches.length - 1) await new Promise(r => setTimeout(r, 250));
     }
 
     const anySuccess = allFileResults.some(fr => fr.success);

@@ -79,17 +79,25 @@ export async function exportDB() {
 
 export async function importDB(jsonString) {
   try {
+    if (!jsonString || typeof jsonString !== 'string') {
+      throw new Error('Invalid input: expected non-empty string');
+    }
+    const trimmed = jsonString.trim();
+    if (!trimmed) {
+      throw new Error('Invalid input: empty string after trim');
+    }
     let parsed;
     try {
-      parsed = JSON.parse(jsonString);
+      parsed = JSON.parse(trimmed);
     } catch (parseErr) {
-      console.warn('[Background] Initial JSON parse failed, attempting repair', parseErr);
-      const cleaned = jsonString
-        .replace(/\r\n/g, '\\n')
-        .replace(/\n/g, '\\n')
-        .replace(/\r/g, '\\r')
-        .replace(/\t/g, '\\t');
-      parsed = JSON.parse(cleaned);
+      const msg = parseErr.message || String(parseErr);
+      if (msg.includes('Unterminated string') || msg.includes('Unexpected end')) {
+        throw new Error(`JSON数据不完整或被截断。请确保导入的文件完整且未损坏。原始错误: ${msg}`);
+      }
+      throw new Error(`JSON格式错误: ${msg}`);
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Invalid JSON: expected object at root');
     }
     const data = {};
     for (const [service, users] of Object.entries(parsed)) {
@@ -105,7 +113,7 @@ export async function importDB(jsonString) {
     return true;
   } catch (e) {
     console.error('[Background] importDB failed', e);
-    return false;
+    throw e;
   }
 }
 

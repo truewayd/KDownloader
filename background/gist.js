@@ -88,14 +88,24 @@ export async function gistDownload() {
 
   // Prefer kemono_history.json if present, otherwise first file
   const files = data.files;
-  let fileContent = null;
+  let fileObj = null;
   if (files['kemono_history.json']) {
-    fileContent = files['kemono_history.json'].content;
+    fileObj = files['kemono_history.json'];
   } else {
     const firstKey = Object.keys(files)[0];
-    if (firstKey) fileContent = files[firstKey].content;
+    if (firstKey) fileObj = files[firstKey];
   }
-  if (!fileContent) throw new Error('Could not locate a file with gist content');
+  if (!fileObj) throw new Error('Could not locate a file with gist content');
+
+  // Fetch from raw_url to avoid truncation for large files
+  let fileContent;
+  if (fileObj.truncated || fileObj.size > 1000000) {
+    const rawRes = await fetchWithAuth(fileObj.raw_url, token, { method: 'GET' });
+    if (!rawRes.ok) throw new Error(`Failed to fetch raw content: ${rawRes.status}`);
+    fileContent = await rawRes.text();
+  } else {
+    fileContent = fileObj.content;
+  }
 
   // Import content into DB
   await importDB(fileContent);

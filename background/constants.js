@@ -6,9 +6,9 @@ export const CONFIG = {
   // Legacy fixed interval (kept for backwards compatibility)
   TASK_INTERVAL: 100,
   // Adaptive dispatch interval settings (for centralized queue)
-  TASK_INTERVAL_INITIAL: 100,        // initial delay between dispatches (ms)
+  TASK_INTERVAL_INITIAL: 50,         // initial delay between dispatches (ms)
   TASK_INTERVAL_BACKOFF_FACTOR: 1.5, // multiplicative backoff factor applied after each dispatch
-  TASK_INTERVAL_LINEAR_INC: 50,      // small linear increment applied after each dispatch (ms)
+  TASK_INTERVAL_LINEAR_INC: 20,      // small linear increment applied after each dispatch (ms)
   TASK_INTERVAL_MAX: 5000,           // maximum delay cap (ms)
   MAX_CONCURRENT_DOWNLOADS: 3,
   MAX_FILENAME_LENGTH: 200,
