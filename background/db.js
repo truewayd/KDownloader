@@ -1,5 +1,11 @@
 // background/db.js - database helpers for download history & access
-import { STORAGE_KEY, STORAGE_VERSION_KEY, LAST_ACCESS_KEY, SYNC_VERSION_ALARM } from './constants.js';
+import {
+  STORAGE_KEY,
+  STORAGE_VERSION_KEY,
+  LAST_ACCESS_KEY,
+  SYNC_VERSION_ALARM,
+  CREATOR_FLAG_KEY,
+} from "./constants.js";
 
 export async function loadDB() {
   const r = await chrome.storage.local.get(STORAGE_KEY);
@@ -27,7 +33,11 @@ export async function saveDB(data) {
 
 export async function checkDownloaded(service, userId, postId) {
   const db = await loadDB();
-  return !!(db[service] && db[service][userId] && db[service][userId].has(postId));
+  return !!(
+    db[service] &&
+    db[service][userId] &&
+    db[service][userId].has(postId)
+  );
 }
 
 export async function safeIncrementStorageVersion() {
@@ -36,12 +46,23 @@ export async function safeIncrementStorageVersion() {
     const v = (res[STORAGE_VERSION_KEY] || 0) + 1;
     await chrome.storage.sync.set({ [STORAGE_VERSION_KEY]: v });
   } catch (e) {
-    console.warn('[Background] safeIncrementStorageVersion failed', e && e.message ? e.message : e);
+    console.warn(
+      "[Background] safeIncrementStorageVersion failed",
+      e && e.message ? e.message : e
+    );
     try {
-      if (e && e.message && e.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
-        try { chrome.alarms.create(SYNC_VERSION_ALARM, { delayInMinutes: 1 }); } catch (alarmErr) { console.warn('[Background] create alarm failed', alarmErr); }
+      if (
+        e &&
+        e.message &&
+        e.message.includes("MAX_WRITE_OPERATIONS_PER_MINUTE")
+      ) {
+        try {
+          chrome.alarms.create(SYNC_VERSION_ALARM, { delayInMinutes: 1 });
+        } catch (alarmErr) {
+          console.warn("[Background] create alarm failed", alarmErr);
+        }
       }
-    } catch (ee) { }
+    } catch (ee) {}
   }
 }
 
@@ -79,25 +100,30 @@ export async function exportDB() {
 
 export async function importDB(jsonString) {
   try {
-    if (!jsonString || typeof jsonString !== 'string') {
-      throw new Error('Invalid input: expected non-empty string');
+    if (!jsonString || typeof jsonString !== "string") {
+      throw new Error("Invalid input: expected non-empty string");
     }
     const trimmed = jsonString.trim();
     if (!trimmed) {
-      throw new Error('Invalid input: empty string after trim');
+      throw new Error("Invalid input: empty string after trim");
     }
     let parsed;
     try {
       parsed = JSON.parse(trimmed);
     } catch (parseErr) {
       const msg = parseErr.message || String(parseErr);
-      if (msg.includes('Unterminated string') || msg.includes('Unexpected end')) {
-        throw new Error(`JSON数据不完整或被截断。请确保导入的文件完整且未损坏。原始错误: ${msg}`);
+      if (
+        msg.includes("Unterminated string") ||
+        msg.includes("Unexpected end")
+      ) {
+        throw new Error(
+          `JSON数据不完整或被截断。请确保导入的文件完整且未损坏。原始错误: ${msg}`
+        );
       }
       throw new Error(`JSON格式错误: ${msg}`);
     }
-    if (!parsed || typeof parsed !== 'object') {
-      throw new Error('Invalid JSON: expected object at root');
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("Invalid JSON: expected object at root");
     }
     const data = {};
     for (const [service, users] of Object.entries(parsed)) {
@@ -112,7 +138,7 @@ export async function importDB(jsonString) {
     await chrome.storage.sync.set({ [STORAGE_VERSION_KEY]: v });
     return true;
   } catch (e) {
-    console.error('[Background] importDB failed', e);
+    console.error("[Background] importDB failed", e);
     throw e;
   }
 }
@@ -134,6 +160,43 @@ export async function saveLastAccess(map) {
 export async function setLastAccess(service, userId, when = new Date()) {
   const map = await loadLastAccess();
   if (!map[service]) map[service] = {};
-  map[service][userId] = (when instanceof Date ? when.toISOString() : new Date(when).toISOString());
+  map[service][userId] =
+    when instanceof Date ? when.toISOString() : new Date(when).toISOString();
   await saveLastAccess(map);
+}
+
+// Creator flag helpers
+export async function loadCreatorFlags() {
+  const r = await chrome.storage.local.get(CREATOR_FLAG_KEY);
+  return r[CREATOR_FLAG_KEY] || {};
+}
+
+export async function saveCreatorFlags(flags) {
+  await chrome.storage.local.set({ [CREATOR_FLAG_KEY]: flags });
+}
+
+export async function getCreatorFlag(service, userId) {
+  console.log(`[DB] 📖 Getting creator flag for ${service}:${userId}`);
+  const flags = await loadCreatorFlags();
+  const key = `${service}:${userId}`;
+  const result = flags[key] !== undefined ? flags[key] : null;
+  console.log(
+    `[DB] 📬 Creator flag for ${service}:${userId} = ${result} (from storage: ${flags[key]})`
+  );
+  return result;
+}
+
+export async function setCreatorFlag(service, userId, value) {
+  console.log(
+    `[DB] 💾 Setting creator flag for ${service}:${userId} to ${value}`
+  );
+  const flags = await loadCreatorFlags();
+  const key = `${service}:${userId}`;
+  flags[key] = !!value;
+  console.log(`[DB] 💾 Normalized value: ${flags[key]}, saving to storage...`);
+  await saveCreatorFlags(flags);
+  console.log(
+    `[DB] ✅ Creator flag saved for ${service}:${userId}, result: ${flags[key]}`
+  );
+  return flags[key];
 }

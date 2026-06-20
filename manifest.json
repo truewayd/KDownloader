@@ -29,13 +29,8 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "*://coomer.st/*",
-        "*://kemono.cr/*"
-      ],
-      "js": [
-        "content/injector.js"
-      ],
+      "matches": ["*://coomer.st/*", "*://kemono.cr/*"],
+      "js": ["content/injector.js"],
       "run_at": "document_start"
     },
     {
@@ -51,9 +46,15 @@
         "content/download.js",
         "content/actions.js"
       ],
-      "css": [
-        "content.css"
+      "css": ["content.css"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://coomer.st/*/account/favorites/artists*",
+        "*://kemono.cr/*/account/favorites/artists*"
       ],
+      "js": ["content/flag/index.js"],
       "run_at": "document_end"
     }
   ],
@@ -67,13 +68,8 @@
   },
   "web_accessible_resources": [
     {
-      "resources": [
-        "injected/creators_page.js"
-      ],
-      "matches": [
-        "*://coomer.st/*",
-        "*://kemono.cr/*"
-      ]
+      "resources": ["injected/creators_page.js"],
+      "matches": ["*://coomer.st/*", "*://kemono.cr/*"]
     }
   ]
 }
