@@ -19,6 +19,8 @@
     "*://kemono.cr/*",
     "*://*.coomer.st/*",
     "*://*.kemono.cr/*",
+    "*://pawchive.st/*",
+    "*://*.pawchive.st/*",
     "https://api.github.com/*",
     "http://127.0.0.1/*",
     "http://localhost/*"
@@ -55,6 +57,19 @@
         "*://kemono.cr/*/account/favorites/artists*"
       ],
       "js": ["content/flag/index.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://pawchive.st/*/user/*"
+      ],
+      "js": [
+        "content/helpers.js",
+        "content/ui.js",
+        "content/download.js",
+        "content/paw_actions.js"
+      ],
+      "css": ["content.css"],
       "run_at": "document_end"
     }
   ],

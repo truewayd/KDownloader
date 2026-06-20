@@ -24,6 +24,13 @@ export const API = {
   CREATORS_PATH: "/creators",
 };
 
+// Pawchive site configuration
+export const PAW = {
+  HOST: "pawchive.st",
+  ORIGIN: "https://pawchive.st",
+  FILE_HOST: "file.pawchive.st",
+};
+
 // Storage keys
 export const STORAGE_KEY = "downloaded";
 export const STORAGE_VERSION_KEY = "version";

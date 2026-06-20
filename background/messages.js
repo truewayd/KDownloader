@@ -22,7 +22,7 @@ import {
   setCreatorFlag,
 } from "./db.js";
 import { handleAPIRequest, getCookies } from "./network.js";
-import { startFullDownload } from "./download.js";
+import { startFullDownload, startPawchiveDownload } from "./download.js";
 import { gistUpload, gistDownload } from "./gist.js";
 import {
   setCreatorsOverrideEnabled,
@@ -275,16 +275,20 @@ export function registerMessageHandlers() {
                 sender && sender.tab && sender.tab.id
                   ? sender.tab.id
                   : undefined;
-              const r = await startFullDownload(
-                message.service,
-                message.userId,
-                message.postId,
-                message.path,
-                sender && sender.tab && sender.tab.url
-                  ? sender.tab.url
-                  : undefined,
-                tabId
-              );
+              const isPaw = message.source === 'pawchive' ||
+                (sender && sender.tab && sender.tab.url && sender.tab.url.includes('pawchive.st'));
+              const r = isPaw
+                ? await startPawchiveDownload(message.service, message.userId, message.postId, tabId)
+                : await startFullDownload(
+                    message.service,
+                    message.userId,
+                    message.postId,
+                    message.path,
+                    sender && sender.tab && sender.tab.url
+                      ? sender.tab.url
+                      : undefined,
+                    tabId
+                  );
               try {
                 const shouldMark = shouldMarkResult(r);
                 if (shouldMark) {
@@ -349,16 +353,20 @@ export function registerMessageHandlers() {
             registerBatch(batchId, total);
             for (const it of items) {
               try {
-                const res = await startFullDownload(
-                  it.service,
-                  it.userId,
-                  it.postId,
-                  it.path,
-                  sender && sender.tab && sender.tab.url
-                    ? sender.tab.url
-                    : undefined,
-                  tabId
-                );
+                const isPaw = it.source === 'pawchive' ||
+                  (sender && sender.tab && sender.tab.url && sender.tab.url.includes('pawchive.st'));
+                const res = isPaw
+                  ? await startPawchiveDownload(it.service, it.userId, it.postId, tabId)
+                  : await startFullDownload(
+                      it.service,
+                      it.userId,
+                      it.postId,
+                      it.path,
+                      sender && sender.tab && sender.tab.url
+                        ? sender.tab.url
+                        : undefined,
+                      tabId
+                    );
                 const payload = {
                   action: "downloadComplete",
                   service: it.service,

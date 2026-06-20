@@ -1,5 +1,5 @@
 // background/download.js - download orchestration (local chrome.downloads and backend forwarding)
-import { CONFIG, API } from './constants.js';
+import { CONFIG, API, PAW } from './constants.js';
 import UTIL from './util.js';
 import { loadBackendConfig } from './config.js';
 import { handleAPIRequest, getCookies } from './network.js';
@@ -151,6 +151,153 @@ export async function runSequentialDownloads(tasks, onProgress) {
     try { if (typeof onProgress === 'function') onProgress({ processed, total, successCount }); } catch (e) { }
   }
   return { successCount, results };
+}
+
+// Parse downloadable URLs from a pawchive post HTML page.
+// Returns { tasks: [{url, fileName, type}], externalLinks: [] }
+function parsePawchiveHtml(html, title) {
+  const tasks = [];
+  // Deduplicate by file path (before '?') so video <source src> and matching
+  // <a class="post__attachment-link"> pointing to the same file aren't doubled.
+  const seenPath = new Set();
+
+  const pushIfNew = (rawUrl, fileName, type) => {
+    if (!rawUrl) return;
+    const url = rawUrl.replace(/&amp;/g, '&');
+    let filePath;
+    try { filePath = new URL(url).pathname; } catch (_) { filePath = url.split('?')[0]; }
+    if (seenPath.has(filePath)) return;
+    seenPath.add(filePath);
+    tasks.push({ url, fileName, type });
+  };
+
+  // Prefer download="" attr, then ?f= query param, then fallback string.
+  const extractFileName = (rawUrl, downloadAttr, fallback) => {
+    if (downloadAttr) return UTIL.sanitizeFileName(decodeURIComponent(downloadAttr));
+    try {
+      const fParam = new URL(rawUrl.replace(/&amp;/g, '&')).searchParams.get('f');
+      if (fParam) return UTIL.sanitizeFileName(decodeURIComponent(fParam));
+    } catch (_) {}
+    return UTIL.sanitizeFileName(fallback);
+  };
+
+  let m;
+
+  // 1. Video source URLs: <source src="https://file.pawchive.st/...">
+  const videoSrcRe = /<source\s[^>]*\bsrc="(https:\/\/file\.pawchive\.st\/[^"]+)"/gi;
+  while ((m = videoSrcRe.exec(html)) !== null) {
+    const rawUrl = m[1];
+    pushIfNew(rawUrl, extractFileName(rawUrl, null, `${title}_video.mp4`), 'video');
+  }
+
+  // 2. Attachment links and fileThumb links: scan all <a> tags once, classify by class.
+  // This is attribute-order-independent so href/class can appear in any order.
+  const aTagRe = /<a\s([^>]*)>/gi;
+  while ((m = aTagRe.exec(html)) !== null) {
+    const attrs = m[1];
+    const hrefM = attrs.match(/\bhref="([^"]+)"/);
+    if (!hrefM) continue;
+    const rawUrl = hrefM[1];
+    const dlM = attrs.match(/\bdownload="([^"]+)"/);
+    const dlAttr = dlM ? dlM[1] : null;
+
+    if (/\bpost__attachment-link\b/.test(attrs)) {
+      pushIfNew(rawUrl, extractFileName(rawUrl, dlAttr, `${title}_attachment`), 'attachment');
+    } else if (/\bfileThumb\b/.test(attrs)) {
+      // href is the original full-resolution file; img src inside is the thumbnail.
+      const url = rawUrl.replace(/&amp;/g, '&');
+      let ext = '';
+      try { ext = UTIL.getFileExtension(new URL(url).pathname) || ''; } catch (_) {}
+      pushIfNew(rawUrl, extractFileName(rawUrl, dlAttr, `${title}_file${ext}`), 'file');
+    }
+  }
+
+  // 3. External links from post__content
+  const contentMatch = html.match(/<div class="post__content">([\s\S]*?)<\/div>/i);
+  const contentHtml = contentMatch ? contentMatch[1] : '';
+  const externalLinks = UTIL.extractExternalLinks(contentHtml.replace(/<[^>]+>/g, ' '));
+
+  return { tasks, externalLinks };
+}
+
+// Download a single pawchive post by fetching its HTML page and parsing assets.
+export async function startPawchiveDownload(service, userId, postId, senderTabId) {
+  const postUrl = `${PAW.ORIGIN}/${service}/user/${userId}/post/${postId}`;
+  const cookies = await getCookies(PAW.HOST);
+  // MV3 service workers with host_permissions bypass CORS for same-origin fetches.
+  // Do NOT pass Cookie manually — let credentials:'include' attach cookies automatically,
+  // and do NOT set mode:'cors' which would require server CORS headers.
+  const headers = {
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9',
+    'Cache-Control': 'no-cache',
+  };
+
+  let html;
+  try {
+    const resp = await fetch(postUrl, { method: 'GET', headers, credentials: 'include' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    html = await resp.text();
+  } catch (e) {
+    throw new Error(`Failed to fetch pawchive post page: ${e.message}`);
+  }
+
+  // Extract title from <h1 class="post__title">
+  const titleMatch = html.match(/<h1[^>]*class="post__title"[^>]*>[\s\S]*?<span>([^<]+)<\/span>/i);
+  const rawTitle = titleMatch ? titleMatch[1].trim() : `${service}_${userId}_${postId}`;
+  const title = UTIL.sanitizeFileName(rawTitle);
+
+  const { tasks, externalLinks } = parsePawchiveHtml(html, title);
+
+  if (tasks.length === 0) {
+    return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
+  }
+
+  if (externalLinks.length > 0) {
+    console.log(`[Pawchive] External links found in post ${postId}:`, externalLinks);
+  }
+
+  const backendCfg = await loadBackendConfig();
+
+  if (backendCfg.enabled) {
+    const endpoint = `${backendCfg.protocol}://${backendCfg.host}:${backendCfg.port}/start-headless-download`;
+    const perFileRetry = Math.min(10, Math.max(0, Number(backendCfg.retryCount) || 0));
+    const concurrency = Math.max(1, Math.min(6, Math.floor(backendCfg.concurrency || CONFIG.MAX_CONCURRENT_DOWNLOADS)));
+    const perPostFileLimit = Number.isFinite(backendCfg.perPostFileLimit) ? backendCfg.perPostFileLimit : 200;
+
+    const sendProgress = (sent, total) => {
+      const payload = { action: 'downloadProgress', service, userId, postId, progress: Math.round(100 * (sent / Math.max(1, total))), sentCount: sent, totalCount: total };
+      try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; }); else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; }); } catch (e) { }
+    };
+
+    GLOBAL_TASK_QUEUE.concurrency = concurrency;
+    GLOBAL_TASK_QUEUE._startWorkers();
+
+    const batches = [];
+    for (let i = 0; i < tasks.length; i += perPostFileLimit) batches.push(tasks.slice(i, i + perPostFileLimit));
+
+    const allFileResults = [];
+    for (let b = 0; b < batches.length; b++) {
+      const results = await GLOBAL_TASK_QUEUE.enqueueTasks(batches[b], {
+        endpoint, cookieString: cookies, origin: PAW.ORIGIN, service, userId, postId,
+        headers, perFileRetry, sendProgress, totalCount: tasks.length,
+      });
+      allFileResults.push(...results);
+      if (b < batches.length - 1) await new Promise(r => setTimeout(r, 250));
+    }
+
+    const anySuccess = allFileResults.some(fr => fr.success);
+    if (anySuccess) return { success: true, backend: true, results: allFileResults, externalLinks };
+  }
+
+  // Local chrome.downloads fallback
+  const progressCallback = ({ processed, total, successCount }) => {
+    const payload = { action: 'downloadProgress', service, userId, postId, progress: Math.round(100 * (processed / Math.max(1, total))), sentCount: successCount, totalCount: total };
+    try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; }); else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; }); } catch (e) { }
+  };
+
+  const { successCount, results } = await runSequentialDownloads(tasks, progressCallback);
+  return { success: true, successCount, results, externalLinks };
 }
 
 export async function startFullDownload(service, userId, postId, path, senderUrl, senderTabId) {
