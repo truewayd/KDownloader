@@ -27,31 +27,51 @@ function updateButtonStatus(btn, statusKey, customText = null, isCreatorPage = f
 function showExternalLinksModal(links) {
   if (!links || links.length === 0) return;
 
-  const modalHtml = `
-    <div id="kemono-external-modal" class="kemono-modal-overlay">
-      <div class="kemono-modal">
-        <h3 class="kemono-modal-title">🔗 External Download Links Detected</h3>
-        <p class="kemono-modal-desc">The following external links may require manual download:</p>
-        <ul class="kemono-modal-list">
-          ${links.map(link => `<li class="kemono-modal-list-item"><a href="${link}" target="_blank" class="kemono-modal-link">${link}</a></li>`).join('')}
-        </ul>
-        <button id="kemono-modal-close" class="kemono-modal-close">Close</button>
-      </div>
-    </div>
-  `;
-
   const modalContainer = document.createElement('div');
-  modalContainer.innerHTML = modalHtml;
+  const overlay = document.createElement('div');
+  overlay.id = 'kemono-external-modal';
+  overlay.className = 'kemono-modal-overlay';
+
+  const modal = document.createElement('div');
+  modal.className = 'kemono-modal';
+
+  const title = document.createElement('h3');
+  title.className = 'kemono-modal-title';
+  title.textContent = 'External Download Links Detected';
+
+  const desc = document.createElement('p');
+  desc.className = 'kemono-modal-desc';
+  desc.textContent = 'The following external links may require manual download:';
+
+  const list = document.createElement('ul');
+  list.className = 'kemono-modal-list';
+  for (const link of links) {
+    const item = document.createElement('li');
+    item.className = 'kemono-modal-list-item';
+    const anchor = document.createElement('a');
+    anchor.className = 'kemono-modal-link';
+    anchor.href = link;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    anchor.textContent = link;
+    item.appendChild(anchor);
+    list.appendChild(item);
+  }
+
+  const closeBtn = document.createElement('button');
+  closeBtn.id = 'kemono-modal-close';
+  closeBtn.className = 'kemono-modal-close';
+  closeBtn.type = 'button';
+  closeBtn.textContent = 'Close';
+
+  modal.appendChild(title);
+  modal.appendChild(desc);
+  modal.appendChild(list);
+  modal.appendChild(closeBtn);
+  overlay.appendChild(modal);
+  modalContainer.appendChild(overlay);
   document.body.appendChild(modalContainer);
 
-  const closeBtn = document.getElementById('kemono-modal-close');
-  const modal = document.getElementById('kemono-external-modal');
-
   closeBtn.addEventListener('click', () => { modalContainer.remove(); });
-  modal.addEventListener('click', (e) => { if (e.target === modal) modalContainer.remove(); });
-}
-
-// Remove old buttons
-function removeOldButtons() {
-  document.querySelectorAll('[data-batch-download="true"]').forEach(b => b.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) modalContainer.remove(); });
 }

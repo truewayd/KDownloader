@@ -46,6 +46,7 @@
         "content/helpers.js",
         "content/ui.js",
         "content/download.js",
+        "content/router.js",
         "content/actions.js"
       ],
       "css": ["content.css"],
@@ -56,7 +57,7 @@
         "*://coomer.st/*/account/favorites/artists*",
         "*://kemono.cr/*/account/favorites/artists*"
       ],
-      "js": ["content/flag/index.js"],
+      "js": ["content/helpers.js", "content/router.js", "content/flag/index.js"],
       "run_at": "document_end"
     },
     {
@@ -67,6 +68,7 @@
         "content/helpers.js",
         "content/ui.js",
         "content/download.js",
+        "content/router.js",
         "content/paw_actions.js"
       ],
       "css": ["content.css"],

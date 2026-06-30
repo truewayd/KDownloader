@@ -6,7 +6,6 @@
     s.src = chrome.runtime.getURL('injected/creators_page.js');
     s.dataset.extInjected = 'creators';
     (document.documentElement || document.head || document.body).appendChild(s);
-    console.debug('[Injector] page script injected');
   } catch (e) {
     console.error('[Injector] failed to inject page script', e);
   }
@@ -17,7 +16,6 @@
       if (!message || !message.action) return false;
       // Only handle our creators messages to reduce noise
       if (/^creators\./.test(message.action)) {
-        console.debug('[Injector] bg->page', message.action, message.host || '');
         window.postMessage({ direction: 'EXT_TO_PAGE', message }, '*');
         sendResponse && sendResponse({ success: true });
         return true;
@@ -39,7 +37,6 @@
       const m = msg.message;
       if (m.action === 'creators.requestCache' && m.host) {
         const key = `creatorsOverride_${m.host}`;
-        console.debug('[Injector] page->ext requestCache', m.host);
         chrome.storage.local.get([key], (res) => {
           let payload = null;
           const stored = res && res[key] ? res[key] : null;
@@ -49,7 +46,6 @@
             // backward compatibility for earlier format
             payload = stored;
           }
-          console.debug('[Injector] page->ext respondCache', m.host, payload ? 'OK' : 'MISS');
           window.postMessage({ direction: 'EXT_TO_PAGE', message: { action: 'creators.pushToPage', host: m.host, payload } }, '*');
         });
       } else if (m.action === 'creators.requestSummary') {

@@ -7,20 +7,22 @@ import {
   CREATOR_FLAG_KEY,
 } from "./constants.js";
 
-export async function loadDB() {
-  const r = await chrome.storage.local.get(STORAGE_KEY);
-  const raw = r[STORAGE_KEY] || {};
+let downloadedCache = null;
+let downloadedLoadPromise = null;
+
+function normalizeDownloaded(raw = {}) {
   const normalized = {};
-  for (const [service, users] of Object.entries(raw)) {
+  for (const [service, users] of Object.entries(raw || {})) {
+    if (!users || typeof users !== "object") continue;
     normalized[service] = {};
     for (const [userId, posts] of Object.entries(users)) {
-      normalized[service][userId] = new Set(Array.isArray(posts) ? posts : []);
+      normalized[service][userId] = new Set(Array.isArray(posts) ? posts.map(String) : []);
     }
   }
   return normalized;
 }
 
-export async function saveDB(data) {
+function serializeDownloaded(data = {}) {
   const serial = {};
   for (const [service, users] of Object.entries(data)) {
     serial[service] = {};
@@ -28,16 +30,78 @@ export async function saveDB(data) {
       serial[service][userId] = Array.from(posts);
     }
   }
+  return serial;
+}
+
+function ensureBucket(db, service, userId) {
+  const svc = String(service || "");
+  const uid = String(userId || "");
+  if (!db[svc]) db[svc] = {};
+  if (!db[svc][uid]) db[svc][uid] = new Set();
+  return db[svc][uid];
+}
+
+function cloneDB(data = {}) {
+  const out = {};
+  for (const [service, users] of Object.entries(data)) {
+    out[service] = {};
+    for (const [userId, posts] of Object.entries(users)) {
+      out[service][userId] = new Set(posts);
+    }
+  }
+  return out;
+}
+
+async function getDownloadedCache() {
+  if (downloadedCache) return downloadedCache;
+  if (!downloadedLoadPromise) {
+    downloadedLoadPromise = chrome.storage.local
+      .get(STORAGE_KEY)
+      .then((r) => {
+        downloadedCache = normalizeDownloaded(r[STORAGE_KEY] || {});
+        return downloadedCache;
+      })
+      .finally(() => {
+        downloadedLoadPromise = null;
+      });
+  }
+  return downloadedLoadPromise;
+}
+
+export async function loadDB() {
+  return cloneDB(await getDownloadedCache());
+}
+
+export async function saveDB(data) {
+  downloadedCache = normalizeDownloaded(serializeDownloaded(data));
+  const serial = serializeDownloaded(downloadedCache);
   await chrome.storage.local.set({ [STORAGE_KEY]: serial });
 }
 
 export async function checkDownloaded(service, userId, postId) {
-  const db = await loadDB();
+  const db = await getDownloadedCache();
+  const svc = String(service || "");
+  const uid = String(userId || "");
+  const pid = String(postId || "");
   return !!(
-    db[service] &&
-    db[service][userId] &&
-    db[service][userId].has(postId)
+    db[svc] &&
+    db[svc][uid] &&
+    db[svc][uid].has(pid)
   );
+}
+
+export async function checkDownloadedMany(items = []) {
+  const db = await getDownloadedCache();
+  const downloaded = {};
+  for (const item of Array.isArray(items) ? items : []) {
+    const service = String(item && item.service ? item.service : "");
+    const userId = String(item && item.userId ? item.userId : "");
+    const postId = String(item && item.postId ? item.postId : "");
+    if (!service || !userId || !postId) continue;
+    const key = `${service}:${userId}:${postId}`;
+    downloaded[key] = !!(db[service] && db[service][userId] && db[service][userId].has(postId));
+  }
+  return downloaded;
 }
 
 export async function safeIncrementStorageVersion() {
@@ -67,21 +131,29 @@ export async function safeIncrementStorageVersion() {
 }
 
 export async function markDownloaded(service, userId, postId) {
-  const db = await loadDB();
-  if (!db[service]) db[service] = {};
-  if (!db[service][userId]) db[service][userId] = new Set();
-  db[service][userId].add(postId);
+  const pid = String(postId || "");
+  if (!service || !userId || !pid) return;
+  const db = await getDownloadedCache();
+  const posts = ensureBucket(db, service, userId);
+  if (posts.has(pid)) return;
+  posts.add(pid);
   await saveDB(db);
   await safeIncrementStorageVersion();
 }
 
 export async function markMultipleDownloaded(items) {
-  const db = await loadDB();
-  for (const { service, userId, postId } of items) {
-    if (!db[service]) db[service] = {};
-    if (!db[service][userId]) db[service][userId] = new Set();
-    db[service][userId].add(postId);
+  const db = await getDownloadedCache();
+  let changed = false;
+  for (const { service, userId, postId } of Array.isArray(items) ? items : []) {
+    if (!service || !userId || !postId) continue;
+    const posts = ensureBucket(db, service, userId);
+    const pid = String(postId);
+    if (!posts.has(pid)) {
+      posts.add(pid);
+      changed = true;
+    }
   }
+  if (!changed) return;
   await saveDB(db);
   await safeIncrementStorageVersion();
 }
@@ -132,7 +204,8 @@ export async function importDB(jsonString) {
         data[service][userId] = Array.isArray(posts) ? posts : [];
       }
     }
-    await chrome.storage.local.set({ [STORAGE_KEY]: data });
+    downloadedCache = normalizeDownloaded(data);
+    await chrome.storage.local.set({ [STORAGE_KEY]: serializeDownloaded(downloadedCache) });
     const res = await chrome.storage.sync.get(STORAGE_VERSION_KEY);
     const v = (res[STORAGE_VERSION_KEY] || 0) + 1;
     await chrome.storage.sync.set({ [STORAGE_VERSION_KEY]: v });
@@ -141,6 +214,12 @@ export async function importDB(jsonString) {
     console.error("[Background] importDB failed", e);
     throw e;
   }
+}
+
+export async function clearDB() {
+  downloadedCache = {};
+  await chrome.storage.local.set({ [STORAGE_KEY]: {} });
+  await chrome.storage.sync.set({ [STORAGE_VERSION_KEY]: 0 });
 }
 
 export async function loadLastAccess() {
@@ -176,27 +255,15 @@ export async function saveCreatorFlags(flags) {
 }
 
 export async function getCreatorFlag(service, userId) {
-  console.log(`[DB] 📖 Getting creator flag for ${service}:${userId}`);
   const flags = await loadCreatorFlags();
   const key = `${service}:${userId}`;
-  const result = flags[key] !== undefined ? flags[key] : null;
-  console.log(
-    `[DB] 📬 Creator flag for ${service}:${userId} = ${result} (from storage: ${flags[key]})`
-  );
-  return result;
+  return flags[key] !== undefined ? flags[key] : null;
 }
 
 export async function setCreatorFlag(service, userId, value) {
-  console.log(
-    `[DB] 💾 Setting creator flag for ${service}:${userId} to ${value}`
-  );
   const flags = await loadCreatorFlags();
   const key = `${service}:${userId}`;
   flags[key] = !!value;
-  console.log(`[DB] 💾 Normalized value: ${flags[key]}, saving to storage...`);
   await saveCreatorFlags(flags);
-  console.log(
-    `[DB] ✅ Creator flag saved for ${service}:${userId}, result: ${flags[key]}`
-  );
   return flags[key];
 }

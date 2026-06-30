@@ -18,11 +18,13 @@ Key background modules
 - background/index.js is the service worker entry.
 - background/constants.js holds CONFIG, storage keys, alarm names, and the canonical API object.
 - background/util.js contains sanitizeFileName, getFileExtension, extractExternalLinks, and buildDownloadTasks.
-- background/db.js implements history DB and lastAccess helpers.
+- background/db.js implements cached history DB lookup, batch downloaded-state checks, writes, and lastAccess helpers.
 - background/config.js implements favorites/backend/gist helpers.
 - background/network.js centralizes fetch and cookie handling.
 - background/download.js implements startFullDownload, runSequentialDownloads, and backend batching.
-- background/messages.js implements message router and RPC handlers.
+- background/messages.js is a thin message router.
+- background/messageHelpers.js and background/progress.js hold shared message/progress utilities.
+- background/handlers/*.js implements focused RPC groups for config, DB, downloads, creator cache, and utilities.
 
 High-level goals for agents
 ---------------------------
@@ -41,10 +43,12 @@ API centralization
 
 Content script splitting and injection
 --------------------------------------
-- Organize content/ into helpers.js, ui.js, download.js, and actions.js.
-- Maintain injection order in manifest.json: helpers -> ui -> download -> actions.
+- Organize content/ into helpers.js, ui.js, download.js, router.js, and page-specific action scripts.
+- Maintain injection order in manifest.json: helpers -> ui -> download -> router -> actions.
 - New content/*.js files must be added to manifest.json in correct order.
-- Avoid a single bootstrap file; test reloads to ensure no ReferenceError.
+- content/router.js owns stable reinjection scheduling for history navigation, pageshow, visibility, MutationObserver, and HTMX events.
+- Page-specific action scripts must register idempotent renderers with KDRouteWatcher and avoid patching history directly.
+- Avoid a single bootstrap file; test reloads and HTMX swaps to ensure no ReferenceError or duplicate buttons.
 
 Message patterns and timeouts
 -----------------------------
@@ -57,7 +61,8 @@ Batching and storage write policy
 ---------------------------------
 - Avoid per-file storage writes.
 - Use markMultipleDownloaded on batch completion or an in-memory buffer with periodic flush.
-- Expose markDownloaded and markMultipleDownloaded RPCs; prefer markMultipleDownloaded for groups.
+- Expose markDownloaded, markMultipleDownloaded, checkDownloaded, and checkDownloadedMany RPCs; prefer markMultipleDownloaded and checkDownloadedMany for groups.
+- Keep downloaded history in the background DB cache after first load; do not re-read the whole chrome.storage.local downloaded object for each post lookup.
 - On sync quota failures, schedule retries via chrome.alarms (SYNC_VERSION_ALARM).
 
 Third-party and backend downloader policy
@@ -68,6 +73,7 @@ Third-party and backend downloader policy
 - Implement per-file retry with backoff and aggregate results.
 - Report progress after each dispatch to keep watchdog alive.
 - Fallback to chrome.downloads when backend dispatch fails.
+- Gopeed integration must use background REST fetch with Content-Type: application/json and X-Api-Token headers; do not use no-cors because it strips required headers.
 - Move network and paging logic to background for Creator Fetch and Page Fetch.
 
 Recommended batching implementation
@@ -120,3 +126,6 @@ Contact and changelog
 - Add notes in PRs for backward-incompatible changes.
 - Record configuration keys added to storage and brief migration notes here.
 - When a user proposes adding a feature, update this file to document the feature scope, required API changes, manifest updates, configuration keys, and test steps.
+- 2026-07-01: Refactored background message routing into background/handlers modules, added cached downloaded DB batch lookup via checkDownloadedMany, added content/router.js for HTMX-aware reinjection, and updated manifest injection order to include router.js before download and favorite-flag page action scripts. No storage migration required.
+- 2026-07-01: Updated Gopeed backend compatibility to use the REST API with token header support and optional gopeedPath stored in backendConfig. No migration required; missing gopeedPath defaults to empty.
+- 2026-07-01: Cleanup pass removed empty coomerfans.md, removed duplicated flag-page message helper/debug logging, removed stale debug mutation from creator cache refresh, and kept injected/creators_page.js because it is dynamically injected by content/injector.js. No storage migration required.

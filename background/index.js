@@ -1,5 +1,5 @@
 // background/index.js - service worker entry
-import { CONFIG, FAVORITES_ALARM, SYNC_VERSION_ALARM } from './constants.js';
+import { FAVORITES_ALARM, SYNC_VERSION_ALARM } from './constants.js';
 import { registerMessageHandlers } from './messages.js';
 import { loadFavoritesConfig } from './config.js';
 import { ensureRuleState } from './creators.js';

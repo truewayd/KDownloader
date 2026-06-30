@@ -25,7 +25,7 @@ export async function saveFavoritesConfig(cfg) {
 export function getDefaultBackendConfig() {
   // Default per-post batch limit reduced to 100 because most posts have fewer files.
   // Larger batch downloads (many posts) are still supported by batching across posts.
-  return { enabled: false, backendType: 'abdm', host: '127.0.0.1', port: 15151, retryCount: 3, protocol: 'http', concurrency: 3, perPostFileLimit: 100, gopeedHost: '127.0.0.1', gopeedPort: 9999, gopeedToken: '', gopeedProtocol: 'http' };
+  return { enabled: false, backendType: 'abdm', host: '127.0.0.1', port: 15151, retryCount: 3, protocol: 'http', concurrency: 3, perPostFileLimit: 100, gopeedHost: '127.0.0.1', gopeedPort: 9999, gopeedToken: '', gopeedPath: '', gopeedProtocol: 'http' };
 }
 
 export async function loadBackendConfig() {
@@ -44,6 +44,7 @@ export async function loadBackendConfig() {
     gopeedHost: typeof cfg.gopeedHost === 'string' && cfg.gopeedHost.trim() ? cfg.gopeedHost.trim() : def.gopeedHost,
     gopeedPort: Number.isFinite(cfg.gopeedPort) && cfg.gopeedPort > 0 ? Number(cfg.gopeedPort) : def.gopeedPort,
     gopeedToken: typeof cfg.gopeedToken === 'string' ? cfg.gopeedToken : def.gopeedToken,
+    gopeedPath: typeof cfg.gopeedPath === 'string' ? cfg.gopeedPath.trim() : def.gopeedPath,
     gopeedProtocol: cfg.gopeedProtocol === 'https' ? 'https' : 'http',
   };
 }

@@ -12,39 +12,6 @@ try {
     // ignore
 }
 
-// Storage helper to centralize chrome.storage.sync access and wrap callbacks as Promises
-const storage = {
-    get: (keys) => new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({ action: 'storage.get', keys }, (res) => {
-            if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message || 'runtime error'));
-            if (!res) return reject(new Error('No response from background.storage.get'));
-            if (!res.success) return reject(new Error(res.error || 'storage.get failed'));
-            resolve(res.result);
-        });
-    }),
-
-    set: (items) => new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({ action: 'storage.set', items }, (res) => {
-            if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message || 'runtime error'));
-            if (!res) return reject(new Error('No response from background.storage.set'));
-            if (!res.success) return reject(new Error(res.error || 'storage.set failed'));
-            resolve();
-        });
-    }),
-
-    getBytesInUse: (keys) => new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({ action: 'storage.getBytesInUse', keys }, (res) => {
-            if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message || 'runtime error'));
-            if (!res) return reject(new Error('No response from background.storage.getBytesInUse'));
-            if (!res.success) return reject(new Error(res.error || 'storage.getBytesInUse failed'));
-            resolve(res.bytes);
-        });
-    }),
-
-    // proxy for onChanged listener: background will still emit chrome.storage.onChanged, so we can listen locally
-    onChangedAddListener: (cb) => chrome.storage.onChanged.addListener(cb),
-};
-
 // DOM elements
 const exportBtn = document.getElementById('export-btn');
 const importBtn = document.getElementById('import-btn');
@@ -74,6 +41,7 @@ const gopeedConfigPanel = document.getElementById('gopeed-config-panel');
 const gopeedHost = document.getElementById('gopeed-host');
 const gopeedPort = document.getElementById('gopeed-port');
 const gopeedToken = document.getElementById('gopeed-token');
+const gopeedPath = document.getElementById('gopeed-path');
 const gopeedSaveBtn = document.getElementById('gopeed-save-btn');
 
 let currentBackendType = 'abdm';
@@ -82,8 +50,8 @@ function setBackendTypeUI(type) {
     currentBackendType = type;
     backendTypeAbdm.classList.toggle('active', type === 'abdm');
     backendTypeGopeed.classList.toggle('active', type === 'gopeed');
-    abdmConfigPanel.style.display = type === 'abdm' ? '' : 'none';
-    gopeedConfigPanel.style.display = type === 'gopeed' ? '' : 'none';
+    abdmConfigPanel.classList.toggle('hidden-panel', type !== 'abdm');
+    gopeedConfigPanel.classList.toggle('hidden-panel', type !== 'gopeed');
 }
 
 if (backendTypeAbdm) backendTypeAbdm.addEventListener('click', () => setBackendTypeUI('abdm'));
@@ -146,6 +114,7 @@ async function loadBackendConfig() {
         if (gopeedHost) gopeedHost.value = res.gopeedHost || '';
         if (gopeedPort) gopeedPort.value = res.gopeedPort || '';
         if (gopeedToken) gopeedToken.value = res.gopeedToken || '';
+        if (gopeedPath) gopeedPath.value = res.gopeedPath || '';
     } catch (e) {
         console.error('[Popup] loadBackendConfig error', e);
     }
@@ -355,9 +324,7 @@ function renderGlobalProgress(total, processed, acked) {
 // request initial global progress when popup opens
 (async function initGlobalProgress() {
     try {
-        console.debug('[Popup] initGlobalProgress request');
         const r = await safeSendMessage({ action: 'status.getGlobalProgress' }, 3000, { retries: 1, retryDelay: 200 }).catch(() => null);
-        console.debug('[Popup] initGlobalProgress response', r);
         if (r && r.success && r.progress) {
             renderGlobalProgress(r.progress.total, r.progress.processed, r.progress.acked);
         } else {
@@ -433,7 +400,7 @@ async function safeSendMessage(message, timeout = 7000, opts = { retries: 1, ret
 
 
 // Listen for storage changes
-storage.onChangedAddListener((changes, namespace) => {
+chrome.storage.onChanged.addListener((changes, namespace) => {
     // Refresh when our version (sync) increments or the local downloaded key changes
     const hasVersion = !!changes[STORAGE_VERSION_KEY];
     const hasDownloaded = !!changes[STORAGE_KEY];
@@ -499,7 +466,6 @@ chrome.runtime.onMessage.addListener((message) => {
         const total = Number(message.total || 0);
         const processed = Number(message.processed || 0);
         const acked = Number(message.acked || 0);
-        console.debug('[Popup] globalProgress received', { total, processed, acked });
         renderGlobalProgress(total, processed, acked);
         return;
     }
@@ -751,8 +717,6 @@ if (creatorsUpdateKemono) creatorsUpdateKemono.addEventListener('click', () => u
 if (creatorsEnabled) creatorsEnabled.addEventListener('change', () => setCreatorsEnabled(!!creatorsEnabled.checked));
 
 
-console.log('[Popup] Initialized');
-
 // ----- Favorites Watcher integration -----
 async function loadFavoritesConfig() {
     try {
@@ -833,6 +797,7 @@ async function saveGopeedConfig() {
             gopeedHost: (gopeedHost?.value || '').trim() || '127.0.0.1',
             gopeedPort: Math.max(1, parseInt(gopeedPort?.value || '9999', 10) || 9999),
             gopeedToken: (gopeedToken?.value || '').trim(),
+            gopeedPath: (gopeedPath?.value || '').trim(),
         };
         await new Promise((resolve, reject) => {
             chrome.runtime.sendMessage({ action: 'backend.setConfig', config }, (r) => {

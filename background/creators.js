@@ -38,27 +38,7 @@ export async function setCreatorsOverrideEnabled(enabled) {
 export async function updateCacheFromNetwork(host) {
   if (host) {
     if (!TARGET_HOSTS.includes(host)) throw new Error('Unknown host');
-    console.log('[Creators] updateCacheFromNetwork start', host);
     const data = await fetchCreatorsFromHost(host);
-    console.log('[Creators] fetch ok', host, Array.isArray(data) ? `items:${data.length}` : typeof data);
-    // For kemono.cr, if a creator with id 105486 exists, rename its name to 'Cached' for debugging
-    try {
-      if (host === 'kemono.cr' && Array.isArray(data)) {
-        const targetId = '105486';
-        let found = false;
-        for (let i = 0; i < data.length; i++) {
-          const d = data[i];
-          if (!d) continue;
-          if (String(d.id) === String(targetId)) {
-            d.name = 'Cached';
-            found = true;
-            console.log('[Creators] renamed creator id', targetId, '-> name Cached');
-            break;
-          }
-        }
-        if (!found) console.log('[Creators] creator id 105486 not found in fetched data');
-      }
-    } catch (e) { console.warn('[Creators] rename cached failed', e); }
 
     const payload = { updatedAt: Date.now(), sourceHost: host, data };
     // store large JSON into chrome.storage.local as string to avoid structure clone overhead
@@ -113,8 +93,9 @@ export async function ensureRuleState() {
   try {
     const st = await chrome.storage.local.get(CREATORS_OVERRIDE_ENABLED_KEY);
     const enabled = st && st[CREATORS_OVERRIDE_ENABLED_KEY];
-    console.log('[Creators] ensureRuleState', { enabled });
+    return !!enabled;
   } catch (e) {
     console.error('[Creators] ensureRuleState error', e);
+    return false;
   }
 }

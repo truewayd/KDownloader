@@ -66,6 +66,34 @@ async function isPostDownloaded(service, userId, postId) {
   }
 }
 
+function downloadedKey(service, userId, postId) {
+  return `${String(service || '')}:${String(userId || '')}:${String(postId || '')}`;
+}
+
+async function getDownloadedStatusMap(items) {
+  const validItems = (Array.isArray(items) ? items : [])
+    .filter(item => item && item.service && item.userId && item.postId)
+    .map(item => ({
+      service: String(item.service),
+      userId: String(item.userId),
+      postId: String(item.postId),
+    }));
+  if (validItems.length === 0) return new Map();
+
+  try {
+    const response = await safeSendMessage(
+      { action: 'checkDownloadedMany', items: validItems },
+      8000,
+      { retries: 2, retryDelay: 300 }
+    );
+    const raw = response && response.downloaded ? response.downloaded : {};
+    return new Map(Object.entries(raw));
+  } catch (error) {
+    console.warn('[Content] Batch downloaded check error:', error);
+    return new Map();
+  }
+}
+
 // Report access helper
 function reportAccessIfApplicable() {
   try {
