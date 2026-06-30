@@ -42,22 +42,47 @@
             <div class="stats mt-10">
       <div class="accordion" id="abdm-accordion" aria-expanded="false">
         <div class="accordion-header" role="button" tabindex="0" aria-controls="abdm-body">
-          <h2 style="flex:1;margin:0;font-size:14px;">ABDM Backend</h2>
+          <h2 style="flex:1;margin:0;font-size:14px;">Backend</h2>
           <div class="accordion-toggle" aria-hidden="true">▸</div>
         </div>
         <div class="accordion-body" id="abdm-body">
+          <!-- Backend type switch: ABDM / Gopeed (mutually exclusive) -->
+          <div class="row" style="margin-bottom:10px;gap:0;">
+            <button class="backend-type-btn active" id="backend-type-abdm" data-type="abdm">ABDM</button>
+            <button class="backend-type-btn" id="backend-type-gopeed" data-type="gopeed">Gopeed</button>
+          </div>
+
+          <!-- Enable toggle (shared) -->
           <div class="row" style="margin-bottom:8px;">
             <label class="row">
               <input type="checkbox" id="backend-enabled" class="custom-checkbox">
               <span id="backend-enabled-label">Off</span>
             </label>
           </div>
-          <div class="row">
-            <input id="backend-host" type="text" placeholder="127.0.0.1" class="input-flex">
-            <input id="backend-port" type="number" placeholder="15151" class="small-input">
+
+          <!-- ABDM config panel -->
+          <div id="abdm-config-panel">
+            <div class="row">
+              <input id="backend-host" type="text" placeholder="127.0.0.1" class="input-flex">
+              <input id="backend-port" type="number" placeholder="15151" class="small-input">
+            </div>
+            <div class="row mt-8 align-right">
+              <button class="btn secondary" id="backend-save-btn">Save Backend</button>
+            </div>
           </div>
-          <div class="row mt-8 align-right">
-            <button class="btn secondary" id="backend-save-btn">Save Backend</button>
+
+          <!-- Gopeed config panel -->
+          <div id="gopeed-config-panel" style="display:none;">
+            <div class="row">
+              <input id="gopeed-host" type="text" placeholder="127.0.0.1" class="input-flex">
+              <input id="gopeed-port" type="number" placeholder="9999" class="small-input">
+            </div>
+            <div class="row mt-6">
+              <input id="gopeed-token" type="password" placeholder="API Token (optional)" class="input-flex">
+            </div>
+            <div class="row mt-8 align-right">
+              <button class="btn secondary" id="gopeed-save-btn">Save Gopeed</button>
+            </div>
           </div>
 
           <div class="divider" style="height:1px;margin:10px 0;background:rgba(255,255,255,0.04)"></div>

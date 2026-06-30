@@ -66,6 +66,28 @@ const backendEnabledLabel = document.getElementById('backend-enabled-label');
 const backendHost = document.getElementById('backend-host');
 const backendPort = document.getElementById('backend-port');
 const backendSaveBtn = document.getElementById('backend-save-btn');
+// Backend type switch
+const backendTypeAbdm = document.getElementById('backend-type-abdm');
+const backendTypeGopeed = document.getElementById('backend-type-gopeed');
+const abdmConfigPanel = document.getElementById('abdm-config-panel');
+const gopeedConfigPanel = document.getElementById('gopeed-config-panel');
+const gopeedHost = document.getElementById('gopeed-host');
+const gopeedPort = document.getElementById('gopeed-port');
+const gopeedToken = document.getElementById('gopeed-token');
+const gopeedSaveBtn = document.getElementById('gopeed-save-btn');
+
+let currentBackendType = 'abdm';
+
+function setBackendTypeUI(type) {
+    currentBackendType = type;
+    backendTypeAbdm.classList.toggle('active', type === 'abdm');
+    backendTypeGopeed.classList.toggle('active', type === 'gopeed');
+    abdmConfigPanel.style.display = type === 'abdm' ? '' : 'none';
+    gopeedConfigPanel.style.display = type === 'gopeed' ? '' : 'none';
+}
+
+if (backendTypeAbdm) backendTypeAbdm.addEventListener('click', () => setBackendTypeUI('abdm'));
+if (backendTypeGopeed) backendTypeGopeed.addEventListener('click', () => setBackendTypeUI('gopeed'));
 
 // Creators override controls
 const creatorsEnabled = document.getElementById('creators-enabled');
@@ -120,7 +142,10 @@ async function loadBackendConfig() {
         backendEnabledLabel.textContent = res.enabled ? 'On' : 'Off';
         backendHost.value = res.host || '';
         backendPort.value = res.port || '';
-
+        setBackendTypeUI(res.backendType === 'gopeed' ? 'gopeed' : 'abdm');
+        if (gopeedHost) gopeedHost.value = res.gopeedHost || '';
+        if (gopeedPort) gopeedPort.value = res.gopeedPort || '';
+        if (gopeedToken) gopeedToken.value = res.gopeedToken || '';
     } catch (e) {
         console.error('[Popup] loadBackendConfig error', e);
     }
@@ -130,6 +155,7 @@ async function saveBackendConfig() {
     try {
         const config = {
             enabled: !!backendEnabled.checked,
+            backendType: currentBackendType,
             host: (backendHost.value || '').trim() || '127.0.0.1',
             port: Math.max(1, parseInt(backendPort.value || '15151', 10) || 15151)
         };
@@ -798,6 +824,32 @@ if (favCheckBtn) favCheckBtn.addEventListener('click', manualFavoritesCheck);
 if (backendSaveBtn) backendSaveBtn.addEventListener('click', saveBackendConfig);
 
 if (backendEnabled) backendEnabled.addEventListener('change', () => backendEnabledLabel.textContent = backendEnabled.checked ? 'On' : 'Off');
+
+async function saveGopeedConfig() {
+    try {
+        const config = {
+            enabled: !!backendEnabled.checked,
+            backendType: 'gopeed',
+            gopeedHost: (gopeedHost?.value || '').trim() || '127.0.0.1',
+            gopeedPort: Math.max(1, parseInt(gopeedPort?.value || '9999', 10) || 9999),
+            gopeedToken: (gopeedToken?.value || '').trim(),
+        };
+        await new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({ action: 'backend.setConfig', config }, (r) => {
+                if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message || 'runtime error'));
+                if (!r) return reject(new Error('No response from backend.setConfig'));
+                if (!r.success) return reject(new Error(r.error || 'backend.setConfig failed'));
+                resolve();
+            });
+        });
+        backendEnabledLabel.textContent = config.enabled ? 'On' : 'Off';
+        showSuccess('✓ Gopeed saved');
+    } catch (e) {
+        showError('✗ Save Gopeed failed: ' + e.message);
+    }
+}
+
+if (gopeedSaveBtn) gopeedSaveBtn.addEventListener('click', saveGopeedConfig);
 
 // ---- Gist Sync ----
 const gistTokenInput = document.getElementById('gist-token');

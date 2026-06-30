@@ -260,6 +260,11 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
   const backendCfg = await loadBackendConfig();
 
   if (backendCfg.enabled) {
+    if (backendCfg.backendType === 'gopeed') {
+      const referer = `${PAW.ORIGIN}/${service}/user/${userId}/post/${postId}`;
+      const successCount = await dispatchAllToGopeed(tasks, backendCfg, cookies, referer, service, userId, postId, senderTabId);
+      if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, externalLinks };
+    } else {
     const endpoint = `${backendCfg.protocol}://${backendCfg.host}:${backendCfg.port}/start-headless-download`;
     const perFileRetry = Math.min(10, Math.max(0, Number(backendCfg.retryCount) || 0));
     const concurrency = Math.max(1, Math.min(6, Math.floor(backendCfg.concurrency || CONFIG.MAX_CONCURRENT_DOWNLOADS)));
@@ -288,6 +293,7 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
 
     const anySuccess = allFileResults.some(fr => fr.success);
     if (anySuccess) return { success: true, backend: true, results: allFileResults, externalLinks };
+    }
   }
 
   // Local chrome.downloads fallback
@@ -298,6 +304,50 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
 
   const { successCount, results } = await runSequentialDownloads(tasks, progressCallback);
   return { success: true, successCount, results, externalLinks };
+}
+
+// Dispatch a single file URL to gopeed — fire-and-forget, no CORS read-back.
+// Mirrors the ABDM worker pattern: POST with mode:'no-cors' so Chrome never
+// enforces CORS headers on the response.
+async function dispatchToGopeed(baseUrl, token, fileUrl, cookieString, referer, fileName) {
+  const payload = {
+    rid: '',
+    req: {
+      url: fileUrl,
+      extra: { header: { Cookie: cookieString, Referer: referer } },
+    },
+    opts: { name: fileName, extra: { connections: 32 } },
+  };
+  // X-Api-Token is stripped by no-cors, so append it as a query param if set.
+  const url = token
+    ? `${baseUrl}/api/v1/tasks?token=${encodeURIComponent(token)}`
+    : `${baseUrl}/api/v1/tasks`;
+  try {
+    await fetch(url, { method: 'POST', body: JSON.stringify(payload), mode: 'no-cors' });
+    return true;
+  } catch (e) {
+    console.error('[Gopeed] dispatch error:', e.message);
+    return false;
+  }
+}
+
+// Dispatch all tasks to gopeed sequentially, reporting progress.
+async function dispatchAllToGopeed(tasks, backendCfg, cookieString, referer, service, userId, postId, senderTabId) {
+  const baseUrl = `${backendCfg.gopeedProtocol}://${backendCfg.gopeedHost}:${backendCfg.gopeedPort}`;
+  const token = backendCfg.gopeedToken || '';
+  let successCount = 0;
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i];
+    const ok = await dispatchToGopeed(baseUrl, token, task.url, cookieString, referer, task.fileName);
+    if (ok) successCount++;
+    const progress = Math.round(100 * (i + 1) / Math.max(1, tasks.length));
+    const payload = { action: 'downloadProgress', service, userId, postId, progress, sentCount: i + 1, totalCount: tasks.length };
+    try {
+      if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; });
+      else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; });
+    } catch (e) { }
+  }
+  return successCount;
 }
 
 export async function startFullDownload(service, userId, postId, path, senderUrl, senderTabId) {
@@ -346,6 +396,11 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
 
   // 3. Backend forwarding (with centralized queue/batching and adaptive throttle)
   if (backendCfg.enabled) {
+    if (backendCfg.backendType === 'gopeed') {
+      const referer = `${origin}/${service}/user/${userId}/post/${postId}`;
+      const successCount = await dispatchAllToGopeed(tasks, backendCfg, cookieString, referer, service, userId, postId, senderTabId);
+      if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, externalLinks };
+    } else {
     const endpoint = `${backendCfg.protocol}://${backendCfg.host}:${backendCfg.port}/start-headless-download`;
     const perFileRetry = Math.min(10, Math.max(0, Number(backendCfg.retryCount) || 0));
     const concurrency = Math.max(1, Math.min(6, Math.floor(backendCfg.concurrency || CONFIG.MAX_CONCURRENT_DOWNLOADS)));
@@ -380,6 +435,7 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
     const anySuccess = allFileResults.some(fr => fr.success);
     if (anySuccess) {
       return { success: true, backend: true, results: allFileResults, externalLinks };
+    }
     }
   }
 

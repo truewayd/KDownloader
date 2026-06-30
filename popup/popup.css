@@ -260,6 +260,27 @@ body {
   transform: rotate(45deg);
 }
 
+/* Backend type segmented switch (ABDM / Gopeed) */
+.backend-type-btn {
+  flex: 1;
+  padding: 6px 0;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.55);
+  transition: background 0.12s, color 0.12s;
+}
+.backend-type-btn:first-child { border-radius: 6px 0 0 6px; border-right: none; }
+.backend-type-btn:last-child  { border-radius: 0 6px 6px 0; }
+.backend-type-btn.active {
+  background: #2d9cdb;
+  color: #fff;
+  border-color: #2d9cdb;
+}
+.backend-type-btn:not(.active):hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); }
+
 /* small responsive tweaks */
 @media (max-width: 480px) {
   body { width: 380px; }
