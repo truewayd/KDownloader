@@ -1,6 +1,7 @@
 // background/db.js - database helpers for download history & access
 import {
   STORAGE_KEY,
+  COOMERFANS_STORAGE_KEY,
   STORAGE_VERSION_KEY,
   LAST_ACCESS_KEY,
   SYNC_VERSION_ALARM,
@@ -9,6 +10,8 @@ import {
 
 let downloadedCache = null;
 let downloadedLoadPromise = null;
+let coomerFansDownloadedCache = null;
+let coomerFansDownloadedLoadPromise = null;
 
 function normalizeDownloaded(raw = {}) {
   const normalized = {};
@@ -41,6 +44,15 @@ function ensureBucket(db, service, userId) {
   return db[svc][uid];
 }
 
+function isCoomerFansSource(source) {
+  return String(source || "").toLowerCase() === "coomerfans";
+}
+
+export function downloadedItemKey(service, userId, postId, source) {
+  const prefix = isCoomerFansSource(source) ? "coomerfans:" : "";
+  return `${prefix}${String(service || "")}:${String(userId || "")}:${String(postId || "")}`;
+}
+
 function cloneDB(data = {}) {
   const out = {};
   for (const [service, users] of Object.entries(data)) {
@@ -68,18 +80,58 @@ async function getDownloadedCache() {
   return downloadedLoadPromise;
 }
 
+async function getCoomerFansDownloadedCache() {
+  if (coomerFansDownloadedCache) return coomerFansDownloadedCache;
+  if (!coomerFansDownloadedLoadPromise) {
+    coomerFansDownloadedLoadPromise = chrome.storage.local
+      .get(COOMERFANS_STORAGE_KEY)
+      .then((r) => {
+        coomerFansDownloadedCache = normalizeDownloaded(r[COOMERFANS_STORAGE_KEY] || {});
+        return coomerFansDownloadedCache;
+      })
+      .finally(() => {
+        coomerFansDownloadedLoadPromise = null;
+      });
+  }
+  return coomerFansDownloadedLoadPromise;
+}
+
+async function getHistoryCache(source) {
+  return isCoomerFansSource(source)
+    ? getCoomerFansDownloadedCache()
+    : getDownloadedCache();
+}
+
+async function saveHistoryCache(source, data) {
+  if (isCoomerFansSource(source)) {
+    coomerFansDownloadedCache = normalizeDownloaded(serializeDownloaded(data));
+    await chrome.storage.local.set({
+      [COOMERFANS_STORAGE_KEY]: serializeDownloaded(coomerFansDownloadedCache),
+    });
+    return;
+  }
+  downloadedCache = normalizeDownloaded(serializeDownloaded(data));
+  await chrome.storage.local.set({ [STORAGE_KEY]: serializeDownloaded(downloadedCache) });
+}
+
 export async function loadDB() {
-  return cloneDB(await getDownloadedCache());
+  return {
+    downloaded: cloneDB(await getDownloadedCache()),
+    coomerfansDownloaded: cloneDB(await getCoomerFansDownloadedCache()),
+  };
 }
 
 export async function saveDB(data) {
-  downloadedCache = normalizeDownloaded(serializeDownloaded(data));
-  const serial = serializeDownloaded(downloadedCache);
-  await chrome.storage.local.set({ [STORAGE_KEY]: serial });
+  downloadedCache = normalizeDownloaded(serializeDownloaded(data.downloaded || {}));
+  coomerFansDownloadedCache = normalizeDownloaded(serializeDownloaded(data.coomerfansDownloaded || {}));
+  await chrome.storage.local.set({
+    [STORAGE_KEY]: serializeDownloaded(downloadedCache),
+    [COOMERFANS_STORAGE_KEY]: serializeDownloaded(coomerFansDownloadedCache),
+  });
 }
 
-export async function checkDownloaded(service, userId, postId) {
-  const db = await getDownloadedCache();
+export async function checkDownloaded(service, userId, postId, source) {
+  const db = await getHistoryCache(source);
   const svc = String(service || "");
   const uid = String(userId || "");
   const pid = String(postId || "");
@@ -91,14 +143,19 @@ export async function checkDownloaded(service, userId, postId) {
 }
 
 export async function checkDownloadedMany(items = []) {
-  const db = await getDownloadedCache();
+  const regularDb = await getDownloadedCache();
+  const hasCoomerFansItems = (Array.isArray(items) ? items : []).some((item) =>
+    isCoomerFansSource(item && item.source)
+  );
+  const coomerFansDb = hasCoomerFansItems ? await getCoomerFansDownloadedCache() : null;
   const downloaded = {};
   for (const item of Array.isArray(items) ? items : []) {
     const service = String(item && item.service ? item.service : "");
     const userId = String(item && item.userId ? item.userId : "");
     const postId = String(item && item.postId ? item.postId : "");
     if (!service || !userId || !postId) continue;
-    const key = `${service}:${userId}:${postId}`;
+    const key = downloadedItemKey(service, userId, postId, item.source);
+    const db = isCoomerFansSource(item.source) ? coomerFansDb : regularDb;
     downloaded[key] = !!(db[service] && db[service][userId] && db[service][userId].has(postId));
   }
   return downloaded;
@@ -130,43 +187,71 @@ export async function safeIncrementStorageVersion() {
   }
 }
 
-export async function markDownloaded(service, userId, postId) {
+export async function markDownloaded(service, userId, postId, source) {
   const pid = String(postId || "");
   if (!service || !userId || !pid) return;
-  const db = await getDownloadedCache();
+  const db = await getHistoryCache(source);
   const posts = ensureBucket(db, service, userId);
   if (posts.has(pid)) return;
   posts.add(pid);
-  await saveDB(db);
+  await saveHistoryCache(source, db);
   await safeIncrementStorageVersion();
 }
 
 export async function markMultipleDownloaded(items) {
-  const db = await getDownloadedCache();
+  const regularItems = [];
+  const coomerFansItems = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    if (isCoomerFansSource(item && item.source)) coomerFansItems.push(item);
+    else regularItems.push(item);
+  }
   let changed = false;
-  for (const { service, userId, postId } of Array.isArray(items) ? items : []) {
-    if (!service || !userId || !postId) continue;
-    const posts = ensureBucket(db, service, userId);
-    const pid = String(postId);
-    if (!posts.has(pid)) {
-      posts.add(pid);
+
+  if (regularItems.length > 0) {
+    const db = await getDownloadedCache();
+    let regularChanged = false;
+    for (const { service, userId, postId } of regularItems) {
+      if (!service || !userId || !postId) continue;
+      const posts = ensureBucket(db, service, userId);
+      const pid = String(postId);
+      if (!posts.has(pid)) {
+        posts.add(pid);
+        regularChanged = true;
+      }
+    }
+    if (regularChanged) {
+      await saveHistoryCache("", db);
       changed = true;
     }
   }
+
+  if (coomerFansItems.length > 0) {
+    const db = await getCoomerFansDownloadedCache();
+    let coomerFansChanged = false;
+    for (const { service, userId, postId } of coomerFansItems) {
+      if (!service || !userId || !postId) continue;
+      const posts = ensureBucket(db, service, userId);
+      const pid = String(postId);
+      if (!posts.has(pid)) {
+        posts.add(pid);
+        coomerFansChanged = true;
+      }
+    }
+    if (coomerFansChanged) {
+      await saveHistoryCache("coomerfans", db);
+      changed = true;
+    }
+  }
+
   if (!changed) return;
-  await saveDB(db);
   await safeIncrementStorageVersion();
 }
 
 export async function exportDB() {
-  const db = await loadDB();
-  const out = {};
-  for (const [service, users] of Object.entries(db)) {
-    out[service] = {};
-    for (const [userId, posts] of Object.entries(users)) {
-      out[service][userId] = Array.from(posts);
-    }
-  }
+  const out = {
+    downloaded: serializeDownloaded(await getDownloadedCache()),
+    coomerfansDownloaded: serializeDownloaded(await getCoomerFansDownloadedCache()),
+  };
   return JSON.stringify(out, null, 2);
 }
 
@@ -197,15 +282,12 @@ export async function importDB(jsonString) {
     if (!parsed || typeof parsed !== "object") {
       throw new Error("Invalid JSON: expected object at root");
     }
-    const data = {};
-    for (const [service, users] of Object.entries(parsed)) {
-      data[service] = {};
-      for (const [userId, posts] of Object.entries(users)) {
-        data[service][userId] = Array.isArray(posts) ? posts : [];
-      }
-    }
-    downloadedCache = normalizeDownloaded(data);
-    await chrome.storage.local.set({ [STORAGE_KEY]: serializeDownloaded(downloadedCache) });
+    downloadedCache = normalizeDownloaded(parsed.downloaded || {});
+    coomerFansDownloadedCache = normalizeDownloaded(parsed.coomerfansDownloaded || {});
+    await chrome.storage.local.set({
+      [STORAGE_KEY]: serializeDownloaded(downloadedCache),
+      [COOMERFANS_STORAGE_KEY]: serializeDownloaded(coomerFansDownloadedCache),
+    });
     const res = await chrome.storage.sync.get(STORAGE_VERSION_KEY);
     const v = (res[STORAGE_VERSION_KEY] || 0) + 1;
     await chrome.storage.sync.set({ [STORAGE_VERSION_KEY]: v });
@@ -218,7 +300,8 @@ export async function importDB(jsonString) {
 
 export async function clearDB() {
   downloadedCache = {};
-  await chrome.storage.local.set({ [STORAGE_KEY]: {} });
+  coomerFansDownloadedCache = {};
+  await chrome.storage.local.set({ [STORAGE_KEY]: {}, [COOMERFANS_STORAGE_KEY]: {} });
   await chrome.storage.sync.set({ [STORAGE_VERSION_KEY]: 0 });
 }
 

@@ -20,7 +20,7 @@ export function createDbHandlers() {
   const checkOne = ({ message, sendResponse }) =>
     respondWith(
       sendResponse,
-      checkDownloaded(message.service, message.userId, message.postId),
+      checkDownloaded(message.service, message.userId, message.postId, message.source),
       (downloaded) => ({ downloaded })
     );
 
@@ -61,7 +61,7 @@ export function createDbHandlers() {
     "db.markDownloaded": ({ message, sendResponse }) =>
       respondWith(
         sendResponse,
-        markDownloaded(message.service, message.userId, message.postId),
+        markDownloaded(message.service, message.userId, message.postId, message.source),
         () => ({})
       ),
 

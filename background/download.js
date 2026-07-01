@@ -70,7 +70,8 @@ class TaskQueue {
       if (!item) continue;
 
       const { meta, task, options } = item;
-      const { endpoint, cookieString, origin, service, userId, postId, headers, perFileRetry = 0, sendProgress } = options;
+      const { endpoint, cookieString, origin, service, userId, postId, headers, referer, perFileRetry = 0, sendProgress } = options;
+      const requestReferer = referer || `${origin}/${service}/user/${userId}/post/${postId}`;
 
       // Wait the adaptive delay before sending to avoid spikes
       if (currentDelay > 0) await new Promise(r => setTimeout(r, currentDelay));
@@ -81,7 +82,7 @@ class TaskQueue {
           link: task.url,
           headers: {
             Cookie: cookieString,
-            Referer: `${origin}/${service}/user/${userId}/post/${postId}`,
+            Referer: requestReferer,
             'User-Agent': headers['User-Agent'] || 'Mozilla/5.0',
             Origin: `chrome-extension://${chrome.runtime.id}`,
             Accept: headers['Accept'] || 'text/css',
@@ -160,6 +161,152 @@ export async function runSequentialDownloads(tasks, onProgress) {
     try { if (typeof onProgress === 'function') onProgress({ processed, total, successCount }); } catch (e) { }
   }
   return { successCount, results };
+}
+
+function absoluteCoomerFansUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  try {
+    return new URL(rawUrl.replace(/&amp;/g, '&'), API.COOMERFANS_ORIGIN).toString();
+  } catch (_) {
+    return '';
+  }
+}
+
+function extractTagAttrs(tagText) {
+  const attrs = {};
+  const attrRe = /([^\s"'=<>`]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  let match;
+  while ((match = attrRe.exec(tagText)) !== null) {
+    const name = String(match[1] || '').toLowerCase();
+    if (!name || name === 'a' || name === 'img' || name === 'source' || name === 'video') continue;
+    attrs[name] = match[2] || match[3] || match[4] || '';
+  }
+  return attrs;
+}
+
+function isCoomerFansMediaUrl(mediaUrl) {
+  try {
+    const u = new URL(mediaUrl);
+    const host = u.hostname.toLowerCase();
+    const path = u.pathname.toLowerCase();
+    const ext = UTIL.getFileExtension(path);
+    const allowed = new Set(['.mp4', '.webm', '.m4v', '.mov', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.zip', '.rar', '.7z']);
+    if (!allowed.has(ext)) return false;
+    if (path.includes('/istorage/')) return false;
+    return (host === API.COOMERFANS_HOST || host.endsWith(`.${API.COOMERFANS_HOST}`)) && path.includes('/storage/');
+  } catch (_) {
+    return false;
+  }
+}
+
+function extractCoomerFansMediaUrls(html) {
+  const urls = [];
+  const seen = new Set();
+  const tagRe = /<(source|video|a|img)\b[^>]*>/gi;
+  let match;
+  while ((match = tagRe.exec(html || '')) !== null) {
+    const attrs = extractTagAttrs(match[0]);
+    const raw = attrs.src || attrs.href || attrs['data-src'] || attrs['data-original'] || attrs['data-lazy-src'];
+    const full = absoluteCoomerFansUrl(raw);
+    if (!full || !isCoomerFansMediaUrl(full) || seen.has(full)) continue;
+    seen.add(full);
+    urls.push(full);
+  }
+  return urls.sort();
+}
+
+async function fetchCoomerFansHtml(url) {
+  const headers = {
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9',
+    'Cache-Control': 'no-cache',
+    'User-Agent': 'Mozilla/5.0',
+  };
+  const resp = await fetch(url, { method: 'GET', headers, credentials: 'include' });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.text();
+}
+
+function coomerFansPostUrl(service, userId, postId) {
+  return `${API.COOMERFANS_ORIGIN}/p/${encodeURIComponent(postId)}/${encodeURIComponent(userId)}/${encodeURIComponent(service)}`;
+}
+
+function buildCoomerFansFileName(creatorName, userId, postId, mediaUrl, index) {
+  const ext = UTIL.getFileExtension(mediaUrl) || '.bin';
+  const base = UTIL.sanitizeFileName(creatorName || userId || 'coomerfans');
+  const suffix = index === 1 ? '' : `.${index}`;
+  return UTIL.sanitizeFileName(`${base}.${postId}${suffix}${ext}`);
+}
+
+export async function startCoomerFansDownload(service, userId, postId, creatorName, senderTabId) {
+  const postUrl = coomerFansPostUrl(service, userId, postId);
+  let html;
+  try {
+    html = await fetchCoomerFansHtml(postUrl);
+  } catch (e) {
+    throw new Error(`Failed to fetch CoomerFans post page: ${e.message}`);
+  }
+
+  const mediaUrls = extractCoomerFansMediaUrls(html);
+  const tasks = mediaUrls.map((url, index) => ({
+    url,
+    fileName: buildCoomerFansFileName(creatorName, userId, postId, url, index + 1),
+    type: 'coomerfans_media',
+  }));
+  const externalLinks = UTIL.extractExternalLinks(html.replace(/<[^>]+>/g, ' '));
+
+  if (tasks.length === 0) {
+    return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
+  }
+
+  const domain = API.COOMERFANS_HOST;
+  const cookieString = await getCookies(domain);
+  const backendCfg = await loadBackendConfig();
+
+  if (backendCfg.enabled) {
+    if (backendCfg.backendType === 'gopeed') {
+      const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieString, postUrl, service, userId, postId, senderTabId);
+      if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, results, externalLinks };
+    } else {
+      const endpoint = `${backendCfg.protocol}://${backendCfg.host}:${backendCfg.port}/start-headless-download`;
+      const perFileRetry = Math.min(10, Math.max(0, Number(backendCfg.retryCount) || 0));
+      const concurrency = Math.max(1, Math.min(6, Math.floor(backendCfg.concurrency || CONFIG.MAX_CONCURRENT_DOWNLOADS)));
+      const perPostFileLimit = Number.isFinite(backendCfg.perPostFileLimit) ? backendCfg.perPostFileLimit : 100;
+      const batches = [];
+      for (let i = 0; i < tasks.length; i += perPostFileLimit) batches.push(tasks.slice(i, i + perPostFileLimit));
+
+      const headers = {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+        'User-Agent': 'Mozilla/5.0',
+      };
+      const allFileResults = [];
+      const sendProgress = (sent, total) => {
+        const payload = { action: 'downloadProgress', service, userId, postId, progress: Math.round(100 * (sent / Math.max(1, total))), sentCount: sent, totalCount: total };
+        try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; }); else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; }); } catch (e) { }
+      };
+
+      GLOBAL_TASK_QUEUE.setConcurrency(concurrency);
+      for (let b = 0; b < batches.length; b++) {
+        const results = await GLOBAL_TASK_QUEUE.enqueueTasks(batches[b], {
+          endpoint, cookieString, origin: API.COOMERFANS_ORIGIN, service, userId, postId,
+          headers, referer: postUrl, perFileRetry, sendProgress, totalCount: tasks.length, progressOffset: allFileResults.length,
+        });
+        allFileResults.push(...results);
+        if (b < batches.length - 1) await new Promise(r => setTimeout(r, 250));
+      }
+
+      if (allFileResults.some(fr => fr.success)) return { success: true, backend: true, results: allFileResults, externalLinks };
+    }
+  }
+
+  const progressCallback = ({ processed, total, successCount }) => {
+    const payload = { action: 'downloadProgress', service, userId, postId, progress: Math.round(100 * (processed / Math.max(1, total))), sentCount: successCount, totalCount: total };
+    try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; }); else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; }); } catch (e) { }
+  };
+
+  const { successCount, results } = await runSequentialDownloads(tasks, progressCallback);
+  return { success: true, successCount, results, externalLinks };
 }
 
 // Parse downloadable URLs from a pawchive post HTML page.
@@ -262,10 +409,6 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
   }
 
-  if (externalLinks.length > 0) {
-    console.log(`[Pawchive] External links found in post ${postId}:`, externalLinks);
-  }
-
   const backendCfg = await loadBackendConfig();
 
   if (backendCfg.enabled) {
@@ -317,7 +460,7 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
 // Dispatch a single file URL to Gopeed via the REST API from the background
 // service worker. Do not use no-cors here: it strips Content-Type and
 // X-Api-Token, which makes token-protected Gopeed instances silently fail.
-async function dispatchToGopeed(baseUrl, token, fileUrl, cookieString, referer, fileName, downloadPath = '') {
+async function dispatchToGopeed(baseUrl, token, fileUrl, cookieString, referer, fileName) {
   const payload = {
     rid: '',
     req: {
@@ -327,7 +470,6 @@ async function dispatchToGopeed(baseUrl, token, fileUrl, cookieString, referer, 
     },
     opts: {
       name: fileName,
-      path: downloadPath || '',
       selectFiles: [1],
       extra: { connections: 32 },
     },
@@ -361,12 +503,11 @@ async function dispatchToGopeed(baseUrl, token, fileUrl, cookieString, referer, 
 async function dispatchAllToGopeed(tasks, backendCfg, cookieString, referer, service, userId, postId, senderTabId) {
   const baseUrl = `${backendCfg.gopeedProtocol}://${backendCfg.gopeedHost}:${backendCfg.gopeedPort}`;
   const token = backendCfg.gopeedToken || '';
-  const downloadPath = backendCfg.gopeedPath || '';
   let successCount = 0;
   const results = [];
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[i];
-    const result = await dispatchToGopeed(baseUrl, token, task.url, cookieString, referer, task.fileName, downloadPath);
+    const result = await dispatchToGopeed(baseUrl, token, task.url, cookieString, referer, task.fileName);
     results.push({ task, ...result });
     if (result.success) successCount++;
     const progress = Math.round(100 * (i + 1) / Math.max(1, tasks.length));

@@ -37,5 +37,3 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     console.error('[Background] onAlarm handler error', e);
   }
 });
-
-console.log('[Background] service worker modules loaded');

@@ -47,9 +47,7 @@ export function createCreatorsHandlers() {
       }
       (async () => {
         try {
-          console.log("[Background] creators.updateCache", message.host);
           await updateCacheFromNetwork(message.host);
-          console.log("[Background] creators.updateCache done", message.host);
         } catch (err) {
           console.error("[Background] creators.updateCache failed", message.host, err);
         }
@@ -61,6 +59,6 @@ export function createCreatorsHandlers() {
       respondWith(sendResponse, setCreatorsOverrideEnabled(!!message.enabled), () => ({})),
 
     "creators.ensureRuleState": ({ sendResponse }) =>
-      respondWith(sendResponse, ensureRuleState(), () => ({})),
+      respondWith(sendResponse, ensureRuleState(), (enabled) => ({ enabled })),
   };
 }

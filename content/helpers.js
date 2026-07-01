@@ -56,9 +56,13 @@ function safeSendMessage(message, timeout = 5000, opts = { retries: 2, retryDela
 }
 
 // Check if post is downloaded
-async function isPostDownloaded(service, userId, postId) {
+async function isPostDownloaded(service, userId, postId, options = {}) {
   try {
-    const response = await safeSendMessage({ action: 'checkDownloaded', service, userId, postId }, 5000, { retries: 2, retryDelay: 300 });
+    const response = await safeSendMessage(
+      { action: 'checkDownloaded', service, userId, postId, source: options.source },
+      5000,
+      { retries: 2, retryDelay: 300 }
+    );
     return !!(response && response.downloaded);
   } catch (error) {
     console.warn('[Content] Check downloaded error:', error);
@@ -66,8 +70,9 @@ async function isPostDownloaded(service, userId, postId) {
   }
 }
 
-function downloadedKey(service, userId, postId) {
-  return `${String(service || '')}:${String(userId || '')}:${String(postId || '')}`;
+function downloadedKey(service, userId, postId, source) {
+  const prefix = String(source || '').toLowerCase() === 'coomerfans' ? 'coomerfans:' : '';
+  return `${prefix}${String(service || '')}:${String(userId || '')}:${String(postId || '')}`;
 }
 
 async function getDownloadedStatusMap(items) {
@@ -77,6 +82,7 @@ async function getDownloadedStatusMap(items) {
       service: String(item.service),
       userId: String(item.userId),
       postId: String(item.postId),
+      source: item.source,
     }));
   if (validItems.length === 0) return new Map();
 

@@ -17,6 +17,8 @@ export const CONFIG = {
 // API configuration centralization
 export const API = {
   HOSTS: ["coomer.st", "kemono.cr"],
+  COOMERFANS_HOST: "coomerfans.com",
+  COOMERFANS_ORIGIN: "https://coomerfans.com",
   // Default origin (used when detection fails)
   DEFAULT_ORIGIN: "https://kemono.cr",
   // API prefix and common paths
@@ -33,6 +35,7 @@ export const PAW = {
 
 // Storage keys
 export const STORAGE_KEY = "downloaded";
+export const COOMERFANS_STORAGE_KEY = "coomerfansDownloaded";
 export const STORAGE_VERSION_KEY = "version";
 export const LAST_ACCESS_KEY = "lastAccess";
 export const FAVORITES_CONFIG_KEY = "favoritesConfig";

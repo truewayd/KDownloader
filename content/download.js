@@ -1,6 +1,6 @@
 // content/download.js - handleDownload logic moved out of content.js
 
-async function handleDownload(btn, service, userId, postId, path, isCreatorPage = false) {
+async function handleDownload(btn, service, userId, postId, path, isCreatorPage = false, options = {}) {
   if (btn.disabled) return;
 
   updateButtonStatus(btn, 'SCANNING', null, isCreatorPage);
@@ -8,7 +8,15 @@ async function handleDownload(btn, service, userId, postId, path, isCreatorPage 
   try {
     let ack = null;
     try {
-      ack = await safeSendMessage({ action: 'startDownload', service, userId, postId, path }, 7000, { retries: 2, retryDelay: 400 });
+      ack = await safeSendMessage({
+        action: 'startDownload',
+        service,
+        userId,
+        postId,
+        path,
+        source: options.source,
+        creatorName: options.creatorName,
+      }, 7000, { retries: 2, retryDelay: 400 });
     } catch (err) {
       console.error('[Content] startDownload ack error:', err && err.message ? err.message : err);
       updateButtonStatus(btn, 'ERROR', `\u2717 ${err.message || 'No ack'}`, isCreatorPage);

@@ -3,181 +3,65 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kemono Downloader</title>
+  <title>KDownloader</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
+  <header class="popup-topbar">
+    <div>
+      <div class="eyebrow">KDownloader</div>
+      <h1>Kemono Toolkit</h1>
+    </div>
+    <div class="topbar-status">
+      <span id="storage-used">Calculating...</span>
+      <span id="popup-version">v?</span>
+    </div>
+  </header>
+
   <div id="global-progress" class="global-progress hidden">
     <div class="global-progress-inner">
       <div class="global-progress-label" id="global-progress-label">Sending...</div>
       <div class="global-progress-track"><div class="global-progress-fill" id="global-progress-fill"></div></div>
     </div>
   </div>
-  <div class="container">
-    <header class="popup-hero">
-      <div>
-        <div class="eyebrow">KDownloader</div>
-        <h1>Kemono Toolkit</h1>
-      </div>
-    </header>
 
-    <div class="stats hidden">
-      <h2>Favorites Watcher</h2>
-      <div class="stat-item">
-        <span>Enable</span>
-        <span>
-          <label class="row">
-            <input type="checkbox" id="fav-enabled" class="custom-checkbox">
-            <span id="fav-enabled-label">Off</span>
-          </label>
-        </span>
-      </div>
-      
-      <div class="stat-item">
-        <span>Interval (minutes)</span>
-        <span>
-          <input id="fav-interval" type="number" min="1" step="1" value="360" class="small-input">
-        </span>
-      </div>
-      <div class="row mt-10">
-        <button class="btn secondary" id="fav-save-btn">Save Settings</button>
-        <button class="btn" id="fav-check-btn">Check Now</button>
-      </div>
-    </div>
-
-    <div class="stats mt-10">
-      <div class="accordion" id="abdm-accordion" aria-expanded="false">
-        <div class="accordion-header" role="button" tabindex="0" aria-controls="abdm-body">
-          <h2>Backend</h2>
-          <div class="accordion-toggle" aria-hidden="true">▸</div>
-        </div>
-        <div class="accordion-body" id="abdm-body">
-          <!-- Backend type switch: ABDM / Gopeed (mutually exclusive) -->
-          <div class="row segmented-row">
-            <button class="backend-type-btn active" id="backend-type-abdm" data-type="abdm">ABDM</button>
-            <button class="backend-type-btn" id="backend-type-gopeed" data-type="gopeed">Gopeed</button>
-          </div>
-
-          <!-- Enable toggle (shared) -->
-          <div class="row control-row">
-            <label class="row">
-              <input type="checkbox" id="backend-enabled" class="custom-checkbox">
-              <span id="backend-enabled-label">Off</span>
-            </label>
-          </div>
-
-          <!-- ABDM config panel -->
-          <div id="abdm-config-panel" class="config-panel">
-            <div class="row">
-              <input id="backend-host" type="text" placeholder="127.0.0.1" class="input-flex">
-              <input id="backend-port" type="number" placeholder="15151" class="small-input">
-            </div>
-            <div class="row mt-8 align-right">
-              <button class="btn secondary" id="backend-save-btn">Save Backend</button>
-            </div>
-          </div>
-
-          <!-- Gopeed config panel -->
-          <div id="gopeed-config-panel" class="config-panel hidden-panel">
-            <div class="row">
-              <input id="gopeed-host" type="text" placeholder="127.0.0.1" class="input-flex">
-              <input id="gopeed-port" type="number" placeholder="9999" class="small-input">
-            </div>
-            <div class="row mt-6">
-              <input id="gopeed-token" type="password" placeholder="API Token (optional)" class="input-flex">
-            </div>
-            <div class="row mt-6">
-              <input id="gopeed-path" type="text" placeholder="Download path (optional)" class="input-flex">
-            </div>
-            <div class="row mt-8 align-right">
-              <button class="btn secondary" id="gopeed-save-btn">Save Gopeed</button>
-            </div>
-          </div>
-
-          <div class="divider"></div>
-
-          <!-- Creator Fetch inside ABDM Backend -->
-          <div>
-            <h3 class="section-label">Creator Fetch</h3>
-            <div class="column">
-              <input id="creator-url" type="text" placeholder="https://kemono.cr/patreon/user/114514" class="input-flex mt-6" />
-              <div class="row mt-8 align-left">
-                <button class="btn" id="creator-fetch-btn">Creator Fetch</button>
-              </div>
-            </div>
-          </div>
+  <main class="container">
+    <section class="stats creator-fetch-panel">
+      <h2>Creator Fetch</h2>
+      <div class="column mt-8">
+        <input id="creator-url" type="text" placeholder="Configure and enable backend first" class="input-flex" />
+        <div class="row mt-8 align-right">
+          <button class="btn" id="creator-fetch-btn">Settings</button>
         </div>
       </div>
-    </div>
+    </section>
 
-    <div class="stats mt-10">
-      <div class="accordion" id="creators-accordion" aria-expanded="false">
-        <div class="accordion-header" role="button" tabindex="0" aria-controls="creators-body">
-          <h2>Search Page Cache</h2>
-          <div class="accordion-toggle" aria-hidden="true">▸</div>
-        </div>
-        <div class="accordion-body" id="creators-body">
-          <div class="row control-row">
-            <label class="row">
-              <input type="checkbox" id="creators-enabled" class="custom-checkbox">
-              <span id="creators-enabled-label">Off</span>
-            </label>
-          </div>
-          <div class="column">
-            <div class="row space-between center-align">
-              <div class="inline-group">
-                <button class="btn" id="creators-update-coomer">Cache Coomer</button>
-                <div class="muted" id="creators-last-updated-coomer">Never</div>
-              </div>
-            </div>
-            <div class="row space-between center-align mt-8">
-              <div class="inline-group">
-                <button class="btn" id="creators-update-kemono">Cache Kemono</button>
-                <div class="muted" id="creators-last-updated-kemono">Never</div>
-              </div>
-            </div>
-          </div>
-        </div>
+    <section class="stats hidden" id="search-cache-panel">
+      <h2>Search Page Fetch</h2>
+      <div class="row mt-8 align-right">
+        <button class="btn secondary" id="creators-update-coomer">Cache Coomer</button>
+        <button class="btn secondary" id="creators-update-kemono">Cache Kemono</button>
       </div>
-    </div>
+    </section>
 
-    <div class="stats mt-10">
-      <div class="accordion" id="gist-accordion" aria-expanded="false">
-        <div class="accordion-header" role="button" tabindex="0" aria-controls="gist-body">
-          <h2>GitHub Gist Sync</h2>
-          <div class="accordion-toggle" aria-hidden="true">▸</div>
-        </div>
-        <div class="accordion-body" id="gist-body">
-          <div class="stat-item no-border column">
-            <input id="gist-token" type="password" placeholder="GitHub Token" class="input-flex mt-6" />
-            <input id="gist-id" type="text" placeholder="Gist ID (optional)" class="input-flex mt-6" />
-            <div class="row mt-10 align-right">
-              <button class="btn" id="gist-upload-btn">Upload</button>
-              <button class="btn secondary" id="gist-download-btn">Download</button>
-            </div>
-          </div>
-        </div>
+    <section class="stats hidden" id="gist-panel">
+      <h2>GitHub Gist Sync</h2>
+      <div class="row mt-8 align-right">
+        <button class="btn secondary" id="gist-download-btn">Download</button>
+        <button class="btn" id="gist-upload-btn">Upload</button>
       </div>
-    </div>
+    </section>
 
-    <div class="actions mt-12">
-
-      <div class="row">
-        <button class="btn" id="export-btn">
-          <span>Export</span>
-        </button>
-        <button class="btn secondary" id="import-btn">
-          <span>Import</span>
-        </button>
-        <button class="btn danger ml-auto" id="clear-btn">
-          <span>Clear</span>
-        </button>
+    <section class="stats">
+      <h2>History</h2>
+      <div class="row mt-8 align-right">
+        <button class="btn secondary" id="import-btn">Import</button>
+        <button class="btn" id="export-btn">Export</button>
       </div>
-    </div>
+    </section>
 
     <input type="file" id="file-input" class="file-input" accept="application/json">
-
-    </div>
+  </main>
 
   <div class="loading" id="loading">
     <div class="spinner"></div>
@@ -186,19 +70,6 @@
   <div class="success-message" id="success-message"></div>
   <div class="error-message" id="error-message"></div>
 
-  <!-- Footer: fixed history storage used + version -->
-  <div class="popup-footer">
-    <div class="footer-inner">
-      <div class="stat-item no-border">
-        <span>History Storage Used:&nbsp;</span>
-        <span class="stat-value" id="storage-used">Calculating...</span>
-      </div>
-      <div id="popup-version" class="muted">v?</div>
-    </div>
-  </div>
-
   <script src="popup.js"></script>
 </body>
 </html>
-
-

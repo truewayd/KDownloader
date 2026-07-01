@@ -1,9 +1,14 @@
 // background/handlers/downloadHandlers.js - download and creator fetch RPCs
 import { API } from "../constants.js";
 import { handleAPIRequest } from "../network.js";
-import { startFullDownload, startPawchiveDownload } from "../download.js";
+import {
+  startCoomerFansDownload,
+  startFullDownload,
+  startPawchiveDownload,
+} from "../download.js";
 import {
   checkDownloadedMany,
+  downloadedItemKey,
   markDownloaded,
   markMultipleDownloaded,
 } from "../db.js";
@@ -36,6 +41,15 @@ async function runSingleDownload(item, sender, tabId) {
   const senderUrl = getSenderUrl(sender);
   if (isPawRequest(item, senderUrl)) {
     return startPawchiveDownload(item.service, item.userId, item.postId, tabId);
+  }
+  if (item.source === "coomerfans") {
+    return startCoomerFansDownload(
+      item.service,
+      item.userId,
+      item.postId,
+      item.creatorName,
+      tabId
+    );
   }
   return startFullDownload(
     item.service,
@@ -97,6 +111,7 @@ async function runDownloadBatch(items, sender, scope = {}) {
         broadcastComplete(item, result, tabId);
         if (shouldMarkResult(result)) {
           succeeded.push({
+            source: item.source,
             service: item.service,
             userId: item.userId,
             postId: item.postId,
@@ -141,10 +156,112 @@ function postToDownloadItem(origin, service, userId, post) {
   };
 }
 
+function isCoomerFansOrigin(origin) {
+  try {
+    const host = new URL(origin || API.COOMERFANS_ORIGIN).hostname.toLowerCase();
+    return host === API.COOMERFANS_HOST || host.endsWith(`.${API.COOMERFANS_HOST}`);
+  } catch (e) {
+    return false;
+  }
+}
+
+function coomerFansCreatorUrl(origin, service, userId, creatorName) {
+  const name = creatorName ? `/${encodeURIComponent(creatorName)}` : "";
+  return `${origin}/u/${encodeURIComponent(service)}/${encodeURIComponent(userId)}${name}`;
+}
+
+function getCoomerFansPostIdentity(rawUrl, expectedService, expectedUserId) {
+  try {
+    const u = new URL(rawUrl, API.COOMERFANS_ORIGIN);
+    const parts = u.pathname.split("/").filter(Boolean);
+    const service = String(expectedService || "").toLowerCase();
+    if (
+      parts.length >= 4 &&
+      parts[0] === "p" &&
+      parts[2] === String(expectedUserId) &&
+      parts[3].toLowerCase() === service
+    ) {
+      return { postId: parts[1], postUrl: u.toString() };
+    }
+    if (
+      parts.length >= 5 &&
+      parts[0].toLowerCase() === service &&
+      parts[1] === "user" &&
+      parts[2] === String(expectedUserId) &&
+      parts[3] === "post"
+    ) {
+      return { postId: parts[4], postUrl: u.toString() };
+    }
+  } catch (e) {
+    /* ignore malformed links */
+  }
+  return null;
+}
+
+async function fetchCoomerFansCreatorHtml(url) {
+  const headers = {
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+    "Cache-Control": "no-cache",
+    "User-Agent": "Mozilla/5.0",
+  };
+  const resp = await fetch(url, { method: "GET", headers, credentials: "include" });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.text();
+}
+
+async function fetchCoomerFansCreatorItems(origin, service, userId, creatorName) {
+  const baseProfile = coomerFansCreatorUrl(origin, service, userId, creatorName);
+  const perPage = 50;
+  const maxPages = 999;
+  const postMap = new Map();
+
+  for (let pageIdx = 1; pageIdx <= maxPages; pageIdx++) {
+    const candidates = pageIdx === 1 ? [baseProfile] : [];
+    candidates.push(`${baseProfile}?page=${pageIdx}`);
+    candidates.push(`${baseProfile}?o=${(pageIdx - 1) * perPage}`);
+
+    let fetchedAny = false;
+    let foundThisPage = 0;
+    for (const listUrl of candidates) {
+      try {
+        const html = await fetchCoomerFansCreatorHtml(listUrl);
+        fetchedAny = true;
+        const linkRe = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi;
+        let match;
+        while ((match = linkRe.exec(html)) !== null) {
+          const href = (match[1] || match[2] || match[3] || "").replace(/&amp;/g, "&");
+          const identity = getCoomerFansPostIdentity(href, service, userId);
+          if (!identity || postMap.has(identity.postId)) continue;
+          postMap.set(identity.postId, {
+            source: "coomerfans",
+            service,
+            userId,
+            postId: identity.postId,
+            path: identity.postUrl,
+            origin,
+            creatorName,
+          });
+          foundThisPage++;
+        }
+        if (foundThisPage > 0) break;
+      } catch (err) {
+        console.warn("[Background] fetch CoomerFans listing failed", listUrl, err);
+      }
+    }
+    if (!fetchedAny) continue;
+
+    if (foundThisPage === 0) break;
+    await delay(200);
+  }
+
+  return Array.from(postMap.values());
+}
+
 async function filterUndownloaded(items) {
   const downloaded = await checkDownloadedMany(items);
   return items.filter((item) => {
-    const key = `${item.service}:${item.userId}:${item.postId}`;
+    const key = downloadedItemKey(item.service, item.userId, item.postId, item.source);
     return !downloaded[key];
   });
 }
@@ -226,12 +343,13 @@ export function createDownloadHandlers() {
           postId: message.postId,
           path: message.path,
           source: message.source,
+          creatorName: message.creatorName,
         };
         try {
           const result = await runSingleDownload(item, sender, tabId);
           if (shouldMarkResult(result)) {
             try {
-              await markDownloaded(item.service, item.userId, item.postId);
+              await markDownloaded(item.service, item.userId, item.postId, item.source);
             } catch (err) {
               console.warn("[Background] markDownloaded failed", err);
             }
@@ -272,8 +390,20 @@ export function createDownloadHandlers() {
       }
       (async () => {
         const origin = message.origin || API.DEFAULT_ORIGIN;
-        const { service, userId } = message;
+        const { service, userId, creatorName } = message;
         if (!service || !userId) return;
+
+        if (message.source === "coomerfans" || isCoomerFansOrigin(origin)) {
+          const allItems = await fetchCoomerFansCreatorItems(
+            origin,
+            service,
+            userId,
+            creatorName
+          );
+          const items = await filterUndownloaded(allItems);
+          await runDownloadBatch(items, sender, { service, userId });
+          return;
+        }
 
         const posts = await fetchCreatorPosts(origin, service, userId);
         const allItems = posts.map((post) =>
