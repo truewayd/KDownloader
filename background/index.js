@@ -1,5 +1,5 @@
 // background/index.js - service worker entry
-import { FAVORITES_ALARM, SYNC_VERSION_ALARM } from './constants.js';
+import { FAVORITES_ALARM } from './constants.js';
 import { registerMessageHandlers } from './messages.js';
 import { loadFavoritesConfig } from './config.js';
 import { ensureRuleState } from './creators.js';
@@ -27,10 +27,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (!alarm) return;
     if (alarm.name === FAVORITES_ALARM) {
       // runFavoritesCheck imported dynamically if needed
-      return;
-    }
-    if (alarm.name === SYNC_VERSION_ALARM) {
-      // safeIncrementStorageVersion retry handled in db module invocations
       return;
     }
   } catch (e) {

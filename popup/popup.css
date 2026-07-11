@@ -1,5 +1,6 @@
-/* popup.css - dark, warm popup UI */
+/* popup.css - adaptive warm popup UI */
 :root {
+  color-scheme: dark;
   --bg: #171614;
   --surface: #211f1b;
   --surface-3: #312d25;
@@ -11,7 +12,71 @@
   --accent: #d97757;
   --accent-hover: #e38b6b;
   --accent-soft: rgba(217, 119, 87, 0.16);
+  --icon-accent: #f0b49b;
   --shadow: 0 12px 34px rgba(0, 0, 0, 0.32);
+  --topbar-bg: rgba(23, 22, 20, 0.97);
+  --input-bg: #181714;
+  --input-focus-bg: #1d1b18;
+  --placeholder: rgba(170, 160, 150, 0.68);
+  --creator-border: rgba(217, 119, 87, 0.2);
+  --button-text: #1d120d;
+  --button-border: rgba(217, 119, 87, 0.62);
+  --focus-ring: rgba(217, 119, 87, 0.58);
+  --secondary-hover-bg: #39342b;
+  --secondary-hover-border: rgba(232, 223, 210, 0.28);
+  --button-inset: 0 1px 0 rgba(255, 255, 255, 0.14) inset;
+  --panel-inset: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
+  --progress-bg: rgba(33, 31, 27, 0.97);
+  --progress-track: rgba(232, 223, 210, 0.1);
+  --loading-bg: rgba(23, 22, 20, 0.96);
+  --spinner-border: rgba(232, 223, 210, 0.2);
+  --success-border: rgba(119, 160, 106, 0.38);
+  --success-bg: rgba(33, 54, 35, 0.96);
+  --success-text: #d3e6cd;
+  --error-border: rgba(201, 101, 88, 0.46);
+  --error-bg: rgba(70, 35, 32, 0.96);
+  --error-text: #f0c4bd;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f7f3ed;
+    --surface: #fffaf3;
+    --surface-3: #eee6da;
+    --border: rgba(80, 65, 49, 0.14);
+    --border-strong: rgba(80, 65, 49, 0.24);
+    --text: #2a2119;
+    --muted: #6d6258;
+    --subtle: #8b7f73;
+    --accent: #c96442;
+    --accent-hover: #b85435;
+    --accent-soft: rgba(201, 100, 66, 0.15);
+    --icon-accent: #b85435;
+    --shadow: 0 12px 34px rgba(82, 62, 42, 0.14);
+    --topbar-bg: rgba(247, 243, 237, 0.97);
+    --input-bg: #fffdf8;
+    --input-focus-bg: #fff8ee;
+    --placeholder: rgba(109, 98, 88, 0.58);
+    --creator-border: rgba(201, 100, 66, 0.24);
+    --button-text: #fffaf3;
+    --button-border: rgba(201, 100, 66, 0.7);
+    --focus-ring: rgba(201, 100, 66, 0.38);
+    --secondary-hover-bg: #e7ded1;
+    --secondary-hover-border: rgba(80, 65, 49, 0.3);
+    --button-inset: 0 1px 0 rgba(255, 255, 255, 0.28) inset;
+    --panel-inset: 0 1px 0 rgba(255, 255, 255, 0.75) inset;
+    --progress-bg: rgba(255, 250, 243, 0.98);
+    --progress-track: rgba(80, 65, 49, 0.12);
+    --loading-bg: rgba(255, 250, 243, 0.98);
+    --spinner-border: rgba(80, 65, 49, 0.18);
+    --success-border: rgba(87, 132, 73, 0.34);
+    --success-bg: rgba(235, 247, 229, 0.98);
+    --success-text: #365b2f;
+    --error-border: rgba(184, 75, 55, 0.36);
+    --error-bg: rgba(255, 239, 234, 0.98);
+    --error-text: #8b3326;
+  }
 }
 
 * {
@@ -49,6 +114,28 @@ input {
   font: inherit;
 }
 
+.icon-sprite {
+  display: none;
+}
+
+.icon,
+.button-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
+}
+
+.icon {
+  width: 18px;
+  height: 18px;
+  color: var(--icon-accent);
+}
+
 .container {
   display: flex;
   flex-direction: column;
@@ -65,7 +152,7 @@ input {
   gap: 12px;
   border-bottom: 1px solid var(--border);
   padding: 9px 12px;
-  background: rgba(23, 22, 20, 0.97);
+  background: var(--topbar-bg);
 }
 
 .popup-topbar h1 {
@@ -110,7 +197,7 @@ input {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
+  box-shadow: var(--panel-inset);
 }
 
 .stats.hidden {
@@ -118,7 +205,14 @@ input {
 }
 
 .creator-fetch-panel {
-  border-color: rgba(217, 119, 87, 0.2);
+  border-color: var(--creator-border);
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .stats h2 {
@@ -162,19 +256,19 @@ input[type="number"] {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0 10px;
-  background: #181714;
+  background: var(--input-bg);
   color: var(--text);
   outline: none;
   transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
 }
 
 input::placeholder {
-  color: rgba(170, 160, 150, 0.68);
+  color: var(--placeholder);
 }
 
 input:focus {
-  border-color: rgba(217, 119, 87, 0.68);
-  background: #1d1b18;
+  border-color: var(--button-border);
+  background: var(--input-focus-bg);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
@@ -184,16 +278,17 @@ input:focus {
   justify-content: center;
   gap: 8px;
   min-height: 34px;
-  border: 1px solid rgba(217, 119, 87, 0.62);
+  border: 1px solid var(--button-border);
   border-radius: 8px;
   padding: 8px 12px;
   background: var(--accent);
-  color: #1d120d;
+  color: var(--button-text);
   cursor: pointer;
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset;
+  white-space: nowrap;
+  box-shadow: var(--button-inset);
   transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.08s ease;
 }
 
@@ -207,7 +302,7 @@ input:focus {
 }
 
 .btn:focus-visible {
-  outline: 2px solid rgba(217, 119, 87, 0.58);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -218,8 +313,8 @@ input:focus {
 }
 
 .btn.secondary:hover {
-  background: #39342b;
-  border-color: rgba(232, 223, 210, 0.28);
+  background: var(--secondary-hover-bg);
+  border-color: var(--secondary-hover-border);
 }
 
 .btn:disabled {
@@ -236,7 +331,7 @@ input:focus {
   align-items: center;
   min-height: 42px;
   border-bottom: 1px solid var(--border);
-  background: rgba(33, 31, 27, 0.97);
+  background: var(--progress-bg);
   color: var(--text);
   padding: 8px 12px;
 }
@@ -264,7 +359,7 @@ input:focus {
   height: 8px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(232, 223, 210, 0.1);
+  background: var(--progress-track);
 }
 
 .global-progress-fill {
@@ -287,7 +382,7 @@ input:focus {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 13px;
-  background: rgba(23, 22, 20, 0.96);
+  background: var(--loading-bg);
   color: var(--text);
   font-size: 13px;
   box-shadow: var(--shadow);
@@ -300,7 +395,7 @@ input:focus {
 .spinner {
   width: 18px;
   height: 18px;
-  border: 2px solid rgba(232, 223, 210, 0.2);
+  border: 2px solid var(--spinner-border);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
@@ -328,15 +423,15 @@ input:focus {
 }
 
 .success-message {
-  border-color: rgba(119, 160, 106, 0.38);
-  background: rgba(33, 54, 35, 0.96);
-  color: #d3e6cd;
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 .error-message {
-  border-color: rgba(201, 101, 88, 0.46);
-  background: rgba(70, 35, 32, 0.96);
-  color: #f0c4bd;
+  border-color: var(--error-border);
+  background: var(--error-bg);
+  color: var(--error-text);
 }
 
 .success-message.show,

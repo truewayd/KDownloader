@@ -8,30 +8,65 @@ import { handleAPIRequest, getCookies } from './network.js';
 class TaskQueue {
   constructor(concurrency = CONFIG.MAX_CONCURRENT_DOWNLOADS) {
     this.queue = [];
+    this.queueHead = 0;
     this.waiters = [];
     this.concurrency = concurrency;
-    this.workerCount = 0;
+    this.activeWorkers = 0;
     this.setConcurrency(concurrency);
   }
 
   setConcurrency(concurrency) {
     this.concurrency = Math.max(1, Math.floor(concurrency || CONFIG.MAX_CONCURRENT_DOWNLOADS));
-    while (this.workerCount < this.concurrency) {
-      this._workerLoop(this.workerCount);
-      this.workerCount++;
+    while (this.activeWorkers < this.concurrency) {
+      this._spawnWorker();
     }
+    this._wakeAll();
+  }
+
+  _spawnWorker() {
+    this.activeWorkers++;
+    this._workerLoop().finally(() => {
+      this.activeWorkers = Math.max(0, this.activeWorkers - 1);
+      if (this._hasItems() && this.activeWorkers < this.concurrency) {
+        this._spawnWorker();
+      }
+    });
   }
 
   _notifyNew() {
-    while (this.waiters.length && this.queue.length) {
+    while (this.waiters.length && this._hasItems()) {
+      const w = this.waiters.shift();
+      w();
+    }
+  }
+
+  _wakeAll() {
+    while (this.waiters.length) {
       const w = this.waiters.shift();
       w();
     }
   }
 
   async _waitForItem() {
-    if (this.queue.length) return;
+    if (this._hasItems()) return;
     await new Promise(resolve => this.waiters.push(resolve));
+  }
+
+  _hasItems() {
+    return this.queueHead < this.queue.length;
+  }
+
+  _takeItem() {
+    if (!this._hasItems()) return null;
+    const item = this.queue[this.queueHead++];
+    if (this.queueHead >= this.queue.length) {
+      this.queue.length = 0;
+      this.queueHead = 0;
+    } else if (this.queueHead > 1024 && this.queueHead * 2 > this.queue.length) {
+      this.queue = this.queue.slice(this.queueHead);
+      this.queueHead = 0;
+    }
+    return item;
   }
 
   // Enqueue an array of file tasks. Returns a Promise resolving to results array for those tasks.
@@ -57,7 +92,7 @@ class TaskQueue {
     });
   }
 
-  async _workerLoop(workerIndex) {
+  async _workerLoop() {
     // Each worker keeps its own adaptive delay state
     let currentDelay = CONFIG.TASK_INTERVAL_INITIAL || CONFIG.TASK_INTERVAL;
     const factor = CONFIG.TASK_INTERVAL_BACKOFF_FACTOR || 1.5;
@@ -65,8 +100,10 @@ class TaskQueue {
     const maxDelay = CONFIG.TASK_INTERVAL_MAX || 5000;
 
     while (true) {
-      if (!this.queue.length) await this._waitForItem();
-      const item = this.queue.shift();
+      if (this.activeWorkers > this.concurrency) return;
+      if (!this._hasItems()) await this._waitForItem();
+      if (this.activeWorkers > this.concurrency) return;
+      const item = this._takeItem();
       if (!item) continue;
 
       const { meta, task, options } = item;
@@ -100,7 +137,16 @@ class TaskQueue {
       while (attempts <= perFileRetry && !success) {
         try {
           attempts++;
-          await fetch(endpoint, { method: 'POST', body: JSON.stringify(filePayload), mode: 'no-cors', credentials: 'include' });
+          const resp = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(filePayload),
+            credentials: 'include',
+          });
+          const text = await resp.text().catch(() => '');
+          if (!resp.ok) {
+            throw new Error(`Backend HTTP ${resp.status}${text ? `: ${text.slice(0, 200)}` : ''}`);
+          }
           success = true;
         } catch (e) {
           lastError = e;
@@ -134,6 +180,61 @@ class TaskQueue {
 
 // Single global queue instance (will use default concurrency, can be adjusted later)
 const GLOBAL_TASK_QUEUE = new TaskQueue();
+
+function sendDownloadProgress(senderTabId, service, userId, postId, processed, total, sentCount = processed) {
+  const payload = {
+    action: 'downloadProgress',
+    service,
+    userId,
+    postId,
+    progress: Math.round(100 * (processed / Math.max(1, total))),
+    sentCount,
+    totalCount: total,
+  };
+  try {
+    if (typeof senderTabId === 'number') {
+      chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; });
+    } else {
+      chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; });
+    }
+  } catch (e) { }
+}
+
+async function dispatchAllToBackend(tasks, backendCfg, context) {
+  const endpoint = `${backendCfg.protocol}://${backendCfg.host}:${backendCfg.port}/start-headless-download`;
+  const perFileRetry = Math.min(10, Math.max(0, Number(backendCfg.retryCount) || 0));
+  const concurrency = Math.max(1, Math.min(6, Math.floor(backendCfg.concurrency || CONFIG.MAX_CONCURRENT_DOWNLOADS)));
+  const perPostFileLimit = Number.isFinite(backendCfg.perPostFileLimit) ? backendCfg.perPostFileLimit : context.defaultFileLimit;
+  const batches = [];
+  for (let i = 0; i < tasks.length; i += perPostFileLimit) batches.push(tasks.slice(i, i + perPostFileLimit));
+
+  const allFileResults = [];
+  const sendProgress = (sent, total) => {
+    sendDownloadProgress(context.senderTabId, context.service, context.userId, context.postId, sent, total);
+  };
+
+  GLOBAL_TASK_QUEUE.setConcurrency(concurrency);
+  for (let b = 0; b < batches.length; b++) {
+    const results = await GLOBAL_TASK_QUEUE.enqueueTasks(batches[b], {
+      endpoint,
+      cookieString: context.cookieString,
+      origin: context.origin,
+      service: context.service,
+      userId: context.userId,
+      postId: context.postId,
+      headers: context.headers,
+      referer: context.referer,
+      perFileRetry,
+      sendProgress,
+      totalCount: tasks.length,
+      progressOffset: allFileResults.length,
+    });
+    allFileResults.push(...results);
+    if (b < batches.length - 1) await new Promise(r => setTimeout(r, 250));
+  }
+
+  return allFileResults;
+}
 
 export async function runSequentialDownloads(tasks, onProgress) {
   const results = [];
@@ -268,41 +369,29 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
       const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieString, postUrl, service, userId, postId, senderTabId);
       if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, results, externalLinks };
     } else {
-      const endpoint = `${backendCfg.protocol}://${backendCfg.host}:${backendCfg.port}/start-headless-download`;
-      const perFileRetry = Math.min(10, Math.max(0, Number(backendCfg.retryCount) || 0));
-      const concurrency = Math.max(1, Math.min(6, Math.floor(backendCfg.concurrency || CONFIG.MAX_CONCURRENT_DOWNLOADS)));
-      const perPostFileLimit = Number.isFinite(backendCfg.perPostFileLimit) ? backendCfg.perPostFileLimit : 100;
-      const batches = [];
-      for (let i = 0; i < tasks.length; i += perPostFileLimit) batches.push(tasks.slice(i, i + perPostFileLimit));
-
       const headers = {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'zh-CN,zh;q=0.9',
         'User-Agent': 'Mozilla/5.0',
       };
-      const allFileResults = [];
-      const sendProgress = (sent, total) => {
-        const payload = { action: 'downloadProgress', service, userId, postId, progress: Math.round(100 * (sent / Math.max(1, total))), sentCount: sent, totalCount: total };
-        try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; }); else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; }); } catch (e) { }
-      };
-
-      GLOBAL_TASK_QUEUE.setConcurrency(concurrency);
-      for (let b = 0; b < batches.length; b++) {
-        const results = await GLOBAL_TASK_QUEUE.enqueueTasks(batches[b], {
-          endpoint, cookieString, origin: API.COOMERFANS_ORIGIN, service, userId, postId,
-          headers, referer: postUrl, perFileRetry, sendProgress, totalCount: tasks.length, progressOffset: allFileResults.length,
-        });
-        allFileResults.push(...results);
-        if (b < batches.length - 1) await new Promise(r => setTimeout(r, 250));
-      }
+      const allFileResults = await dispatchAllToBackend(tasks, backendCfg, {
+        cookieString,
+        origin: API.COOMERFANS_ORIGIN,
+        service,
+        userId,
+        postId,
+        headers,
+        referer: postUrl,
+        senderTabId,
+        defaultFileLimit: 100,
+      });
 
       if (allFileResults.some(fr => fr.success)) return { success: true, backend: true, results: allFileResults, externalLinks };
     }
   }
 
   const progressCallback = ({ processed, total, successCount }) => {
-    const payload = { action: 'downloadProgress', service, userId, postId, progress: Math.round(100 * (processed / Math.max(1, total))), sentCount: successCount, totalCount: total };
-    try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; }); else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; }); } catch (e) { }
+    sendDownloadProgress(senderTabId, service, userId, postId, processed, total, successCount);
   };
 
   const { successCount, results } = await runSequentialDownloads(tasks, progressCallback);
@@ -316,6 +405,8 @@ function parsePawchiveHtml(html, title) {
   // Deduplicate by file path (before '?') so video <source src> and matching
   // <a class="post__attachment-link"> pointing to the same file aren't doubled.
   const seenPath = new Set();
+  const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pawFileHosts = PAW.FILE_HOSTS.map(escapeRegex).join('|');
 
   const pushIfNew = (rawUrl, fileName, type) => {
     if (!rawUrl) return;
@@ -339,8 +430,8 @@ function parsePawchiveHtml(html, title) {
 
   let m;
 
-  // 1. Video source URLs: <source src="https://file.pawchive.st/...">
-  const videoSrcRe = /<source\s[^>]*\bsrc="(https:\/\/file\.pawchive\.st\/[^"]+)"/gi;
+  // 1. Video source URLs: <source src="https://file.pawchive.{st,pw}/...">
+  const videoSrcRe = new RegExp(`<source\\s[^>]*\\bsrc="(https://(?:${pawFileHosts})/[^"]+)"`, 'gi');
   while ((m = videoSrcRe.exec(html)) !== null) {
     const rawUrl = m[1];
     pushIfNew(rawUrl, extractFileName(rawUrl, null, `${title}_video.mp4`), 'video');
@@ -376,10 +467,22 @@ function parsePawchiveHtml(html, title) {
   return { tasks, externalLinks };
 }
 
+function resolvePawOrigin(senderUrl) {
+  try {
+    const host = new URL(senderUrl || PAW.ORIGIN).hostname.toLowerCase();
+    if (PAW.HOSTS.includes(host)) return `https://${host}`;
+  } catch (e) {
+    /* use default below */
+  }
+  return PAW.ORIGIN;
+}
+
 // Download a single pawchive post by fetching its HTML page and parsing assets.
-export async function startPawchiveDownload(service, userId, postId, senderTabId) {
-  const postUrl = `${PAW.ORIGIN}/${service}/user/${userId}/post/${postId}`;
-  const cookies = await getCookies(PAW.HOST);
+export async function startPawchiveDownload(service, userId, postId, senderTabId, senderUrl) {
+  const origin = resolvePawOrigin(senderUrl);
+  const host = new URL(origin).hostname;
+  const postUrl = `${origin}/${service}/user/${userId}/post/${postId}`;
+  const cookies = await getCookies(host);
   // MV3 service workers with host_permissions bypass CORS for same-origin fetches.
   // Do NOT pass Cookie manually — let credentials:'include' attach cookies automatically,
   // and do NOT set mode:'cors' which would require server CORS headers.
@@ -413,44 +516,29 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
 
   if (backendCfg.enabled) {
     if (backendCfg.backendType === 'gopeed') {
-      const referer = `${PAW.ORIGIN}/${service}/user/${userId}/post/${postId}`;
+      const referer = `${origin}/${service}/user/${userId}/post/${postId}`;
       const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookies, referer, service, userId, postId, senderTabId);
       if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, results, externalLinks };
     } else {
-    const endpoint = `${backendCfg.protocol}://${backendCfg.host}:${backendCfg.port}/start-headless-download`;
-    const perFileRetry = Math.min(10, Math.max(0, Number(backendCfg.retryCount) || 0));
-    const concurrency = Math.max(1, Math.min(6, Math.floor(backendCfg.concurrency || CONFIG.MAX_CONCURRENT_DOWNLOADS)));
-    const perPostFileLimit = Number.isFinite(backendCfg.perPostFileLimit) ? backendCfg.perPostFileLimit : 200;
-
-    const sendProgress = (sent, total) => {
-      const payload = { action: 'downloadProgress', service, userId, postId, progress: Math.round(100 * (sent / Math.max(1, total))), sentCount: sent, totalCount: total };
-      try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; }); else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; }); } catch (e) { }
-    };
-
-    GLOBAL_TASK_QUEUE.setConcurrency(concurrency);
-
-    const batches = [];
-    for (let i = 0; i < tasks.length; i += perPostFileLimit) batches.push(tasks.slice(i, i + perPostFileLimit));
-
-    const allFileResults = [];
-    for (let b = 0; b < batches.length; b++) {
-      const results = await GLOBAL_TASK_QUEUE.enqueueTasks(batches[b], {
-        endpoint, cookieString: cookies, origin: PAW.ORIGIN, service, userId, postId,
-        headers, perFileRetry, sendProgress, totalCount: tasks.length, progressOffset: allFileResults.length,
+      const allFileResults = await dispatchAllToBackend(tasks, backendCfg, {
+        cookieString: cookies,
+        origin,
+        service,
+        userId,
+        postId,
+        headers,
+        defaultFileLimit: 200,
+        senderTabId,
       });
-      allFileResults.push(...results);
-      if (b < batches.length - 1) await new Promise(r => setTimeout(r, 250));
-    }
 
-    const anySuccess = allFileResults.some(fr => fr.success);
-    if (anySuccess) return { success: true, backend: true, results: allFileResults, externalLinks };
+      const anySuccess = allFileResults.some(fr => fr.success);
+      if (anySuccess) return { success: true, backend: true, results: allFileResults, externalLinks };
     }
   }
 
   // Local chrome.downloads fallback
   const progressCallback = ({ processed, total, successCount }) => {
-    const payload = { action: 'downloadProgress', service, userId, postId, progress: Math.round(100 * (processed / Math.max(1, total))), sentCount: successCount, totalCount: total };
-    try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; }); else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; }); } catch (e) { }
+    sendDownloadProgress(senderTabId, service, userId, postId, processed, total, successCount);
   };
 
   const { successCount, results } = await runSequentialDownloads(tasks, progressCallback);
@@ -510,12 +598,7 @@ async function dispatchAllToGopeed(tasks, backendCfg, cookieString, referer, ser
     const result = await dispatchToGopeed(baseUrl, token, task.url, cookieString, referer, task.fileName);
     results.push({ task, ...result });
     if (result.success) successCount++;
-    const progress = Math.round(100 * (i + 1) / Math.max(1, tasks.length));
-    const payload = { action: 'downloadProgress', service, userId, postId, progress, sentCount: i + 1, totalCount: tasks.length };
-    try {
-      if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; });
-      else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; });
-    } catch (e) { }
+    sendDownloadProgress(senderTabId, service, userId, postId, i + 1, tasks.length);
   }
   return { successCount, results };
 }
@@ -571,44 +654,27 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
       const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieString, referer, service, userId, postId, senderTabId);
       if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, results, externalLinks };
     } else {
-    const endpoint = `${backendCfg.protocol}://${backendCfg.host}:${backendCfg.port}/start-headless-download`;
-    const perFileRetry = Math.min(10, Math.max(0, Number(backendCfg.retryCount) || 0));
-    const concurrency = Math.max(1, Math.min(6, Math.floor(backendCfg.concurrency || CONFIG.MAX_CONCURRENT_DOWNLOADS)));
-    const perPostFileLimit = Number.isFinite(backendCfg.perPostFileLimit) ? backendCfg.perPostFileLimit : 200;
+      const allFileResults = await dispatchAllToBackend(tasks, backendCfg, {
+        cookieString,
+        origin,
+        service,
+        userId,
+        postId,
+        headers,
+        defaultFileLimit: 200,
+        senderTabId,
+      });
 
-    // Respect per-post file limit by slicing into batches, but submit each batch to the centralized queue
-    const batches = [];
-    for (let i = 0; i < tasks.length; i += perPostFileLimit) batches.push(tasks.slice(i, i + perPostFileLimit));
-
-    const allFileResults = [];
-    const sendProgress = (sent, total) => {
-      const payload = { action: 'downloadProgress', service, userId, postId, progress: Math.round(100 * (sent / Math.max(1, total))), sentCount: sent, totalCount: total };
-      try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; }); else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; }); } catch (e) { }
-    };
-
-    // Increase global queue concurrency if backendCfg requests more
-    GLOBAL_TASK_QUEUE.setConcurrency(concurrency);
-
-    for (let b = 0; b < batches.length; b++) {
-      const batchTasks = batches[b];
-      // Enqueue batch and wait for completion
-      const results = await GLOBAL_TASK_QUEUE.enqueueTasks(batchTasks, { endpoint, cookieString, origin, service, userId, postId, headers, perFileRetry, sendProgress, totalCount: tasks.length, progressOffset: allFileResults.length });
-      allFileResults.push(...results);
-      // small pause between batches to avoid bursts
-      if (b < batches.length - 1) await new Promise(r => setTimeout(r, 250));
-    }
-
-    const anySuccess = allFileResults.some(fr => fr.success);
-    if (anySuccess) {
-      return { success: true, backend: true, results: allFileResults, externalLinks };
-    }
+      const anySuccess = allFileResults.some(fr => fr.success);
+      if (anySuccess) {
+        return { success: true, backend: true, results: allFileResults, externalLinks };
+      }
     }
   }
 
   // 4. Local chrome.downloads fallback
   const progressCallback = ({ processed, total, successCount }) => {
-    const payload = { action: 'downloadProgress', service, userId, postId, progress: Math.round(100 * (processed / Math.max(1, total))), sentCount: successCount, totalCount: total };
-    try { if (typeof senderTabId === 'number') chrome.tabs.sendMessage(senderTabId, payload, () => { void chrome.runtime.lastError; }); else chrome.runtime.sendMessage(payload, () => { void chrome.runtime.lastError; }); } catch (e) { }
+    sendDownloadProgress(senderTabId, service, userId, postId, processed, total, successCount);
   };
 
   const { successCount, results } = await runSequentialDownloads(tasks, progressCallback);

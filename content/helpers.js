@@ -1,6 +1,8 @@
 // content/helpers.js - utility helpers for content scripts
 
 const CONFIG = { INIT_DELAY: 300 };
+const accessReports = new Map();
+const ACCESS_REPORT_INTERVAL_MS = 5 * 60 * 1000;
 
 // Parse URL path
 function parseUrlPath(urlPath) {
@@ -18,6 +20,7 @@ function safeSendMessage(message, timeout = 5000, opts = { retries: 2, retryDela
     try {
       chrome.runtime.sendMessage(message, (response) => {
         try {
+          if (finished) return;
           finished = true;
           if (timer) { clearTimeout(timer); timer = null; }
           if (chrome.runtime.lastError) {
@@ -42,6 +45,8 @@ function safeSendMessage(message, timeout = 5000, opts = { retries: 2, retryDela
 
     timer = setTimeout(() => {
       if (!finished) {
+        finished = true;
+        timer = null;
         const err = new Error('No response from extension (timeout)');
         if (remainingRetries > 0) {
           setTimeout(() => { attempt(remainingRetries - 1).then(resolve).catch(reject); }, opts.retryDelay);
@@ -75,6 +80,28 @@ function downloadedKey(service, userId, postId, source) {
   return `${prefix}${String(service || '')}:${String(userId || '')}:${String(postId || '')}`;
 }
 
+function isActiveDownloadButton(btn) {
+  const status = btn && btn.getAttribute('data-status');
+  return status === 'SCANNING' || status === 'SENDING';
+}
+
+function isRenderCurrent(context) {
+  return !context || typeof context.isCurrent !== 'function' || context.isCurrent();
+}
+
+function findDownloadButtonByPath(container, selector, path) {
+  return Array.from(container.querySelectorAll(selector)).find((btn) =>
+    btn.getAttribute('data-path') === path
+  );
+}
+
+function removeStaleDownloadButtons(selector, livePaths) {
+  document.querySelectorAll(selector).forEach((btn) => {
+    const path = btn.getAttribute('data-path');
+    if (!livePaths.has(path)) btn.remove();
+  });
+}
+
 async function getDownloadedStatusMap(items) {
   const validItems = (Array.isArray(items) ? items : [])
     .filter(item => item && item.service && item.userId && item.postId)
@@ -105,8 +132,20 @@ function reportAccessIfApplicable() {
   try {
     const m = location.pathname.match(/\/([^\/]+)\/user\/([^\/]+)/);
     if (!m) return;
-    const service = m[1];
-    const userId = m[2];
-    chrome.runtime.sendMessage({ action: 'creator.recordAccess', service, userId }, () => { });
+    reportCreatorAccess(m[1], m[2]);
+  } catch (e) { }
+}
+
+function reportCreatorAccess(service, userId) {
+  if (!service || !userId) return;
+  const key = `${service}:${userId}`;
+  const now = Date.now();
+  if (now - (accessReports.get(key) || 0) < ACCESS_REPORT_INTERVAL_MS) return;
+  accessReports.set(key, now);
+  try {
+    chrome.runtime.sendMessage(
+      { action: 'creator.recordAccess', service, userId },
+      () => { void chrome.runtime.lastError; }
+    );
   } catch (e) { }
 }

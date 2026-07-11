@@ -1,4 +1,6 @@
 const $ = (id) => document.getElementById(id);
+const t = (key, substitutions, fallback) => KDI18n.get(key, substitutions, fallback);
+KDI18n.localize();
 
 let backendType = "abdm";
 
@@ -71,11 +73,11 @@ function updateBackendVisibility() {
 }
 
 function formatDate(value) {
-  if (!value) return "Never";
+  if (!value) return t("statusNever");
   try {
     return new Date(value).toLocaleString();
   } catch (_) {
-    return "Never";
+    return t("statusNever");
   }
 }
 
@@ -167,9 +169,9 @@ async function saveCreators() {
 
 async function loadAll() {
   try {
-    $("save-status").textContent = "Loading";
+    $("save-status").textContent = t("statusLoading");
     await Promise.all([loadBackend(), loadFavorites(), loadGist(), loadCreators()]);
-    $("save-status").textContent = "Idle";
+    $("save-status").textContent = t("statusIdle");
   } catch (err) {
     console.error("[Settings] load failed", err);
     showToast(err.message || "Load failed", "error");
@@ -180,12 +182,12 @@ async function saveAll() {
   const saveBtn = $("save-settings");
   await withBusyButton(saveBtn, async () => {
     try {
-      $("save-status").textContent = "Saving";
+      $("save-status").textContent = t("statusSaving");
       await saveBackend();
       await saveFavorites();
       await saveGist();
       await saveCreators();
-      showToast("Settings saved");
+      showToast(t("settingsSaved"));
     } catch (err) {
       console.error("[Settings] save failed", err);
       showToast(err.message || "Save failed", "error");
@@ -194,12 +196,12 @@ async function saveAll() {
 }
 
 async function restoreDefaults(button) {
-  const confirmed = confirm("Restore advanced settings to defaults? Download history will not be cleared.");
+  const confirmed = confirm(t("restoreDefaultsConfirm"));
   if (!confirmed) return;
 
   await withBusyButton(button, async () => {
     try {
-      $("save-status").textContent = "Restoring";
+      $("save-status").textContent = t("statusRestoring");
       await sendMessage({
         action: "backend.setConfig",
         config: {
@@ -227,7 +229,7 @@ async function restoreDefaults(button) {
       });
       await sendMessage({ action: "creators.setEnabled", enabled: false });
       await loadAll();
-      showToast("Defaults restored");
+      showToast(t("defaultsRestored"));
     } catch (err) {
       showToast(err.message || "Restore failed", "error");
     }
@@ -239,8 +241,8 @@ async function updateCreatorCache(host, labelId) {
   await withBusyButton(btn, async () => {
     try {
       await sendMessage({ action: "creators.updateCache", host });
-      $(labelId).textContent = "Updating";
-      showToast("Cache refresh started");
+      $(labelId).textContent = t("statusUpdating");
+      showToast(t("cacheRefreshStarted"));
       setTimeout(() => {
         loadCreators().catch(() => {});
       }, 1200);
@@ -261,7 +263,7 @@ function bindEvents() {
     withBusyButton(event.currentTarget, async () => {
       try {
         await sendMessage({ action: "favorites.forceCheck" });
-        showToast("Favorites check started");
+        showToast(t("favoritesCheckStarted"));
       } catch (err) {
         showToast(err.message || "Check failed", "error");
       }
@@ -278,7 +280,7 @@ function bindEvents() {
       try {
         await saveGist();
         await sendMessage({ action: "gist.upload" });
-        showToast("Uploaded to Gist");
+        showToast(t("gistUploaded"));
       } catch (err) {
         showToast(err.message || "Upload failed", "error");
       }
@@ -288,7 +290,7 @@ function bindEvents() {
     withBusyButton(event.currentTarget, async () => {
       try {
         await saveGist();
-        showToast("Gist config saved");
+        showToast(t("gistConfigSaved"));
       } catch (err) {
         showToast(err.message || "Save failed", "error");
       }
@@ -300,19 +302,19 @@ function bindEvents() {
         await saveGist();
         await sendMessage({ action: "gist.download" });
         await loadAll();
-        showToast("Downloaded from Gist");
+        showToast(t("gistDownloaded"));
       } catch (err) {
         showToast(err.message || "Download failed", "error");
       }
     });
   });
   $("clear-history")?.addEventListener("click", async (event) => {
-    const confirmed = confirm("This will permanently delete all download history. Continue?");
+    const confirmed = confirm(t("clearHistoryConfirm"));
     if (!confirmed) return;
     await withBusyButton(event.currentTarget, async () => {
       try {
         await sendMessage({ action: "db.clear" });
-        showToast("History cleared");
+        showToast(t("historyCleared"));
       } catch (err) {
         showToast(err.message || "Clear failed", "error");
       }

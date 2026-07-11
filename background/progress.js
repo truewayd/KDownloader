@@ -1,6 +1,9 @@
 // background/progress.js - aggregate active batch progress for popup/content UI
 
 const GLOBAL_BATCHES = new Map();
+const SNAPSHOT_WRITE_INTERVAL_MS = 500;
+let pendingSnapshot = null;
+let snapshotWriteTimer = null;
 
 export function getGlobalProgress() {
   let total = 0;
@@ -24,11 +27,15 @@ export function emitGlobalProgress() {
     console.warn("[Background] emitGlobalProgress failed", e);
   }
 
+  scheduleProgressSnapshot(progress, progress.total === 0);
+}
+
+function writeProgressSnapshot(snapshot) {
   try {
     chrome.storage.local.set(
       {
         globalProgressSnapshot: {
-          ...progress,
+          ...snapshot,
           updatedAt: Date.now(),
         },
       },
@@ -39,6 +46,27 @@ export function emitGlobalProgress() {
   } catch (e) {
     console.warn("[Background] write progress snapshot failed", e);
   }
+}
+
+function scheduleProgressSnapshot(progress, immediate = false) {
+  pendingSnapshot = progress;
+  if (immediate) {
+    if (snapshotWriteTimer) {
+      clearTimeout(snapshotWriteTimer);
+      snapshotWriteTimer = null;
+    }
+    const snapshot = pendingSnapshot;
+    pendingSnapshot = null;
+    writeProgressSnapshot(snapshot);
+    return;
+  }
+  if (snapshotWriteTimer) return;
+  snapshotWriteTimer = setTimeout(() => {
+    snapshotWriteTimer = null;
+    const snapshot = pendingSnapshot;
+    pendingSnapshot = null;
+    if (snapshot) writeProgressSnapshot(snapshot);
+  }, SNAPSHOT_WRITE_INTERVAL_MS);
 }
 
 export function registerBatch(batchId, total) {

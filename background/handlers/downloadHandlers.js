@@ -1,5 +1,5 @@
 // background/handlers/downloadHandlers.js - download and creator fetch RPCs
-import { API } from "../constants.js";
+import { API, PAW } from "../constants.js";
 import { handleAPIRequest } from "../network.js";
 import {
   startCoomerFansDownload,
@@ -20,10 +20,10 @@ import {
 } from "../progress.js";
 import {
   delay,
+  buildDownloadHistoryRecord,
   getSenderTabId,
   getSenderUrl,
   safeBroadcast,
-  shouldMarkResult,
 } from "../messageHelpers.js";
 
 function createBatchId() {
@@ -31,16 +31,24 @@ function createBatchId() {
 }
 
 function isPawRequest(item, senderUrl) {
+  let isPawSender = false;
+  if (typeof senderUrl === "string") {
+    try {
+      isPawSender = PAW.HOSTS.includes(new URL(senderUrl).hostname.toLowerCase());
+    } catch (e) {
+      isPawSender = false;
+    }
+  }
   return (
     item.source === "pawchive" ||
-    (typeof senderUrl === "string" && senderUrl.includes("pawchive.st"))
+    isPawSender
   );
 }
 
 async function runSingleDownload(item, sender, tabId) {
   const senderUrl = getSenderUrl(sender);
   if (isPawRequest(item, senderUrl)) {
-    return startPawchiveDownload(item.service, item.userId, item.postId, tabId);
+    return startPawchiveDownload(item.service, item.userId, item.postId, tabId, senderUrl);
   }
   if (item.source === "coomerfans") {
     return startCoomerFansDownload(
@@ -89,10 +97,26 @@ function broadcastBatchProgress(scope, processed, total, tabId) {
   );
 }
 
+function broadcastBatchError(scope, err, tabId) {
+  safeBroadcast(
+    {
+      action: "downloadProgress",
+      batch: true,
+      service: scope.service,
+      userId: scope.userId,
+      sentCount: 0,
+      totalCount: 0,
+      progress: 0,
+      error: err && err.message ? err.message : String(err),
+    },
+    tabId
+  );
+}
+
 async function runDownloadBatch(items, sender, scope = {}) {
   const tabId = getSenderTabId(sender);
   const total = items.length;
-  const succeeded = [];
+  const historyRecords = [];
   const batchId = createBatchId();
   let processed = 0;
   const progressScope = {
@@ -109,14 +133,10 @@ async function runDownloadBatch(items, sender, scope = {}) {
       try {
         const result = await runSingleDownload(item, sender, tabId);
         broadcastComplete(item, result, tabId);
-        if (shouldMarkResult(result)) {
-          succeeded.push({
-            source: item.source,
-            service: item.service,
-            userId: item.userId,
-            postId: item.postId,
-          });
-          updateAcked(batchId, 1);
+        const historyRecord = buildDownloadHistoryRecord(item, result);
+        if (historyRecord) {
+          historyRecords.push(historyRecord);
+          if (historyRecord.status !== "partial") updateAcked(batchId, 1);
         }
       } catch (err) {
         broadcastComplete(
@@ -135,9 +155,9 @@ async function runDownloadBatch(items, sender, scope = {}) {
       await delay(200);
     }
 
-    if (succeeded.length > 0) {
+    if (historyRecords.length > 0) {
       try {
-        await markMultipleDownloaded(succeeded);
+        await markMultipleDownloaded(historyRecords);
       } catch (err) {
         console.warn("[Background] markMultipleDownloaded failed", err);
       }
@@ -213,8 +233,12 @@ async function fetchCoomerFansCreatorHtml(url) {
 async function fetchCoomerFansCreatorItems(origin, service, userId, creatorName) {
   const baseProfile = coomerFansCreatorUrl(origin, service, userId, creatorName);
   const perPage = 50;
-  const maxPages = 999;
+  const maxPages = 200;
+  const maxRequests = 400;
+  const maxConsecutiveFailures = 8;
   const postMap = new Map();
+  let requestCount = 0;
+  let consecutiveFailures = 0;
 
   for (let pageIdx = 1; pageIdx <= maxPages; pageIdx++) {
     const candidates = pageIdx === 1 ? [baseProfile] : [];
@@ -224,9 +248,12 @@ async function fetchCoomerFansCreatorItems(origin, service, userId, creatorName)
     let fetchedAny = false;
     let foundThisPage = 0;
     for (const listUrl of candidates) {
+      if (requestCount >= maxRequests) break;
       try {
+        requestCount++;
         const html = await fetchCoomerFansCreatorHtml(listUrl);
         fetchedAny = true;
+        consecutiveFailures = 0;
         const linkRe = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi;
         let match;
         while ((match = linkRe.exec(html)) !== null) {
@@ -246,10 +273,14 @@ async function fetchCoomerFansCreatorItems(origin, service, userId, creatorName)
         }
         if (foundThisPage > 0) break;
       } catch (err) {
+        consecutiveFailures++;
         console.warn("[Background] fetch CoomerFans listing failed", listUrl, err);
+        if (consecutiveFailures >= maxConsecutiveFailures) break;
+        await delay(Math.min(2000, 200 * consecutiveFailures));
       }
     }
-    if (!fetchedAny) continue;
+    if (requestCount >= maxRequests || consecutiveFailures >= maxConsecutiveFailures) break;
+    if (!fetchedAny) break;
 
     if (foundThisPage === 0) break;
     await delay(200);
@@ -263,6 +294,18 @@ async function filterUndownloaded(items) {
   return items.filter((item) => {
     const key = downloadedItemKey(item.service, item.userId, item.postId, item.source);
     return !downloaded[key];
+  });
+}
+
+async function runFilteredDownloadBatch(allItems, sender, scope) {
+  const items = await filterUndownloaded(allItems);
+  await runDownloadBatch(items, sender, scope);
+}
+
+function runAcceptedTask(label, task, scope, tabId) {
+  task().catch((err) => {
+    console.error(`[Background] ${label} failed`, err);
+    broadcastBatchError(scope, err, tabId);
   });
 }
 
@@ -347,9 +390,10 @@ export function createDownloadHandlers() {
         };
         try {
           const result = await runSingleDownload(item, sender, tabId);
-          if (shouldMarkResult(result)) {
+          const historyRecord = buildDownloadHistoryRecord(item, result);
+          if (historyRecord) {
             try {
-              await markDownloaded(item.service, item.userId, item.postId, item.source);
+              await markDownloaded(historyRecord);
             } catch (err) {
               console.warn("[Background] markDownloaded failed", err);
             }
@@ -376,8 +420,13 @@ export function createDownloadHandlers() {
         /* ignore */
       }
       const items = Array.isArray(message.items) ? message.items : [];
-      runDownloadBatch(items, sender).catch((err) =>
-        console.error("[Background] startDownloadBatch failed", err)
+      const first = items[0] || {};
+      const tabId = getSenderTabId(sender);
+      runAcceptedTask(
+        "startDownloadBatch",
+        () => runDownloadBatch(items, sender),
+        { service: first.service, userId: first.userId },
+        tabId
       );
       return false;
     },
@@ -388,20 +437,15 @@ export function createDownloadHandlers() {
       } catch (e) {
         /* ignore */
       }
-      (async () => {
+      const tabId = getSenderTabId(sender);
+      runAcceptedTask("creator.fetch", async () => {
         const origin = message.origin || API.DEFAULT_ORIGIN;
         const { service, userId, creatorName } = message;
         if (!service || !userId) return;
 
         if (message.source === "coomerfans" || isCoomerFansOrigin(origin)) {
-          const allItems = await fetchCoomerFansCreatorItems(
-            origin,
-            service,
-            userId,
-            creatorName
-          );
-          const items = await filterUndownloaded(allItems);
-          await runDownloadBatch(items, sender, { service, userId });
+          const allItems = await fetchCoomerFansCreatorItems(origin, service, userId, creatorName);
+          await runFilteredDownloadBatch(allItems, sender, { service, userId });
           return;
         }
 
@@ -409,9 +453,8 @@ export function createDownloadHandlers() {
         const allItems = posts.map((post) =>
           postToDownloadItem(origin, service, userId, post)
         );
-        const items = await filterUndownloaded(allItems);
-        await runDownloadBatch(items, sender, { service, userId });
-      })().catch((err) => console.error("[Background] creator.fetch failed", err));
+        await runFilteredDownloadBatch(allItems, sender, { service, userId });
+      }, { service: message.service, userId: message.userId }, tabId);
       return false;
     },
 
@@ -421,7 +464,8 @@ export function createDownloadHandlers() {
       } catch (e) {
         /* ignore */
       }
-      (async () => {
+      const tabId = getSenderTabId(sender);
+      runAcceptedTask("creator.pageFetch", async () => {
         const { service, userId } = message;
         if (!service || !userId) return;
         const origin = resolveOrigin(message, sender);
@@ -433,9 +477,8 @@ export function createDownloadHandlers() {
         const allItems = posts
           .filter((post) => post && post.id)
           .map((post) => postToDownloadItem(origin, service, userId, post));
-        const items = await filterUndownloaded(allItems);
-        await runDownloadBatch(items, sender, { service, userId });
-      })().catch((err) => console.error("[Background] creator.pageFetch failed", err));
+        await runFilteredDownloadBatch(allItems, sender, { service, userId });
+      }, { service: message.service, userId: message.userId }, tabId);
       return false;
     },
   };

@@ -1,11 +1,11 @@
 // content/ui.js - UI rendering, button status, and modal logic
 
 const BTN_STATUS = {
-  IDLE: { text: '↓ Download', icon: '↓', color: '#2196F3', disabled: false },
-  SCANNING: { text: 'Fetching...', icon: '⟳', color: '#9C27B0', disabled: true },
-  SENDING: { text: 'Sending...', icon: '⟳', color: '#2196F3', disabled: true },
-  SUCCESS: { text: '✓ All Sent', icon: '✓', color: '#00A150', disabled: false },
-  ERROR: { text: '✗ Failed', icon: '✗', color: '#F44336', disabled: false }
+  IDLE: { text: KDI18n.get('downloadActionDecorated'), icon: '↓', color: '#2196F3', disabled: false },
+  SCANNING: { text: KDI18n.get('statusFetching'), icon: '⟳', color: '#9C27B0', disabled: true },
+  SENDING: { text: KDI18n.get('statusSending'), icon: '⟳', color: '#2196F3', disabled: true },
+  SUCCESS: { text: KDI18n.get('statusAllSent'), icon: '✓', color: '#00A150', disabled: false },
+  ERROR: { text: KDI18n.get('statusFailedDecorated'), icon: '✗', color: '#F44336', disabled: false }
 };
 
 // Update button status
@@ -37,11 +37,11 @@ function showExternalLinksModal(links) {
 
   const title = document.createElement('h3');
   title.className = 'kemono-modal-title';
-  title.textContent = 'External Download Links Detected';
+  title.textContent = KDI18n.get('externalLinksTitle');
 
   const desc = document.createElement('p');
   desc.className = 'kemono-modal-desc';
-  desc.textContent = 'The following external links may require manual download:';
+  desc.textContent = KDI18n.get('externalLinksDescription');
 
   const list = document.createElement('ul');
   list.className = 'kemono-modal-list';
@@ -62,7 +62,7 @@ function showExternalLinksModal(links) {
   closeBtn.id = 'kemono-modal-close';
   closeBtn.className = 'kemono-modal-close';
   closeBtn.type = 'button';
-  closeBtn.textContent = 'Close';
+  closeBtn.textContent = KDI18n.get('closeAction');
 
   modal.appendChild(title);
   modal.appendChild(desc);

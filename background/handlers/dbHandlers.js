@@ -1,17 +1,20 @@
 // background/handlers/dbHandlers.js - downloaded history and creator flag RPCs
 import {
-  loadDB,
-  saveDB,
   checkDownloaded,
   checkDownloadedMany,
   markDownloaded,
   markMultipleDownloaded,
-  exportDB,
-  importDB,
+  getHistoryExportPage,
+  beginHistoryExport,
+  beginImportSession,
+  appendImportChunk,
+  commitImportSession,
+  abortImportSession,
+  getImportSessionStatus,
   clearDB,
-  safeIncrementStorageVersion,
+  getHistoryStats,
   setLastAccess,
-  getCreatorFlag,
+  getCreatorFlagsMany,
   setCreatorFlag,
 } from "../db.js";
 import { respondWith } from "../messageHelpers.js";
@@ -48,40 +51,81 @@ export function createDbHandlers() {
     checkDownloadedMany: checkMany,
     "db.checkDownloadedMany": checkMany,
 
-    "db.load": ({ sendResponse }) =>
-      respondWith(sendResponse, loadDB(), (db) => ({ db })),
-
-    "db.save": ({ message, sendResponse }) =>
-      respondWith(
-        sendResponse,
-        saveDB(message.data || {}).then(safeIncrementStorageVersion),
-        () => ({})
-      ),
-
     "db.markDownloaded": ({ message, sendResponse }) =>
       respondWith(
         sendResponse,
-        markDownloaded(message.service, message.userId, message.postId, message.source),
+        markDownloaded(message.record || {
+          source: message.source,
+          service: message.service,
+          userId: message.userId,
+          postId: message.postId,
+          status: message.status,
+          totalCount: message.totalCount,
+          successCount: message.successCount,
+          failedCount: message.failedCount,
+          updatedAt: message.updatedAt,
+        }),
         () => ({})
       ),
 
     "db.markMultiple": ({ message, sendResponse }) =>
       respondWith(sendResponse, markMultipleDownloaded(message.items), () => ({})),
 
-    "db.export": ({ sendResponse }) =>
-      respondWith(sendResponse, exportDB(), (text) => ({ text })),
+    "db.export.begin": ({ sendResponse }) =>
+      respondWith(sendResponse, beginHistoryExport(), (result) => result),
 
-    "db.import": ({ message, sendResponse }) =>
-      respondWith(sendResponse, importDB(message.text), (success) => ({ success })),
+    "db.export.page": ({ message, sendResponse }) =>
+      respondWith(
+        sendResponse,
+        getHistoryExportPage(message.afterKey || null, message.maxBytes, message.generation),
+        (page) => ({ page })
+      ),
+
+    "db.import.begin": ({ message, sendResponse }) =>
+      respondWith(
+        sendResponse,
+        beginImportSession({
+          schemaVersion: message.schemaVersion,
+          exportedAt: message.exportedAt,
+          expectedRecords: message.expectedRecords,
+        }),
+        (sessionId) => ({ sessionId })
+      ),
+
+    "db.import.chunk": ({ message, sendResponse }) =>
+      respondWith(
+        sendResponse,
+        appendImportChunk(message.sessionId, message.records, {
+          sequence: message.sequence,
+          digest: message.digest,
+        }),
+        (result) => ({ result })
+      ),
+
+    "db.import.commit": ({ message, sendResponse }) =>
+      respondWith(sendResponse, commitImportSession(message.sessionId), () => ({})),
+
+    "db.import.abort": ({ message, sendResponse }) =>
+      respondWith(sendResponse, abortImportSession(message.sessionId), () => ({})),
+
+    "db.import.status": ({ message, sendResponse }) =>
+      respondWith(
+        sendResponse,
+        getImportSessionStatus(message.sessionId),
+        (status) => ({ status })
+      ),
 
     "db.clear": ({ sendResponse }) =>
       respondWith(sendResponse, clearDB(), () => ({})),
 
-    "flag.get": ({ message, sendResponse }) =>
+    "db.stats": ({ sendResponse }) =>
+      respondWith(sendResponse, getHistoryStats(), (stats) => ({ stats })),
+
+    "flag.getMany": ({ message, sendResponse }) =>
       respondWith(
         sendResponse,
-        getCreatorFlag(message.service, message.userId),
-        (flag) => ({ flag })
+        getCreatorFlagsMany(message.items || []),
+        (flags) => ({ flags })
       ),
 
     "flag.set": ({ message, sendResponse }) =>

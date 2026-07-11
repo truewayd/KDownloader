@@ -1,5 +1,3 @@
-const STORAGE_KEY = "downloaded";
-const COOMERFANS_STORAGE_KEY = "coomerfansDownloaded";
 const STORAGE_VERSION_KEY = "version";
 const BACKEND_CONFIG_KEY = "backendConfig";
 const GIST_CONFIG_KEY = "gistConfig";
@@ -8,12 +6,16 @@ const GLOBAL_PROGRESS_KEY = "globalProgressSnapshot";
 
 const CREATOR_FETCH_PLACEHOLDER =
     "https://kemono.cr/patreon/user/114514";
-const CREATOR_FETCH_BACKEND_PLACEHOLDER = "Configure and enable backend first";
+const t = (key, substitutions, fallback) => KDI18n.get(key, substitutions, fallback);
+KDI18n.localize();
+const SVG_NS = "http://www.w3.org/2000/svg";
+const XLINK_NS = "http://www.w3.org/1999/xlink";
 
 const exportBtn = document.getElementById("export-btn");
 const importBtn = document.getElementById("import-btn");
 const fileInput = document.getElementById("file-input");
 const loading = document.getElementById("loading");
+const loadingLabel = loading?.querySelector("div:last-child");
 const successMessage = document.getElementById("success-message");
 const errorMessage = document.getElementById("error-message");
 const storageUsed = document.getElementById("storage-used");
@@ -37,8 +39,11 @@ try {
     if (verEl) verEl.textContent = `v${manifest.version || "?"}`;
 } catch (_) { }
 
-function setLoading(show) {
+function setLoading(show, label = null) {
     if (loading) loading.classList.toggle("active", !!show);
+    if (loadingLabel) {
+        loadingLabel.textContent = label || t("statusProcessing");
+    }
 }
 
 function showMessage(el, message) {
@@ -67,6 +72,10 @@ function safeSendMessage(message, timeout = 7000, opts = { retries: 1, retryDela
                     }
                     if (!response) {
                         reject(new Error("No response from runtime"));
+                        return;
+                    }
+                    if (response.success === false) {
+                        reject(new Error(response.error || "Request failed"));
                         return;
                     }
                     resolve(response);
@@ -110,15 +119,31 @@ function openOptionsPage() {
     }
 }
 
+function setIconButton(button, iconId, label) {
+    if (!button) return;
+
+    const svg = button.querySelector("svg.button-icon") || document.createElementNS(SVG_NS, "svg");
+    svg.classList.add("button-icon");
+
+    const use = svg.querySelector("use") || document.createElementNS(SVG_NS, "use");
+    use.setAttribute("href", `#${iconId}`);
+    use.setAttributeNS(XLINK_NS, "href", `#${iconId}`);
+    if (!use.parentNode) svg.appendChild(use);
+
+    const labelEl = button.querySelector("span") || document.createElement("span");
+    labelEl.textContent = label;
+    button.replaceChildren(svg, labelEl);
+}
+
 function setCreatorFetchAvailability(config) {
     backendReady = !!(config && config.enabled);
     if (creatorUrlInput && !creatorUrlInput.value) {
-        creatorUrlInput.placeholder = backendReady ? CREATOR_FETCH_PLACEHOLDER : CREATOR_FETCH_BACKEND_PLACEHOLDER;
+        creatorUrlInput.placeholder = backendReady ? CREATOR_FETCH_PLACEHOLDER : t("creatorFetchBackendRequiredPlaceholder");
     }
     if (!creatorFetchBtn) return;
-    creatorFetchBtn.textContent = backendReady ? "Creator Fetch" : "Settings";
+    setIconButton(creatorFetchBtn, backendReady ? "icon-download" : "icon-server", backendReady ? t("creatorFetchAction") : t("settingsAction"));
     creatorFetchBtn.classList.toggle("secondary", !backendReady);
-    creatorFetchBtn.title = backendReady ? "Fetch creator posts" : "Open advanced settings";
+    creatorFetchBtn.title = backendReady ? t("creatorFetchTooltip") : t("openSettingsTooltip");
 }
 
 function parseCreatorUrl(urlStr) {
@@ -175,17 +200,19 @@ async function loadFeatureVisibility() {
 
 async function loadStats() {
     try {
-        const response = await safeSendMessage(
-            { action: "storageLocal.getBytesInUse", keys: [STORAGE_KEY, COOMERFANS_STORAGE_KEY] },
-            3000,
-            { retries: 1, retryDelay: 200 }
-        );
-        const bytes = Number(response.bytes || 0);
-        storageUsed.textContent =
-            bytes > 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(2)} MB` : `${(bytes / 1024).toFixed(2)} KB`;
+        const response = await safeSendMessage({ action: "db.stats" }, 10000, { retries: 1, retryDelay: 200 });
+        const stats = response.stats || response;
+        const bytes = Math.max(0, Number(stats.bytes || 0));
+        const records = Math.max(0, Number(stats.records || 0));
+        const size = bytes >= 1024 * 1024
+            ? `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+            : `${(bytes / 1024).toFixed(2)} KB`;
+        const recordCount = new Intl.NumberFormat().format(records);
+        storageUsed.textContent = `${size} · ${recordCount}`;
+        storageUsed.title = `${t("historyTitle")}: ${recordCount}`;
     } catch (err) {
         console.warn("[Popup] loadStats failed", err);
-        if (storageUsed) storageUsed.textContent = "Error";
+        if (storageUsed) storageUsed.textContent = t("statusError");
     }
 }
 
@@ -202,13 +229,41 @@ function notifyContentUpdate() {
 async function exportData() {
     try {
         setLoading(true);
-        const response = await safeSendMessage({ action: "db.export" }, 8000, { retries: 2, retryDelay: 300 });
-        const blob = new Blob([response.text], { type: "application/json" });
+        const envelope = await safeSendMessage(
+            { action: "db.export.begin" },
+            8000,
+            { retries: 2, retryDelay: 300 }
+        );
+        const parts = [
+            `{"schemaVersion":${envelope.schemaVersion},"exportedAt":${JSON.stringify(envelope.exportedAt)},"records":[`,
+        ];
+        let firstRecord = true;
+        let afterKey = null;
+        while (true) {
+            const response = await safeSendMessage({
+                action: "db.export.page",
+                afterKey,
+                generation: envelope.generation,
+                maxBytes: 4 * 1024 * 1024,
+            }, 30000, { retries: 2, retryDelay: 300 });
+            const page = response.page;
+            if (!page || !Array.isArray(page.records)) throw new Error("Invalid export page response");
+            for (const record of page.records) {
+                if (!firstRecord) parts.push(",");
+                parts.push(JSON.stringify(record));
+                firstRecord = false;
+            }
+            if (page.done) break;
+            if (!page.nextKey || page.records.length === 0) throw new Error("Export paging did not advance");
+            afterKey = page.nextKey;
+        }
+        parts.push("]}");
+        const blob = new Blob(parts, { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
         await chrome.downloads.download({ url, filename: `kemono_history_${timestamp}.json`, saveAs: true });
         setTimeout(() => URL.revokeObjectURL(url), 60000);
-        showSuccess("History exported");
+        showSuccess(t("historyExported"));
     } catch (err) {
         console.error("[Popup] export failed", err);
         showError(`Export failed: ${err.message}`);
@@ -218,16 +273,108 @@ async function exportData() {
 }
 
 async function importData(file) {
+    let sessionId = null;
     try {
         setLoading(true);
-        const text = await file.text();
+        let text = await file.text();
         const parsed = JSON.parse(text);
-        if (!parsed || typeof parsed !== "object") throw new Error("Invalid file format");
-        await safeSendMessage({ action: "db.import", text }, 10000, { retries: 2, retryDelay: 300 });
+        text = null;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            throw new Error("Invalid file format");
+        }
+        if (parsed.schemaVersion !== 2 || !Array.isArray(parsed.records) ||
+            typeof parsed.exportedAt !== "string") {
+            throw new Error("Invalid history schema");
+        }
+
+        const beginResponse = await safeSendMessage({
+            action: "db.import.begin",
+            schemaVersion: parsed.schemaVersion,
+            exportedAt: parsed.exportedAt,
+            expectedRecords: parsed.records.length,
+        }, 15000, { retries: 2, retryDelay: 300 });
+        sessionId = beginResponse.sessionId;
+        if (!sessionId) throw new Error("Background did not create an import session");
+
+        const maxChunkBytes = 4 * 1024 * 1024;
+        let sequence = 0;
+        let index = 0;
+        while (index < parsed.records.length) {
+            const chunk = [];
+            let chunkBytes = 2;
+            let hash = 2166136261;
+            const startIndex = index;
+            while (index < parsed.records.length) {
+                const record = parsed.records[index];
+                const recordText = JSON.stringify(record);
+                // Three bytes per UTF-16 code unit is a conservative UTF-8
+                // estimate for these mostly-ASCII records and avoids allocating
+                // a temporary TextEncoder buffer for every one of 300k items.
+                const recordBytes = recordText.length * 3 + 1;
+                if (recordBytes > maxChunkBytes) {
+                    throw new Error(`History record ${index + 1} is too large to import safely`);
+                }
+                if (chunk.length > 0 && chunkBytes + recordBytes > maxChunkBytes) break;
+                chunk.push(record);
+                chunkBytes += recordBytes;
+                for (let i = 0; i < recordText.length; i++) {
+                    hash ^= recordText.charCodeAt(i);
+                    hash = Math.imul(hash, 16777619);
+                }
+                hash ^= 10;
+                hash = Math.imul(hash, 16777619);
+                index++;
+            }
+
+            try {
+                await safeSendMessage({
+                    action: "db.import.chunk",
+                    sessionId,
+                    sequence,
+                    digest: (hash >>> 0).toString(16),
+                    records: chunk,
+                }, 120000, { retries: 2, retryDelay: 300 });
+            } catch (chunkError) {
+                const statusResponse = await safeSendMessage(
+                    { action: "db.import.status", sessionId },
+                    30000,
+                    { retries: 2, retryDelay: 500 }
+                );
+                if (Number(statusResponse.status?.receivedRecords || 0) < index) throw chunkError;
+            }
+
+            for (let i = startIndex; i < index; i++) parsed.records[i] = null;
+            sequence++;
+            setLoading(true, t("historyImportProgress", [index, parsed.records.length]));
+        }
+
+        setLoading(true, t("historyImportFinalizing"));
+        try {
+            await safeSendMessage(
+                { action: "db.import.commit", sessionId },
+                120000,
+                { retries: 2, retryDelay: 500 }
+            );
+        } catch (commitError) {
+            const statusResponse = await safeSendMessage(
+                { action: "db.import.status", sessionId },
+                30000,
+                { retries: 2, retryDelay: 500 }
+            );
+            if (statusResponse.status?.state !== "committed") throw commitError;
+        }
+        sessionId = null;
         await loadStats();
         notifyContentUpdate();
-        showSuccess("History imported");
+        showSuccess(t("historyImported"));
     } catch (err) {
+        if (sessionId) {
+            safeSendMessage(
+                { action: "db.import.abort", sessionId },
+                10000,
+                { retries: 0, retryDelay: 0 }
+            ).catch(() => {});
+        }
         console.error("[Popup] import failed", err);
         showError(`Import failed: ${err.message}`);
     } finally {
@@ -243,13 +390,13 @@ async function handleCreatorFetchClick() {
 
     const urlStr = creatorUrlInput && creatorUrlInput.value && creatorUrlInput.value.trim();
     if (!urlStr) {
-        showError("Please enter a creator URL");
+        showError(t("creatorUrlRequired"));
         return;
     }
 
     const parsed = parseCreatorUrl(urlStr);
     if (!parsed) {
-        showError("Invalid creator URL");
+        showError(t("creatorUrlInvalid"));
         return;
     }
 
@@ -267,7 +414,7 @@ async function handleCreatorFetchClick() {
             { retries: 2, retryDelay: 400 }
         );
         if (!ack || (!ack.accepted && !ack.success)) throw new Error("No ack");
-        showSuccess("Task added");
+        showSuccess(t("taskAdded"));
         creatorUrlInput.value = "";
         setCreatorFetchAvailability({ enabled: true });
         creatorFetchBtn.disabled = true;
@@ -284,7 +431,7 @@ async function updateCreatorsCache(host) {
     try {
         setLoading(true);
         await safeSendMessage({ action: "creators.updateCache", host }, 5000, { retries: 2, retryDelay: 300 });
-        showSuccess("Cache refresh started");
+        showSuccess(t("cacheRefreshStarted"));
     } catch (err) {
         showError(`Cache failed: ${err.message}`);
     } finally {
@@ -296,7 +443,7 @@ async function uploadToGist() {
     try {
         setLoading(true);
         await safeSendMessage({ action: "gist.upload" }, 12000, { retries: 2, retryDelay: 300 });
-        showSuccess("Uploaded to Gist");
+        showSuccess(t("gistUploaded"));
     } catch (err) {
         showError(`Upload failed: ${err.message}`);
     } finally {
@@ -310,7 +457,7 @@ async function downloadFromGist() {
         await safeSendMessage({ action: "gist.download" }, 12000, { retries: 2, retryDelay: 300 });
         await loadStats();
         notifyContentUpdate();
-        showSuccess("Downloaded from Gist");
+        showSuccess(t("gistDownloaded"));
     } catch (err) {
         showError(`Download failed: ${err.message}`);
     } finally {
@@ -325,7 +472,9 @@ function renderGlobalProgress(total, processed, acked) {
     acked = Number(acked || 0);
     const pct = total > 0 ? Math.round((100 * processed) / Math.max(1, total)) : 0;
     globalProgressFill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
-    globalProgressLabel.textContent = total > 0 ? `${processed}/${total} sent · ${acked} ACK` : `Idle · ${acked} ACK`;
+    globalProgressLabel.textContent = total > 0
+        ? t("globalProgressActive", [processed, total, acked])
+        : t("globalProgressIdle", [acked]);
     globalProgressEl.classList.remove("hidden");
 }
 
@@ -348,7 +497,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
         const snap = changes[GLOBAL_PROGRESS_KEY].newValue;
         renderGlobalProgress(snap.total, snap.processed, snap.acked);
     }
-    if (changes[STORAGE_VERSION_KEY] || changes[STORAGE_KEY] || changes[COOMERFANS_STORAGE_KEY]) loadStats();
+    if (changes[STORAGE_VERSION_KEY]) loadStats();
 });
 
 exportBtn?.addEventListener("click", exportData);

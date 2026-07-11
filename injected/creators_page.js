@@ -3,9 +3,13 @@
   try {
     const DB_NAME = 'ext_creators_db_v1';
     const STORE_NAME = 'creators';
+    let dbPromise = null;
+    let dbInstance = null;
 
     function openDB() {
-      return new Promise((resolve, reject) => {
+      if (dbPromise) return dbPromise;
+      if (dbInstance) return Promise.resolve(dbInstance);
+      dbPromise = new Promise((resolve, reject) => {
         try {
           const req = indexedDB.open(DB_NAME, 1);
           req.onupgradeneeded = function (e) {
@@ -14,11 +18,39 @@
               db.createObjectStore(STORE_NAME, { keyPath: 'host' });
             }
           };
-          req.onsuccess = function (e) { resolve(e.target.result); };
-          req.onerror = function (e) { reject(e.target.error || new Error('indexedDB open failed')); };
-        } catch (err) { reject(err); }
+          req.onsuccess = function (e) {
+            dbInstance = e.target.result;
+            dbInstance.onclose = function () {
+              dbInstance = null;
+              dbPromise = null;
+            };
+            dbInstance.onversionchange = function () {
+              try { dbInstance.close(); } catch (_) { }
+              dbInstance = null;
+              dbPromise = null;
+            };
+            resolve(dbInstance);
+          };
+          req.onerror = function (e) {
+            dbPromise = null;
+            reject(e.target.error || new Error('indexedDB open failed'));
+          };
+        } catch (err) {
+          dbPromise = null;
+          reject(err);
+        }
       });
+      return dbPromise;
     }
+
+    function closeDB() {
+      if (!dbInstance) return;
+      try { dbInstance.close(); } catch (_) { }
+      dbInstance = null;
+      dbPromise = null;
+    }
+
+    window.addEventListener('pagehide', closeDB, { once: true });
 
     async function writeCache(host, payload) {
       const db = await openDB();

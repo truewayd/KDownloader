@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #171614;
   --surface: #211f1b;
   --surface-3: #312d25;
@@ -11,6 +12,76 @@
   --accent-hover: #e38b6b;
   --accent-soft: rgba(217, 119, 87, 0.16);
   --shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+  --status-bg: rgba(255, 255, 255, 0.03);
+  --panel-inset: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
+  --danger-border: rgba(201, 101, 88, 0.28);
+  --icon-accent: #f0b49b;
+  --input-bg: #181714;
+  --input-focus-bg: #1d1b18;
+  --button-text: #1d120d;
+  --button-border: rgba(217, 119, 87, 0.62);
+  --focus-border: rgba(217, 119, 87, 0.68);
+  --checked-border: rgba(217, 119, 87, 0.78);
+  --secondary-hover-bg: #39342b;
+  --secondary-hover-border: rgba(232, 223, 210, 0.3);
+  --active-segment-text: #f3c7b5;
+  --cache-bg: rgba(255, 255, 255, 0.025);
+  --action-bar-bg: rgba(23, 22, 20, 0.96);
+  --action-bar-shadow: 0 -12px 34px rgba(0, 0, 0, 0.22);
+  --toast-bg: rgba(33, 31, 27, 0.98);
+  --success-border: rgba(119, 160, 106, 0.42);
+  --success-text: #d3e6cd;
+  --error-border: rgba(201, 101, 88, 0.5);
+  --error-text: #f0c4bd;
+  --danger-button-border: rgba(201, 101, 88, 0.62);
+  --danger-button-bg: rgba(201, 101, 88, 0.18);
+  --danger-button-hover-border: rgba(201, 101, 88, 0.78);
+  --danger-button-hover-bg: rgba(201, 101, 88, 0.28);
+  --danger-button-text: #f0bbb4;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f7f3ed;
+    --surface: #fffaf3;
+    --surface-3: #eee6da;
+    --border: rgba(80, 65, 49, 0.14);
+    --border-strong: rgba(80, 65, 49, 0.24);
+    --text: #2a2119;
+    --muted: #6d6258;
+    --subtle: #8b7f73;
+    --accent: #c96442;
+    --accent-hover: #b85435;
+    --accent-soft: rgba(201, 100, 66, 0.15);
+    --shadow: 0 18px 44px rgba(82, 62, 42, 0.14);
+    --status-bg: rgba(255, 250, 243, 0.74);
+    --panel-inset: 0 1px 0 rgba(255, 255, 255, 0.75) inset;
+    --danger-border: rgba(184, 75, 55, 0.24);
+    --icon-accent: #b85435;
+    --input-bg: #fffdf8;
+    --input-focus-bg: #fff8ee;
+    --button-text: #fffaf3;
+    --button-border: rgba(201, 100, 66, 0.7);
+    --focus-border: rgba(201, 100, 66, 0.58);
+    --checked-border: rgba(201, 100, 66, 0.74);
+    --secondary-hover-bg: #e7ded1;
+    --secondary-hover-border: rgba(80, 65, 49, 0.3);
+    --active-segment-text: #8a3c24;
+    --cache-bg: rgba(255, 250, 243, 0.62);
+    --action-bar-bg: rgba(247, 243, 237, 0.96);
+    --action-bar-shadow: 0 -12px 34px rgba(82, 62, 42, 0.12);
+    --toast-bg: rgba(255, 250, 243, 0.98);
+    --success-border: rgba(87, 132, 73, 0.34);
+    --success-text: #365b2f;
+    --error-border: rgba(184, 75, 55, 0.36);
+    --error-text: #8b3326;
+    --danger-button-border: rgba(184, 75, 55, 0.46);
+    --danger-button-bg: rgba(184, 75, 55, 0.1);
+    --danger-button-hover-border: rgba(184, 75, 55, 0.6);
+    --danger-button-hover-bg: rgba(184, 75, 55, 0.16);
+    --danger-button-text: #8b3326;
+  }
 }
 
 * {
@@ -80,7 +151,7 @@ h2 {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 11px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--status-bg);
   color: var(--muted);
   text-align: center;
   font-size: 12px;
@@ -99,7 +170,7 @@ h2 {
   border-radius: 8px;
   padding: 15px;
   background: var(--surface);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
+  box-shadow: var(--panel-inset);
 }
 
 .panel-wide {
@@ -107,7 +178,7 @@ h2 {
 }
 
 .danger-panel {
-  border-color: rgba(201, 101, 88, 0.28);
+  border-color: var(--danger-border);
 }
 
 .panel-heading {
@@ -130,7 +201,7 @@ h2 {
 }
 
 .icon {
-  color: #f0b49b;
+  color: var(--icon-accent);
 }
 
 .button-icon {
@@ -197,7 +268,7 @@ select {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0 11px;
-  background: #181714;
+  background: var(--input-bg);
   color: var(--text);
   outline: none;
   transition: border-color 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
@@ -213,8 +284,8 @@ select {
 
 input:focus,
 select:focus {
-  border-color: rgba(217, 119, 87, 0.68);
-  background: #1d1b18;
+  border-color: var(--focus-border);
+  background: var(--input-focus-bg);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
@@ -223,13 +294,13 @@ select:focus {
   height: 18px;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #181714;
+  background: var(--input-bg);
   appearance: none;
   cursor: pointer;
 }
 
 .toggle:checked {
-  border-color: rgba(217, 119, 87, 0.78);
+  border-color: var(--checked-border);
   background: var(--accent);
 }
 
@@ -239,7 +310,7 @@ select:focus {
   width: 5px;
   height: 9px;
   margin: 2px 0 0 5px;
-  border: solid #1d120d;
+  border: solid var(--button-text);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
@@ -252,7 +323,7 @@ select:focus {
 .segment {
   min-height: 38px;
   border: 1px solid var(--border);
-  background: #181714;
+  background: var(--input-bg);
   color: var(--muted);
   cursor: pointer;
   font-size: 13px;
@@ -269,9 +340,9 @@ select:focus {
 }
 
 .segment.active {
-  border-color: rgba(217, 119, 87, 0.62);
+  border-color: var(--button-border);
   background: var(--accent-soft);
-  color: #f3c7b5;
+  color: var(--active-segment-text);
 }
 
 .cache-list {
@@ -282,7 +353,7 @@ select:focus {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
-  background: rgba(255, 255, 255, 0.025);
+  background: var(--cache-bg);
 }
 
 .cache-list div {
@@ -337,8 +408,8 @@ select:focus {
 
 .button:hover,
 .icon-button:hover {
-  background: #39342b;
-  border-color: rgba(232, 223, 210, 0.3);
+  background: var(--secondary-hover-bg);
+  border-color: var(--secondary-hover-border);
 }
 
 .button:active,
@@ -347,9 +418,9 @@ select:focus {
 }
 
 .button.primary {
-  border-color: rgba(217, 119, 87, 0.62);
+  border-color: var(--button-border);
   background: var(--accent);
-  color: #1d120d;
+  color: var(--button-text);
 }
 
 .button.primary:hover {
@@ -358,14 +429,14 @@ select:focus {
 }
 
 .button.danger {
-  border-color: rgba(201, 101, 88, 0.62);
-  background: rgba(201, 101, 88, 0.18);
-  color: #f0bbb4;
+  border-color: var(--danger-button-border);
+  background: var(--danger-button-bg);
+  color: var(--danger-button-text);
 }
 
 .button.danger:hover {
-  border-color: rgba(201, 101, 88, 0.78);
-  background: rgba(201, 101, 88, 0.28);
+  border-color: var(--danger-button-hover-border);
+  background: var(--danger-button-hover-bg);
 }
 
 .button:disabled,
@@ -384,8 +455,8 @@ select:focus {
   gap: 10px;
   border-top: 1px solid var(--border);
   padding: 12px max(24px, calc((100vw - 1120px) / 2));
-  background: rgba(23, 22, 20, 0.96);
-  box-shadow: 0 -12px 34px rgba(0, 0, 0, 0.22);
+  background: var(--action-bar-bg);
+  box-shadow: var(--action-bar-shadow);
 }
 
 .toast {
@@ -398,7 +469,7 @@ select:focus {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 11px 13px;
-  background: rgba(33, 31, 27, 0.98);
+  background: var(--toast-bg);
   color: var(--text);
   box-shadow: var(--shadow);
   font-size: 13px;
@@ -410,13 +481,24 @@ select:focus {
 }
 
 .toast.success {
-  border-color: rgba(119, 160, 106, 0.42);
-  color: #d3e6cd;
+  border-color: var(--success-border);
+  color: var(--success-text);
 }
 
 .toast.error {
-  border-color: rgba(201, 101, 88, 0.5);
-  color: #f0c4bd;
+  border-color: var(--error-border);
+  color: var(--error-text);
+}
+
+.backend-warning {
+  margin: 0 0 14px;
+  border: 1px solid color-mix(in srgb, var(--warning, #d97706) 45%, var(--border));
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--warning, #d97706) 10%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .danger-row {

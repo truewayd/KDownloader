@@ -10,6 +10,7 @@
     running: false,
     pendingReason: null,
     lastHref: location.href,
+    generation: 0,
   };
 
   function isElement(node) {
@@ -107,6 +108,15 @@
     const reason = state.pendingReason || "scheduled";
     const href = location.href;
     const urlChanged = href !== state.lastHref;
+    if (urlChanged) state.generation += 1;
+    const generation = state.generation;
+    const context = {
+      reason,
+      href,
+      urlChanged,
+      generation,
+      isCurrent: () => generation === state.generation && href === location.href,
+    };
     let needsRetry = false;
 
     try {
@@ -114,7 +124,7 @@
         const matches = typeof handler.match === "function" ? handler.match() : true;
         if (!matches) {
           if (urlChanged && typeof handler.cleanup === "function") {
-            await handler.cleanup({ reason, href, urlChanged });
+            await handler.cleanup(context);
           }
           continue;
         }
@@ -128,7 +138,7 @@
         }
 
         handler.attempts = 0;
-        await handler.render({ reason, href, urlChanged });
+        await handler.render(context);
       }
     } catch (err) {
       console.warn("[KD Router] render failed", err);

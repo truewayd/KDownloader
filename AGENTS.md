@@ -18,14 +18,13 @@ Key background modules
 - background/index.js is the service worker entry.
 - background/constants.js holds CONFIG, storage keys, alarm names, and the canonical API object.
 - background/util.js contains sanitizeFileName, getFileExtension, extractExternalLinks, and buildDownloadTasks.
-- background/db.js implements cached history DB lookup, batch downloaded-state checks, writes, and lastAccess helpers.
+- background/db.js owns the IndexedDB download-history database, transactional batch checks/writes, import/export, statistics, and lastAccess helpers.
 - background/config.js implements favorites/backend/gist helpers.
 - background/network.js centralizes fetch and cookie handling.
 - background/download.js implements startFullDownload, runSequentialDownloads, and backend batching.
 - background/messages.js is a thin message router.
 - background/messageHelpers.js and background/progress.js hold shared message/progress utilities.
 - background/handlers/*.js implements focused RPC groups for config, DB, downloads, creator cache, and utilities.
-- manager.py is an optional local SQLite converter for exported history JSON. It must preserve the legacy posts table and use history_posts(collection, platform, author, post_id) for the current downloaded/coomerfansDownloaded split.
 
 High-level goals for agents
 ---------------------------
@@ -45,12 +44,13 @@ API centralization
 
 Content script splitting and injection
 --------------------------------------
+- shared/i18n.js owns cached Chrome i18n lookup and one-pass static DOM localization. Locale catalogs live in _locales/en and _locales/zh_CN.
 - Organize content/ into helpers.js, ui.js, download.js, router.js, and page-specific action scripts.
-- Maintain injection order in manifest.json: helpers -> ui -> download -> router -> actions.
+- Maintain injection order in manifest.json: helpers -> shared/i18n -> ui -> download -> router -> actions.
 - New content/*.js files must be added to manifest.json in correct order.
 - content/router.js owns stable reinjection scheduling for history navigation, pageshow, visibility, MutationObserver, and HTMX events.
 - Page-specific action scripts must register idempotent renderers with KDRouteWatcher and avoid patching history directly.
-- coomerfans.com creator-page injection lives in content/coomerfans_actions.js and targets section.model-posts .posts-list .post on /u/{platform}/{creator_id}/{creator_name} pages. Post-page injection targets article.text-block.model-info on /p/{post_id}/{creator_id}/{platform} pages and inserts the button after the platform tag row. It must use platform, creator_id, and post_id inside the dedicated coomerfansDownloaded history store and treat creator_name as optional filename metadata.
+- coomerfans.com creator-page injection lives in content/coomerfans_actions.js and targets section.model-posts .posts-list .post on /u/{platform}/{creator_id}/{creator_name} pages. Post-page injection targets article.text-block.model-info on /p/{post_id}/{creator_id}/{platform} pages and inserts the button after the platform tag row. It must use source=coomerfans with platform, creator_id, and post_id for the normalized IndexedDB history identity and treat creator_name as optional filename metadata.
 - Avoid a single bootstrap file; test reloads and HTMX swaps to ensure no ReferenceError or duplicate buttons.
 
 Message patterns and timeouts
@@ -65,8 +65,15 @@ Batching and storage write policy
 - Avoid per-file storage writes.
 - Use markMultipleDownloaded on batch completion or an in-memory buffer with periodic flush.
 - Expose markDownloaded, markMultipleDownloaded, checkDownloaded, and checkDownloadedMany RPCs; prefer markMultipleDownloaded and checkDownloadedMany for groups.
-- Keep downloaded history in the background DB cache after first load; do not re-read the whole chrome.storage.local downloaded object for each post lookup.
-- On sync quota failures, schedule retries via chrome.alarms (SYNC_VERSION_ALARM).
+- markDownloaded accepts one normalized record object with identity, status, counts, and timestamp; callers should not construct legacy nested storage objects.
+- Persist download history in IndexedDB rather than chrome.storage.local. Keep configuration and lightweight revision/progress signals in Chrome storage only.
+- Use IndexedDB database kdownloaderHistory version 2. The legacy records store uses compound keyPath [source, service, userId, postId]. Large/current datasets live in generation-keyed importRecords with importSessions holding the active-generation pointer and import metadata. Import commit must switch the active generation in O(1), never copy every staged record into records.
+- Store one normalized history record per source/service/user/post identity. Records contain source, service, userId, postId, status, totalCount, successCount, failedCount, and updatedAt; supported statuses are partial, complete, and empty.
+- Preserve the legacy shared namespace for all non-CoomerFans sites: Kemono, Coomer, and Pawchive use source=default. Only CoomerFans uses source=coomerfans. This keeps migrated downloaded records query-compatible despite the legacy format not storing an origin/source field.
+- Perform grouped reads and writes in a single IndexedDB transaction.
+- Serialize history mutations through the database transaction boundary so imports, clears, and download completion writes cannot overwrite one another.
+- Expose db.stats for popup statistics. Active generations must return the maintained receivedRecords/receivedBytes metadata in O(1); never scan or count hundreds of thousands of IndexedDB rows just to render popup statistics. Popup refreshes these values from the history revision signal instead of observing legacy history keys.
+- Never send a complete history JSON through chrome.runtime messaging. Popup import uses db.import.begin/chunk/commit/abort with byte-bounded chunks (currently 4 MiB) and persistent generation storage; popup export pins a generation with db.export.begin, reads it through db.export.page, and assembles the Blob incrementally. Keep individual payloads well below Chrome's 64 MiB message limit.
 
 Third-party and backend downloader policy
 -----------------------------------------
@@ -82,7 +89,7 @@ Third-party and backend downloader policy
 Recommended batching implementation
 -----------------------------------
 - Build file tasks with UTIL.buildDownloadTasks.
-- For coomerfans.com popup Creator Fetch, discover post links from /u/{platform}/{creator_id}/{creator_name}, extract media from each /p/{post_id}/{creator_id}/{platform} HTML page, and store downloaded history in chrome.storage.local coomerfansDownloaded under platform -> creator_id -> post_id. Creator name is optional metadata for filenames only.
+- For coomerfans.com popup Creator Fetch, discover post links from /u/{platform}/{creator_id}/{creator_name}, extract media from each /p/{post_id}/{creator_id}/{platform} HTML page, and store normalized IndexedDB records keyed by source=coomerfans, platform, creator_id, and post_id. Creator name is optional metadata for filenames only.
 - Split tasks into batches sized by perPostFileLimit.
 - Consume each batch with a worker pool using an atomic index.
 - Increment global counters after each dispatch and emit progress.
@@ -106,6 +113,12 @@ Testing and validation
 - Unit test utility functions where feasible.
 - Include manual integration tests covering single-post download, Page Fetch, progress behavior, and DB batching.
 - Simulate slow backends and failures to validate watchdogs and fallbacks.
+- Test IndexedDB batch marking, partial/complete/empty status semantics, concurrent writes, clear/import exclusion, db.stats, and multi-megabyte histories. Fire-and-forget backend acceptance is treated as complete because the cross-origin downloader cannot provide a reliable final completion callback.
+- Test large chunked imports, retry idempotency, abort behavior, O(1) generation commit, mark-vs-commit transaction ordering, generation-pinned paginated export, and response-level RPC failures. The existing live history must remain unchanged until import commit succeeds.
+- Test O(1) stats after large imports plus exact metadata deltas for new records, overwrites, and mixed batch upserts. Test migrated default-source records from Pawchive pages as downloaded.
+- Export history and verify the JSON schema/version plus all normalized record fields; import that file into an empty database and verify record identities, statuses, counts, and popup statistics match.
+- Legacy chrome.storage.local downloaded and coomerfansDownloaded objects are intentionally not migrated because the extension has not been released. Test with a clean extension profile after this change.
+- migrate_history_json.py is an offline-only developer utility for converting legacy exported JSON to schemaVersion 2. It must remain independent from extension runtime code; validate it with python -m unittest tests/migrate_history_json_test.py.
 - Document manual test steps and expected outcomes in PR descriptions.
 
 Commits and PRs
@@ -134,8 +147,12 @@ Contact and changelog
 ---------------------
 - Add notes in PRs for backward-incompatible changes.
 - Record configuration keys added to storage and brief migration notes here.
+- 2026-07-11: Added Chrome MV3 localization with English as the default locale and Simplified Chinese in _locales/zh_CN. Manifest metadata, popup, settings, and injected content UI use shared/i18n.js with cached lookups; no API, config, or storage migration required. Validate with node --test tests/i18n.test.mjs and manual locale switching in Chrome.
 - When a user proposes adding a feature, update this file to document the feature scope, required API changes, manifest updates, configuration keys, and test steps.
-- CoomerFans popup Creator Fetch scope: manifest host permissions include coomerfans.com; background/constants.js exposes API.COOMERFANS_HOST and API.COOMERFANS_ORIGIN; popup accepts https://coomerfans.com/u/{platform}/{creator_id}/{creator_name}; background discovers post pages and extracts /storage/ media from HTML. Downloaded history is stored separately in coomerfansDownloaded, and import/export/Gist payloads contain both downloaded and coomerfansDownloaded. Test with a coomerfans.com creator URL, verify global progress, backend dispatch, and downloaded history keys using platform/creator_id/post_id.
+- CoomerFans popup Creator Fetch scope: manifest host permissions include coomerfans.com; background/constants.js exposes API.COOMERFANS_HOST and API.COOMERFANS_ORIGIN; popup accepts https://coomerfans.com/u/{platform}/{creator_id}/{creator_name}; background discovers post pages and extracts /storage/ media from HTML. IndexedDB records identify CoomerFans entries with source=coomerfans plus platform/creator_id/post_id. Test with a coomerfans.com creator URL and verify global progress, backend dispatch, and the normalized history identity.
+- 2026-07-11: Replaced chrome.storage.local downloaded/coomerfansDownloaded history blobs with kdownloaderHistory IndexedDB. Version 2 uses generation-keyed importRecords plus an active-generation pointer in importSessions. The new database starts empty and deliberately performs no legacy storage migration. History export/Gist JSON schemaVersion 2 contains schemaVersion, exportedAt, and records; each record contains source, service, userId, postId, status, totalCount, successCount, failedCount, and updatedAt. Large popup imports use 4 MiB begin/chunk/commit messages; every record is written once and commit atomically switches the active-generation pointer instead of copying hundreds of thousands of rows. Exports pin and page one generation to stay below Chrome's 64 MiB message limit. Popup statistics use generation metadata and indexed counts. Backend acceptance remains fire-and-forget and is recorded complete because cross-origin integrations cannot reliably report final disk completion.
+- 2026-07-11: Added migrate_history_json.py as an offline-only converter from the legacy downloaded/coomerfansDownloaded export shape to schemaVersion 2 records. Legacy boolean markers become complete records with zero file counts because the old format did not preserve per-file totals. This does not add runtime migration or compatibility code to the extension.
+- 2026-07-11: Restored the legacy non-CoomerFans shared history namespace by using source=default for Pawchive as well as Kemono/Coomer. This fixes migrated legacy downloaded records being missed on Pawchive pages. Active-generation db.stats now reads maintained metadata in O(1), and mark upserts adjust record/byte metadata by the old-to-new delta instead of scanning the sessionId index.
 - 2026-07-01: Refactored background message routing into background/handlers modules, added cached downloaded DB batch lookup via checkDownloadedMany, added content/router.js for HTMX-aware reinjection, and updated manifest injection order to include router.js before download and favorite-flag page action scripts. No storage migration required.
 - 2026-07-01: Updated Gopeed backend compatibility to use the REST API with token header support. gopeedPath support was later removed from the UI and dispatcher. No migration required.
 - 2026-07-01: Cleanup pass removed empty coomerfans.md, removed duplicated flag-page message helper/debug logging, removed stale debug mutation from creator cache refresh, and kept injected/creators_page.js because it is dynamically injected by content/injector.js. No storage migration required.
@@ -148,4 +165,6 @@ Contact and changelog
 - 2026-07-01: Added Restore defaults to settings.html for advanced configuration only; downloaded history is intentionally preserved. No storage migration required.
 - 2026-07-01: Removed obsolete popup accordion/backend control styles after moving advanced configuration to settings.html, removed an unused settings SVG symbol, unused theme variables, and nonessential refresh/debug logs, and tightened popup storage-change listeners to avoid refreshing feature visibility on progress updates. No storage migration required.
 - 2026-07-01: Split CoomerFans downloaded history into chrome.storage.local coomerfansDownloaded, separate from downloaded used by Kemono, Coomer, and Pawchive. Import/export and Gist Sync now serialize both downloaded and coomerfansDownloaded in one JSON payload. No backward compatibility migration required.
-- 2026-07-01: Updated manager.py for the split history export format. It imports both legacy flat JSON and the new {downloaded, coomerfansDownloaded} shape, exports the new shape, stores records in history_posts with a collection key, and leaves the legacy posts table intact for database safety.
+- 2026-07-03: Added automatic light/dark theme switching for non-injected extension UI via CSS prefers-color-scheme tokens in popup/popup.css and settings.css, preserving the existing warm Claude-like dark palette and adding a matching warm light palette. No manifest, API, config, or storage migration required.
+- 2026-07-03: Added settings-page-style inline SVG icons to popup action buttons and kept Creator Fetch's dynamic Settings/Fetch label icon-aware. No manifest, API, config, or storage migration required.
+- 2026-07-05: Added pawchive.pw as a Pawchive-equivalent domain. Manifest host permissions and content-script matches now include pawchive.pw, and background Pawchive downloads resolve the origin from the sender page so pawchive.st and pawchive.pw share the same storage/source behavior. No storage migration required.

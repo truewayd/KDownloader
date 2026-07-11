@@ -29,18 +29,18 @@ export const API = {
 // Pawchive site configuration
 export const PAW = {
   HOST: "pawchive.st",
+  HOSTS: ["pawchive.st", "pawchive.pw"],
   ORIGIN: "https://pawchive.st",
+  ORIGINS: ["https://pawchive.st", "https://pawchive.pw"],
   FILE_HOST: "file.pawchive.st",
+  FILE_HOSTS: ["file.pawchive.st", "file.pawchive.pw"],
 };
 
-// Storage keys
-export const STORAGE_KEY = "downloaded";
-export const COOMERFANS_STORAGE_KEY = "coomerfansDownloaded";
+// Lightweight storage keys. Download history itself lives in IndexedDB.
 export const STORAGE_VERSION_KEY = "version";
 export const LAST_ACCESS_KEY = "lastAccess";
 export const FAVORITES_CONFIG_KEY = "favoritesConfig";
 export const FAVORITES_ALARM = "favoritesCheck";
-export const SYNC_VERSION_ALARM = "syncVersionRetry";
 export const BACKEND_CONFIG_KEY = "backendConfig";
 export const GIST_CONFIG_KEY = "gistConfig";
 

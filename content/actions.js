@@ -12,11 +12,6 @@ function isCreatorPage() {
   return !location.pathname.includes("/post/");
 }
 
-function isActiveDownloadButton(btn) {
-  const status = btn && btn.getAttribute("data-status");
-  return status === "SCANNING" || status === "SENDING";
-}
-
 function getCreatorEntries() {
   const entries = [];
   const articles = Array.from(
@@ -43,12 +38,14 @@ function getCreatorEntries() {
 }
 
 function findCreatorButton(container, path) {
-  return Array.from(
-    container.querySelectorAll('.kemono-creator-btn[data-batch-download="true"]')
-  ).find((btn) => btn.getAttribute("data-path") === path);
+  return findDownloadButtonByPath(
+    container,
+    '.kemono-creator-btn[data-batch-download="true"]',
+    path
+  );
 }
 
-async function addPostButton() {
+async function addPostButton(context) {
   const container =
     document.querySelector(".post__actions") ||
     document.querySelector(".post__header");
@@ -92,8 +89,9 @@ async function addPostButton() {
       parsed.userId,
       parsed.postId
     );
+    if (!isRenderCurrent(context)) return;
     if (downloaded) {
-      updateButtonStatus(btn, "SUCCESS", "✓ Downloaded", false);
+      updateButtonStatus(btn, "SUCCESS", KDI18n.get("statusDownloadedDecorated"), false);
       btn.disabled = true;
     }
   }
@@ -101,17 +99,13 @@ async function addPostButton() {
   if (isNew) container.appendChild(btn);
 }
 
-async function addCreatorButtons() {
+async function addCreatorButtons(context) {
   const entries = getCreatorEntries();
   const livePaths = new Set(entries.map((entry) => entry.path));
-  document
-    .querySelectorAll('.kemono-creator-btn[data-batch-download="true"]')
-    .forEach((btn) => {
-      const path = btn.getAttribute("data-path");
-      if (!livePaths.has(path)) btn.remove();
-    });
+  removeStaleDownloadButtons('.kemono-creator-btn[data-batch-download="true"]', livePaths);
 
   const downloaded = await getDownloadedStatusMap(entries);
+  if (!isRenderCurrent(context)) return;
 
   for (const entry of entries) {
     const key = downloadedKey(entry.service, entry.userId, entry.postId);
@@ -130,7 +124,7 @@ async function addCreatorButtons() {
     if (isActiveDownloadButton(btn)) continue;
 
     btn.textContent = isDone ? "✓" : "↓";
-    btn.title = isDone ? "Already downloaded" : "Click to download";
+    btn.title = isDone ? KDI18n.get("alreadyDownloadedTooltip") : KDI18n.get("clickToDownloadTooltip");
     btn.disabled = isDone;
     entry.article.style.position = "relative";
 
@@ -164,8 +158,8 @@ function addDownloadAllButton() {
     btn.className = "kemono-download-all button _button_e60d849";
     btn.type = "button";
     btn.setAttribute("data-batch-download", "true");
-    btn.textContent = "Page Fetch";
-    btn.title = "Download all posts on this page";
+    btn.textContent = KDI18n.get("pageFetchAction");
+    btn.title = KDI18n.get("pageFetchTooltip");
     btn.style.margin = "0";
     btn.style.padding = "0";
     header.appendChild(btn);
@@ -193,7 +187,7 @@ function addDownloadAllButton() {
         { retries: 1, retryDelay: 200 }
       );
       if (!cfg || !cfg.success || !cfg.config || !cfg.config.enabled) {
-        updateButtonStatus(btn, "ERROR", "Please enable backend first", false);
+        updateButtonStatus(btn, "ERROR", KDI18n.get("backendEnableRequired"), false);
         setTimeout(() => {
           btn.disabled = false;
           updateButtonStatus(btn, "IDLE", null, false);
@@ -202,7 +196,7 @@ function addDownloadAllButton() {
       }
     } catch (err) {
       console.warn("[Content] backend.getConfig failed", err);
-      updateButtonStatus(btn, "ERROR", "Backend check failed", false);
+      updateButtonStatus(btn, "ERROR", KDI18n.get("backendCheckFailed"), false);
       setTimeout(() => {
         btn.disabled = false;
         updateButtonStatus(btn, "IDLE", null, false);
@@ -214,95 +208,25 @@ function addDownloadAllButton() {
     const userId = parsedPage.userId;
     const offsetParam = new URL(location.href).searchParams.get("o");
     const offset = offsetParam ? Number(offsetParam) : null;
-    let total = null;
-    let completed = 0;
-    let successCount = 0;
-
-    const finish = (status, text, keepDisabled) => {
-      try {
-        chrome.runtime.onMessage.removeListener(onBatchMessage);
-      } catch (e) {
-        /* ignore */
-      }
-      updateButtonStatus(btn, status, text, false);
-      btn.disabled = !!keepDisabled;
-      if (!keepDisabled) {
-        setTimeout(() => updateButtonStatus(btn, "IDLE", null, false), 2000);
-      }
-    };
-
-    const onBatchMessage = (message) => {
-      if (!message) return;
-      if (message.service !== service || message.userId !== userId) return;
-
-      if (message.action === "downloadProgress" && message.batch) {
-        if (Number.isFinite(message.totalCount)) total = message.totalCount;
-        const sent = message.sentCount || 0;
-        btn.textContent = `Sending ${sent}/${total ?? "?"}`;
-        if (total === 0) finish("SUCCESS", "✓ All done", false);
-        else if (completed >= total) {
-          if (successCount > 0) finish("SUCCESS", `✓ ${successCount}/${total}`, true);
-          else finish("ERROR", "✗ Failed", false);
-        }
-        return;
-      }
-
-      if (message.action !== "downloadComplete") return;
-      completed++;
-      const result = message.result || {};
-      if (result.success) successCount++;
-      btn.textContent = `ACK ${completed}/${total ?? "?"}`;
-
-      if (total && completed >= total) {
-        if (successCount > 0) finish("SUCCESS", `✓ ${successCount}/${total}`, true);
-        else finish("ERROR", "✗ Failed", false);
-      }
-    };
-
-    chrome.runtime.onMessage.addListener(onBatchMessage);
-    updateButtonStatus(btn, "SENDING", "Dispatching page...", false);
-
-    try {
-      const ack = await safeSendMessage(
-        { action: "creator.pageFetch", service, userId, offset },
-        7000,
-        { retries: 2, retryDelay: 400 }
-      );
-      if (ack && (ack.accepted || ack.success)) {
-        if (btn.getAttribute("data-status") !== "SUCCESS") {
-          updateButtonStatus(
-            btn,
-            "SENDING",
-            "Dispatched, awaiting progress...",
-            false
-          );
-        }
-      } else {
-        throw new Error("No ack");
-      }
-    } catch (err) {
-      try {
-        chrome.runtime.onMessage.removeListener(onBatchMessage);
-      } catch (e) {
-        /* ignore */
-      }
-      console.warn("[Content] creator.pageFetch ack failed", err);
-      updateButtonStatus(btn, "ERROR", "✗ No ack", false);
-      setTimeout(() => {
-        btn.disabled = false;
-        updateButtonStatus(btn, "IDLE", null, false);
-      }, 2000);
-    }
+    await runPageFetchWithProgress({
+      btn,
+      service,
+      userId,
+      requestMessage: { action: "creator.pageFetch", service, userId, offset },
+      initialText: "Dispatching page...",
+      ackText: "Dispatched, awaiting progress...",
+    });
   };
 }
 
-async function renderKemonoDownloadUI() {
+async function renderKemonoDownloadUI(context) {
   reportAccessIfApplicable();
   if (isCreatorPage()) {
-    await addCreatorButtons();
+    await addCreatorButtons(context);
+    if (!isRenderCurrent(context)) return;
     addDownloadAllButton();
   } else {
-    await addPostButton();
+    await addPostButton(context);
   }
 }
 

@@ -41,16 +41,62 @@ export function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function getResultCounts(result) {
+  const results = Array.isArray(result && result.results) ? result.results : [];
+  const countedSuccesses = results.reduce(
+    (count, item) => count + (item && item.success ? 1 : 0),
+    0
+  );
+  const rawSuccessCount = Number.isFinite(result && result.successCount)
+    ? Math.max(0, Math.floor(result.successCount))
+    : countedSuccesses;
+  const totalCount = results.length > 0 ? results.length : rawSuccessCount;
+  const successCount = totalCount > 0
+    ? Math.min(rawSuccessCount, totalCount)
+    : rawSuccessCount;
+
+  return {
+    totalCount,
+    successCount,
+    failedCount: Math.max(0, totalCount - successCount),
+  };
+}
+
+export function buildDownloadHistoryRecord(item, result) {
+  if (!item || !result || !result.success || result.alreadyDownloaded === true) {
+    return null;
+  }
+
+  const identity = {
+    source: item.source,
+    service: item.service,
+    userId: item.userId,
+    postId: item.postId,
+  };
+  const counts = getResultCounts(result);
+  const updatedAt = new Date().toISOString();
+
+  if (result.noFiles === true) {
+    return { ...identity, status: "empty", ...counts, updatedAt };
+  }
+
+  // Backend and Gopeed are fire-and-forget integrations. Once their endpoint
+  // accepts a task, the extension has successfully completed its hand-off.
+  if (result.backend === true && counts.successCount > 0) {
+    return { ...identity, status: "complete", ...counts, updatedAt };
+  }
+
+  if (counts.totalCount > 0 && counts.successCount === counts.totalCount) {
+    return { ...identity, status: "complete", ...counts, updatedAt };
+  }
+
+  if (counts.successCount > 0) {
+    return { ...identity, status: "partial", ...counts, updatedAt };
+  }
+
+  return null;
+}
+
 export function shouldMarkResult(result) {
-  if (!result || !result.success) return false;
-  if (result.noFiles === true) return true;
-  if (result.backend === true) return true;
-  if (result.alreadyDownloaded === true) return true;
-  if (typeof result.successCount === "number" && result.successCount > 0) {
-    return true;
-  }
-  if (Array.isArray(result.results)) {
-    return result.results.some((item) => item && item.success);
-  }
-  return false;
+  return !!buildDownloadHistoryRecord({}, result);
 }

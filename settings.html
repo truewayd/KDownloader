@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KDownloader Settings</title>
+  <meta name="color-scheme" content="dark light">
+  <title data-i18n="settingsPageTitle">KDownloader Settings</title>
   <link rel="stylesheet" href="settings.css">
 </head>
 <body>
@@ -48,81 +49,84 @@
   <main class="shell">
     <header class="topbar">
       <div>
-        <div class="eyebrow">KDownloader</div>
-        <h1>Advanced Settings</h1>
+        <div class="eyebrow" data-i18n="appName">KDownloader</div>
+        <h1 data-i18n="settingsTitle">Advanced Settings</h1>
       </div>
-      <div class="status-chip" id="save-status">Idle</div>
+      <div class="status-chip" id="save-status" data-i18n="statusIdle">Idle</div>
     </header>
 
     <section class="settings-grid">
       <article class="panel panel-wide">
         <div class="panel-heading">
           <svg class="icon"><use href="#icon-server"></use></svg>
-          <h2>Backend</h2>
+          <h2 data-i18n="backendTitle">Backend</h2>
         </div>
         <div class="form-grid two">
           <label class="field field-inline">
             <input type="checkbox" id="backend-enabled" class="toggle">
-            <span>Enable backend dispatch</span>
+            <span data-i18n="backendEnable">Enable backend dispatch</span>
           </label>
           <label class="field">
-            <span>Backend type</span>
-            <div class="segmented" role="group" aria-label="Backend type">
+            <span data-i18n="backendType">Backend type</span>
+            <div class="segmented" role="group" aria-label="Backend type" data-i18n-aria-label="backendType">
               <button type="button" class="segment active" id="backend-type-abdm" data-type="abdm">ABDM</button>
               <button type="button" class="segment" id="backend-type-gopeed" data-type="gopeed">Gopeed</button>
             </div>
           </label>
         </div>
         <div class="backend-details hidden" id="backend-details">
+          <p class="backend-warning" data-i18n="backendHistoryWarning">
+            Due to cross-origin restrictions, downloads are handed off to your configured service. A successful hand-off is recorded as complete, so history may not reflect the final file state.
+          </p>
           <div class="backend-config" id="abdm-fields">
             <label class="field">
-              <span>ABDM protocol</span>
+              <span data-i18n="abdmProtocol">ABDM protocol</span>
               <select id="backend-protocol">
                 <option value="http">http</option>
                 <option value="https">https</option>
               </select>
             </label>
             <label class="field">
-              <span>ABDM host</span>
+              <span data-i18n="abdmHost">ABDM host</span>
               <input id="backend-host" type="text" placeholder="127.0.0.1">
             </label>
             <label class="field">
-              <span>ABDM port</span>
+              <span data-i18n="abdmPort">ABDM port</span>
               <input id="backend-port" type="number" min="1" max="65535" step="1" placeholder="15151">
             </label>
           </div>
           <div class="backend-config hidden" id="gopeed-fields">
             <label class="field">
-              <span>Gopeed protocol</span>
+              <span data-i18n="gopeedProtocol">Gopeed protocol</span>
               <select id="gopeed-protocol">
                 <option value="http">http</option>
                 <option value="https">https</option>
               </select>
             </label>
             <label class="field">
-              <span>Gopeed host</span>
+              <span data-i18n="gopeedHost">Gopeed host</span>
               <input id="gopeed-host" type="text" placeholder="127.0.0.1">
             </label>
             <label class="field">
-              <span>Gopeed port</span>
+              <span data-i18n="gopeedPort">Gopeed port</span>
               <input id="gopeed-port" type="number" min="1" max="65535" step="1" placeholder="9999">
             </label>
             <label class="field">
-              <span>API token</span>
+              <span data-i18n="apiToken">API token</span>
               <input id="gopeed-token" type="password" autocomplete="off">
             </label>
           </div>
           <div class="backend-config backend-batching">
             <label class="field">
-              <span>Concurrency</span>
+              <span data-i18n="concurrency">Concurrency</span>
               <input id="backend-concurrency" type="number" min="1" max="6" step="1">
             </label>
             <label class="field">
-              <span>Retry count</span>
+              <span data-i18n="retryCount">Retry count</span>
               <input id="backend-retry-count" type="number" min="0" max="10" step="1">
             </label>
             <label class="field">
-              <span>Per-post file limit</span>
+              <span data-i18n="perPostFileLimit">Per-post file limit</span>
               <input id="backend-file-limit" type="number" min="1" max="1000" step="1">
             </label>
           </div>
@@ -132,20 +136,20 @@
       <article class="panel">
         <div class="panel-heading">
           <svg class="icon"><use href="#icon-clock"></use></svg>
-          <h2>Favorites</h2>
+          <h2 data-i18n="favoritesTitle">Favorites</h2>
         </div>
         <div class="form-grid">
           <label class="field field-inline">
             <input type="checkbox" id="favorites-enabled" class="toggle">
-            <span>Enable watcher</span>
+            <span data-i18n="favoritesEnableWatcher">Enable watcher</span>
           </label>
           <label class="field">
-            <span>Interval minutes</span>
+            <span data-i18n="intervalMinutes">Interval minutes</span>
             <input id="favorites-interval" type="number" min="1" step="1">
           </label>
           <button type="button" class="button secondary" id="favorites-check">
             <svg class="button-icon"><use href="#icon-refresh"></use></svg>
-            Check now
+            <span data-i18n="checkNow">Check now</span>
           </button>
         </div>
       </article>
@@ -153,28 +157,28 @@
       <article class="panel">
         <div class="panel-heading">
           <svg class="icon"><use href="#icon-database"></use></svg>
-          <h2>Search Cache</h2>
+          <h2 data-i18n="searchCacheTitle">Search Cache</h2>
         </div>
         <div class="form-grid">
           <label class="field field-inline">
             <input type="checkbox" id="creators-enabled" class="toggle">
-            <span>Enable Search Page Fetch</span>
+            <span data-i18n="searchPageFetchEnable">Enable Search Page Fetch</span>
           </label>
           <div class="cache-list">
             <div>
               <strong>Coomer</strong>
-              <span id="creators-coomer-meta">Never</span>
+              <span id="creators-coomer-meta" data-i18n="statusNever">Never</span>
             </div>
-            <button type="button" class="icon-button" id="creators-update-coomer" title="Refresh Coomer cache">
+            <button type="button" class="icon-button" id="creators-update-coomer" title="Refresh Coomer cache" data-i18n-title="refreshCoomerCacheTooltip">
               <svg class="button-icon"><use href="#icon-refresh"></use></svg>
             </button>
           </div>
           <div class="cache-list">
             <div>
               <strong>Kemono</strong>
-              <span id="creators-kemono-meta">Never</span>
+              <span id="creators-kemono-meta" data-i18n="statusNever">Never</span>
             </div>
-            <button type="button" class="icon-button" id="creators-update-kemono" title="Refresh Kemono cache">
+            <button type="button" class="icon-button" id="creators-update-kemono" title="Refresh Kemono cache" data-i18n-title="refreshKemonoCacheTooltip">
               <svg class="button-icon"><use href="#icon-refresh"></use></svg>
             </button>
           </div>
@@ -184,34 +188,34 @@
       <article class="panel panel-wide">
         <div class="panel-heading">
           <svg class="icon"><use href="#icon-cloud"></use></svg>
-          <h2>GitHub Gist Sync</h2>
+          <h2 data-i18n="gistSyncTitle">GitHub Gist Sync</h2>
         </div>
         <div class="form-grid two">
           <label class="field field-inline">
             <input type="checkbox" id="gist-enabled" class="toggle">
-            <span>Enable GitHub Gist Sync</span>
+            <span data-i18n="gistSyncEnable">Enable GitHub Gist Sync</span>
           </label>
           <div></div>
           <label class="field">
-            <span>Token</span>
+            <span data-i18n="tokenLabel">Token</span>
             <input id="gist-token" type="password" autocomplete="off">
           </label>
           <label class="field">
-            <span>Gist ID</span>
+            <span data-i18n="gistId">Gist ID</span>
             <input id="gist-id" type="text">
           </label>
           <div class="button-row">
             <button type="button" class="button secondary" id="gist-save">
               <svg class="button-icon"><use href="#icon-save"></use></svg>
-              Save Gist config
+              <span data-i18n="gistSaveConfig">Save Gist config</span>
             </button>
             <button type="button" class="button secondary" id="gist-download">
               <svg class="button-icon"><use href="#icon-download"></use></svg>
-              Download
+              <span data-i18n="downloadAction">Download</span>
             </button>
             <button type="button" class="button secondary" id="gist-upload">
               <svg class="button-icon"><use href="#icon-upload"></use></svg>
-              Upload
+              <span data-i18n="uploadAction">Upload</span>
             </button>
           </div>
         </div>
@@ -220,14 +224,14 @@
       <article class="panel panel-wide danger-panel">
         <div class="panel-heading">
           <svg class="icon"><use href="#icon-database"></use></svg>
-          <h2>History Maintenance</h2>
+          <h2 data-i18n="historyMaintenanceTitle">History Maintenance</h2>
         </div>
         <div class="danger-row">
           <div>
-            <strong>Clear local download history</strong>
-            <span>This permanently removes downloaded markers from extension storage.</span>
+            <strong data-i18n="clearLocalHistoryTitle">Clear local download history</strong>
+            <span data-i18n="clearLocalHistoryDescription">This permanently removes downloaded markers from extension storage.</span>
           </div>
-          <button type="button" class="button danger" id="clear-history">Clear history</button>
+          <button type="button" class="button danger" id="clear-history" data-i18n="clearHistoryAction">Clear history</button>
         </div>
       </article>
     </section>
@@ -235,20 +239,21 @@
     <footer class="action-bar">
       <button type="button" class="button secondary" id="restore-defaults">
         <svg class="button-icon"><use href="#icon-refresh"></use></svg>
-        Restore defaults
+        <span data-i18n="restoreDefaultsAction">Restore defaults</span>
       </button>
       <button type="button" class="button secondary" id="reload-settings">
         <svg class="button-icon"><use href="#icon-refresh"></use></svg>
-        Reload
+        <span data-i18n="reloadAction">Reload</span>
       </button>
       <button type="button" class="button primary" id="save-settings">
         <svg class="button-icon"><use href="#icon-save"></use></svg>
-        Save settings
+        <span data-i18n="saveSettingsAction">Save settings</span>
       </button>
     </footer>
   </main>
 
   <div class="toast" id="toast" role="status"></div>
+  <script src="shared/i18n.js"></script>
   <script src="settings.js"></script>
 </body>
 </html>

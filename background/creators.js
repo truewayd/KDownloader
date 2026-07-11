@@ -51,13 +51,6 @@ export async function updateCacheFromNetwork(host) {
     }
     // also store small meta
     try { await chrome.storage.local.set({ [`${hostKey(host)}_meta`]: { updatedAt: payload.updatedAt, sourceHost: payload.sourceHost } }); } catch (e) { console.warn('[Creators] write meta failed', e); }
-    // light notify pages
-    try {
-      const tabs = await chrome.tabs.query({ url: [`*://${host}/*`] });
-      for (const t of tabs) {
-        try { chrome.tabs.sendMessage(t.id, { action: 'creators.pagePull', host }, () => { void chrome.runtime.lastError; }); } catch (e) { }
-      }
-    } catch (e) { console.warn('[Creators] notify tabs pagePull failed', e); }
     return { updatedAt: payload.updatedAt, sourceHost: payload.sourceHost };
 
   }

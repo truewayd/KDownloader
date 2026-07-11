@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Kemono & Coomer Downloader",
+  "name": "__MSG_extensionName__",
   "version": "1.0.0",
-  "description": "Batch download from coomer.st / kemono.cr / coomerfans.com with cloud storage sync",
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "en",
   "permissions": [
     "storage",
     "unlimitedStorage",
@@ -23,6 +24,8 @@
     "*://*.coomerfans.com/*",
     "*://pawchive.st/*",
     "*://*.pawchive.st/*",
+    "*://pawchive.pw/*",
+    "*://*.pawchive.pw/*",
     "https://api.github.com/*",
     "http://127.0.0.1/*",
     "http://localhost/*"
@@ -46,6 +49,7 @@
       ],
       "js": [
         "content/helpers.js",
+        "shared/i18n.js",
         "content/ui.js",
         "content/download.js",
         "content/router.js",
@@ -59,15 +63,17 @@
         "*://coomer.st/*/account/favorites/artists*",
         "*://kemono.cr/*/account/favorites/artists*"
       ],
-      "js": ["content/helpers.js", "content/router.js", "content/flag/index.js"],
+      "js": ["content/helpers.js", "shared/i18n.js", "content/router.js", "content/flag/index.js"],
       "run_at": "document_end"
     },
     {
       "matches": [
-        "*://pawchive.st/*/user/*"
+        "*://pawchive.st/*/user/*",
+        "*://pawchive.pw/*/user/*"
       ],
       "js": [
         "content/helpers.js",
+        "shared/i18n.js",
         "content/ui.js",
         "content/download.js",
         "content/router.js",
@@ -85,6 +91,7 @@
       ],
       "js": [
         "content/helpers.js",
+        "shared/i18n.js",
         "content/ui.js",
         "content/download.js",
         "content/router.js",

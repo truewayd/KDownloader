@@ -31,11 +31,6 @@ function isCoomerFansPostPage() {
   return !!parseCoomerFansPostPath(location.pathname);
 }
 
-function isActiveCoomerFansButton(btn) {
-  const status = btn && btn.getAttribute("data-status");
-  return status === "SCANNING" || status === "SENDING";
-}
-
 function getCoomerFansCreatorName() {
   const parsed = parseCoomerFansCreatorPath(location.pathname);
   if (parsed && parsed.creatorName) return parsed.creatorName;
@@ -82,12 +77,14 @@ function getCoomerFansCreatorEntries() {
 }
 
 function findCoomerFansButton(container, path) {
-  return Array.from(
-    container.querySelectorAll('.kemono-creator-btn[data-batch-download="true"]')
-  ).find((btn) => btn.getAttribute("data-path") === path);
+  return findDownloadButtonByPath(
+    container,
+    '.kemono-creator-btn[data-batch-download="true"]',
+    path
+  );
 }
 
-async function addCoomerFansPostButton() {
+async function addCoomerFansPostButton(context) {
   const parsed = parseCoomerFansPostPath(location.pathname);
   if (!parsed || !parsed.postId) return;
 
@@ -117,7 +114,7 @@ async function addCoomerFansPostButton() {
     );
   };
 
-  if (!isActiveCoomerFansButton(btn)) {
+  if (!isActiveDownloadButton(btn)) {
     updateButtonStatus(btn, "IDLE", null, false);
     const downloaded = await isPostDownloaded(
       parsed.service,
@@ -125,8 +122,9 @@ async function addCoomerFansPostButton() {
       parsed.postId,
       { source: "coomerfans" }
     );
+    if (!isRenderCurrent(context)) return;
     if (downloaded) {
-      updateButtonStatus(btn, "SUCCESS", "✓ Downloaded", false);
+      updateButtonStatus(btn, "SUCCESS", KDI18n.get("statusDownloadedDecorated"), false);
       btn.disabled = true;
     }
   }
@@ -144,17 +142,13 @@ async function addCoomerFansPostButton() {
   }
 }
 
-async function addCoomerFansCreatorButtons() {
+async function addCoomerFansCreatorButtons(context) {
   const entries = getCoomerFansCreatorEntries();
   const livePaths = new Set(entries.map((entry) => entry.path));
-  document
-    .querySelectorAll('.kemono-creator-btn[data-batch-download="true"]')
-    .forEach((btn) => {
-      const path = btn.getAttribute("data-path");
-      if (!livePaths.has(path)) btn.remove();
-    });
+  removeStaleDownloadButtons('.kemono-creator-btn[data-batch-download="true"]', livePaths);
 
   const downloaded = await getDownloadedStatusMap(entries);
+  if (!isRenderCurrent(context)) return;
 
   for (const entry of entries) {
     const key = downloadedKey(entry.service, entry.userId, entry.postId, entry.source);
@@ -169,10 +163,10 @@ async function addCoomerFansCreatorButtons() {
       entry.postEl.appendChild(btn);
     }
 
-    if (isActiveCoomerFansButton(btn)) continue;
+    if (isActiveDownloadButton(btn)) continue;
 
     btn.textContent = isDone ? "✓" : "↓";
-    btn.title = isDone ? "Already downloaded" : "Click to download";
+    btn.title = isDone ? KDI18n.get("alreadyDownloadedTooltip") : KDI18n.get("clickToDownloadTooltip");
     btn.disabled = isDone;
     entry.postEl.style.position = "relative";
     entry.postEl.classList.add("kd-coomerfans-post");
@@ -218,8 +212,8 @@ function addCoomerFansPageFetchButton() {
     btn.className = "kemono-download-all batch-download-btn";
     btn.type = "button";
     btn.setAttribute("data-batch-download", "true");
-    btn.textContent = "Page Fetch";
-    btn.title = "Download all posts on this page";
+    btn.textContent = KDI18n.get("pageFetchAction");
+    btn.title = KDI18n.get("pageFetchTooltip");
     actions.appendChild(btn);
   }
 
@@ -242,79 +236,24 @@ function addCoomerFansPageFetchButton() {
       }));
 
     if (items.length === 0) {
-      updateButtonStatus(btn, "SUCCESS", "✓ All done", false);
+      updateButtonStatus(btn, "SUCCESS", KDI18n.get("statusAllDoneDecorated"), false);
       setTimeout(() => {
         btn.disabled = false;
-        updateButtonStatus(btn, "IDLE", "Page Fetch", false);
+        updateButtonStatus(btn, "IDLE", KDI18n.get("pageFetchAction"), false);
       }, 2000);
       return;
     }
 
-    let total = items.length;
-    let completed = 0;
-    let successCount = 0;
-
-    const finish = (status, text, keepDisabled) => {
-      try {
-        chrome.runtime.onMessage.removeListener(onBatchMessage);
-      } catch (e) {
-        /* ignore */
-      }
-      updateButtonStatus(btn, status, text, false);
-      btn.disabled = !!keepDisabled;
-      if (!keepDisabled) {
-        setTimeout(() => updateButtonStatus(btn, "IDLE", "Page Fetch", false), 2000);
-      }
-    };
-
-    const onBatchMessage = (message) => {
-      if (!message) return;
-      if (message.service !== creator.service || message.userId !== creator.userId) return;
-
-      if (message.action === "downloadProgress" && message.batch) {
-        if (Number.isFinite(message.totalCount)) total = message.totalCount;
-        btn.textContent = `Sending ${message.sentCount || 0}/${total}`;
-        if (completed >= total) {
-          if (successCount > 0) finish("SUCCESS", `✓ ${successCount}/${total}`, true);
-          else finish("ERROR", "✗ Failed", false);
-        }
-        return;
-      }
-
-      if (message.action !== "downloadComplete") return;
-      completed++;
-      if (message.result && message.result.success) successCount++;
-      btn.textContent = `ACK ${completed}/${total}`;
-
-      if (completed >= total) {
-        if (successCount > 0) finish("SUCCESS", `✓ ${successCount}/${total}`, true);
-        else finish("ERROR", "✗ Failed", false);
-      }
-    };
-
-    chrome.runtime.onMessage.addListener(onBatchMessage);
-    updateButtonStatus(btn, "SENDING", `Dispatching ${items.length}...`, false);
-
-    try {
-      const ack = await safeSendMessage(
-        { action: "startDownloadBatch", items },
-        10000,
-        { retries: 2, retryDelay: 400 }
-      );
-      if (!ack || (!ack.accepted && !ack.success)) throw new Error("No ack");
-      updateButtonStatus(btn, "SENDING", "Dispatched, awaiting ACK...", false);
-    } catch (err) {
-      try {
-        chrome.runtime.onMessage.removeListener(onBatchMessage);
-      } catch (e) {
-        /* ignore */
-      }
-      updateButtonStatus(btn, "ERROR", "✗ No ack", false);
-      setTimeout(() => {
-        btn.disabled = false;
-        updateButtonStatus(btn, "IDLE", "Page Fetch", false);
-      }, 2000);
-    }
+    await runPageFetchWithProgress({
+      btn,
+      service: creator.service,
+      userId: creator.userId,
+      requestMessage: { action: "startDownloadBatch", items },
+      initialText: `Dispatching ${items.length}...`,
+      ackText: "Dispatched, awaiting ACK...",
+      resetText: "Page Fetch",
+      total: items.length,
+    });
   };
 }
 
@@ -322,23 +261,19 @@ function reportCoomerFansAccess() {
   try {
     const parsed = parseCoomerFansCreatorPath(location.pathname);
     if (!parsed) return;
-    chrome.runtime.sendMessage(
-      { action: "creator.recordAccess", service: parsed.service, userId: parsed.userId },
-      () => {
-        void chrome.runtime.lastError;
-      }
-    );
+    reportCreatorAccess(parsed.service, parsed.userId);
   } catch (e) {
     /* ignore */
   }
 }
 
-async function renderCoomerFansActions() {
+async function renderCoomerFansActions(context) {
   reportCoomerFansAccess();
   if (isCoomerFansPostPage()) {
-    await addCoomerFansPostButton();
+    await addCoomerFansPostButton(context);
   } else {
-    await addCoomerFansCreatorButtons();
+    await addCoomerFansCreatorButtons(context);
+    if (!isRenderCurrent(context)) return;
     addCoomerFansPageFetchButton();
   }
 }
