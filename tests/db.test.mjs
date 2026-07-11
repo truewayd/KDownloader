@@ -173,6 +173,12 @@ class FakeObjectStore {
     return new FakeIndex(this.store, this.store.indexDefinitions.get(name), this.transaction);
   }
 
+  deleteIndex(name) {
+    if (!this.store.indexes.has(name)) throw new Error(`Index not found: ${name}`);
+    this.store.indexes.delete(name);
+    this.store.indexDefinitions.delete(name);
+  }
+
   index(name) {
     const definition = this.store.indexDefinitions.get(name);
     if (!definition) throw new Error(`Index not found: ${name}`);
@@ -357,6 +363,17 @@ function sortedRecords(records) {
       .localeCompare([right.source, right.service, right.userId, right.postId].join("\0")));
 }
 
+test("history database version 3 has no unused secondary indexes", async () => {
+  const db = await loadDBModule();
+  await db.getHistoryStats();
+
+  assert.equal(db.HISTORY_DB_INFO.version, 3);
+  const database = globalThis.indexedDB.databases.get(db.HISTORY_DB_INFO.name);
+  assert.ok(database);
+  assert.deepEqual([...database.stores.get("records").indexes], []);
+  assert.deepEqual([...database.stores.get("importRecords").indexes], []);
+});
+
 test("downloaded status distinguishes partial from terminal records", async () => {
   const db = await loadDBModule();
   await db.importDB(importPayload([
@@ -516,6 +533,55 @@ test("chunk validation errors leave current history intact and can be aborted", 
   await db.abortImportSession(sessionId);
   exported = JSON.parse(await db.exportDB());
   assert.deepEqual(exported.records, [existing]);
+});
+
+test("chunked import rejects duplicate identities within one chunk and preserves live history", async () => {
+  const db = await loadDBModule();
+  const existing = record({ postId: "existing" });
+  const duplicate = record({ postId: "duplicate" });
+  await db.markDownloaded(existing);
+
+  const sessionId = await db.beginImportSession(importEnvelope({ expectedRecords: 2 }));
+  await assert.rejects(
+    db.appendImportChunk(sessionId, [duplicate, { ...duplicate, updatedAt: "2026-07-11T02:00:00.000Z" }]),
+    /Duplicate history identity/
+  );
+
+  assert.deepEqual(JSON.parse(await db.exportDB()).records, [existing]);
+  await db.abortImportSession(sessionId);
+  assert.deepEqual(JSON.parse(await db.exportDB()).records, [existing]);
+});
+
+test("chunked import rejects duplicate identities across chunks and preserves live history", async () => {
+  const db = await loadDBModule();
+  const existing = record({ postId: "existing" });
+  const duplicate = record({ postId: "duplicate" });
+  await db.markDownloaded(existing);
+
+  const sessionId = await db.beginImportSession(importEnvelope({ expectedRecords: 2 }));
+  await db.appendImportChunk(sessionId, [duplicate], { sequence: 0, digest: "first" });
+  await assert.rejects(
+    db.appendImportChunk(
+      sessionId,
+      [{ ...duplicate, status: "empty", totalCount: 0, successCount: 0, failedCount: 0 }],
+      { sequence: 1, digest: "second" }
+    ),
+    /Duplicate history identity/
+  );
+
+  assert.deepEqual(JSON.parse(await db.exportDB()).records, [existing]);
+  await db.abortImportSession(sessionId);
+  assert.deepEqual(JSON.parse(await db.exportDB()).records, [existing]);
+});
+
+test("the same post id remains valid under a different creator identity", async () => {
+  const db = await loadDBModule();
+  const records = [
+    record({ userId: "creator-a", postId: "shared-post-id" }),
+    record({ userId: "creator-b", postId: "shared-post-id" }),
+  ];
+  await db.importDB(importPayload(records));
+  assert.deepEqual(sortedRecords(JSON.parse(await db.exportDB()).records), sortedRecords(records));
 });
 
 test("chunk retries with the same sequence and digest are idempotent", async () => {

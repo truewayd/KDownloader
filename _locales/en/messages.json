@@ -1,111 +1,387 @@
 {
-  "extensionName": { "message": "Kemono & Coomer Downloader" },
-  "extensionDescription": { "message": "Batch download from coomer.st / kemono.cr / coomerfans.com with cloud storage sync" },
-  "appName": { "message": "KDownloader" },
-  "popupTitle": { "message": "Kemono Toolkit" },
-  "settingsPageTitle": { "message": "KDownloader Settings" },
-  "settingsTitle": { "message": "Advanced Settings" },
-  "storageCalculating": { "message": "Calculating..." },
-  "statusIdle": { "message": "Idle" },
-  "statusSending": { "message": "Sending..." },
-  "statusProcessing": { "message": "Processing..." },
-  "statusError": { "message": "Error" },
-  "statusNever": { "message": "Never" },
-  "statusLoading": { "message": "Loading" },
-  "statusSaving": { "message": "Saving" },
-  "statusRestoring": { "message": "Restoring" },
-  "statusUpdating": { "message": "Updating" },
-  "creatorFetchTitle": { "message": "Creator Fetch" },
-  "creatorFetchAction": { "message": "Creator Fetch" },
-  "creatorFetchBackendRequiredPlaceholder": { "message": "Configure and enable backend first" },
-  "creatorFetchTooltip": { "message": "Fetch creator posts" },
-  "openSettingsTooltip": { "message": "Open advanced settings" },
-  "settingsAction": { "message": "Settings" },
-  "searchPageFetchTitle": { "message": "Search Page Fetch" },
-  "cacheCoomerAction": { "message": "Cache Coomer" },
-  "cacheKemonoAction": { "message": "Cache Kemono" },
-  "gistSyncTitle": { "message": "GitHub Gist Sync" },
-  "downloadAction": { "message": "Download" },
-  "uploadAction": { "message": "Upload" },
-  "historyTitle": { "message": "History" },
-  "importAction": { "message": "Import" },
-  "exportAction": { "message": "Export" },
-  "backendTitle": { "message": "Backend" },
-  "backendEnable": { "message": "Enable backend dispatch" },
-  "backendType": { "message": "Backend type" },
-  "abdmProtocol": { "message": "ABDM protocol" },
-  "abdmHost": { "message": "ABDM host" },
-  "abdmPort": { "message": "ABDM port" },
-  "gopeedProtocol": { "message": "Gopeed protocol" },
-  "gopeedHost": { "message": "Gopeed host" },
-  "gopeedPort": { "message": "Gopeed port" },
-  "apiToken": { "message": "API token" },
-  "concurrency": { "message": "Concurrency" },
-  "retryCount": { "message": "Retry count" },
-  "perPostFileLimit": { "message": "Per-post file limit" },
-  "favoritesTitle": { "message": "Favorites" },
-  "favoritesEnableWatcher": { "message": "Enable watcher" },
-  "intervalMinutes": { "message": "Interval minutes" },
-  "checkNow": { "message": "Check now" },
-  "searchCacheTitle": { "message": "Search Cache" },
-  "searchPageFetchEnable": { "message": "Enable Search Page Fetch" },
-  "refreshCoomerCacheTooltip": { "message": "Refresh Coomer cache" },
-  "refreshKemonoCacheTooltip": { "message": "Refresh Kemono cache" },
-  "gistSyncEnable": { "message": "Enable GitHub Gist Sync" },
-  "tokenLabel": { "message": "Token" },
-  "gistId": { "message": "Gist ID" },
-  "gistSaveConfig": { "message": "Save Gist config" },
-  "historyMaintenanceTitle": { "message": "History Maintenance" },
-  "clearLocalHistoryTitle": { "message": "Clear local download history" },
-  "clearLocalHistoryDescription": { "message": "This permanently removes downloaded markers from extension storage." },
-  "clearHistoryAction": { "message": "Clear history" },
-  "restoreDefaultsAction": { "message": "Restore defaults" },
-  "reloadAction": { "message": "Reload" },
-  "saveSettingsAction": { "message": "Save settings" },
-  "historyExported": { "message": "History exported" },
-  "historyImported": { "message": "History imported" },
-  "creatorUrlRequired": { "message": "Please enter a creator URL" },
-  "creatorUrlInvalid": { "message": "Invalid creator URL" },
-  "taskAdded": { "message": "Task added" },
-  "cacheRefreshStarted": { "message": "Cache refresh started" },
-  "gistUploaded": { "message": "Uploaded to Gist" },
-  "gistDownloaded": { "message": "Downloaded from Gist" },
-  "settingsSaved": { "message": "Settings saved" },
-  "defaultsRestored": { "message": "Defaults restored" },
-  "favoritesCheckStarted": { "message": "Favorites check started" },
-  "gistConfigSaved": { "message": "Gist config saved" },
-  "historyCleared": { "message": "History cleared" },
-  "restoreDefaultsConfirm": { "message": "Restore advanced settings to defaults? Download history will not be cleared." },
-  "clearHistoryConfirm": { "message": "This will permanently delete all download history. Continue?" },
-  "downloadActionDecorated": { "message": "↓ Download" },
-  "statusFetching": { "message": "Fetching..." },
-  "statusAllSent": { "message": "✓ All Sent" },
-  "statusFailedDecorated": { "message": "✗ Failed" },
-  "statusDownloadedDecorated": { "message": "✓ Downloaded" },
-  "statusAllDoneDecorated": { "message": "✓ All done" },
-  "statusNoFiles": { "message": "No files" },
-  "noDownloadableFiles": { "message": "No downloadable files" },
-  "externalLinksTitle": { "message": "External Download Links Detected" },
-  "externalLinksDescription": { "message": "The following external links may require manual download:" },
-  "closeAction": { "message": "Close" },
-  "alreadyDownloadedTooltip": { "message": "Already downloaded" },
-  "clickToDownloadTooltip": { "message": "Click to download" },
-  "pageFetchAction": { "message": "Page Fetch" },
-  "pageFetchTooltip": { "message": "Download all posts on this page" },
-  "backendEnableRequired": { "message": "Please enable backend first" },
-  "backendCheckFailed": { "message": "Backend check failed" },
-  "flagSavedTooltip": { "message": "Saved (click to unsave)" },
-  "flagNotSavedTooltip": { "message": "Not saved (click to save)" },
-  "errorNoAck": { "message": "No ack" },
-  "errorTimeout": { "message": "Timeout" },
-  "errorWithDetail": { "message": "$PREFIX$: $DETAIL$", "placeholders": { "prefix": { "content": "$1" }, "detail": { "content": "$2" } } },
-  "sendingPercent": { "message": "Sending $PERCENT$%", "placeholders": { "percent": { "content": "$1" } } },
-  "sendingCount": { "message": "Sending $SENT$/$TOTAL$", "placeholders": { "sent": { "content": "$1" }, "total": { "content": "$2" } } },
-  "ackCount": { "message": "ACK $COMPLETED$/$TOTAL$", "placeholders": { "completed": { "content": "$1" }, "total": { "content": "$2" } } },
-  "dispatchingCount": { "message": "Dispatching $COUNT$...", "placeholders": { "count": { "content": "$1" } } },
-  "globalProgressActive": { "message": "$PROCESSED$/$TOTAL$ sent · $ACKED$ ACK", "placeholders": { "processed": { "content": "$1" }, "total": { "content": "$2" }, "acked": { "content": "$3" } } },
-  "globalProgressIdle": { "message": "Idle · $ACKED$ ACK", "placeholders": { "acked": { "content": "$1" } } },
-  "backendHistoryWarning": { "message": "Due to cross-origin restrictions, downloads are handed off to your configured service. A successful hand-off is recorded as complete, so history may not reflect the final file state." },
-  "historyImportProgress": { "message": "Importing $CURRENT$ / $TOTAL$", "placeholders": { "current": { "content": "$1" }, "total": { "content": "$2" } } },
-  "historyImportFinalizing": { "message": "Finalizing history import..." }
+  "extensionName": {
+    "message": "KDownloader"
+  },
+  "extensionDescription": {
+    "message": "Batch download from coomer.st / kemono.cr / coomerfans.com with cloud storage sync"
+  },
+  "appName": {
+    "message": "KDownloader"
+  },
+  "popupTitle": {
+    "message": "Kemono Toolkit"
+  },
+  "settingsPageTitle": {
+    "message": "KDownloader Settings"
+  },
+  "settingsTitle": {
+    "message": "Advanced Settings"
+  },
+  "storageCalculating": {
+    "message": "Calculating..."
+  },
+  "statusIdle": {
+    "message": "Idle"
+  },
+  "statusSending": {
+    "message": "Sending..."
+  },
+  "statusProcessing": {
+    "message": "Processing..."
+  },
+  "statusError": {
+    "message": "Error"
+  },
+  "statusNever": {
+    "message": "Never"
+  },
+  "statusLoading": {
+    "message": "Loading"
+  },
+  "statusSaving": {
+    "message": "Saving"
+  },
+  "statusRestoring": {
+    "message": "Restoring"
+  },
+  "statusUpdating": {
+    "message": "Updating"
+  },
+  "creatorFetchTitle": {
+    "message": "Creator Fetch"
+  },
+  "creatorFetchAction": {
+    "message": "Creator Fetch"
+  },
+  "creatorFetchBackendRequiredPlaceholder": {
+    "message": "Configure and enable backend first"
+  },
+  "creatorFetchTooltip": {
+    "message": "Fetch creator posts"
+  },
+  "openSettingsTooltip": {
+    "message": "Open advanced settings"
+  },
+  "settingsAction": {
+    "message": "Settings"
+  },
+  "searchPageFetchTitle": {
+    "message": "Search Page Fetch"
+  },
+  "cacheCoomerAction": {
+    "message": "Cache Coomer"
+  },
+  "cacheKemonoAction": {
+    "message": "Cache Kemono"
+  },
+  "gistSyncTitle": {
+    "message": "GitHub Gist Sync"
+  },
+  "downloadAction": {
+    "message": "Download"
+  },
+  "uploadAction": {
+    "message": "Upload"
+  },
+  "historyTitle": {
+    "message": "History"
+  },
+  "importAction": {
+    "message": "Import"
+  },
+  "exportAction": {
+    "message": "Export"
+  },
+  "backendTitle": {
+    "message": "Backend"
+  },
+  "backendEnable": {
+    "message": "Enable backend dispatch"
+  },
+  "backendType": {
+    "message": "Backend type"
+  },
+  "abdmProtocol": {
+    "message": "ABDM protocol"
+  },
+  "abdmHost": {
+    "message": "ABDM host"
+  },
+  "abdmPort": {
+    "message": "ABDM port"
+  },
+  "gopeedProtocol": {
+    "message": "Gopeed protocol"
+  },
+  "gopeedHost": {
+    "message": "Gopeed host"
+  },
+  "gopeedPort": {
+    "message": "Gopeed port"
+  },
+  "apiToken": {
+    "message": "API token"
+  },
+  "concurrency": {
+    "message": "Concurrency"
+  },
+  "retryCount": {
+    "message": "Retry count"
+  },
+  "perPostFileLimit": {
+    "message": "Per-post file limit"
+  },
+  "favoritesTitle": {
+    "message": "Favorites"
+  },
+  "favoritesEnableWatcher": {
+    "message": "Enable watcher"
+  },
+  "intervalMinutes": {
+    "message": "Interval minutes"
+  },
+  "checkNow": {
+    "message": "Check now"
+  },
+  "searchCacheTitle": {
+    "message": "Search Cache"
+  },
+  "searchPageFetchEnable": {
+    "message": "Enable Search Page Fetch"
+  },
+  "refreshCoomerCacheTooltip": {
+    "message": "Refresh Coomer cache"
+  },
+  "refreshKemonoCacheTooltip": {
+    "message": "Refresh Kemono cache"
+  },
+  "gistSyncEnable": {
+    "message": "Enable GitHub Gist Sync"
+  },
+  "tokenLabel": {
+    "message": "Token"
+  },
+  "gistId": {
+    "message": "Gist ID"
+  },
+  "gistSaveConfig": {
+    "message": "Save Gist config"
+  },
+  "historyMaintenanceTitle": {
+    "message": "History Maintenance"
+  },
+  "clearLocalHistoryTitle": {
+    "message": "Clear local download history"
+  },
+  "clearLocalHistoryDescription": {
+    "message": "This permanently removes downloaded markers from extension storage."
+  },
+  "clearHistoryAction": {
+    "message": "Clear history"
+  },
+  "restoreDefaultsAction": {
+    "message": "Restore defaults"
+  },
+  "reloadAction": {
+    "message": "Reload"
+  },
+  "saveSettingsAction": {
+    "message": "Save settings"
+  },
+  "historyExported": {
+    "message": "History exported"
+  },
+  "historyImported": {
+    "message": "History imported"
+  },
+  "creatorUrlRequired": {
+    "message": "Please enter a creator URL"
+  },
+  "creatorUrlInvalid": {
+    "message": "Invalid creator URL"
+  },
+  "taskAdded": {
+    "message": "Task added"
+  },
+  "cacheRefreshStarted": {
+    "message": "Cache refresh started"
+  },
+  "gistUploaded": {
+    "message": "Uploaded to Gist"
+  },
+  "gistDownloaded": {
+    "message": "Downloaded from Gist"
+  },
+  "settingsSaved": {
+    "message": "Settings saved"
+  },
+  "defaultsRestored": {
+    "message": "Defaults restored"
+  },
+  "favoritesCheckStarted": {
+    "message": "Favorites check started"
+  },
+  "gistConfigSaved": {
+    "message": "Gist config saved"
+  },
+  "historyCleared": {
+    "message": "History cleared"
+  },
+  "restoreDefaultsConfirm": {
+    "message": "Restore advanced settings to defaults? Download history will not be cleared."
+  },
+  "clearHistoryConfirm": {
+    "message": "This will permanently delete all download history. Continue?"
+  },
+  "downloadActionDecorated": {
+    "message": "↓ Download"
+  },
+  "statusFetching": {
+    "message": "Fetching..."
+  },
+  "statusAllSent": {
+    "message": "✓ All Sent"
+  },
+  "statusFailedDecorated": {
+    "message": "✗ Failed"
+  },
+  "statusDownloadedDecorated": {
+    "message": "✓ Downloaded"
+  },
+  "statusAllDoneDecorated": {
+    "message": "✓ All done"
+  },
+  "statusNoFiles": {
+    "message": "No files"
+  },
+  "noDownloadableFiles": {
+    "message": "No downloadable files"
+  },
+  "externalLinksTitle": {
+    "message": "External Download Links Detected"
+  },
+  "externalLinksDescription": {
+    "message": "The following external links may require manual download:"
+  },
+  "closeAction": {
+    "message": "Close"
+  },
+  "alreadyDownloadedTooltip": {
+    "message": "Already downloaded"
+  },
+  "clickToDownloadTooltip": {
+    "message": "Click to download"
+  },
+  "pageFetchAction": {
+    "message": "Page Fetch"
+  },
+  "pageFetchTooltip": {
+    "message": "Download all posts on this page"
+  },
+  "backendEnableRequired": {
+    "message": "Please enable backend first"
+  },
+  "backendCheckFailed": {
+    "message": "Backend check failed"
+  },
+  "flagSavedTooltip": {
+    "message": "Saved (click to unsave)"
+  },
+  "flagNotSavedTooltip": {
+    "message": "Not saved (click to save)"
+  },
+  "errorNoAck": {
+    "message": "No ack"
+  },
+  "errorTimeout": {
+    "message": "Timeout"
+  },
+  "errorWithDetail": {
+    "message": "$PREFIX$: $DETAIL$",
+    "placeholders": {
+      "prefix": {
+        "content": "$1"
+      },
+      "detail": {
+        "content": "$2"
+      }
+    }
+  },
+  "sendingPercent": {
+    "message": "Sending $PERCENT$%",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "sendingCount": {
+    "message": "Sending $SENT$/$TOTAL$",
+    "placeholders": {
+      "sent": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "ackCount": {
+    "message": "ACK $COMPLETED$/$TOTAL$",
+    "placeholders": {
+      "completed": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "dispatchingCount": {
+    "message": "Dispatching $COUNT$...",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "globalProgressActive": {
+    "message": "$PROCESSED$/$TOTAL$ sent · $ACKED$ ACK",
+    "placeholders": {
+      "processed": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "acked": {
+        "content": "$3"
+      }
+    }
+  },
+  "globalProgressIdle": {
+    "message": "Idle · $ACKED$ ACK",
+    "placeholders": {
+      "acked": {
+        "content": "$1"
+      }
+    }
+  },
+  "backendHistoryWarning": {
+    "message": "Due to cross-origin restrictions, downloads are handed off to your configured service. A successful hand-off is recorded as complete, so history may not reflect the final file state."
+  },
+  "historyImportProgress": {
+    "message": "Importing $CURRENT$ / $TOTAL$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "historyImportFinalizing": {
+    "message": "Finalizing history import..."
+  }
 }

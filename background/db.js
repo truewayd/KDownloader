@@ -6,7 +6,7 @@ import {
 } from "./constants.js";
 
 const HISTORY_DB_NAME = "kdownloaderHistory";
-const HISTORY_DB_VERSION = 2;
+const HISTORY_DB_VERSION = 3;
 const HISTORY_STORE = "records";
 const IMPORT_STORE = "importRecords";
 const IMPORT_META_STORE = "importSessions";
@@ -40,19 +40,27 @@ function openHistoryDB() {
     const request = indexedDB.open(HISTORY_DB_NAME, HISTORY_DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
+      let historyStore;
       if (!db.objectStoreNames.contains(HISTORY_STORE)) {
-        const store = db.createObjectStore(HISTORY_STORE, {
+        historyStore = db.createObjectStore(HISTORY_STORE, {
           keyPath: ["source", "service", "userId", "postId"],
         });
-        store.createIndex("creator", ["source", "service", "userId"], { unique: false });
-        store.createIndex("status", "status", { unique: false });
+      } else {
+        historyStore = request.transaction.objectStore(HISTORY_STORE);
       }
+      for (const indexName of ["creator", "status"]) {
+        if (historyStore.indexNames.contains(indexName)) historyStore.deleteIndex(indexName);
+      }
+
+      let importStore;
       if (!db.objectStoreNames.contains(IMPORT_STORE)) {
-        const importStore = db.createObjectStore(IMPORT_STORE, {
+        importStore = db.createObjectStore(IMPORT_STORE, {
           keyPath: ["sessionId", "source", "service", "userId", "postId"],
         });
-        importStore.createIndex("sessionId", "sessionId", { unique: false });
+      } else {
+        importStore = request.transaction.objectStore(IMPORT_STORE);
       }
+      if (importStore.indexNames.contains("sessionId")) importStore.deleteIndex("sessionId");
       if (!db.objectStoreNames.contains(IMPORT_META_STORE)) {
         db.createObjectStore(IMPORT_META_STORE, { keyPath: "sessionId" });
       }
@@ -174,6 +182,23 @@ function generationKey(generation, service, userId, postId, source) {
   return [generation, ...historyKey(service, userId, postId, source)];
 }
 
+function generationRange(generation) {
+  return IDBKeyRange.bound(
+    [generation, ""],
+    [generation, []]
+  );
+}
+
+function historyIdentityToken(record) {
+  return JSON.stringify([record.source, record.service, record.userId, record.postId]);
+}
+
+function duplicateHistoryIdentityError(record) {
+  return new Error(
+    `Duplicate history identity: ${record.source}/${record.service}/${record.userId}/${record.postId}`
+  );
+}
+
 export function downloadedItemKey(service, userId, postId, source) {
   const prefix = normalizeSource(source, false) === "coomerfans" ? "coomerfans:" : "";
   return `${prefix}${String(service || "")}:${String(userId || "")}:${String(postId || "")}`;
@@ -204,7 +229,7 @@ async function readAllHistoryRecords() {
   }
   const transaction = db.transaction(IMPORT_STORE, "readonly");
   const staged = await requestToPromise(
-    transaction.objectStore(IMPORT_STORE).index("sessionId").getAll(generation)
+    transaction.objectStore(IMPORT_STORE).getAll(generationRange(generation))
   );
   return staged.map(stripGeneration);
 }
@@ -275,6 +300,12 @@ export async function appendImportChunk(sessionId, records, options = {}) {
   if (!sessionId || typeof sessionId !== "string") throw new Error("Invalid import session id");
   if (!Array.isArray(records)) throw new Error("Import chunk records must be an array");
   const normalized = records.map((record) => normalizeHistoryRecord(record, { strict: true }));
+  const identities = new Set();
+  for (const record of normalized) {
+    const identity = historyIdentityToken(record);
+    if (identities.has(identity)) throw duplicateHistoryIdentityError(record);
+    identities.add(identity);
+  }
   const normalizedBytes = normalized.reduce(
     (sum, record) => sum + estimateRecordBytes(record),
     0
@@ -300,7 +331,19 @@ export async function appendImportChunk(sessionId, records, options = {}) {
       }
       if (sequence !== meta.nextSequence) throw new Error("Import chunks must be appended in order");
 
-      for (const record of normalized) importStore.add({ sessionId, ...record });
+      for (const record of normalized) {
+        const addRequest = importStore.add({ sessionId, ...record });
+        addRequest.onerror = (event) => {
+          if (event && typeof event.preventDefault === "function") event.preventDefault();
+          if (operationError) return;
+          operationError = duplicateHistoryIdentityError(record);
+          try {
+            transaction.abort();
+          } catch (_) {
+            /* transaction may already be aborting */
+          }
+        };
+      }
       meta.chunks[String(sequence)] = digest;
       meta.nextSequence++;
       meta.receivedRecords += normalized.length;
@@ -388,9 +431,7 @@ async function deleteGenerationRecords(generation) {
     return;
   }
   const transaction = db.transaction([IMPORT_STORE, IMPORT_META_STORE], "readwrite");
-  const lower = [generation];
-  const upper = [generation, "\uffff", "\uffff", "\uffff", "\uffff"];
-  transaction.objectStore(IMPORT_STORE).delete(IDBKeyRange.bound(lower, upper));
+  transaction.objectStore(IMPORT_STORE).delete(generationRange(generation));
   transaction.objectStore(IMPORT_META_STORE).delete(generation);
   await transactionToPromise(transaction);
 }
@@ -405,9 +446,7 @@ export async function abortImportSession(sessionId) {
   request.onsuccess = () => {
     const meta = request.result;
     if (meta && meta.state === "committed") return;
-    const lower = [sessionId];
-    const upper = [sessionId, "\uffff", "\uffff", "\uffff", "\uffff"];
-    transaction.objectStore(IMPORT_STORE).delete(IDBKeyRange.bound(lower, upper));
+    transaction.objectStore(IMPORT_STORE).delete(generationRange(sessionId));
     metaStore.delete(sessionId);
   };
   await done;
@@ -689,7 +728,7 @@ export async function getHistoryExportPage(
 
   if (typeof store.openCursor !== "function") {
     const raw = generation
-      ? await requestToPromise(store.index("sessionId").getAll(generation))
+      ? await requestToPromise(store.getAll(generationRange(generation)))
       : await requestToPromise(store.getAll());
     const all = generation ? raw.map(stripGeneration) : raw;
     const sorted = all.sort((a, b) => compareCompoundKeys(

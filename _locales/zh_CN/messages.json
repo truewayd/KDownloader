@@ -1,111 +1,387 @@
 {
-  "extensionName": { "message": "Kemono 与 Coomer 下载器" },
-  "extensionDescription": { "message": "批量下载 coomer.st、kemono.cr、coomerfans.com 内容并同步到云端存储" },
-  "appName": { "message": "KDownloader" },
-  "popupTitle": { "message": "Kemono 工具箱" },
-  "settingsPageTitle": { "message": "KDownloader 设置" },
-  "settingsTitle": { "message": "高级设置" },
-  "storageCalculating": { "message": "正在计算…" },
-  "statusIdle": { "message": "空闲" },
-  "statusSending": { "message": "正在发送…" },
-  "statusProcessing": { "message": "正在处理…" },
-  "statusError": { "message": "错误" },
-  "statusNever": { "message": "从未" },
-  "statusLoading": { "message": "正在加载" },
-  "statusSaving": { "message": "正在保存" },
-  "statusRestoring": { "message": "正在恢复" },
-  "statusUpdating": { "message": "正在更新" },
-  "creatorFetchTitle": { "message": "创作者抓取" },
-  "creatorFetchAction": { "message": "抓取创作者" },
-  "creatorFetchBackendRequiredPlaceholder": { "message": "请先配置并启用下载后端" },
-  "creatorFetchTooltip": { "message": "抓取创作者的帖子" },
-  "openSettingsTooltip": { "message": "打开高级设置" },
-  "settingsAction": { "message": "设置" },
-  "searchPageFetchTitle": { "message": "搜索页抓取" },
-  "cacheCoomerAction": { "message": "缓存 Coomer" },
-  "cacheKemonoAction": { "message": "缓存 Kemono" },
-  "gistSyncTitle": { "message": "GitHub Gist 同步" },
-  "downloadAction": { "message": "下载" },
-  "uploadAction": { "message": "上传" },
-  "historyTitle": { "message": "历史记录" },
-  "importAction": { "message": "导入" },
-  "exportAction": { "message": "导出" },
-  "backendTitle": { "message": "下载后端" },
-  "backendEnable": { "message": "启用后端分发" },
-  "backendType": { "message": "后端类型" },
-  "abdmProtocol": { "message": "ABDM 协议" },
-  "abdmHost": { "message": "ABDM 主机" },
-  "abdmPort": { "message": "ABDM 端口" },
-  "gopeedProtocol": { "message": "Gopeed 协议" },
-  "gopeedHost": { "message": "Gopeed 主机" },
-  "gopeedPort": { "message": "Gopeed 端口" },
-  "apiToken": { "message": "API 令牌" },
-  "concurrency": { "message": "并发数" },
-  "retryCount": { "message": "重试次数" },
-  "perPostFileLimit": { "message": "单帖文件上限" },
-  "favoritesTitle": { "message": "收藏监控" },
-  "favoritesEnableWatcher": { "message": "启用监控" },
-  "intervalMinutes": { "message": "间隔分钟数" },
-  "checkNow": { "message": "立即检查" },
-  "searchCacheTitle": { "message": "搜索缓存" },
-  "searchPageFetchEnable": { "message": "启用搜索页抓取" },
-  "refreshCoomerCacheTooltip": { "message": "刷新 Coomer 缓存" },
-  "refreshKemonoCacheTooltip": { "message": "刷新 Kemono 缓存" },
-  "gistSyncEnable": { "message": "启用 GitHub Gist 同步" },
-  "tokenLabel": { "message": "令牌" },
-  "gistId": { "message": "Gist ID" },
-  "gistSaveConfig": { "message": "保存 Gist 配置" },
-  "historyMaintenanceTitle": { "message": "历史记录维护" },
-  "clearLocalHistoryTitle": { "message": "清除本地下载历史" },
-  "clearLocalHistoryDescription": { "message": "这会永久移除扩展存储中的已下载标记。" },
-  "clearHistoryAction": { "message": "清除历史" },
-  "restoreDefaultsAction": { "message": "恢复默认值" },
-  "reloadAction": { "message": "重新加载" },
-  "saveSettingsAction": { "message": "保存设置" },
-  "historyExported": { "message": "历史记录已导出" },
-  "historyImported": { "message": "历史记录已导入" },
-  "creatorUrlRequired": { "message": "请输入创作者 URL" },
-  "creatorUrlInvalid": { "message": "创作者 URL 无效" },
-  "taskAdded": { "message": "任务已添加" },
-  "cacheRefreshStarted": { "message": "缓存刷新已开始" },
-  "gistUploaded": { "message": "已上传到 Gist" },
-  "gistDownloaded": { "message": "已从 Gist 下载" },
-  "settingsSaved": { "message": "设置已保存" },
-  "defaultsRestored": { "message": "已恢复默认值" },
-  "favoritesCheckStarted": { "message": "收藏检查已开始" },
-  "gistConfigSaved": { "message": "Gist 配置已保存" },
-  "historyCleared": { "message": "历史记录已清除" },
-  "restoreDefaultsConfirm": { "message": "将高级设置恢复为默认值？下载历史不会被清除。" },
-  "clearHistoryConfirm": { "message": "这会永久删除全部下载历史，是否继续？" },
-  "downloadActionDecorated": { "message": "↓ 下载" },
-  "statusFetching": { "message": "正在获取…" },
-  "statusAllSent": { "message": "✓ 已全部发送" },
-  "statusFailedDecorated": { "message": "✗ 失败" },
-  "statusDownloadedDecorated": { "message": "✓ 已下载" },
-  "statusAllDoneDecorated": { "message": "✓ 全部完成" },
-  "statusNoFiles": { "message": "没有文件" },
-  "noDownloadableFiles": { "message": "没有可下载文件" },
-  "externalLinksTitle": { "message": "检测到外部下载链接" },
-  "externalLinksDescription": { "message": "以下外部链接可能需要手动下载：" },
-  "closeAction": { "message": "关闭" },
-  "alreadyDownloadedTooltip": { "message": "已下载" },
-  "clickToDownloadTooltip": { "message": "点击下载" },
-  "pageFetchAction": { "message": "抓取本页" },
-  "pageFetchTooltip": { "message": "下载本页的所有帖子" },
-  "backendEnableRequired": { "message": "请先启用下载后端" },
-  "backendCheckFailed": { "message": "后端检查失败" },
-  "flagSavedTooltip": { "message": "已保存（点击取消保存）" },
-  "flagNotSavedTooltip": { "message": "未保存（点击保存）" },
-  "errorNoAck": { "message": "未收到确认" },
-  "errorTimeout": { "message": "超时" },
-  "errorWithDetail": { "message": "$PREFIX$：$DETAIL$", "placeholders": { "prefix": { "content": "$1" }, "detail": { "content": "$2" } } },
-  "sendingPercent": { "message": "正在发送 $PERCENT$%", "placeholders": { "percent": { "content": "$1" } } },
-  "sendingCount": { "message": "正在发送 $SENT$/$TOTAL$", "placeholders": { "sent": { "content": "$1" }, "total": { "content": "$2" } } },
-  "ackCount": { "message": "已确认 $COMPLETED$/$TOTAL$", "placeholders": { "completed": { "content": "$1" }, "total": { "content": "$2" } } },
-  "dispatchingCount": { "message": "正在分发 $COUNT$ 项…", "placeholders": { "count": { "content": "$1" } } },
-  "globalProgressActive": { "message": "已发送 $PROCESSED$/$TOTAL$ · 已确认 $ACKED$", "placeholders": { "processed": { "content": "$1" }, "total": { "content": "$2" }, "acked": { "content": "$3" } } },
-  "globalProgressIdle": { "message": "空闲 · 已确认 $ACKED$", "placeholders": { "acked": { "content": "$1" } } },
-  "backendHistoryWarning": { "message": "由于跨域限制，开启后端后下载将由你指定的服务接管。任务成功交付后会被记录为已完成，因此下载记录可能与文件最终落盘状态不完全一致。" },
-  "historyImportProgress": { "message": "正在导入 $CURRENT$ / $TOTAL$", "placeholders": { "current": { "content": "$1" }, "total": { "content": "$2" } } },
-  "historyImportFinalizing": { "message": "正在完成历史记录导入…" }
+  "extensionName": {
+    "message": "KDownloader"
+  },
+  "extensionDescription": {
+    "message": "批量下载 coomer.st、kemono.cr、coomerfans.com 内容并同步到云端存储"
+  },
+  "appName": {
+    "message": "KDownloader"
+  },
+  "popupTitle": {
+    "message": "Kemono 工具箱"
+  },
+  "settingsPageTitle": {
+    "message": "KDownloader 设置"
+  },
+  "settingsTitle": {
+    "message": "高级设置"
+  },
+  "storageCalculating": {
+    "message": "正在计算…"
+  },
+  "statusIdle": {
+    "message": "空闲"
+  },
+  "statusSending": {
+    "message": "正在发送…"
+  },
+  "statusProcessing": {
+    "message": "正在处理…"
+  },
+  "statusError": {
+    "message": "错误"
+  },
+  "statusNever": {
+    "message": "从未"
+  },
+  "statusLoading": {
+    "message": "正在加载"
+  },
+  "statusSaving": {
+    "message": "正在保存"
+  },
+  "statusRestoring": {
+    "message": "正在恢复"
+  },
+  "statusUpdating": {
+    "message": "正在更新"
+  },
+  "creatorFetchTitle": {
+    "message": "创作者抓取"
+  },
+  "creatorFetchAction": {
+    "message": "抓取创作者"
+  },
+  "creatorFetchBackendRequiredPlaceholder": {
+    "message": "请先配置并启用下载后端"
+  },
+  "creatorFetchTooltip": {
+    "message": "抓取创作者的帖子"
+  },
+  "openSettingsTooltip": {
+    "message": "打开高级设置"
+  },
+  "settingsAction": {
+    "message": "设置"
+  },
+  "searchPageFetchTitle": {
+    "message": "搜索页抓取"
+  },
+  "cacheCoomerAction": {
+    "message": "缓存 Coomer"
+  },
+  "cacheKemonoAction": {
+    "message": "缓存 Kemono"
+  },
+  "gistSyncTitle": {
+    "message": "GitHub Gist 同步"
+  },
+  "downloadAction": {
+    "message": "下载"
+  },
+  "uploadAction": {
+    "message": "上传"
+  },
+  "historyTitle": {
+    "message": "历史记录"
+  },
+  "importAction": {
+    "message": "导入"
+  },
+  "exportAction": {
+    "message": "导出"
+  },
+  "backendTitle": {
+    "message": "下载后端"
+  },
+  "backendEnable": {
+    "message": "启用后端分发"
+  },
+  "backendType": {
+    "message": "后端类型"
+  },
+  "abdmProtocol": {
+    "message": "ABDM 协议"
+  },
+  "abdmHost": {
+    "message": "ABDM 主机"
+  },
+  "abdmPort": {
+    "message": "ABDM 端口"
+  },
+  "gopeedProtocol": {
+    "message": "Gopeed 协议"
+  },
+  "gopeedHost": {
+    "message": "Gopeed 主机"
+  },
+  "gopeedPort": {
+    "message": "Gopeed 端口"
+  },
+  "apiToken": {
+    "message": "API 令牌"
+  },
+  "concurrency": {
+    "message": "并发数"
+  },
+  "retryCount": {
+    "message": "重试次数"
+  },
+  "perPostFileLimit": {
+    "message": "单帖文件上限"
+  },
+  "favoritesTitle": {
+    "message": "收藏监控"
+  },
+  "favoritesEnableWatcher": {
+    "message": "启用监控"
+  },
+  "intervalMinutes": {
+    "message": "间隔分钟数"
+  },
+  "checkNow": {
+    "message": "立即检查"
+  },
+  "searchCacheTitle": {
+    "message": "搜索缓存"
+  },
+  "searchPageFetchEnable": {
+    "message": "启用搜索页抓取"
+  },
+  "refreshCoomerCacheTooltip": {
+    "message": "刷新 Coomer 缓存"
+  },
+  "refreshKemonoCacheTooltip": {
+    "message": "刷新 Kemono 缓存"
+  },
+  "gistSyncEnable": {
+    "message": "启用 GitHub Gist 同步"
+  },
+  "tokenLabel": {
+    "message": "令牌"
+  },
+  "gistId": {
+    "message": "Gist ID"
+  },
+  "gistSaveConfig": {
+    "message": "保存 Gist 配置"
+  },
+  "historyMaintenanceTitle": {
+    "message": "历史记录维护"
+  },
+  "clearLocalHistoryTitle": {
+    "message": "清除本地下载历史"
+  },
+  "clearLocalHistoryDescription": {
+    "message": "这会永久移除扩展存储中的已下载标记。"
+  },
+  "clearHistoryAction": {
+    "message": "清除历史"
+  },
+  "restoreDefaultsAction": {
+    "message": "恢复默认值"
+  },
+  "reloadAction": {
+    "message": "重新加载"
+  },
+  "saveSettingsAction": {
+    "message": "保存设置"
+  },
+  "historyExported": {
+    "message": "历史记录已导出"
+  },
+  "historyImported": {
+    "message": "历史记录已导入"
+  },
+  "creatorUrlRequired": {
+    "message": "请输入创作者 URL"
+  },
+  "creatorUrlInvalid": {
+    "message": "创作者 URL 无效"
+  },
+  "taskAdded": {
+    "message": "任务已添加"
+  },
+  "cacheRefreshStarted": {
+    "message": "缓存刷新已开始"
+  },
+  "gistUploaded": {
+    "message": "已上传到 Gist"
+  },
+  "gistDownloaded": {
+    "message": "已从 Gist 下载"
+  },
+  "settingsSaved": {
+    "message": "设置已保存"
+  },
+  "defaultsRestored": {
+    "message": "已恢复默认值"
+  },
+  "favoritesCheckStarted": {
+    "message": "收藏检查已开始"
+  },
+  "gistConfigSaved": {
+    "message": "Gist 配置已保存"
+  },
+  "historyCleared": {
+    "message": "历史记录已清除"
+  },
+  "restoreDefaultsConfirm": {
+    "message": "将高级设置恢复为默认值？下载历史不会被清除。"
+  },
+  "clearHistoryConfirm": {
+    "message": "这会永久删除全部下载历史，是否继续？"
+  },
+  "downloadActionDecorated": {
+    "message": "↓ 下载"
+  },
+  "statusFetching": {
+    "message": "正在获取…"
+  },
+  "statusAllSent": {
+    "message": "✓ 已全部发送"
+  },
+  "statusFailedDecorated": {
+    "message": "✗ 失败"
+  },
+  "statusDownloadedDecorated": {
+    "message": "✓ 已下载"
+  },
+  "statusAllDoneDecorated": {
+    "message": "✓ 全部完成"
+  },
+  "statusNoFiles": {
+    "message": "没有文件"
+  },
+  "noDownloadableFiles": {
+    "message": "没有可下载文件"
+  },
+  "externalLinksTitle": {
+    "message": "检测到外部下载链接"
+  },
+  "externalLinksDescription": {
+    "message": "以下外部链接可能需要手动下载："
+  },
+  "closeAction": {
+    "message": "关闭"
+  },
+  "alreadyDownloadedTooltip": {
+    "message": "已下载"
+  },
+  "clickToDownloadTooltip": {
+    "message": "点击下载"
+  },
+  "pageFetchAction": {
+    "message": "抓取本页"
+  },
+  "pageFetchTooltip": {
+    "message": "下载本页的所有帖子"
+  },
+  "backendEnableRequired": {
+    "message": "请先启用下载后端"
+  },
+  "backendCheckFailed": {
+    "message": "后端检查失败"
+  },
+  "flagSavedTooltip": {
+    "message": "已保存（点击取消保存）"
+  },
+  "flagNotSavedTooltip": {
+    "message": "未保存（点击保存）"
+  },
+  "errorNoAck": {
+    "message": "未收到确认"
+  },
+  "errorTimeout": {
+    "message": "超时"
+  },
+  "errorWithDetail": {
+    "message": "$PREFIX$：$DETAIL$",
+    "placeholders": {
+      "prefix": {
+        "content": "$1"
+      },
+      "detail": {
+        "content": "$2"
+      }
+    }
+  },
+  "sendingPercent": {
+    "message": "正在发送 $PERCENT$%",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "sendingCount": {
+    "message": "正在发送 $SENT$/$TOTAL$",
+    "placeholders": {
+      "sent": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "ackCount": {
+    "message": "已确认 $COMPLETED$/$TOTAL$",
+    "placeholders": {
+      "completed": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "dispatchingCount": {
+    "message": "正在分发 $COUNT$ 项…",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "globalProgressActive": {
+    "message": "已发送 $PROCESSED$/$TOTAL$ · 已确认 $ACKED$",
+    "placeholders": {
+      "processed": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "acked": {
+        "content": "$3"
+      }
+    }
+  },
+  "globalProgressIdle": {
+    "message": "空闲 · 已确认 $ACKED$",
+    "placeholders": {
+      "acked": {
+        "content": "$1"
+      }
+    }
+  },
+  "backendHistoryWarning": {
+    "message": "由于跨域限制，开启后端后下载将由你指定的服务接管。任务成功交付后会被记录为已完成，因此下载记录可能与文件最终落盘状态不完全一致。"
+  },
+  "historyImportProgress": {
+    "message": "正在导入 $CURRENT$ / $TOTAL$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "historyImportFinalizing": {
+    "message": "正在完成历史记录导入…"
+  }
 }
