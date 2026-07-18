@@ -10,6 +10,63 @@ function isPawPostPage() {
   return /\/user\/[^\/]+\/post\//.test(location.pathname);
 }
 
+function renderPawWatchState(btn, watched) {
+  btn.dataset.watched = watched ? "true" : "false";
+  btn.textContent = watched ? KDI18n.get("unwatchAction") : KDI18n.get("watchAction");
+  btn.title = watched ? KDI18n.get("unwatchTooltip") : KDI18n.get("watchTooltip");
+}
+
+async function addPawWatchButton(context) {
+  const header = document.querySelector(".user-header__actions");
+  const parsed = parseUrlPath(location.pathname);
+  if (!header || !parsed || parsed.postId) return;
+
+  let btn = header.querySelector('[data-kd-watch="true"]');
+  if (!btn) {
+    btn = document.createElement("button");
+    btn.className = "kd-watch-button button _button_e60d849";
+    btn.type = "button";
+    btn.setAttribute("data-kd-watch", "true");
+    btn.style.margin = "0";
+    btn.style.padding = "0 12px";
+    header.appendChild(btn);
+  }
+
+  const response = await safeSendMessage(
+    { action: "watch.getState", service: parsed.service, userId: parsed.userId },
+    8000,
+    { retries: 2, retryDelay: 300 }
+  );
+  if (!isRenderCurrent(context)) return;
+  if (!response || response.success === false) {
+    throw new Error(response?.error || "Failed to read watch state");
+  }
+  renderPawWatchState(btn, !!response.watched);
+
+  btn.onclick = async (event) => {
+    event.preventDefault();
+    if (btn.disabled) return;
+    const previous = btn.dataset.watched === "true";
+    btn.disabled = true;
+    btn.textContent = KDI18n.get("statusProcessing");
+    try {
+      const result = await safeSendMessage(
+        { action: "watch.setState", service: parsed.service, userId: parsed.userId, watched: !previous },
+        15000,
+        { retries: 1, retryDelay: 400 }
+      );
+      if (!result || result.success === false) throw new Error(result?.error || "Watch request failed");
+      renderPawWatchState(btn, !!result.watched);
+    } catch (error) {
+      btn.textContent = KDI18n.get("statusFailedDecorated");
+      btn.title = error && error.message ? error.message : String(error);
+      setTimeout(() => renderPawWatchState(btn, previous), 1800);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+}
+
 async function addPawPostButton(context) {
   const container = document.querySelector(".post__actions");
   if (!container) return;
@@ -148,32 +205,23 @@ function addPawPageFetchButton() {
     btn.disabled = true;
 
     const entries = getPawCreatorEntries();
-    const downloaded = await getDownloadedStatusMap(entries);
-    const items = entries
-      .filter((entry) => !downloaded.get(downloadedKey(entry.service, entry.userId, entry.postId)))
-      .map((entry) => ({
-        service: entry.service,
-        userId: entry.userId,
-        postId: entry.postId,
-      }));
-
-    if (items.length === 0) {
-      updateButtonStatus(btn, "SUCCESS", KDI18n.get("statusAllDoneDecorated"), false);
-      setTimeout(() => {
-        btn.disabled = false;
-        updateButtonStatus(btn, "IDLE", null, false);
-      }, 2000);
-      return;
-    }
+    const offset = Number(new URL(location.href).searchParams.get("o") || 0);
 
     await runPageFetchWithProgress({
       btn,
       service: parsed.service,
       userId: parsed.userId,
-      requestMessage: { action: "startDownloadBatch", items },
-      initialText: `Dispatching ${items.length}...`,
+      requestMessage: {
+        action: "creator.pageFetch",
+        source: "pawchive",
+        origin: location.origin,
+        service: parsed.service,
+        userId: parsed.userId,
+        offset: Number.isFinite(offset) && offset >= 0 ? offset : 0,
+      },
+      initialText: KDI18n.get("dispatchingCount", [String(entries.length)]),
       ackText: "Dispatched, awaiting ACK...",
-      total: items.length,
+      total: entries.length,
       renderProgress: ({ btn: progressBtn, message, state }) => {
         progressBtn.title = `Sending ${message.sentCount || 0}/${state.total}`;
       },
@@ -199,6 +247,7 @@ async function renderPawActions(context) {
     await addPawCreatorButtons(context);
     if (!isRenderCurrent(context)) return;
     addPawPageFetchButton();
+    await addPawWatchButton(context);
   }
 }
 
@@ -210,7 +259,7 @@ if (window.KDRouteWatcher) {
   window.KDRouteWatcher.register({
     name: "paw-download-actions",
     targetSelector: PAW_TARGET_SELECTOR,
-    match: () => /\/[^/]+\/user\/[^/]+/.test(location.pathname),
+    match: () => location.hostname === "pawchive.pw" && /\/[^/]+\/user\/[^/]+/.test(location.pathname),
     hasTargets: hasPawTargets,
     render: renderPawActions,
     maxAttempts: 25,

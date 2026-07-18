@@ -26,23 +26,42 @@ export const API = {
   CREATORS_PATH: "/creators",
 };
 
-// Pawchive site configuration
+// Pawchive site configuration. Pawchive integrations intentionally support
+// only pawchive.pw and its dedicated file host.
 export const PAW = {
-  HOST: "pawchive.st",
-  HOSTS: ["pawchive.st", "pawchive.pw"],
-  ORIGIN: "https://pawchive.st",
-  ORIGINS: ["https://pawchive.st", "https://pawchive.pw"],
-  FILE_HOST: "file.pawchive.st",
-  FILE_HOSTS: ["file.pawchive.st", "file.pawchive.pw"],
+  HOST: "pawchive.pw",
+  HOSTS: ["pawchive.pw"],
+  ORIGIN: "https://pawchive.pw",
+  API_PREFIX: "/api/v1",
+  FILE_HOST: "file.pawchive.pw",
+  FILE_ORIGIN: "https://file.pawchive.pw",
+  PAGE_SIZE: 50,
 };
 
 // Lightweight storage keys. Download history itself lives in IndexedDB.
 export const STORAGE_VERSION_KEY = "version";
 export const LAST_ACCESS_KEY = "lastAccess";
-export const FAVORITES_CONFIG_KEY = "favoritesConfig";
-export const FAVORITES_ALARM = "favoritesCheck";
+export const WATCH_CONFIG_KEY = "watchConfig";
+export const WATCH_DATA_KEY = "pawchiveWatches";
+export const WATCH_ICON_CACHE_KEY = "pawchiveWatchIcons";
+export const WATCH_ALARM = "pawchiveWatchCheck";
+export const NATIVE_FALLBACK_KEY = "pendingNativeFallbacks";
 export const BACKEND_CONFIG_KEY = "backendConfig";
+export const DOWNLOAD_RULES_CONFIG_KEY = "downloadRulesConfig";
 export const GIST_CONFIG_KEY = "gistConfig";
+
+export const DEFAULT_EXCLUDED_EXTENSIONS = [
+  ".psd",
+  ".clip",
+  ".sai",
+  ".sai2",
+  ".kra",
+  ".xcf",
+  ".procreate",
+  ".afphoto",
+  ".afdesign",
+  ".blend",
+];
 
 // Creators override cache
 export const CREATORS_OVERRIDE_KEY = "creatorsOverride";

@@ -59,6 +59,11 @@
   animation: fadeIn 0.2s ease-out;
 }
 
+.user-header__actions .kd-watch-button {
+  min-width: 92px;
+  white-space: nowrap;
+}
+
 /* Modal animations */
 @keyframes modalFadeIn {
   from {

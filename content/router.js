@@ -11,7 +11,23 @@
     pendingReason: null,
     lastHref: location.href,
     generation: 0,
+    stopped: false,
   };
+
+  function stop() {
+    if (state.stopped) return;
+    state.stopped = true;
+    state.scheduled = false;
+    state.pendingReason = null;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    if (state.observer) {
+      state.observer.disconnect();
+      state.observer = null;
+    }
+  }
 
   function isElement(node) {
     return node && node.nodeType === Node.ELEMENT_NODE;
@@ -27,7 +43,7 @@
   }
 
   function isOwnInjectedNode(node) {
-    return isElement(node) && nodeHasSelector(node, '[data-batch-download="true"]');
+    return isElement(node) && nodeHasSelector(node, '[data-batch-download="true"], [data-kd-watch="true"]');
   }
 
   function mutationLooksRelevant(mutations) {
@@ -83,7 +99,7 @@
 
   function ensureObserver() {
     const target = document.documentElement || document.body;
-    if (!target || state.observer) return;
+    if (state.stopped || !target || state.observer) return;
     state.observer = new MutationObserver((mutations) => {
       if (mutationLooksRelevant(mutations)) schedule("mutation", 180);
     });
@@ -91,6 +107,7 @@
   }
 
   function schedule(reason = "manual", delayMs = 250) {
+    if (state.stopped) return;
     state.pendingReason = reason;
     if (state.timer) clearTimeout(state.timer);
     state.scheduled = true;
@@ -98,6 +115,7 @@
   }
 
   async function run() {
+    if (state.stopped) return;
     if (state.running) {
       schedule("rerun", 250);
       return;
@@ -115,7 +133,7 @@
       href,
       urlChanged,
       generation,
-      isCurrent: () => generation === state.generation && href === location.href,
+      isCurrent: () => !state.stopped && generation === state.generation && href === location.href,
     };
     let needsRetry = false;
 
@@ -141,11 +159,16 @@
         await handler.render(context);
       }
     } catch (err) {
-      console.warn("[KD Router] render failed", err);
+      if (typeof isExtensionContextInvalidatedError === "function"
+        && isExtensionContextInvalidatedError(err)) {
+        stop();
+      } else {
+        console.warn("[KD Router] render failed", err);
+      }
     } finally {
       state.lastHref = href;
       state.running = false;
-      if (needsRetry) schedule("wait-targets", 300);
+      if (needsRetry && !state.stopped) schedule("wait-targets", 300);
     }
   }
 
@@ -153,6 +176,7 @@
     if (state.started) return;
     state.started = true;
     patchHistory();
+    window.addEventListener(EXTENSION_CONTEXT_INVALIDATED_EVENT, stop, { once: true });
 
     window.addEventListener("kd:locationchange", () => schedule("history", 220));
     window.addEventListener("popstate", () => schedule("popstate", 220));

@@ -22,10 +22,8 @@
     "*://*.coomer.st/*",
     "*://*.kemono.cr/*",
     "*://*.coomerfans.com/*",
-    "*://pawchive.st/*",
-    "*://*.pawchive.st/*",
-    "*://pawchive.pw/*",
-    "*://*.pawchive.pw/*",
+    "https://pawchive.pw/*",
+    "https://file.pawchive.pw/*",
     "https://api.github.com/*",
     "http://127.0.0.1/*",
     "http://localhost/*"
@@ -35,6 +33,11 @@
     "type": "module"
   },
   "content_scripts": [
+    {
+      "matches": ["https://pawchive.pw/*"],
+      "js": ["content/paw_api_bridge.js"],
+      "run_at": "document_start"
+    },
     {
       "matches": ["*://coomer.st/*", "*://kemono.cr/*"],
       "js": ["content/injector.js"],
@@ -68,8 +71,7 @@
     },
     {
       "matches": [
-        "*://pawchive.st/*/user/*",
-        "*://pawchive.pw/*/user/*"
+        "https://pawchive.pw/*/user/*"
       ],
       "js": [
         "content/helpers.js",

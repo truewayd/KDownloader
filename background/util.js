@@ -22,54 +22,102 @@ export const UTIL = {
       const dot = base.lastIndexOf('.');
       if (dot === -1 || dot === base.length - 1) return '';
       const ext = base.substring(dot).toLowerCase();
-      if (/^\.[a-z0-9]{1,5}$/.test(ext)) return ext;
+      if (/^\.[a-z0-9]{1,16}$/.test(ext)) return ext;
     } catch (e) { }
     return '';
   },
 
+  filterDownloadTasks: (tasks, config) => {
+    if (!Array.isArray(tasks)) return [];
+    if (!config || config.enabled !== true) return [...tasks];
+    const excluded = new Set(
+      (Array.isArray(config.excludedExtensions) ? config.excludedExtensions : [])
+        .map((value) => String(value || '').trim().toLowerCase())
+        .map((value) => value && (value.startsWith('.') ? value : `.${value}`))
+        .filter((value) => /^\.[a-z0-9]{1,16}$/.test(value))
+    );
+    if (excluded.size === 0) return [...tasks];
+    return tasks.filter((task) => {
+      const extension = UTIL.getFileExtension(task && task.fileName)
+        || UTIL.getFileExtension(task && task.url);
+      return !excluded.has(extension);
+    });
+  },
+
+  normalizeCreatorFetchMode: (mode, legacyFullMode = false) => {
+    const normalized = String(mode || '').trim().toLowerCase();
+    if (normalized === 'full' || normalized === 'links') return normalized;
+    return legacyFullMode === true ? 'full' : 'default';
+  },
+
   extractExternalLinks: (content) => {
     if (!content || typeof content !== 'string') return [];
-    const broad = /https?:\/\/[\w\-\.%@:\/\?=\&\+\$\#\(\)\[\]~,;\'!\*]+/gi;
-    const rawMatches = content.match(broad) || [];
-
-    const allowedHosts = [
-      'drive.google.com', 'docs.google.com', 'mega.nz', 'mega.co.nz', 'dropbox.com', 'db.tt',
-      'onedrive.live.com', '1drv.ms', 'mediafire.com', 'wetransfer.com', 'we.tl', 'sendspace.com',
-      '4shared.com', 'zippyshare.com', 'uploadfiles.io', 'box.com', 'pcloud.com', 'disk.yandex.'
-    ];
+    const normalizedContent = content
+      .replace(/&amp;/gi, '&')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#(?:39|x27);/gi, "'")
+      .replace(/&#(?:35|x23);/gi, '#');
+    const broad = /https?:\/\/[^\s<>"`]+/gi;
+    const rawMatches = normalizedContent.match(broad) || [];
 
     const seen = new Set();
     const result = [];
 
     for (let raw of rawMatches) {
       if (!raw || typeof raw !== 'string') continue;
-      let urlStr = raw.replace(/[)\]'"\.,;!?:]+$/g, '');
-      urlStr = urlStr.replace(/&amp;/g, '&');
-
-      let ok = false;
+      const urlStr = raw.replace(/[)\]}\'"\.,;!?]+$/g, '');
       try {
         const u = new URL(urlStr);
-        const host = u.hostname.toLowerCase();
-        ok = allowedHosts.some(h => host.indexOf(h) !== -1);
-        if (!ok) {
-          const path = (u.pathname || '').toLowerCase();
-          ok = /(file|upload|share|download|drive|storage)/.test(path);
-        }
-        if (ok) {
-          const key = (u.origin + u.pathname).toLowerCase();
-          if (!seen.has(key)) { seen.add(key); result.push(u.toString()); }
-        }
-      } catch (e) {
-        const lower = urlStr.toLowerCase();
-        ok = allowedHosts.some(h => lower.indexOf(h) !== -1) || /(file|upload|share|download|drive|storage)/.test(lower);
-        if (ok) {
-          const key = lower.split(/[?#]/)[0];
-          if (!seen.has(key)) { seen.add(key); result.push(urlStr); }
-        }
-      }
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
+        const normalizedUrl = u.toString();
+        if (seen.has(normalizedUrl)) continue;
+        seen.add(normalizedUrl);
+        result.push(normalizedUrl);
+      } catch (e) { }
     }
 
     return result;
+  },
+
+  buildExternalLinksText: (entries) => {
+    const links = new Set();
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      const rawUrl = typeof entry === 'string' ? entry : entry && (entry.url || entry.link);
+      const rawSourceUrl = typeof entry === 'object' && entry ? entry.sourceUrl : '';
+      let url;
+      try {
+        url = new URL(String(rawUrl || '')).toString();
+      } catch (e) {
+        continue;
+      }
+      if (!/^https?:$/i.test(new URL(url).protocol)) continue;
+      links.add(url);
+
+      try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.toLowerCase();
+        const isMega = host === 'mega.nz' || host === 'www.mega.nz' || host === 'mega.co.nz' || host === 'www.mega.co.nz';
+        if (isMega && !parsed.hash.slice(1).trim() && rawSourceUrl) {
+          const sourceUrl = new URL(String(rawSourceUrl)).toString();
+          if (/^https?:$/i.test(new URL(sourceUrl).protocol)) links.add(sourceUrl);
+        }
+      } catch (e) { }
+    }
+
+    const sorted = Array.from(links).sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+    return sorted.length > 0 ? `${sorted.join('\n')}\n` : '';
+  },
+
+  buildExternalLinksTextTask: (entries, fileName = 'external-links.txt') => {
+    const text = UTIL.buildExternalLinksText(entries);
+    if (!text) return null;
+    const safeName = UTIL.sanitizeFileName(fileName || 'external-links.txt');
+    const normalizedName = safeName.toLowerCase().endsWith('.txt') ? safeName : `${safeName}.txt`;
+    return {
+      url: `data:text/plain;charset=utf-8,${encodeURIComponent(text)}`,
+      fileName: normalizedName,
+      type: 'external_links_txt',
+    };
   },
 
   buildDownloadTasks: (postData, title, baseUrl) => {

@@ -16,6 +16,15 @@ async function getCreatorSummary(host) {
     : null;
 }
 
+async function getCreatorSummaries() {
+  const keys = API.HOSTS.map((host) => `creatorsOverride_${host}_meta`);
+  const stored = await chrome.storage.local.get(keys);
+  return Object.fromEntries(API.HOSTS.map((host) => {
+    const item = stored[`creatorsOverride_${host}_meta`];
+    return [host, item ? { updatedAt: item.updatedAt, sourceHost: item.sourceHost } : null];
+  }));
+}
+
 export function createCreatorsHandlers() {
   return {
     "creators.getCached": ({ message, sendResponse }) =>
@@ -30,11 +39,7 @@ export function createCreatorsHandlers() {
         sendResponse,
         (async () => {
           if (message && message.host) return getCreatorSummary(message.host);
-          const summary = {};
-          for (const host of API.HOSTS) {
-            summary[host] = await getCreatorSummary(host);
-          }
-          return summary;
+          return getCreatorSummaries();
         })(),
         (summary) => ({ summary })
       ),

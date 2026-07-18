@@ -4,14 +4,16 @@ import { createDbHandlers } from "./handlers/dbHandlers.js";
 import { createDownloadHandlers } from "./handlers/downloadHandlers.js";
 import { createCreatorsHandlers } from "./handlers/creatorsHandlers.js";
 import { createUtilityHandlers } from "./handlers/utilityHandlers.js";
+import { createWatchHandlers } from "./handlers/watchHandlers.js";
 
 function buildHandlers() {
   return {
-    ...createConfigHandlers({ runFavoritesCheck }),
+    ...createConfigHandlers(),
     ...createDbHandlers(),
     ...createDownloadHandlers(),
     ...createCreatorsHandlers(),
     ...createUtilityHandlers(),
+    ...createWatchHandlers(),
   };
 }
 
@@ -37,10 +39,4 @@ export function registerMessageHandlers() {
       return true;
     }
   });
-}
-
-// Favorites watcher hook. The old implementation was a placeholder; keeping the
-// function here preserves the RPC while leaving room for a dedicated module.
-export async function runFavoritesCheck() {
-  return true;
 }

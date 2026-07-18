@@ -44,6 +44,10 @@
       <path d="m7 11 5 5 5-5"></path>
       <path d="M5 20h14"></path>
     </symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="7"></circle>
+      <path d="m20 20-4-4"></path>
+    </symbol>
   </svg>
 
   <header class="popup-topbar">
@@ -65,6 +69,25 @@
   </div>
 
   <main class="container">
+    <section class="stats search-panel">
+      <div class="panel-heading">
+        <svg class="icon"><use href="#icon-search"></use></svg>
+        <h2 data-i18n="siteSearchTitle">Site Search</h2>
+      </div>
+      <form class="search-form mt-8" id="site-search-form">
+        <select id="site-search-site" data-i18n-aria-label="searchSiteLabel" aria-label="Site">
+          <option value="pawchive">Pawchive</option>
+          <option value="kemono">Kemono</option>
+          <option value="coomer">Coomer</option>
+          <option value="coomerfans">CoomerFans</option>
+        </select>
+        <input id="site-search-query" type="text" placeholder="Search creators" data-i18n-placeholder="siteSearchPlaceholder" data-i18n-aria-label="siteSearchPlaceholder" aria-label="Search creators" class="input-flex" autocomplete="off" />
+        <button class="btn icon-button" id="site-search-btn" type="submit" title="Search" data-i18n-title="searchAction" data-i18n-aria-label="searchAction" aria-label="Search">
+          <svg class="button-icon"><use href="#icon-search"></use></svg>
+        </button>
+      </form>
+    </section>
+
     <section class="stats creator-fetch-panel">
       <div class="panel-heading">
         <svg class="icon"><use href="#icon-server"></use></svg>
@@ -72,6 +95,14 @@
       </div>
       <div class="column mt-8">
         <input id="creator-url" type="text" placeholder="Configure and enable backend first" data-i18n-placeholder="creatorFetchBackendRequiredPlaceholder" class="input-flex" />
+        <label class="creator-fetch-mode" for="creator-fetch-mode" data-i18n-title="creatorFetchModeTooltip" title="Choose normal, full, or links-only creator fetching">
+          <span data-i18n="creatorFetchModeLabel">Mode</span>
+          <select id="creator-fetch-mode">
+            <option value="default" data-i18n="creatorFetchModeDefault">Default</option>
+            <option value="full" data-i18n="creatorFetchModeFull">Full</option>
+            <option value="links" data-i18n="creatorFetchModeLinksOnly">Links only</option>
+          </select>
+        </label>
         <div class="row mt-8 align-right">
           <button class="btn" id="creator-fetch-btn">
             <svg class="button-icon"><use href="#icon-server"></use></svg>
@@ -143,6 +174,7 @@
   <div class="error-message" id="error-message"></div>
 
   <script src="../shared/i18n.js"></script>
+  <script src="search.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

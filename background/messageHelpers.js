@@ -63,7 +63,7 @@ function getResultCounts(result) {
 }
 
 export function buildDownloadHistoryRecord(item, result) {
-  if (!item || !result || !result.success || result.alreadyDownloaded === true) {
+  if (!item || !result || !result.success || result.alreadyDownloaded === true || result.skippedByFilter === true) {
     return null;
   }
 

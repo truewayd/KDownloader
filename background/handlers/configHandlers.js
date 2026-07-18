@@ -1,9 +1,9 @@
 // background/handlers/configHandlers.js - config, gist, network, and status RPCs
 import {
-  loadFavoritesConfig,
-  saveFavoritesConfig,
   loadBackendConfig,
   saveBackendConfig,
+  loadDownloadRulesConfig,
+  saveDownloadRulesConfig,
   loadGistConfig,
   saveGistConfig,
 } from "../config.js";
@@ -12,22 +12,19 @@ import { handleAPIRequest, getCookies } from "../network.js";
 import { getGlobalProgress } from "../progress.js";
 import { respondWith } from "../messageHelpers.js";
 
-export function createConfigHandlers({ runFavoritesCheck }) {
+export function createConfigHandlers() {
   return {
-    "favorites.getConfig": ({ sendResponse }) =>
-      respondWith(sendResponse, loadFavoritesConfig(), (config) => ({ config })),
-
-    "favorites.setConfig": ({ message, sendResponse }) =>
-      respondWith(sendResponse, saveFavoritesConfig(message.config || {}), (config) => ({ config })),
-
-    "favorites.forceCheck": ({ sendResponse }) =>
-      respondWith(sendResponse, Promise.resolve().then(runFavoritesCheck), () => ({})),
-
     "backend.getConfig": ({ sendResponse }) =>
       respondWith(sendResponse, loadBackendConfig(), (config) => ({ config })),
 
     "backend.setConfig": ({ message, sendResponse }) =>
       respondWith(sendResponse, saveBackendConfig(message.config || {}), (config) => ({ config })),
+
+    "downloadRules.getConfig": ({ sendResponse }) =>
+      respondWith(sendResponse, loadDownloadRulesConfig(), (config) => ({ config })),
+
+    "downloadRules.setConfig": ({ message, sendResponse }) =>
+      respondWith(sendResponse, saveDownloadRulesConfig(message.config || {}), (config) => ({ config })),
 
     "gist.getConfig": ({ sendResponse }) =>
       respondWith(sendResponse, loadGistConfig(), (config) => ({ config })),

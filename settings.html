@@ -44,6 +44,9 @@
       <path d="m7 11 5 5 5-5"></path>
       <path d="M5 20h14"></path>
     </symbol>
+    <symbol id="icon-filter" viewBox="0 0 24 24">
+      <path d="M4 5h16l-6 7v5l-4 2v-7Z"></path>
+    </symbol>
   </svg>
 
   <main class="shell">
@@ -133,24 +136,71 @@
         </div>
       </article>
 
-      <article class="panel">
+      <article class="panel panel-wide">
         <div class="panel-heading">
-          <svg class="icon"><use href="#icon-clock"></use></svg>
-          <h2 data-i18n="favoritesTitle">Favorites</h2>
+          <svg class="icon"><use href="#icon-filter"></use></svg>
+          <h2 data-i18n="downloadRulesTitle">Download rules</h2>
         </div>
         <div class="form-grid">
           <label class="field field-inline">
-            <input type="checkbox" id="favorites-enabled" class="toggle">
-            <span data-i18n="favoritesEnableWatcher">Enable watcher</span>
+            <input type="checkbox" id="download-filter-enabled" class="toggle">
+            <span data-i18n="downloadFilterEnable">Skip selected project file types</span>
           </label>
+          <div id="download-filter-details" class="download-filter-details hidden">
+            <span class="field-label" data-i18n="downloadFilterExtensions">Excluded file extensions</span>
+            <div class="extension-grid">
+              <label class="extension-option"><input type="checkbox" value=".psd" data-download-extension> <span>.psd</span></label>
+              <label class="extension-option"><input type="checkbox" value=".clip" data-download-extension> <span>.clip</span></label>
+              <label class="extension-option"><input type="checkbox" value=".sai" data-download-extension> <span>.sai</span></label>
+              <label class="extension-option"><input type="checkbox" value=".sai2" data-download-extension> <span>.sai2</span></label>
+              <label class="extension-option"><input type="checkbox" value=".kra" data-download-extension> <span>.kra</span></label>
+              <label class="extension-option"><input type="checkbox" value=".xcf" data-download-extension> <span>.xcf</span></label>
+              <label class="extension-option"><input type="checkbox" value=".procreate" data-download-extension> <span>.procreate</span></label>
+              <label class="extension-option"><input type="checkbox" value=".afphoto" data-download-extension> <span>.afphoto</span></label>
+              <label class="extension-option"><input type="checkbox" value=".afdesign" data-download-extension> <span>.afdesign</span></label>
+              <label class="extension-option"><input type="checkbox" value=".blend" data-download-extension> <span>.blend</span></label>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-heading">
+          <svg class="icon"><use href="#icon-clock"></use></svg>
+          <h2 data-i18n="watchTitle">Pawchive Watch</h2>
+        </div>
+        <div class="form-grid">
           <label class="field">
             <span data-i18n="intervalMinutes">Interval minutes</span>
-            <input id="favorites-interval" type="number" min="1" step="1">
+            <input id="watch-interval" type="number" min="1" max="10080" step="1">
           </label>
-          <button type="button" class="button secondary" id="favorites-check">
-            <svg class="button-icon"><use href="#icon-refresh"></use></svg>
-            <span data-i18n="checkNow">Check now</span>
-          </button>
+          <div class="field">
+            <span data-i18n="watchCheckMode">Check mode</span>
+            <div class="segmented">
+              <button type="button" class="segment active" id="watch-mode-batch" data-i18n="watchCheckBatch">Batched</button>
+              <button type="button" class="segment" id="watch-mode-all" data-i18n="watchCheckAll">All at once</button>
+            </div>
+          </div>
+          <div class="cache-list">
+            <div>
+              <strong>Pawchive</strong>
+              <span id="watch-count" data-i18n="watchCountEmpty">No watched creators</span>
+            </div>
+            <button type="button" class="icon-button" id="watch-check" title="Check now" data-i18n-title="checkNow">
+              <svg class="button-icon"><use href="#icon-refresh"></use></svg>
+            </button>
+          </div>
+          <div class="button-row">
+            <button type="button" class="button secondary" id="watch-import">
+              <svg class="button-icon"><use href="#icon-upload"></use></svg>
+              <span data-i18n="importAction">Import</span>
+            </button>
+            <button type="button" class="button secondary" id="watch-export">
+              <svg class="button-icon"><use href="#icon-download"></use></svg>
+              <span data-i18n="exportAction">Export</span>
+            </button>
+          </div>
+          <input id="watch-import-file" type="file" accept="application/json,.json" class="hidden">
         </div>
       </article>
 

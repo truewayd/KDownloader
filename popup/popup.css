@@ -110,7 +110,8 @@ body::-webkit-scrollbar,
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -208,6 +209,26 @@ input {
   border-color: var(--creator-border);
 }
 
+.creator-fetch-mode {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.creator-fetch-mode select {
+  width: 100%;
+}
+
+.search-panel {
+  border-color: var(--creator-border);
+}
+
 .panel-heading {
   display: flex;
   align-items: center;
@@ -246,12 +267,19 @@ input {
   min-width: 0;
 }
 
+.search-form {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr) 34px;
+  gap: 8px;
+}
+
 .mt-8 { margin-top: 8px; }
 .align-right { justify-content: flex-end; }
 
 input[type="text"],
 input[type="password"],
-input[type="number"] {
+input[type="number"],
+select {
   height: 34px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -267,6 +295,12 @@ input::placeholder {
 }
 
 input:focus {
+  border-color: var(--button-border);
+  background: var(--input-focus-bg);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+select:focus {
   border-color: var(--button-border);
   background: var(--input-focus-bg);
   box-shadow: 0 0 0 3px var(--accent-soft);
@@ -320,6 +354,14 @@ input:focus {
 .btn:disabled {
   cursor: not-allowed;
   opacity: 0.58;
+}
+
+.btn.icon-button {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
 }
 
 .file-input {

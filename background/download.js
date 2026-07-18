@@ -1,8 +1,13 @@
 // background/download.js - download orchestration (local chrome.downloads and backend forwarding)
 import { CONFIG, API, PAW } from './constants.js';
 import UTIL from './util.js';
-import { loadBackendConfig } from './config.js';
+import { loadBackendConfig, loadDownloadRulesConfig } from './config.js';
 import { handleAPIRequest, getCookies } from './network.js';
+import {
+  buildPawchiveDownloadTasks,
+  fetchPawchivePost,
+  isCompletePawchivePost,
+} from './pawchive.js';
 
 // Unified in-memory task queue singleton to manage all outgoing dispatches to backends
 class TaskQueue {
@@ -236,6 +241,20 @@ async function dispatchAllToBackend(tasks, backendCfg, context) {
   return allFileResults;
 }
 
+export async function dispatchExternalLinksTextTask(entries, context = {}) {
+  const task = UTIL.buildExternalLinksTextTask(entries, context.fileName);
+  if (!task) return { success: true, skipped: true, results: [] };
+
+  const { successCount, results } = await runSequentialDownloads([task]);
+  return {
+    success: successCount > 0,
+    successCount,
+    results,
+    task,
+    error: successCount > 0 ? undefined : 'Chrome download failed',
+  };
+}
+
 export async function runSequentialDownloads(tasks, onProgress) {
   const results = [];
   let successCount = 0;
@@ -262,6 +281,35 @@ export async function runSequentialDownloads(tasks, onProgress) {
     try { if (typeof onProgress === 'function') onProgress({ processed, total, successCount }); } catch (e) { }
   }
   return { successCount, results };
+}
+
+function backendFailureResult(tasks, externalLinks) {
+  return {
+    success: false,
+    backendFailed: true,
+    fallbackTasks: tasks,
+    externalLinks,
+    error: 'Download backend connection failed',
+  };
+}
+
+async function applyDownloadRules(tasks, externalLinks) {
+  const filteredTasks = UTIL.filterDownloadTasks(tasks, await loadDownloadRulesConfig());
+  if (tasks.length > 0 && filteredTasks.length === 0) {
+    return {
+      tasks: filteredTasks,
+      result: {
+        success: true,
+        successCount: 0,
+        results: [],
+        externalLinks,
+        skippedByFilter: true,
+        filteredCount: tasks.length,
+        message: 'All files were excluded by download rules',
+      },
+    };
+  }
+  return { tasks: filteredTasks, result: null };
 }
 
 function absoluteCoomerFansUrl(rawUrl) {
@@ -349,16 +397,20 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
   }
 
   const mediaUrls = extractCoomerFansMediaUrls(html);
-  const tasks = mediaUrls.map((url, index) => ({
+  let tasks = mediaUrls.map((url, index) => ({
     url,
     fileName: buildCoomerFansFileName(creatorName, userId, postId, url, index + 1),
     type: 'coomerfans_media',
   }));
-  const externalLinks = UTIL.extractExternalLinks(html.replace(/<[^>]+>/g, ' '));
+  const externalLinks = UTIL.extractExternalLinks(html);
 
   if (tasks.length === 0) {
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
   }
+
+  const filtered = await applyDownloadRules(tasks, externalLinks);
+  if (filtered.result) return filtered.result;
+  tasks = filtered.tasks;
 
   const domain = API.COOMERFANS_HOST;
   const cookieString = await getCookies(domain);
@@ -388,6 +440,7 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
 
       if (allFileResults.some(fr => fr.success)) return { success: true, backend: true, results: allFileResults, externalLinks };
     }
+    return backendFailureResult(tasks, externalLinks);
   }
 
   const progressCallback = ({ processed, total, successCount }) => {
@@ -398,135 +451,62 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
   return { success: true, successCount, results, externalLinks };
 }
 
-// Parse downloadable URLs from a pawchive post HTML page.
-// Returns { tasks: [{url, fileName, type}], externalLinks: [] }
-function parsePawchiveHtml(html, title) {
-  const tasks = [];
-  // Deduplicate by file path (before '?') so video <source src> and matching
-  // <a class="post__attachment-link"> pointing to the same file aren't doubled.
-  const seenPath = new Set();
-  const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pawFileHosts = PAW.FILE_HOSTS.map(escapeRegex).join('|');
-
-  const pushIfNew = (rawUrl, fileName, type) => {
-    if (!rawUrl) return;
-    const url = rawUrl.replace(/&amp;/g, '&');
-    let filePath;
-    try { filePath = new URL(url).pathname; } catch (_) { filePath = url.split('?')[0]; }
-    if (seenPath.has(filePath)) return;
-    seenPath.add(filePath);
-    tasks.push({ url, fileName, type });
-  };
-
-  // Prefer download="" attr, then ?f= query param, then fallback string.
-  const extractFileName = (rawUrl, downloadAttr, fallback) => {
-    if (downloadAttr) return UTIL.sanitizeFileName(decodeURIComponent(downloadAttr));
-    try {
-      const fParam = new URL(rawUrl.replace(/&amp;/g, '&')).searchParams.get('f');
-      if (fParam) return UTIL.sanitizeFileName(decodeURIComponent(fParam));
-    } catch (_) {}
-    return UTIL.sanitizeFileName(fallback);
-  };
-
-  let m;
-
-  // 1. Video source URLs: <source src="https://file.pawchive.{st,pw}/...">
-  const videoSrcRe = new RegExp(`<source\\s[^>]*\\bsrc="(https://(?:${pawFileHosts})/[^"]+)"`, 'gi');
-  while ((m = videoSrcRe.exec(html)) !== null) {
-    const rawUrl = m[1];
-    pushIfNew(rawUrl, extractFileName(rawUrl, null, `${title}_video.mp4`), 'video');
-  }
-
-  // 2. Attachment links and fileThumb links: scan all <a> tags once, classify by class.
-  // This is attribute-order-independent so href/class can appear in any order.
-  const aTagRe = /<a\s([^>]*)>/gi;
-  while ((m = aTagRe.exec(html)) !== null) {
-    const attrs = m[1];
-    const hrefM = attrs.match(/\bhref="([^"]+)"/);
-    if (!hrefM) continue;
-    const rawUrl = hrefM[1];
-    const dlM = attrs.match(/\bdownload="([^"]+)"/);
-    const dlAttr = dlM ? dlM[1] : null;
-
-    if (/\bpost__attachment-link\b/.test(attrs)) {
-      pushIfNew(rawUrl, extractFileName(rawUrl, dlAttr, `${title}_attachment`), 'attachment');
-    } else if (/\bfileThumb\b/.test(attrs)) {
-      // href is the original full-resolution file; img src inside is the thumbnail.
-      const url = rawUrl.replace(/&amp;/g, '&');
-      let ext = '';
-      try { ext = UTIL.getFileExtension(new URL(url).pathname) || ''; } catch (_) {}
-      pushIfNew(rawUrl, extractFileName(rawUrl, dlAttr, `${title}_file${ext}`), 'file');
-    }
-  }
-
-  // 3. External links from post__content
-  const contentMatch = html.match(/<div class="post__content">([\s\S]*?)<\/div>/i);
-  const contentHtml = contentMatch ? contentMatch[1] : '';
-  const externalLinks = UTIL.extractExternalLinks(contentHtml.replace(/<[^>]+>/g, ' '));
-
-  return { tasks, externalLinks };
-}
-
-function resolvePawOrigin(senderUrl) {
-  try {
-    const host = new URL(senderUrl || PAW.ORIGIN).hostname.toLowerCase();
-    if (PAW.HOSTS.includes(host)) return `https://${host}`;
-  } catch (e) {
-    /* use default below */
-  }
-  return PAW.ORIGIN;
-}
-
-// Download a single pawchive post by fetching its HTML page and parsing assets.
-export async function startPawchiveDownload(service, userId, postId, senderTabId, senderUrl) {
-  const origin = resolvePawOrigin(senderUrl);
-  const host = new URL(origin).hostname;
-  const postUrl = `${origin}/${service}/user/${userId}/post/${postId}`;
-  const cookies = await getCookies(host);
-  // MV3 service workers with host_permissions bypass CORS for same-origin fetches.
-  // Do NOT pass Cookie manually — let credentials:'include' attach cookies automatically,
-  // and do NOT set mode:'cors' which would require server CORS headers.
+// Download a single Pawchive post from its JSON API representation. Creator
+// page batches can pass an already-fetched post to avoid duplicate requests.
+export async function startPawchiveDownload(service, userId, postId, senderTabId, prefetchedPost = null) {
+  const postUrl = `${PAW.ORIGIN}/${service}/user/${userId}/post/${postId}`;
+  const cookies = await getCookies(PAW.HOST);
   const headers = {
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept': 'application/json',
     'Accept-Language': 'zh-CN,zh;q=0.9',
     'Cache-Control': 'no-cache',
   };
 
-  let html;
+  let post;
   try {
-    const resp = await fetch(postUrl, { method: 'GET', headers, credentials: 'include' });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    html = await resp.text();
+    post = prefetchedPost || await fetchPawchivePost(service, userId, postId);
   } catch (e) {
-    throw new Error(`Failed to fetch pawchive post page: ${e.message}`);
+    throw new Error(`Failed to fetch Pawchive post: ${e.message}`);
   }
 
-  // Extract title from <h1 class="post__title">
-  const titleMatch = html.match(/<h1[^>]*class="post__title"[^>]*>[\s\S]*?<span>([^<]+)<\/span>/i);
-  const rawTitle = titleMatch ? titleMatch[1].trim() : `${service}_${userId}_${postId}`;
-  const title = UTIL.sanitizeFileName(rawTitle);
+  if (!isCompletePawchivePost(post)) {
+    return {
+      success: false,
+      skipped: true,
+      incomplete: true,
+      results: [],
+      externalLinks: [],
+      error: 'Pawchive post is incomplete (has_full is false)',
+    };
+  }
 
-  const { tasks, externalLinks } = parsePawchiveHtml(html, title);
+  let tasks = buildPawchiveDownloadTasks(post);
+  const externalLinks = UTIL.extractExternalLinks(typeof post.content === 'string' ? post.content : '');
 
   if (tasks.length === 0) {
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
   }
 
+  const filtered = await applyDownloadRules(tasks, externalLinks);
+  if (filtered.result) return filtered.result;
+  tasks = filtered.tasks;
+
   const backendCfg = await loadBackendConfig();
 
   if (backendCfg.enabled) {
     if (backendCfg.backendType === 'gopeed') {
-      const referer = `${origin}/${service}/user/${userId}/post/${postId}`;
+      const referer = postUrl;
       const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookies, referer, service, userId, postId, senderTabId);
       if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, results, externalLinks };
     } else {
       const allFileResults = await dispatchAllToBackend(tasks, backendCfg, {
         cookieString: cookies,
-        origin,
+        origin: PAW.ORIGIN,
         service,
         userId,
         postId,
         headers,
+        referer: postUrl,
         defaultFileLimit: 200,
         senderTabId,
       });
@@ -534,6 +514,7 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
       const anySuccess = allFileResults.some(fr => fr.success);
       if (anySuccess) return { success: true, backend: true, results: allFileResults, externalLinks };
     }
+    return backendFailureResult(tasks, externalLinks);
   }
 
   // Local chrome.downloads fallback
@@ -637,12 +618,16 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
   if (!postData || !postData.post) throw new Error('Invalid API response');
 
   const title = UTIL.sanitizeFileName(postData.post.title || 'Untitled');
-  const tasks = UTIL.buildDownloadTasks(postData, title, origin);
+  let tasks = UTIL.buildDownloadTasks(postData, title, origin);
   const externalLinks = UTIL.extractExternalLinks(postData.post && postData.post.content ? postData.post.content : '');
 
   if (tasks.length === 0) {
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
   }
+
+  const filtered = await applyDownloadRules(tasks, externalLinks);
+  if (filtered.result) return filtered.result;
+  tasks = filtered.tasks;
 
   const cookieString = cookies;
   const backendCfg = await loadBackendConfig();
@@ -670,6 +655,7 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
         return { success: true, backend: true, results: allFileResults, externalLinks };
       }
     }
+    return backendFailureResult(tasks, externalLinks);
   }
 
   // 4. Local chrome.downloads fallback

@@ -3,7 +3,7 @@
     "message": "KDownloader"
   },
   "extensionDescription": {
-    "message": "Batch download from coomer.st / kemono.cr / coomerfans.com with cloud storage sync"
+    "message": "Download creator content and watch Pawchive creators for updates"
   },
   "appName": {
     "message": "KDownloader"
@@ -59,11 +59,41 @@
   "creatorFetchTooltip": {
     "message": "Fetch creator posts"
   },
+  "creatorFetchModeLabel": {
+    "message": "Mode"
+  },
+  "creatorFetchModeDefault": {
+    "message": "Default"
+  },
+  "creatorFetchModeFull": {
+    "message": "Full"
+  },
+  "creatorFetchModeLinksOnly": {
+    "message": "Links only"
+  },
+  "creatorFetchModeTooltip": {
+    "message": "Default skips downloaded posts; Full ignores history; Links only downloads a TXT file directly through Chrome without media or history writes"
+  },
   "openSettingsTooltip": {
     "message": "Open advanced settings"
   },
   "settingsAction": {
     "message": "Settings"
+  },
+  "siteSearchTitle": {
+    "message": "Site Search"
+  },
+  "searchSiteLabel": {
+    "message": "Site"
+  },
+  "siteSearchPlaceholder": {
+    "message": "Search creators"
+  },
+  "searchAction": {
+    "message": "Search"
+  },
+  "searchQueryRequired": {
+    "message": "Enter a search term"
   },
   "searchPageFetchTitle": {
     "message": "Search Page Fetch"
@@ -131,14 +161,40 @@
   "perPostFileLimit": {
     "message": "Per-post file limit"
   },
-  "favoritesTitle": {
-    "message": "Favorites"
+  "downloadRulesTitle": {
+    "message": "Download rules"
   },
-  "favoritesEnableWatcher": {
-    "message": "Enable watcher"
+  "downloadFilterEnable": {
+    "message": "Skip selected project file types"
+  },
+  "downloadFilterExtensions": {
+    "message": "Excluded file extensions"
+  },
+  "watchTitle": {
+    "message": "Pawchive Watch"
   },
   "intervalMinutes": {
     "message": "Interval minutes"
+  },
+  "watchCheckMode": {
+    "message": "Check mode"
+  },
+  "watchCheckBatch": {
+    "message": "Batched"
+  },
+  "watchCheckAll": {
+    "message": "All at once"
+  },
+  "watchCountEmpty": {
+    "message": "No watched creators"
+  },
+  "watchCount": {
+    "message": "$COUNT$ watched creators",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "checkNow": {
     "message": "Check now"
@@ -218,8 +274,17 @@
   "defaultsRestored": {
     "message": "Defaults restored"
   },
-  "favoritesCheckStarted": {
-    "message": "Favorites check started"
+  "watchCheckStarted": {
+    "message": "Watch check started"
+  },
+  "watchExported": {
+    "message": "Watch list exported"
+  },
+  "watchImported": {
+    "message": "Watch list imported"
+  },
+  "watchImportConfirm": {
+    "message": "Replace the current Pawchive Watch list with this file?"
   },
   "gistConfigSaved": {
     "message": "Gist config saved"
@@ -277,6 +342,105 @@
   },
   "pageFetchTooltip": {
     "message": "Download all posts on this page"
+  },
+  "watchAction": {
+    "message": "Watch"
+  },
+  "unwatchAction": {
+    "message": "Unwatch"
+  },
+  "watchTooltip": {
+    "message": "Watch this Pawchive creator"
+  },
+  "unwatchTooltip": {
+    "message": "Stop watching this Pawchive creator"
+  },
+  "watchNotificationTitle": {
+    "message": "Pawchive creator update"
+  },
+  "watchStartedTitle": {
+    "message": "Watching $CREATOR$",
+    "placeholders": {
+      "creator": {
+        "content": "$1"
+      }
+    }
+  },
+  "watchStartedMessage": {
+    "message": "If this creator updates, future notifications will look like this."
+  },
+  "watchNotificationSingle": {
+    "message": "A watched creator, $CREATOR$, has updated.",
+    "placeholders": {
+      "creator": {
+        "content": "$1"
+      }
+    }
+  },
+  "watchNotificationMultiple": {
+    "message": "$CREATOR$ is the latest of $COUNT$ watched creators with updates.",
+    "placeholders": {
+      "creator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "watchFailureTitle": {
+    "message": "Pawchive Watch check failed"
+  },
+  "watchFailureSingle": {
+    "message": "Failed to check $CREATOR$: $ERROR$",
+    "placeholders": {
+      "creator": {
+        "content": "$1"
+      },
+      "error": {
+        "content": "$2"
+      }
+    }
+  },
+  "watchFailureMultiple": {
+    "message": "Failed to check $COUNT$ watched creators. Latest error: $ERROR$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "error": {
+        "content": "$2"
+      }
+    }
+  },
+  "pawchiveCloudflareTitle": {
+    "message": "Pawchive verification required"
+  },
+  "pawchiveCloudflareMessage": {
+    "message": "Open pawchive.pw, complete the Cloudflare verification, keep that tab open, and retry. If verification is already complete, Cloudflare may have blocked this network."
+  },
+  "openPawchiveAction": {
+    "message": "Open Pawchive"
+  },
+  "nativeFallbackTitle": {
+    "message": "Download backend unavailable"
+  },
+  "nativeFallbackMessage": {
+    "message": "The backend rejected $COUNT$ files. Continue with Chrome downloads?",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueDownloadAction": {
+    "message": "Continue download"
+  },
+  "cancelDownloadAction": {
+    "message": "Cancel download"
+  },
+  "nativeFallbackCancelled": {
+    "message": "Chrome fallback download cancelled"
   },
   "backendEnableRequired": {
     "message": "Please enable backend first"

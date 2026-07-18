@@ -21,6 +21,7 @@ const errorMessage = document.getElementById("error-message");
 const storageUsed = document.getElementById("storage-used");
 const creatorUrlInput = document.getElementById("creator-url");
 const creatorFetchBtn = document.getElementById("creator-fetch-btn");
+const creatorFetchMode = document.getElementById("creator-fetch-mode");
 const searchCachePanel = document.getElementById("search-cache-panel");
 const creatorsUpdateCoomer = document.getElementById("creators-update-coomer");
 const creatorsUpdateKemono = document.getElementById("creators-update-kemono");
@@ -30,6 +31,9 @@ const gistDownloadBtn = document.getElementById("gist-download-btn");
 const globalProgressEl = document.getElementById("global-progress");
 const globalProgressFill = document.getElementById("global-progress-fill");
 const globalProgressLabel = document.getElementById("global-progress-label");
+const siteSearchForm = document.getElementById("site-search-form");
+const siteSearchSite = document.getElementById("site-search-site");
+const siteSearchQuery = document.getElementById("site-search-query");
 
 let backendReady = false;
 
@@ -119,6 +123,17 @@ function openOptionsPage() {
     }
 }
 
+function handleSiteSearch(event) {
+    event.preventDefault();
+    const url = KDPopupSearch.buildSearchUrl(siteSearchSite?.value, siteSearchQuery?.value);
+    if (!url) {
+        showError(t("searchQueryRequired"));
+        siteSearchQuery?.focus();
+        return;
+    }
+    chrome.tabs.create({ url });
+}
+
 function setIconButton(button, iconId, label) {
     if (!button) return;
 
@@ -137,13 +152,15 @@ function setIconButton(button, iconId, label) {
 
 function setCreatorFetchAvailability(config) {
     backendReady = !!(config && config.enabled);
+    const linksOnly = creatorFetchMode?.value === "links";
+    const fetchReady = backendReady || linksOnly;
     if (creatorUrlInput && !creatorUrlInput.value) {
-        creatorUrlInput.placeholder = backendReady ? CREATOR_FETCH_PLACEHOLDER : t("creatorFetchBackendRequiredPlaceholder");
+        creatorUrlInput.placeholder = fetchReady ? CREATOR_FETCH_PLACEHOLDER : t("creatorFetchBackendRequiredPlaceholder");
     }
     if (!creatorFetchBtn) return;
-    setIconButton(creatorFetchBtn, backendReady ? "icon-download" : "icon-server", backendReady ? t("creatorFetchAction") : t("settingsAction"));
-    creatorFetchBtn.classList.toggle("secondary", !backendReady);
-    creatorFetchBtn.title = backendReady ? t("creatorFetchTooltip") : t("openSettingsTooltip");
+    setIconButton(creatorFetchBtn, fetchReady ? "icon-download" : "icon-server", fetchReady ? t("creatorFetchAction") : t("settingsAction"));
+    creatorFetchBtn.classList.toggle("secondary", !fetchReady);
+    creatorFetchBtn.title = fetchReady ? t("creatorFetchTooltip") : t("openSettingsTooltip");
 }
 
 function parseCreatorUrl(urlStr) {
@@ -383,7 +400,8 @@ async function importData(file) {
 }
 
 async function handleCreatorFetchClick() {
-    if (!backendReady) {
+    const mode = creatorFetchMode?.value || "default";
+    if (!backendReady && mode !== "links") {
         openOptionsPage();
         return;
     }
@@ -409,6 +427,7 @@ async function handleCreatorFetchClick() {
                 userId: parsed.userId,
                 creatorName: parsed.creatorName,
                 source: parsed.source,
+                mode,
             },
             7000,
             { retries: 2, retryDelay: 400 }
@@ -416,7 +435,7 @@ async function handleCreatorFetchClick() {
         if (!ack || (!ack.accepted && !ack.success)) throw new Error("No ack");
         showSuccess(t("taskAdded"));
         creatorUrlInput.value = "";
-        setCreatorFetchAvailability({ enabled: true });
+        setCreatorFetchAvailability({ enabled: backendReady });
         creatorFetchBtn.disabled = true;
         setTimeout(() => {
             creatorFetchBtn.disabled = false;
@@ -508,6 +527,8 @@ fileInput?.addEventListener("change", async (event) => {
     event.target.value = "";
 });
 creatorFetchBtn?.addEventListener("click", handleCreatorFetchClick);
+creatorFetchMode?.addEventListener("change", () => setCreatorFetchAvailability({ enabled: backendReady }));
+siteSearchForm?.addEventListener("submit", handleSiteSearch);
 creatorsUpdateCoomer?.addEventListener("click", () => updateCreatorsCache("coomer.st"));
 creatorsUpdateKemono?.addEventListener("click", () => updateCreatorsCache("kemono.cr"));
 gistUploadBtn?.addEventListener("click", uploadToGist);

@@ -1,24 +1,35 @@
-// background/config.js - load/save configs (favorites, backend, gist)
-import { FAVORITES_CONFIG_KEY, BACKEND_CONFIG_KEY, GIST_CONFIG_KEY } from './constants.js';
+// background/config.js - load/save configs (watcher, backend, gist)
+import {
+  WATCH_CONFIG_KEY,
+  BACKEND_CONFIG_KEY,
+  DOWNLOAD_RULES_CONFIG_KEY,
+  DEFAULT_EXCLUDED_EXTENSIONS,
+  GIST_CONFIG_KEY,
+} from './constants.js';
 
-export function getDefaultFavoritesConfig() {
-  return { enabled: false, intervalMinutes: 360 };
+export function getDefaultWatchConfig() {
+  return { intervalMinutes: 30, checkMode: 'batch' };
 }
 
-export async function loadFavoritesConfig() {
-  const r = await chrome.storage.sync.get(FAVORITES_CONFIG_KEY);
-  const cfg = r[FAVORITES_CONFIG_KEY] || {};
-  const def = getDefaultFavoritesConfig();
+export async function loadWatchConfig() {
+  const r = await chrome.storage.sync.get(WATCH_CONFIG_KEY);
+  const cfg = r[WATCH_CONFIG_KEY] || {};
+  const def = getDefaultWatchConfig();
   return {
-    enabled: typeof cfg.enabled === 'boolean' ? cfg.enabled : def.enabled,
     intervalMinutes: Number.isFinite(cfg.intervalMinutes) && cfg.intervalMinutes > 0 ? cfg.intervalMinutes : def.intervalMinutes,
+    checkMode: cfg.checkMode === 'all' ? 'all' : def.checkMode,
   };
 }
 
-export async function saveFavoritesConfig(cfg) {
-  const current = await loadFavoritesConfig();
-  const next = { ...current, ...cfg };
-  await chrome.storage.sync.set({ [FAVORITES_CONFIG_KEY]: next });
+export async function saveWatchConfig(cfg) {
+  const current = await loadWatchConfig();
+  const next = {
+    intervalMinutes: Number.isFinite(cfg && cfg.intervalMinutes) && cfg.intervalMinutes > 0
+      ? Number(cfg.intervalMinutes)
+      : current.intervalMinutes,
+    checkMode: cfg && cfg.checkMode === 'all' ? 'all' : 'batch',
+  };
+  await chrome.storage.sync.set({ [WATCH_CONFIG_KEY]: next });
   return next;
 }
 
@@ -52,6 +63,46 @@ export async function saveBackendConfig(cfg) {
   const current = await loadBackendConfig();
   const next = { ...current, ...cfg };
   await chrome.storage.sync.set({ [BACKEND_CONFIG_KEY]: next });
+  return next;
+}
+
+function normalizeExcludedExtensions(value, fallback = DEFAULT_EXCLUDED_EXTENSIONS) {
+  if (!Array.isArray(value)) return [...fallback];
+  const normalized = [];
+  const seen = new Set();
+  for (const entry of value) {
+    const raw = String(entry || '').trim().toLowerCase();
+    const extension = raw.startsWith('.') ? raw : `.${raw}`;
+    if (!/^\.[a-z0-9]{1,16}$/.test(extension) || seen.has(extension)) continue;
+    seen.add(extension);
+    normalized.push(extension);
+  }
+  return normalized;
+}
+
+export function getDefaultDownloadRulesConfig() {
+  return {
+    enabled: false,
+    excludedExtensions: [...DEFAULT_EXCLUDED_EXTENSIONS],
+  };
+}
+
+export async function loadDownloadRulesConfig() {
+  const r = await chrome.storage.sync.get(DOWNLOAD_RULES_CONFIG_KEY);
+  const cfg = r[DOWNLOAD_RULES_CONFIG_KEY] || {};
+  const def = getDefaultDownloadRulesConfig();
+  return {
+    enabled: typeof cfg.enabled === 'boolean' ? cfg.enabled : def.enabled,
+    excludedExtensions: normalizeExcludedExtensions(cfg.excludedExtensions),
+  };
+}
+
+export async function saveDownloadRulesConfig(cfg) {
+  const next = {
+    enabled: !!(cfg && cfg.enabled),
+    excludedExtensions: normalizeExcludedExtensions(cfg && cfg.excludedExtensions),
+  };
+  await chrome.storage.sync.set({ [DOWNLOAD_RULES_CONFIG_KEY]: next });
   return next;
 }
 

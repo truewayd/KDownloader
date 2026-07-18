@@ -3,7 +3,7 @@
     "message": "KDownloader"
   },
   "extensionDescription": {
-    "message": "批量下载 coomer.st、kemono.cr、coomerfans.com 内容并同步到云端存储"
+    "message": "下载创作者内容并监控 Pawchive 创作者更新"
   },
   "appName": {
     "message": "KDownloader"
@@ -59,11 +59,41 @@
   "creatorFetchTooltip": {
     "message": "抓取创作者的帖子"
   },
+  "creatorFetchModeLabel": {
+    "message": "模式"
+  },
+  "creatorFetchModeDefault": {
+    "message": "默认"
+  },
+  "creatorFetchModeFull": {
+    "message": "全量"
+  },
+  "creatorFetchModeLinksOnly": {
+    "message": "仅链接"
+  },
+  "creatorFetchModeTooltip": {
+    "message": "默认模式跳过已下载帖子；全量模式忽略历史；仅链接模式不下载媒体、不写历史，并由 Chrome 直接下载 TXT"
+  },
   "openSettingsTooltip": {
     "message": "打开高级设置"
   },
   "settingsAction": {
     "message": "设置"
+  },
+  "siteSearchTitle": {
+    "message": "站点搜索"
+  },
+  "searchSiteLabel": {
+    "message": "站点"
+  },
+  "siteSearchPlaceholder": {
+    "message": "搜索创作者"
+  },
+  "searchAction": {
+    "message": "搜索"
+  },
+  "searchQueryRequired": {
+    "message": "请输入搜索内容"
   },
   "searchPageFetchTitle": {
     "message": "搜索页抓取"
@@ -131,14 +161,40 @@
   "perPostFileLimit": {
     "message": "单帖文件上限"
   },
-  "favoritesTitle": {
-    "message": "收藏监控"
+  "downloadRulesTitle": {
+    "message": "下载规则"
   },
-  "favoritesEnableWatcher": {
-    "message": "启用监控"
+  "downloadFilterEnable": {
+    "message": "跳过选中的工程文件类型"
+  },
+  "downloadFilterExtensions": {
+    "message": "排除的文件后缀"
+  },
+  "watchTitle": {
+    "message": "Pawchive 关注监控"
   },
   "intervalMinutes": {
     "message": "间隔分钟数"
+  },
+  "watchCheckMode": {
+    "message": "检查方式"
+  },
+  "watchCheckBatch": {
+    "message": "分批检查"
+  },
+  "watchCheckAll": {
+    "message": "一次检查"
+  },
+  "watchCountEmpty": {
+    "message": "尚未关注创作者"
+  },
+  "watchCount": {
+    "message": "已关注 $COUNT$ 位创作者",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "checkNow": {
     "message": "立即检查"
@@ -218,8 +274,17 @@
   "defaultsRestored": {
     "message": "已恢复默认值"
   },
-  "favoritesCheckStarted": {
-    "message": "收藏检查已开始"
+  "watchCheckStarted": {
+    "message": "关注检查已开始"
+  },
+  "watchExported": {
+    "message": "关注列表已导出"
+  },
+  "watchImported": {
+    "message": "关注列表已导入"
+  },
+  "watchImportConfirm": {
+    "message": "使用此文件替换当前 Pawchive 关注列表？"
   },
   "gistConfigSaved": {
     "message": "Gist 配置已保存"
@@ -277,6 +342,105 @@
   },
   "pageFetchTooltip": {
     "message": "下载本页的所有帖子"
+  },
+  "watchAction": {
+    "message": "关注"
+  },
+  "unwatchAction": {
+    "message": "取消关注"
+  },
+  "watchTooltip": {
+    "message": "关注此 Pawchive 创作者"
+  },
+  "unwatchTooltip": {
+    "message": "停止关注此 Pawchive 创作者"
+  },
+  "watchNotificationTitle": {
+    "message": "Pawchive 创作者更新"
+  },
+  "watchStartedTitle": {
+    "message": "已关注 $CREATOR$",
+    "placeholders": {
+      "creator": {
+        "content": "$1"
+      }
+    }
+  },
+  "watchStartedMessage": {
+    "message": "如果这位创作者有更新，此后会这样通知你"
+  },
+  "watchNotificationSingle": {
+    "message": "你关注的 $CREATOR$ 更新了",
+    "placeholders": {
+      "creator": {
+        "content": "$1"
+      }
+    }
+  },
+  "watchNotificationMultiple": {
+    "message": "你关注的 $CREATOR$ 等 $COUNT$ 位创作者更新了",
+    "placeholders": {
+      "creator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "watchFailureTitle": {
+    "message": "Pawchive 关注检查失败"
+  },
+  "watchFailureSingle": {
+    "message": "检查 $CREATOR$ 失败：$ERROR$",
+    "placeholders": {
+      "creator": {
+        "content": "$1"
+      },
+      "error": {
+        "content": "$2"
+      }
+    }
+  },
+  "watchFailureMultiple": {
+    "message": "$COUNT$ 位关注创作者检查失败，最近错误：$ERROR$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "error": {
+        "content": "$2"
+      }
+    }
+  },
+  "pawchiveCloudflareTitle": {
+    "message": "需要完成 Pawchive 验证"
+  },
+  "pawchiveCloudflareMessage": {
+    "message": "请打开 pawchive.pw 完成 Cloudflare 验证，保持该标签页开启后重试。如果已经通过验证，当前网络可能仍被 Cloudflare 拦截。"
+  },
+  "openPawchiveAction": {
+    "message": "打开 Pawchive"
+  },
+  "nativeFallbackTitle": {
+    "message": "下载后端不可用"
+  },
+  "nativeFallbackMessage": {
+    "message": "下载后端未能接收 $COUNT$ 个文件，是否改用 Chrome 内置下载？",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueDownloadAction": {
+    "message": "继续下载"
+  },
+  "cancelDownloadAction": {
+    "message": "取消下载"
+  },
+  "nativeFallbackCancelled": {
+    "message": "已取消 Chrome 备用下载"
   },
   "backendEnableRequired": {
     "message": "请先启用下载后端"

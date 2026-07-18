@@ -3,6 +3,46 @@
 const CONFIG = { INIT_DELAY: 300 };
 const accessReports = new Map();
 const ACCESS_REPORT_INTERVAL_MS = 5 * 60 * 1000;
+const EXTENSION_CONTEXT_INVALIDATED_EVENT = "kd:extensioncontextinvalidated";
+let extensionContextInvalidated = false;
+
+function getErrorMessage(error) {
+  return error && error.message ? error.message : String(error || "");
+}
+
+function isExtensionContextInvalidatedError(error) {
+  return error?.code === "EXTENSION_CONTEXT_INVALIDATED"
+    || /Extension context invalidated/i.test(getErrorMessage(error));
+}
+
+function createExtensionContextInvalidatedError(cause) {
+  const error = new Error("Extension context invalidated");
+  error.code = "EXTENSION_CONTEXT_INVALIDATED";
+  if (cause !== undefined) error.cause = cause;
+  return error;
+}
+
+function invalidateExtensionContext() {
+  if (extensionContextInvalidated) return;
+  extensionContextInvalidated = true;
+  try {
+    window.dispatchEvent(new Event(EXTENSION_CONTEXT_INVALIDATED_EVENT));
+  } catch { }
+}
+
+function isExtensionContextAvailable() {
+  if (extensionContextInvalidated) return false;
+  try {
+    if (!chrome?.runtime?.id) {
+      invalidateExtensionContext();
+      return false;
+    }
+  } catch {
+    invalidateExtensionContext();
+    return false;
+  }
+  return true;
+}
 
 // Parse URL path
 function parseUrlPath(urlPath) {
@@ -14,6 +54,11 @@ function parseUrlPath(urlPath) {
 // Safe wrapper around chrome.runtime.sendMessage with retries and timeout
 function safeSendMessage(message, timeout = 5000, opts = { retries: 2, retryDelay: 300 }) {
   const attempt = (remainingRetries) => new Promise((resolve, reject) => {
+    if (!isExtensionContextAvailable()) {
+      reject(createExtensionContextInvalidatedError());
+      return;
+    }
+
     let finished = false;
     let timer = null;
 
@@ -25,24 +70,39 @@ function safeSendMessage(message, timeout = 5000, opts = { retries: 2, retryDela
           if (timer) { clearTimeout(timer); timer = null; }
           if (chrome.runtime.lastError) {
             const msg = (chrome.runtime.lastError && chrome.runtime.lastError.message) ? chrome.runtime.lastError.message : '';
-            if (remainingRetries > 0 && /context invalidated|message port closed|Could not establish connection|Extension context invalidated/i.test(msg)) {
+            if (isExtensionContextInvalidatedError(msg)) {
+              invalidateExtensionContext();
+              return reject(createExtensionContextInvalidatedError(msg));
+            }
+            if (remainingRetries > 0 && /message port closed|Could not establish connection/i.test(msg)) {
               setTimeout(() => { attempt(remainingRetries - 1).then(resolve).catch(reject); }, opts.retryDelay);
               return;
             }
             return reject(new Error(msg || 'Runtime lastError'));
           }
           return resolve(response);
-        } catch (err) { return reject(err); }
+        } catch (err) {
+          if (isExtensionContextInvalidatedError(err)) {
+            invalidateExtensionContext();
+            return reject(createExtensionContextInvalidatedError(err));
+          }
+          return reject(err);
+        }
       });
     } catch (err) {
-      const emsg = err && err.message ? err.message : String(err);
-      if (remainingRetries > 0 && /context invalidated|Extension context invalidated|message port closed/i.test(emsg)) {
+      const emsg = getErrorMessage(err);
+      if (isExtensionContextInvalidatedError(err)) {
+        invalidateExtensionContext();
+        return reject(createExtensionContextInvalidatedError(err));
+      }
+      if (remainingRetries > 0 && /message port closed|Could not establish connection/i.test(emsg)) {
         setTimeout(() => { attempt(remainingRetries - 1).then(resolve).catch(reject); }, opts.retryDelay);
         return;
       }
       return reject(err);
     }
 
+    if (finished) return;
     timer = setTimeout(() => {
       if (!finished) {
         finished = true;
@@ -70,6 +130,7 @@ async function isPostDownloaded(service, userId, postId, options = {}) {
     );
     return !!(response && response.downloaded);
   } catch (error) {
+    if (isExtensionContextInvalidatedError(error)) throw error;
     console.warn('[Content] Check downloaded error:', error);
     return false;
   }
@@ -122,6 +183,7 @@ async function getDownloadedStatusMap(items) {
     const raw = response && response.downloaded ? response.downloaded : {};
     return new Map(Object.entries(raw));
   } catch (error) {
+    if (isExtensionContextInvalidatedError(error)) throw error;
     console.warn('[Content] Batch downloaded check error:', error);
     return new Map();
   }
@@ -137,7 +199,7 @@ function reportAccessIfApplicable() {
 }
 
 function reportCreatorAccess(service, userId) {
-  if (!service || !userId) return;
+  if (!service || !userId || !isExtensionContextAvailable()) return;
   const key = `${service}:${userId}`;
   const now = Date.now();
   if (now - (accessReports.get(key) || 0) < ACCESS_REPORT_INTERVAL_MS) return;
@@ -145,7 +207,12 @@ function reportCreatorAccess(service, userId) {
   try {
     chrome.runtime.sendMessage(
       { action: 'creator.recordAccess', service, userId },
-      () => { void chrome.runtime.lastError; }
+      () => {
+        const error = chrome.runtime.lastError;
+        if (isExtensionContextInvalidatedError(error)) invalidateExtensionContext();
+      }
     );
-  } catch (e) { }
+  } catch (error) {
+    if (isExtensionContextInvalidatedError(error)) invalidateExtensionContext();
+  }
 }

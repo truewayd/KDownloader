@@ -59,4 +59,21 @@ test("all-failed and already-downloaded results do not create new history", () =
     success: true,
     alreadyDownloaded: true,
   }), null);
+  assert.equal(buildDownloadHistoryRecord(item, {
+    success: false,
+    backend: true,
+    incomplete: true,
+    results: [{ success: true }],
+  }), null);
+  assert.equal(buildDownloadHistoryRecord(item, {
+    success: false,
+    cancelled: true,
+    results: [],
+  }), null);
+  assert.equal(buildDownloadHistoryRecord(item, {
+    success: true,
+    skippedByFilter: true,
+    filteredCount: 2,
+    results: [],
+  }), null);
 });

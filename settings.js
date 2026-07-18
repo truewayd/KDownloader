@@ -3,6 +3,7 @@ const t = (key, substitutions, fallback) => KDI18n.get(key, substitutions, fallb
 KDI18n.localize();
 
 let backendType = "abdm";
+let watchMode = "batch";
 
 function sendMessage(message) {
   return new Promise((resolve, reject) => {
@@ -72,6 +73,17 @@ function updateBackendVisibility() {
   $("gopeed-fields")?.classList.toggle("hidden", !enabled || backendType !== "gopeed");
 }
 
+function updateDownloadFilterVisibility() {
+  const enabled = !!$("download-filter-enabled")?.checked;
+  $("download-filter-details")?.classList.toggle("hidden", !enabled);
+}
+
+function setWatchMode(mode) {
+  watchMode = mode === "all" ? "all" : "batch";
+  $("watch-mode-batch")?.classList.toggle("active", watchMode === "batch");
+  $("watch-mode-all")?.classList.toggle("active", watchMode === "all");
+}
+
 function formatDate(value) {
   if (!value) return t("statusNever");
   try {
@@ -116,20 +128,71 @@ async function saveBackend() {
   await sendMessage({ action: "backend.setConfig", config });
 }
 
-async function loadFavorites() {
-  const { config } = await sendMessage({ action: "favorites.getConfig" });
-  setValue("favorites-enabled", config.enabled);
-  setValue("favorites-interval", config.intervalMinutes);
+async function loadDownloadRules() {
+  const { config } = await sendMessage({ action: "downloadRules.getConfig" });
+  setValue("download-filter-enabled", config.enabled);
+  const selected = new Set(config.excludedExtensions || []);
+  document.querySelectorAll("[data-download-extension]").forEach((input) => {
+    input.checked = selected.has(input.value);
+  });
+  updateDownloadFilterVisibility();
 }
 
-async function saveFavorites() {
+async function saveDownloadRules() {
+  const excludedExtensions = Array.from(
+    document.querySelectorAll("[data-download-extension]:checked"),
+    (input) => input.value
+  );
   await sendMessage({
-    action: "favorites.setConfig",
+    action: "downloadRules.setConfig",
     config: {
-      enabled: !!$("favorites-enabled")?.checked,
-      intervalMinutes: numberValue("favorites-interval", 360, 1, 10080),
+      enabled: !!$("download-filter-enabled")?.checked,
+      excludedExtensions,
     },
   });
+}
+
+async function loadWatch() {
+  const [{ config }, { summary }] = await Promise.all([
+    sendMessage({ action: "watch.getConfig" }),
+    sendMessage({ action: "watch.getSummary" }),
+  ]);
+  setValue("watch-interval", config.intervalMinutes);
+  setWatchMode(config.checkMode);
+  const count = Number(summary?.count) || 0;
+  $("watch-count").textContent = count > 0
+    ? t("watchCount", [String(count)])
+    : t("watchCountEmpty");
+}
+
+async function saveWatch() {
+  await sendMessage({
+    action: "watch.setConfig",
+    config: {
+      intervalMinutes: numberValue("watch-interval", 30, 1, 10080),
+      checkMode: watchMode,
+    },
+  });
+}
+
+async function exportWatchList() {
+  const { data } = await sendMessage({ action: "watch.export" });
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `pawchive-watch-${new Date().toISOString().slice(0, 10)}.json`;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function importWatchList(file) {
+  if (!file) return false;
+  const confirmed = confirm(t("watchImportConfirm"));
+  if (!confirmed) return false;
+  const data = JSON.parse(await file.text());
+  await sendMessage({ action: "watch.import", data });
+  await loadWatch();
+  return true;
 }
 
 async function loadGist() {
@@ -170,7 +233,7 @@ async function saveCreators() {
 async function loadAll() {
   try {
     $("save-status").textContent = t("statusLoading");
-    await Promise.all([loadBackend(), loadFavorites(), loadGist(), loadCreators()]);
+    await Promise.all([loadBackend(), loadDownloadRules(), loadWatch(), loadGist(), loadCreators()]);
     $("save-status").textContent = t("statusIdle");
   } catch (err) {
     console.error("[Settings] load failed", err);
@@ -184,7 +247,8 @@ async function saveAll() {
     try {
       $("save-status").textContent = t("statusSaving");
       await saveBackend();
-      await saveFavorites();
+      await saveDownloadRules();
+      await saveWatch();
       await saveGist();
       await saveCreators();
       showToast(t("settingsSaved"));
@@ -220,8 +284,18 @@ async function restoreDefaults(button) {
         },
       });
       await sendMessage({
-        action: "favorites.setConfig",
-        config: { enabled: false, intervalMinutes: 360 },
+        action: "downloadRules.setConfig",
+        config: {
+          enabled: false,
+          excludedExtensions: [
+            ".psd", ".clip", ".sai", ".sai2", ".kra", ".xcf",
+            ".procreate", ".afphoto", ".afdesign", ".blend",
+          ],
+        },
+      });
+      await sendMessage({
+        action: "watch.setConfig",
+        config: { intervalMinutes: 30, checkMode: "batch" },
       });
       await sendMessage({
         action: "gist.setConfig",
@@ -256,18 +330,43 @@ function bindEvents() {
   $("backend-type-abdm")?.addEventListener("click", () => setBackendType("abdm"));
   $("backend-type-gopeed")?.addEventListener("click", () => setBackendType("gopeed"));
   $("backend-enabled")?.addEventListener("change", updateBackendVisibility);
+  $("download-filter-enabled")?.addEventListener("change", updateDownloadFilterVisibility);
   $("save-settings")?.addEventListener("click", saveAll);
   $("reload-settings")?.addEventListener("click", (event) => withBusyButton(event.currentTarget, loadAll));
   $("restore-defaults")?.addEventListener("click", (event) => restoreDefaults(event.currentTarget));
-  $("favorites-check")?.addEventListener("click", (event) => {
+  $("watch-mode-batch")?.addEventListener("click", () => setWatchMode("batch"));
+  $("watch-mode-all")?.addEventListener("click", () => setWatchMode("all"));
+  $("watch-check")?.addEventListener("click", (event) => {
     withBusyButton(event.currentTarget, async () => {
       try {
-        await sendMessage({ action: "favorites.forceCheck" });
-        showToast(t("favoritesCheckStarted"));
+        await saveWatch();
+        await sendMessage({ action: "watch.forceCheck" });
+        showToast(t("watchCheckStarted"));
       } catch (err) {
         showToast(err.message || "Check failed", "error");
       }
     });
+  });
+  $("watch-export")?.addEventListener("click", (event) => {
+    withBusyButton(event.currentTarget, async () => {
+      try {
+        await exportWatchList();
+        showToast(t("watchExported"));
+      } catch (err) {
+        showToast(err.message || "Export failed", "error");
+      }
+    });
+  });
+  $("watch-import")?.addEventListener("click", () => $("watch-import-file")?.click());
+  $("watch-import-file")?.addEventListener("change", async (event) => {
+    try {
+      const imported = await importWatchList(event.target.files?.[0]);
+      if (imported) showToast(t("watchImported"));
+    } catch (err) {
+      showToast(err.message || "Import failed", "error");
+    } finally {
+      event.target.value = "";
+    }
   });
   $("creators-update-coomer")?.addEventListener("click", () =>
     updateCreatorCache("coomer.st", "creators-coomer-meta")

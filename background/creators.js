@@ -44,28 +44,31 @@ export async function updateCacheFromNetwork(host) {
     // store large JSON into chrome.storage.local as string to avoid structure clone overhead
     const text = JSON.stringify(payload);
     try {
-      await chrome.storage.local.set({ [hostKey(host)]: { __text: text } });
+      await chrome.storage.local.set({
+        [hostKey(host)]: { __text: text },
+        [`${hostKey(host)}_meta`]: {
+          updatedAt: payload.updatedAt,
+          sourceHost: payload.sourceHost,
+        },
+      });
     } catch (e) {
       console.error('[Creators] storage.set payload failed', e);
       throw e;
     }
-    // also store small meta
-    try { await chrome.storage.local.set({ [`${hostKey(host)}_meta`]: { updatedAt: payload.updatedAt, sourceHost: payload.sourceHost } }); } catch (e) { console.warn('[Creators] write meta failed', e); }
     return { updatedAt: payload.updatedAt, sourceHost: payload.sourceHost };
 
   }
 
   // update both hosts and return map
-  const result = {};
-  for (const h of TARGET_HOSTS) {
+  const entries = await Promise.all(TARGET_HOSTS.map(async (h) => {
     try {
-      result[h] = await updateCacheFromNetwork(h);
+      return [h, await updateCacheFromNetwork(h)];
     } catch (e) {
       console.error('[Creators] update failed for', h, e);
-      result[h] = { error: e && e.message ? e.message : String(e) };
+      return [h, { error: e && e.message ? e.message : String(e) }];
     }
-  }
-  return result;
+  }));
+  return Object.fromEntries(entries);
 }
 
 export async function getCachedCreators(host) {
@@ -74,12 +77,11 @@ export async function getCachedCreators(host) {
     return st && st[hostKey(host)] ? st[hostKey(host)] : null;
   }
   // return mapping for all
-  const map = {};
-  for (const h of TARGET_HOSTS) {
-    const st = await chrome.storage.local.get(hostKey(h));
-    map[h] = st && st[hostKey(h)] ? st[hostKey(h)] : null;
-  }
-  return map;
+  const keys = TARGET_HOSTS.map(hostKey);
+  const stored = await chrome.storage.local.get(keys);
+  return Object.fromEntries(
+    TARGET_HOSTS.map((targetHost) => [targetHost, stored[hostKey(targetHost)] || null])
+  );
 }
 
 export async function ensureRuleState() {
