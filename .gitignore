@@ -1,0 +1,10 @@
+.agents/
+.continue/
+.claude/
+__pycache__/
+*.pyc
+*.pyo
+dist/
+*.md
+!changelog/
+!changelog/*.md

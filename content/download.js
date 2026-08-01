@@ -1,137 +1,177 @@
-// content/download.js - handleDownload logic moved out of content.js
+// content/download.js - download request and progress state machines
 
-async function handleDownload(btn, service, userId, postId, path, isCreatorPage = false, options = {}) {
-  if (btn.disabled) return;
+const DOWNLOAD_WATCHDOG_MS = 10 * 60 * 1000;
 
-  updateButtonStatus(btn, 'SCANNING', null, isCreatorPage);
+function matchesPostMessage(message, service, userId, postId) {
+  return message?.service === service
+    && message?.userId === userId
+    && message?.postId === postId;
+}
 
+function setDownloadProgressText(button, message, isCreatorPage) {
+  let text = null;
+  if (typeof message.progress === 'number') {
+    text = KDI18n.get('sendingPercent', [Math.round(message.progress)]);
+  } else if (typeof message.sentCount === 'number' && typeof message.totalCount === 'number') {
+    text = KDI18n.get('sendingCount', [message.sentCount, message.totalCount]);
+  }
+  if (!text) return;
+
+  if (isCreatorPage) {
+    button.title = text;
+    button.setAttribute('aria-label', text);
+  } else {
+    button.textContent = text;
+  }
+}
+
+function isAcceptedDownloadResult(result) {
+  return result.noFiles === true
+    || result.backend === true
+    || (typeof result.successCount === 'number' && result.successCount > 0)
+    || (Array.isArray(result.results) && result.results.some((item) => item?.success));
+}
+
+function renderDownloadResult(button, result, isCreatorPage) {
+  const externalLinks = Array.isArray(result.externalLinks) ? result.externalLinks : [];
+  if (externalLinks.length > 0) showExternalLinksModal(externalLinks);
+
+  if (!result.success) {
+    const message = result.error || KDI18n.get('statusFailedDecorated');
+    console.error('[Content] downloadComplete error:', message);
+    showTransientButtonStatus(button, 'ERROR', `× ${message}`, isCreatorPage);
+    return;
+  }
+
+  if (result.alreadyDownloaded) {
+    updateButtonStatus(
+      button,
+      'SUCCESS',
+      KDI18n.get('statusDownloadedDecorated'),
+      isCreatorPage
+    );
+    button.disabled = true;
+    button.setAttribute('aria-disabled', 'true');
+    return;
+  }
+
+  const accepted = isAcceptedDownloadResult(result);
+  const hasUsefulResult = accepted || externalLinks.length > 0;
+  const noFilesText = result.noFiles === true || !hasUsefulResult
+    ? KDI18n.get('statusNoFiles')
+    : null;
+
+  if (isCreatorPage && hasUsefulResult) {
+    updateButtonStatus(button, 'SUCCESS', noFilesText, true);
+    if (result.noFiles === true) {
+      button.title = KDI18n.get('noDownloadableFiles');
+      button.setAttribute('aria-label', button.title);
+    }
+    button.disabled = true;
+    button.setAttribute('aria-disabled', 'true');
+    return;
+  }
+
+  showTransientButtonStatus(button, 'SUCCESS', noFilesText, isCreatorPage);
+}
+
+async function handleDownload(
+  button,
+  service,
+  userId,
+  postId,
+  path,
+  isCreatorPage = false,
+  options = {}
+) {
+  if (!button || button.disabled) return;
+  updateButtonStatus(button, 'SCANNING', null, isCreatorPage);
+
+  let ack;
   try {
-    let ack = null;
+    ack = await safeSendMessage({
+      action: 'startDownload',
+      service,
+      userId,
+      postId,
+      path,
+      source: options.source,
+      creatorName: options.creatorName,
+    }, 7000, { retries: 2, retryDelay: 400 });
+  } catch (error) {
+    console.error('[Content] startDownload ack error:', getErrorMessage(error));
+    showTransientButtonStatus(
+      button,
+      'ERROR',
+      `× ${getErrorMessage(error) || KDI18n.get('errorNoAck')}`,
+      isCreatorPage
+    );
+    return;
+  }
+
+  if (!ack?.accepted) {
+    console.error('[Content] startDownload not accepted by background');
+    showTransientButtonStatus(
+      button,
+      'ERROR',
+      KDI18n.get('statusFailedDecorated'),
+      isCreatorPage
+    );
+    return;
+  }
+
+  updateButtonStatus(button, 'SENDING', null, isCreatorPage);
+  let watchdogTimer = null;
+
+  const cleanup = () => {
     try {
-      ack = await safeSendMessage({
-        action: 'startDownload',
-        service,
-        userId,
-        postId,
-        path,
-        source: options.source,
-        creatorName: options.creatorName,
-      }, 7000, { retries: 2, retryDelay: 400 });
-    } catch (err) {
-      console.error('[Content] startDownload ack error:', err && err.message ? err.message : err);
-      updateButtonStatus(btn, 'ERROR', `✗ ${err.message || KDI18n.get('errorNoAck')}`, isCreatorPage);
-      setTimeout(() => {
-        btn.disabled = false;
-        setTimeout(() => updateButtonStatus(btn, 'IDLE', null, isCreatorPage), 2000);
-      }, 2000);
+      chrome.runtime.onMessage.removeListener(onDownloadMessage);
+    } catch (error) {
+      /* Extension context may have been invalidated. */
+    }
+    if (watchdogTimer) clearTimeout(watchdogTimer);
+    watchdogTimer = null;
+  };
+
+  const resetWatchdog = () => {
+    if (watchdogTimer) clearTimeout(watchdogTimer);
+    watchdogTimer = setTimeout(() => {
+      cleanup();
+      if (button.dataset.status !== 'SENDING') return;
+      console.error('[Content] handleDownload watchdog timed out');
+      showTransientButtonStatus(
+        button,
+        'ERROR',
+        `× ${KDI18n.get('errorTimeout')}`,
+        isCreatorPage
+      );
+    }, DOWNLOAD_WATCHDOG_MS);
+  };
+
+  function onDownloadMessage(message) {
+    if (!matchesPostMessage(message, service, userId, postId)) return;
+    if (message.action === 'downloadProgress') {
+      setDownloadProgressText(button, message, isCreatorPage);
+      resetWatchdog();
       return;
     }
+    if (message.action !== 'downloadComplete') return;
 
-    if (ack && ack.accepted) {
-      updateButtonStatus(btn, 'SENDING', null, isCreatorPage);
+    cleanup();
+    renderDownloadResult(button, message.result || {}, isCreatorPage);
+  }
 
-      const WATCHDOG_DEFAULT = 10 * 60 * 1000; // 10 minutes
-      let watchdogTimer = null;
-
-      function resetWatchdog() {
-        if (watchdogTimer) clearTimeout(watchdogTimer);
-        watchdogTimer = setTimeout(() => {
-          try { chrome.runtime.onMessage.removeListener(onComplete); } catch (e) { }
-          if (btn.getAttribute('data-status') === 'SENDING') {
-            console.error('[Content] handleDownload error: No response from extension (watchdog timeout)');
-            updateButtonStatus(btn, 'ERROR', `✗ ${KDI18n.get('errorTimeout')}`, isCreatorPage);
-            setTimeout(() => {
-              btn.disabled = false;
-              setTimeout(() => updateButtonStatus(btn, 'IDLE', null, isCreatorPage), 2000);
-            }, 2000);
-          }
-        }, WATCHDOG_DEFAULT);
-      }
-
-      const onComplete = (message, sender, sendResponse) => {
-        let shouldCleanup = false;
-        try {
-          if (!message) return;
-
-          if (message.action === 'downloadProgress') {
-            if (message.service !== service || message.userId !== userId || message.postId !== postId) return;
-            if (typeof message.progress === 'number') {
-              const pct = Math.round(message.progress);
-              if (!isCreatorPage) btn.textContent = KDI18n.get('sendingPercent', [pct]);
-              else btn.title = KDI18n.get('sendingPercent', [pct]);
-            } else if (typeof message.sentCount === 'number' && typeof message.totalCount === 'number') {
-              if (!isCreatorPage) btn.textContent = KDI18n.get('sendingCount', [message.sentCount, message.totalCount]);
-              else btn.title = KDI18n.get('sendingCount', [message.sentCount, message.totalCount]);
-            }
-            resetWatchdog();
-            return;
-          }
-
-          if (message.action !== 'downloadComplete') return;
-          if (message.service !== service || message.userId !== userId || message.postId !== postId) return;
-          shouldCleanup = true;
-
-          const result = message.result || {};
-          const noFiles = result.noFiles === true;
-          if (result.externalLinks && result.externalLinks.length > 0) showExternalLinksModal(result.externalLinks);
-
-          if (result.success) {
-            const anyDownloaded = noFiles || (result.backend === true) || (typeof result.successCount === 'number' && result.successCount > 0) || (Array.isArray(result.results) && result.results.some(r => r && r.success));
-
-            if (result.alreadyDownloaded) {
-              updateButtonStatus(btn, 'SUCCESS', KDI18n.get('statusDownloadedDecorated'), isCreatorPage);
-              btn.disabled = true;
-            } else if (anyDownloaded) {
-              if (noFiles) {
-                updateButtonStatus(btn, 'SUCCESS', isCreatorPage ? null : KDI18n.get('statusNoFiles'), isCreatorPage);
-                if (isCreatorPage) btn.title = KDI18n.get('noDownloadableFiles');
-              } else {
-                updateButtonStatus(btn, 'SUCCESS', null, isCreatorPage);
-              }
-              if (!isCreatorPage) {
-                if (!noFiles) {
-                  setTimeout(() => { btn.disabled = false; setTimeout(() => updateButtonStatus(btn, 'IDLE', null, false), 2000); }, 200);
-                } else {
-                  btn.disabled = false;
-                }
-              } else {
-                btn.disabled = true;
-              }
-            } else {
-              if (result.externalLinks && result.externalLinks.length > 0) {
-                updateButtonStatus(btn, 'SUCCESS', null, isCreatorPage);
-                if (!isCreatorPage) { setTimeout(() => { btn.disabled = false; setTimeout(() => updateButtonStatus(btn, 'IDLE', null, false), 2000); }, 200); } else { btn.disabled = true; }
-              } else {
-                if (isCreatorPage) btn.title = KDI18n.get('noDownloadableFiles'); else updateButtonStatus(btn, 'SUCCESS', KDI18n.get('statusNoFiles'), isCreatorPage);
-                btn.disabled = false;
-                setTimeout(() => updateButtonStatus(btn, 'IDLE', null, isCreatorPage), 2000);
-              }
-            }
-          } else {
-            const errMsg = result.error || 'Download failed';
-            console.error('[Content] downloadComplete error:', errMsg);
-            updateButtonStatus(btn, 'ERROR', `\u2717 ${errMsg}`, isCreatorPage);
-            setTimeout(() => { btn.disabled = false; setTimeout(() => updateButtonStatus(btn, 'IDLE', null, isCreatorPage), 2000); }, 2000);
-          }
-        } finally {
-          if (shouldCleanup) {
-            try { chrome.runtime.onMessage.removeListener(onComplete); } catch (e) { }
-            if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null; }
-          }
-        }
-      };
-
-      chrome.runtime.onMessage.addListener(onComplete);
-      resetWatchdog();
-    } else {
-      console.error('[Content] startDownload not accepted by background');
-      updateButtonStatus(btn, 'ERROR', KDI18n.get('statusFailedDecorated'), isCreatorPage);
-      setTimeout(() => { btn.disabled = false; setTimeout(() => updateButtonStatus(btn, 'IDLE', null, isCreatorPage), 2000); }, 2000);
-    }
+  try {
+    chrome.runtime.onMessage.addListener(onDownloadMessage);
+    resetWatchdog();
   } catch (error) {
-    console.error('[Content] handleDownload error:', error && error.message ? error.message : error);
-    updateButtonStatus(btn, 'ERROR', `✗ ${error && error.message ? error.message : String(error)}`, isCreatorPage);
-    setTimeout(() => { btn.disabled = false; setTimeout(() => updateButtonStatus(btn, 'IDLE', null, isCreatorPage), 2000); }, 2000);
+    cleanup();
+    showTransientButtonStatus(
+      button,
+      'ERROR',
+      `× ${getErrorMessage(error)}`,
+      isCreatorPage
+    );
   }
 }
 
@@ -143,9 +183,9 @@ async function runPageFetchWithProgress(options) {
     requestMessage,
     initialText,
     ackText,
-    resetText = null,
+    resetText = KDI18n.get('pageFetchAction'),
     total: initialTotal = null,
-    timeoutMs = 10 * 60 * 1000,
+    timeoutMs = DOWNLOAD_WATCHDOG_MS,
     renderProgress,
     renderComplete,
   } = options || {};
@@ -155,105 +195,95 @@ async function runPageFetchWithProgress(options) {
   let completed = 0;
   let successCount = 0;
   let watchdogTimer = null;
+  let finished = false;
 
   const state = () => ({ total, completed, successCount });
-
-  const finish = (status, text, keepDisabled) => {
+  const cleanup = () => {
     try {
       chrome.runtime.onMessage.removeListener(onBatchMessage);
-    } catch (e) {
-      /* ignore */
+    } catch (error) {
+      /* Extension context may have been invalidated. */
     }
-    if (watchdogTimer) {
-      clearTimeout(watchdogTimer);
-      watchdogTimer = null;
-    }
-    updateButtonStatus(btn, status, text, false);
-    btn.disabled = !!keepDisabled;
-    if (!keepDisabled) {
-      setTimeout(() => updateButtonStatus(btn, "IDLE", resetText, false), 2000);
+    if (watchdogTimer) clearTimeout(watchdogTimer);
+    watchdogTimer = null;
+  };
+
+  const finish = (status, text, keepDisabled) => {
+    if (finished) return;
+    finished = true;
+    cleanup();
+    if (keepDisabled) {
+      updateButtonStatus(btn, status, text, false);
+      btn.disabled = true;
+      btn.setAttribute('aria-disabled', 'true');
+    } else {
+      showTransientButtonStatus(btn, status, text, false, resetText);
     }
   };
 
   const resetWatchdog = () => {
     if (watchdogTimer) clearTimeout(watchdogTimer);
     watchdogTimer = setTimeout(() => {
-      finish("ERROR", "✗ Timeout", false);
+      finish('ERROR', `× ${KDI18n.get('errorTimeout')}`, false);
     }, timeoutMs);
-  };
-
-  const defaultProgress = (message) => {
-    const sent = message.sentCount || 0;
-    btn.textContent = KDI18n.get('sendingCount', [sent, total ?? '?']);
-  };
-
-  const defaultComplete = () => {
-    btn.textContent = KDI18n.get('ackCount', [completed, total ?? '?']);
   };
 
   const maybeFinish = () => {
     if (total === 0) {
-      finish("SUCCESS", KDI18n.get('statusAllDoneDecorated'), false);
+      finish('SUCCESS', KDI18n.get('statusAllDoneDecorated'), false);
       return true;
     }
     if (total && completed >= total) {
-      if (successCount > 0) finish("SUCCESS", `✓ ${successCount}/${total}`, true);
-      else finish("ERROR", KDI18n.get('statusFailedDecorated'), false);
+      if (successCount > 0) finish('SUCCESS', `✓ ${successCount}/${total}`, true);
+      else finish('ERROR', KDI18n.get('statusFailedDecorated'), false);
       return true;
     }
     return false;
   };
 
   function onBatchMessage(message) {
-    if (!message) return;
+    if (finished || !message) return;
     if (message.service !== service || message.userId !== userId) return;
+    if (message.action !== 'downloadProgress' && message.action !== 'downloadComplete') return;
+
     if (message.error) {
-      finish("ERROR", `✗ ${message.error}`, false);
+      finish('ERROR', `× ${message.error}`, false);
       return;
     }
     resetWatchdog();
 
-    if (message.action === "downloadProgress" && message.batch) {
+    if (message.action === 'downloadProgress' && message.batch) {
       if (Number.isFinite(message.totalCount)) total = message.totalCount;
-      if (typeof renderProgress === "function") renderProgress({ btn, message, state: state(), finish });
-      else defaultProgress(message);
+      if (typeof renderProgress === 'function') {
+        renderProgress({ btn, message, state: state(), finish });
+      } else {
+        btn.textContent = KDI18n.get('sendingCount', [message.sentCount || 0, total ?? '?']);
+      }
       maybeFinish();
       return;
     }
 
-    if (message.action !== "downloadComplete") return;
-    completed++;
-    const result = message.result || {};
-    if (result.success) successCount++;
-    if (typeof renderComplete === "function") renderComplete({ btn, message, state: state(), finish });
-    else defaultComplete(message);
+    completed += 1;
+    if (message.result?.success) successCount += 1;
+    if (typeof renderComplete === 'function') {
+      renderComplete({ btn, message, state: state(), finish });
+    } else {
+      btn.textContent = KDI18n.get('ackCount', [completed, total ?? '?']);
+    }
     maybeFinish();
   }
 
   chrome.runtime.onMessage.addListener(onBatchMessage);
-  updateButtonStatus(btn, "SENDING", initialText, false);
+  updateButtonStatus(btn, 'SENDING', initialText, false);
   resetWatchdog();
 
   try {
     const ack = await safeSendMessage(requestMessage, 10000, { retries: 2, retryDelay: 400 });
-    if (!ack || (!ack.accepted && !ack.success)) throw new Error("No ack");
-    if (btn.getAttribute("data-status") !== "SUCCESS") {
-      updateButtonStatus(btn, "SENDING", ackText, false);
+    if (!ack || (!ack.accepted && !ack.success)) throw new Error('No ack');
+    if (!finished && btn.dataset.status !== 'SUCCESS') {
+      updateButtonStatus(btn, 'SENDING', ackText, false);
     }
-  } catch (err) {
-    try {
-      chrome.runtime.onMessage.removeListener(onBatchMessage);
-    } catch (e) {
-      /* ignore */
-    }
-    if (watchdogTimer) {
-      clearTimeout(watchdogTimer);
-      watchdogTimer = null;
-    }
-    updateButtonStatus(btn, "ERROR", `✗ ${KDI18n.get('errorNoAck')}`, false);
-    setTimeout(() => {
-      btn.disabled = false;
-      updateButtonStatus(btn, "IDLE", resetText, false);
-    }, 2000);
+  } catch (error) {
+    finish('ERROR', `× ${KDI18n.get('errorNoAck')}`, false);
   }
 }

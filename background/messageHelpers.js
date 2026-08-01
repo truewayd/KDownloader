@@ -96,7 +96,3 @@ export function buildDownloadHistoryRecord(item, result) {
 
   return null;
 }
-
-export function shouldMarkResult(result) {
-  return !!buildDownloadHistoryRecord({}, result);
-}

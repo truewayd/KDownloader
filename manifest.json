@@ -66,7 +66,8 @@
         "*://coomer.st/*/account/favorites/artists*",
         "*://kemono.cr/*/account/favorites/artists*"
       ],
-      "js": ["content/helpers.js", "shared/i18n.js", "content/router.js", "content/flag/index.js"],
+      "js": ["content/helpers.js", "shared/i18n.js", "content/ui.js", "content/router.js", "content/flag/index.js"],
+      "css": ["content.css"],
       "run_at": "document_end"
     },
     {

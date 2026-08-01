@@ -2,39 +2,15 @@ const $ = (id) => document.getElementById(id);
 const t = (key, substitutions, fallback) => KDI18n.get(key, substitutions, fallback);
 KDI18n.localize();
 
+const sendMessage = (...args) => KDUI.sendMessage(...args);
+const withBusyButton = KDUI.withBusyButton;
+const settingsToast = KDUI.createToast($("toast"), { statusElement: $("save-status") });
+
 let backendType = "abdm";
 let watchMode = "batch";
 
-function sendMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message || "runtime error"));
-        return;
-      }
-      if (!response) {
-        reject(new Error("No response from background"));
-        return;
-      }
-      if (response.success === false) {
-        reject(new Error(response.error || "Request failed"));
-        return;
-      }
-      resolve(response);
-    });
-  });
-}
-
 function showToast(message, type = "success") {
-  const toast = $("toast");
-  const status = $("save-status");
-  if (status) status.textContent = message;
-  if (!toast) return;
-  toast.textContent = message;
-  toast.className = `toast show ${type}`;
-  setTimeout(() => {
-    toast.className = "toast";
-  }, 2600);
+  settingsToast.show(message, type);
 }
 
 function numberValue(id, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) {
@@ -50,38 +26,35 @@ function setValue(id, value) {
   else el.value = value ?? "";
 }
 
-async function withBusyButton(button, task) {
-  if (button) button.disabled = true;
-  try {
-    return await task();
-  } finally {
-    if (button) button.disabled = false;
-  }
-}
-
 function setBackendType(type) {
   backendType = type === "gopeed" ? "gopeed" : "abdm";
-  $("backend-type-abdm")?.classList.toggle("active", backendType === "abdm");
-  $("backend-type-gopeed")?.classList.toggle("active", backendType === "gopeed");
+  KDUI.setSegmentedValue(
+    [$("backend-type-abdm"), $("backend-type-gopeed")],
+    backendType,
+    "data-value"
+  );
   updateBackendVisibility();
 }
 
 function updateBackendVisibility() {
   const enabled = !!$("backend-enabled")?.checked;
-  $("backend-details")?.classList.toggle("hidden", !enabled);
-  $("abdm-fields")?.classList.toggle("hidden", !enabled || backendType !== "abdm");
-  $("gopeed-fields")?.classList.toggle("hidden", !enabled || backendType !== "gopeed");
+  $("backend-details")?.classList.toggle("kd-hidden", !enabled);
+  $("abdm-fields")?.classList.toggle("kd-hidden", !enabled || backendType !== "abdm");
+  $("gopeed-fields")?.classList.toggle("kd-hidden", !enabled || backendType !== "gopeed");
 }
 
 function updateDownloadFilterVisibility() {
   const enabled = !!$("download-filter-enabled")?.checked;
-  $("download-filter-details")?.classList.toggle("hidden", !enabled);
+  $("download-filter-details")?.classList.toggle("kd-hidden", !enabled);
 }
 
 function setWatchMode(mode) {
   watchMode = mode === "all" ? "all" : "batch";
-  $("watch-mode-batch")?.classList.toggle("active", watchMode === "batch");
-  $("watch-mode-all")?.classList.toggle("active", watchMode === "all");
+  KDUI.setSegmentedValue(
+    [$("watch-mode-batch"), $("watch-mode-all")],
+    watchMode,
+    "data-value"
+  );
 }
 
 function formatDate(value) {
@@ -246,11 +219,13 @@ async function saveAll() {
   await withBusyButton(saveBtn, async () => {
     try {
       $("save-status").textContent = t("statusSaving");
-      await saveBackend();
-      await saveDownloadRules();
-      await saveWatch();
-      await saveGist();
-      await saveCreators();
+      await Promise.all([
+        saveBackend(),
+        saveDownloadRules(),
+        saveWatch(),
+        saveGist(),
+        saveCreators(),
+      ]);
       showToast(t("settingsSaved"));
     } catch (err) {
       console.error("[Settings] save failed", err);
@@ -266,42 +241,7 @@ async function restoreDefaults(button) {
   await withBusyButton(button, async () => {
     try {
       $("save-status").textContent = t("statusRestoring");
-      await sendMessage({
-        action: "backend.setConfig",
-        config: {
-          enabled: false,
-          backendType: "abdm",
-          protocol: "http",
-          host: "127.0.0.1",
-          port: 15151,
-          concurrency: 3,
-          retryCount: 3,
-          perPostFileLimit: 100,
-          gopeedProtocol: "http",
-          gopeedHost: "127.0.0.1",
-          gopeedPort: 9999,
-          gopeedToken: "",
-        },
-      });
-      await sendMessage({
-        action: "downloadRules.setConfig",
-        config: {
-          enabled: false,
-          excludedExtensions: [
-            ".psd", ".clip", ".sai", ".sai2", ".kra", ".xcf",
-            ".procreate", ".afphoto", ".afdesign", ".blend",
-          ],
-        },
-      });
-      await sendMessage({
-        action: "watch.setConfig",
-        config: { intervalMinutes: 30, checkMode: "batch" },
-      });
-      await sendMessage({
-        action: "gist.setConfig",
-        config: { enabled: false, token: "", gistId: "" },
-      });
-      await sendMessage({ action: "creators.setEnabled", enabled: false });
+      await sendMessage({ action: "settings.restoreDefaults" });
       await loadAll();
       showToast(t("defaultsRestored"));
     } catch (err) {

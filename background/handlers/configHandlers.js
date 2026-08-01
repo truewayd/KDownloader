@@ -6,11 +6,23 @@ import {
   saveDownloadRulesConfig,
   loadGistConfig,
   saveGistConfig,
+  restoreDefaultConfigs,
 } from "../config.js";
+import { setCreatorsOverrideEnabled } from "../creators.js";
 import { gistUpload, gistDownload } from "../gist.js";
 import { handleAPIRequest, getCookies } from "../network.js";
 import { getGlobalProgress } from "../progress.js";
+import { configureWatchAlarm } from "../watch.js";
 import { respondWith } from "../messageHelpers.js";
+
+async function restoreSettingsDefaults() {
+  const configs = await restoreDefaultConfigs();
+  await Promise.all([
+    setCreatorsOverrideEnabled(false),
+    configureWatchAlarm(configs.watch),
+  ]);
+  return configs;
+}
 
 export function createConfigHandlers() {
   return {
@@ -37,6 +49,9 @@ export function createConfigHandlers() {
 
     "gist.download": ({ sendResponse }) =>
       respondWith(sendResponse, gistDownload(), (result) => ({ result })),
+
+    "settings.restoreDefaults": ({ sendResponse }) =>
+      respondWith(sendResponse, restoreSettingsDefaults(), (configs) => ({ configs })),
 
     fetchAPI: ({ message, sendResponse }) =>
       respondWith(sendResponse, handleAPIRequest(message.url, message.headers), (data) => ({ data })),

@@ -468,21 +468,6 @@ export async function getImportSessionStatus(sessionId) {
   };
 }
 
-export async function loadDB() {
-  return {
-    schemaVersion: HISTORY_SCHEMA_VERSION,
-    records: await readAllHistoryRecords(),
-  };
-}
-
-export async function saveDB(data) {
-  if (!data || data.schemaVersion !== HISTORY_SCHEMA_VERSION || !Array.isArray(data.records)) {
-    throw new Error(`Invalid history database payload: expected schemaVersion ${HISTORY_SCHEMA_VERSION}`);
-  }
-  const records = data.records.map((record) => normalizeHistoryRecord(record, { strict: true }));
-  await replaceAllHistoryRecords(records);
-}
-
 export async function checkDownloaded(service, userId, postId, source) {
   const db = await openHistoryDB();
   const transaction = db.transaction(

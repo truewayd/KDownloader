@@ -14,6 +14,8 @@ function renderPawWatchState(btn, watched) {
   btn.dataset.watched = watched ? "true" : "false";
   btn.textContent = watched ? KDI18n.get("unwatchAction") : KDI18n.get("watchAction");
   btn.title = watched ? KDI18n.get("unwatchTooltip") : KDI18n.get("watchTooltip");
+  btn.setAttribute("aria-label", btn.title);
+  btn.setAttribute("aria-pressed", String(watched));
 }
 
 async function addPawWatchButton(context) {
@@ -21,16 +23,11 @@ async function addPawWatchButton(context) {
   const parsed = parseUrlPath(location.pathname);
   if (!header || !parsed || parsed.postId) return;
 
-  let btn = header.querySelector('[data-kd-watch="true"]');
-  if (!btn) {
-    btn = document.createElement("button");
-    btn.className = "kd-watch-button button _button_e60d849";
-    btn.type = "button";
-    btn.setAttribute("data-kd-watch", "true");
-    btn.style.margin = "0";
-    btn.style.padding = "0 12px";
-    header.appendChild(btn);
-  }
+  const { button: btn } = ensureKdButton(header, '[data-kd-watch="true"]', {
+    classNames: ["kd-watch-button"],
+    attributes: { "data-kd-watch": "true" },
+  });
+  if (!btn) return;
 
   const response = await safeSendMessage(
     { action: "watch.getState", service: parsed.service, userId: parsed.userId },
@@ -74,42 +71,7 @@ async function addPawPostButton(context) {
   const parsed = parseUrlPath(location.pathname);
   if (!parsed || !parsed.postId) return;
 
-  let btn = container.querySelector('[data-batch-download="true"]');
-  const isNew = !btn;
-  if (!btn) {
-    btn = document.createElement("button");
-    btn.className = "button _button_e60d849 batch-download-btn";
-    btn.type = "button";
-    btn.setAttribute("data-batch-download", "true");
-  }
-
-  btn.onclick = () => {
-    if (btn.disabled) return;
-    handleDownload(
-      btn,
-      parsed.service,
-      parsed.userId,
-      parsed.postId,
-      location.pathname,
-      false
-    );
-  };
-
-  if (!isActiveDownloadButton(btn)) {
-    updateButtonStatus(btn, "IDLE", null, false);
-    const downloaded = await isPostDownloaded(
-      parsed.service,
-      parsed.userId,
-      parsed.postId
-    );
-    if (!isRenderCurrent(context)) return;
-    if (downloaded) {
-      updateButtonStatus(btn, "SUCCESS", KDI18n.get("statusDownloadedDecorated"), false);
-      btn.disabled = true;
-    }
-  }
-
-  if (isNew) container.appendChild(btn);
+  await renderPostDownloadButton(context, { container, parsed });
 }
 
 function getPawCreatorEntries() {
@@ -126,57 +88,14 @@ function getPawCreatorEntries() {
   return entries;
 }
 
-function findPawCreatorButton(container, path) {
-  return findDownloadButtonByPath(
-    container,
-    '.kemono-creator-btn[data-batch-download="true"]',
-    path
-  );
-}
-
 async function addPawCreatorButtons(context) {
   const entries = getPawCreatorEntries();
   const livePaths = new Set(entries.map((entry) => entry.path));
-  removeStaleDownloadButtons('.kemono-creator-btn[data-batch-download="true"]', livePaths);
+  removeStaleDownloadButtons(KD_CREATOR_BUTTON_SELECTOR, livePaths);
 
-  const downloaded = await getDownloadedStatusMap(entries);
-  if (!isRenderCurrent(context)) return;
-
-  for (const entry of entries) {
-    const key = downloadedKey(entry.service, entry.userId, entry.postId);
-    const isDone = downloaded.get(key) === true;
-    let btn = findPawCreatorButton(entry.anchor, entry.path);
-
-    if (!btn) {
-      btn = document.createElement("div");
-      btn.className = "kemono-creator-btn";
-      btn.setAttribute("data-batch-download", "true");
-      btn.setAttribute("data-path", entry.path);
-      entry.anchor.appendChild(btn);
-    }
-
-    if (isActiveDownloadButton(btn)) continue;
-
-    btn.textContent = isDone ? "✓" : "↓";
-    btn.title = isDone ? KDI18n.get("alreadyDownloadedTooltip") : KDI18n.get("clickToDownloadTooltip");
-    btn.disabled = isDone;
-    entry.article.style.position = "relative";
-    btn.onclick = isDone
-      ? null
-      : (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (btn.disabled) return;
-          handleDownload(
-            btn,
-            entry.service,
-            entry.userId,
-            entry.postId,
-            entry.path,
-            true
-          );
-        };
-  }
+  await renderCreatorDownloadButtons(entries, context, {
+    getContainer: (entry) => entry.article,
+  });
 }
 
 function addPawPageFetchButton() {
@@ -186,18 +105,8 @@ function addPawPageFetchButton() {
   const parsed = parseUrlPath(location.pathname);
   if (!parsed) return;
 
-  let btn = header.querySelector('.kemono-download-all[data-batch-download="true"]');
-  if (!btn) {
-    btn = document.createElement("button");
-    btn.className = "kemono-download-all button _button_e60d849";
-    btn.type = "button";
-    btn.setAttribute("data-batch-download", "true");
-    btn.textContent = KDI18n.get("pageFetchAction");
-    btn.title = KDI18n.get("pageFetchTooltip");
-    btn.style.margin = "0";
-    btn.style.padding = "0";
-    header.appendChild(btn);
-  }
+  const btn = ensurePageFetchButton(header);
+  if (!btn) return;
 
   btn.onclick = async (event) => {
     event.preventDefault();
@@ -219,8 +128,8 @@ function addPawPageFetchButton() {
         userId: parsed.userId,
         offset: Number.isFinite(offset) && offset >= 0 ? offset : 0,
       },
-      initialText: KDI18n.get("dispatchingCount", [String(entries.length)]),
-      ackText: "Dispatched, awaiting ACK...",
+       initialText: KDI18n.get("dispatchingCount", [String(entries.length)]),
+       ackText: KDI18n.get("statusSending"),
       total: entries.length,
       renderProgress: ({ btn: progressBtn, message, state }) => {
         progressBtn.title = `Sending ${message.sentCount || 0}/${state.total}`;

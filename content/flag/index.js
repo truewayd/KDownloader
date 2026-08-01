@@ -3,8 +3,6 @@
   "use strict";
 
   const FLAG_CONTAINER_CLASS = "kd-flag-indicator";
-  const FLAG_RED = "🔴";
-  const FLAG_GREEN = "🟢";
   const CARD_SELECTOR = "a.fancy-link.fancy-link--kemono.user-card";
 
   async function getCreatorFlagsMany(items) {
@@ -37,31 +35,22 @@
 
   function updateFlagIndicator(container, flag) {
     container.dataset.flag = flag === true ? "true" : "false";
-    container.textContent = flag === true ? FLAG_RED : FLAG_GREEN;
-    container.title =
-      flag === true ? KDI18n.get("flagSavedTooltip") : KDI18n.get("flagNotSavedTooltip");
+    const label = flag === true
+      ? KDI18n.get("flagSavedTooltip")
+      : KDI18n.get("flagNotSavedTooltip");
+    container.textContent = "";
+    container.title = label;
+    container.setAttribute("aria-label", label);
+    container.setAttribute("aria-pressed", String(flag === true));
   }
 
   function createFlagIndicator(flag) {
-    const container = document.createElement("div");
+    const container = document.createElement("button");
     container.className = FLAG_CONTAINER_CLASS;
-    container.style.cssText = `
-      position: absolute;
-      bottom: 8px;
-      right: 8px;
-      font-size: 20px;
-      cursor: pointer;
-      z-index: 10;
-      user-select: none;
-      transition: transform 0.2s;
-    `;
+    container.classList.add("kd-flag-button");
+    container.type = "button";
+    container.setAttribute("data-kd-flag", "true");
     updateFlagIndicator(container, flag);
-    container.addEventListener("mouseenter", () => {
-      container.style.transform = "scale(1.2)";
-    });
-    container.addEventListener("mouseleave", () => {
-      container.style.transform = "scale(1)";
-    });
     return container;
   }
 
@@ -70,8 +59,15 @@
     event.stopPropagation();
 
     const nextFlag = container.dataset.flag !== "true";
-    const savedFlag = await setCreatorFlag(service, userId, nextFlag);
-    if (savedFlag !== null) updateFlagIndicator(container, savedFlag);
+    container.disabled = true;
+    container.setAttribute("aria-busy", "true");
+    try {
+      const savedFlag = await setCreatorFlag(service, userId, nextFlag);
+      if (savedFlag !== null) updateFlagIndicator(container, savedFlag);
+    } finally {
+      container.disabled = false;
+      container.removeAttribute("aria-busy");
+    }
   }
 
   function getCardIdentity(cardElement) {
@@ -82,7 +78,9 @@
   }
 
   function addFlagToCard(cardElement, flag) {
-    if (cardElement.querySelector(`.${FLAG_CONTAINER_CLASS}`)) return;
+    const existing = cardElement.querySelector(`.${FLAG_CONTAINER_CLASS}`);
+    if (existing?.matches("button.kd-flag-button")) return;
+    existing?.remove();
 
     const identity = getCardIdentity(cardElement);
     if (!identity) return;
@@ -92,9 +90,7 @@
       handleFlagClick(event, identity.service, identity.userId, indicator)
     );
 
-    if (window.getComputedStyle(cardElement).position === "static") {
-      cardElement.style.position = "relative";
-    }
+    ensurePositionContext(cardElement);
     cardElement.appendChild(indicator);
   }
 

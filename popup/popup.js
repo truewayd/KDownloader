@@ -8,16 +8,14 @@ const CREATOR_FETCH_PLACEHOLDER =
     "https://kemono.cr/patreon/user/114514";
 const t = (key, substitutions, fallback) => KDI18n.get(key, substitutions, fallback);
 KDI18n.localize();
-const SVG_NS = "http://www.w3.org/2000/svg";
-const XLINK_NS = "http://www.w3.org/1999/xlink";
+const safeSendMessage = (...args) => KDUI.sendMessage(...args);
 
 const exportBtn = document.getElementById("export-btn");
 const importBtn = document.getElementById("import-btn");
 const fileInput = document.getElementById("file-input");
 const loading = document.getElementById("loading");
 const loadingLabel = loading?.querySelector("div:last-child");
-const successMessage = document.getElementById("success-message");
-const errorMessage = document.getElementById("error-message");
+const popupToast = KDUI.createToast(document.getElementById("toast"), { duration: 3000 });
 const storageUsed = document.getElementById("storage-used");
 const creatorUrlInput = document.getElementById("creator-url");
 const creatorFetchBtn = document.getElementById("creator-fetch-btn");
@@ -30,6 +28,7 @@ const gistUploadBtn = document.getElementById("gist-upload-btn");
 const gistDownloadBtn = document.getElementById("gist-download-btn");
 const globalProgressEl = document.getElementById("global-progress");
 const globalProgressFill = document.getElementById("global-progress-fill");
+const globalProgressTrack = document.getElementById("global-progress-track");
 const globalProgressLabel = document.getElementById("global-progress-label");
 const siteSearchForm = document.getElementById("site-search-form");
 const siteSearchSite = document.getElementById("site-search-site");
@@ -44,75 +43,18 @@ try {
 } catch (_) { }
 
 function setLoading(show, label = null) {
-    if (loading) loading.classList.toggle("active", !!show);
+    if (loading) loading.classList.toggle("is-visible", !!show);
     if (loadingLabel) {
         loadingLabel.textContent = label || t("statusProcessing");
     }
 }
 
-function showMessage(el, message) {
-    if (!el) return;
-    el.textContent = message;
-    el.classList.add("show");
-    setTimeout(() => el.classList.remove("show"), 3000);
-}
-
 function showSuccess(message) {
-    showMessage(successMessage, message);
+    popupToast.show(message, "success");
 }
 
 function showError(message) {
-    showMessage(errorMessage, message);
-}
-
-function safeSendMessage(message, timeout = 7000, opts = { retries: 1, retryDelay: 300 }) {
-    const attempt = () =>
-        new Promise((resolve, reject) => {
-            try {
-                chrome.runtime.sendMessage(message, (response) => {
-                    if (chrome.runtime.lastError) {
-                        reject(new Error(chrome.runtime.lastError.message || "runtime error"));
-                        return;
-                    }
-                    if (!response) {
-                        reject(new Error("No response from runtime"));
-                        return;
-                    }
-                    if (response.success === false) {
-                        reject(new Error(response.error || "Request failed"));
-                        return;
-                    }
-                    resolve(response);
-                });
-            } catch (err) {
-                reject(err);
-            }
-        });
-
-    return (async () => {
-        let lastErr = null;
-        for (let i = 0; i <= (opts.retries || 1); i++) {
-            try {
-                const pending = attempt();
-                if (timeout > 0) {
-                    return await Promise.race([
-                        pending,
-                        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), timeout)),
-                    ]);
-                }
-                return await pending;
-            } catch (err) {
-                lastErr = err;
-                const msg = err && err.message ? err.message : "";
-                if (/Receiving end does not exist|The message port closed/i.test(msg) && i < (opts.retries || 1)) {
-                    await new Promise((resolve) => setTimeout(resolve, opts.retryDelay || 300));
-                    continue;
-                }
-                break;
-            }
-        }
-        throw lastErr || new Error("safeSendMessage failed");
-    })();
+    popupToast.show(message, "error");
 }
 
 function openOptionsPage() {
@@ -135,19 +77,7 @@ function handleSiteSearch(event) {
 }
 
 function setIconButton(button, iconId, label) {
-    if (!button) return;
-
-    const svg = button.querySelector("svg.button-icon") || document.createElementNS(SVG_NS, "svg");
-    svg.classList.add("button-icon");
-
-    const use = svg.querySelector("use") || document.createElementNS(SVG_NS, "use");
-    use.setAttribute("href", `#${iconId}`);
-    use.setAttributeNS(XLINK_NS, "href", `#${iconId}`);
-    if (!use.parentNode) svg.appendChild(use);
-
-    const labelEl = button.querySelector("span") || document.createElement("span");
-    labelEl.textContent = label;
-    button.replaceChildren(svg, labelEl);
+    KDUI.setIconButton(button, iconId, label, "../shared/icons.svg");
 }
 
 function setCreatorFetchAvailability(config) {
@@ -159,6 +89,7 @@ function setCreatorFetchAvailability(config) {
     }
     if (!creatorFetchBtn) return;
     setIconButton(creatorFetchBtn, fetchReady ? "icon-download" : "icon-server", fetchReady ? t("creatorFetchAction") : t("settingsAction"));
+    creatorFetchBtn.classList.toggle("primary", fetchReady);
     creatorFetchBtn.classList.toggle("secondary", !fetchReady);
     creatorFetchBtn.title = fetchReady ? t("creatorFetchTooltip") : t("openSettingsTooltip");
 }
@@ -200,18 +131,18 @@ async function loadBackendState() {
 async function loadFeatureVisibility() {
     try {
         const creators = await safeSendMessage({ action: "creators.ensureRuleState" }, 3000, { retries: 1, retryDelay: 200 });
-        searchCachePanel?.classList.toggle("hidden", !creators.enabled);
+        searchCachePanel?.classList.toggle("kd-hidden", !creators.enabled);
     } catch (err) {
         console.warn("[Popup] creators.ensureRuleState failed", err);
-        searchCachePanel?.classList.add("hidden");
+        searchCachePanel?.classList.add("kd-hidden");
     }
 
     try {
         const gist = await safeSendMessage({ action: "gist.getConfig" }, 3000, { retries: 1, retryDelay: 200 });
-        gistPanel?.classList.toggle("hidden", !(gist.config && gist.config.enabled));
+        gistPanel?.classList.toggle("kd-hidden", !(gist.config && gist.config.enabled));
     } catch (err) {
         console.warn("[Popup] gist.getConfig failed", err);
-        gistPanel?.classList.add("hidden");
+        gistPanel?.classList.add("kd-hidden");
     }
 }
 
@@ -489,12 +420,15 @@ function renderGlobalProgress(total, processed, acked) {
     total = Number(total || 0);
     processed = Number(processed || 0);
     acked = Number(acked || 0);
+    if (total <= 0) {
+        globalProgressEl.classList.add("kd-hidden");
+        return;
+    }
     const pct = total > 0 ? Math.round((100 * processed) / Math.max(1, total)) : 0;
     globalProgressFill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
-    globalProgressLabel.textContent = total > 0
-        ? t("globalProgressActive", [processed, total, acked])
-        : t("globalProgressIdle", [acked]);
-    globalProgressEl.classList.remove("hidden");
+    globalProgressTrack?.setAttribute("aria-valuenow", String(Math.min(100, Math.max(0, pct))));
+    globalProgressLabel.textContent = t("globalProgressActive", [processed, total, acked]);
+    globalProgressEl.classList.remove("kd-hidden");
 }
 
 chrome.runtime.onMessage.addListener((message) => {

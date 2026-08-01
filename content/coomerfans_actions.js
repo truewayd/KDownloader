@@ -76,14 +76,6 @@ function getCoomerFansCreatorEntries() {
   return entries;
 }
 
-function findCoomerFansButton(container, path) {
-  return findDownloadButtonByPath(
-    container,
-    '.kemono-creator-btn[data-batch-download="true"]',
-    path
-  );
-}
-
 async function addCoomerFansPostButton(context) {
   const parsed = parseCoomerFansPostPath(location.pathname);
   if (!parsed || !parsed.postId) return;
@@ -91,103 +83,36 @@ async function addCoomerFansPostButton(context) {
   const container = document.querySelector("article.text-block.model-info");
   if (!container) return;
 
-  let btn = container.querySelector('.batch-download-btn[data-batch-download="true"]');
-  const isNew = !btn;
-  if (!btn) {
-    btn = document.createElement("button");
-    btn.className = "batch-download-btn coomerfans-post-download-btn";
-    btn.type = "button";
-    btn.setAttribute("data-batch-download", "true");
-  }
-
-  btn.dataset.path = location.pathname;
-  btn.onclick = () => {
-    if (btn.disabled) return;
-    handleDownload(
-      btn,
-      parsed.service,
-      parsed.userId,
-      parsed.postId,
-      location.pathname,
-      false,
-      { source: "coomerfans", creatorName: getCoomerFansCreatorName() }
-    );
-  };
-
-  if (!isActiveDownloadButton(btn)) {
-    updateButtonStatus(btn, "IDLE", null, false);
-    const downloaded = await isPostDownloaded(
-      parsed.service,
-      parsed.userId,
-      parsed.postId,
-      { source: "coomerfans" }
-    );
-    if (!isRenderCurrent(context)) return;
-    if (downloaded) {
-      updateButtonStatus(btn, "SUCCESS", KDI18n.get("statusDownloadedDecorated"), false);
-      btn.disabled = true;
-    }
-  }
-
-  if (isNew) {
-    const platformRow =
-      container.querySelector("p .as-button.as-tag.as-alt")?.closest("p") ||
-      container.querySelector(".model-name") ||
-      container.querySelector("figure");
-    if (platformRow && platformRow.nextSibling) {
-      container.insertBefore(btn, platformRow.nextSibling);
-    } else {
-      container.appendChild(btn);
-    }
-  }
+  await renderPostDownloadButton(context, {
+    container,
+    parsed,
+    source: "coomerfans",
+    creatorName: getCoomerFansCreatorName(),
+    classNames: ["kd-coomerfans-post-button"],
+    place: (button) => {
+      const platformRow =
+        container.querySelector("p .as-button.as-tag.as-alt")?.closest("p") ||
+        container.querySelector(".model-name") ||
+        container.querySelector("figure");
+      if (platformRow?.nextSibling) container.insertBefore(button, platformRow.nextSibling);
+      else container.appendChild(button);
+    },
+  });
 }
 
 async function addCoomerFansCreatorButtons(context) {
   const entries = getCoomerFansCreatorEntries();
   const livePaths = new Set(entries.map((entry) => entry.path));
-  removeStaleDownloadButtons('.kemono-creator-btn[data-batch-download="true"]', livePaths);
+  removeStaleDownloadButtons(KD_CREATOR_BUTTON_SELECTOR, livePaths);
 
-  const downloaded = await getDownloadedStatusMap(entries);
-  if (!isRenderCurrent(context)) return;
-
-  for (const entry of entries) {
-    const key = downloadedKey(entry.service, entry.userId, entry.postId, entry.source);
-    const isDone = downloaded.get(key) === true;
-    let btn = findCoomerFansButton(entry.postEl, entry.path);
-
-    if (!btn) {
-      btn = document.createElement("div");
-      btn.className = "kemono-creator-btn coomerfans-creator-btn";
-      btn.setAttribute("data-batch-download", "true");
-      btn.setAttribute("data-path", entry.path);
-      entry.postEl.appendChild(btn);
-    }
-
-    if (isActiveDownloadButton(btn)) continue;
-
-    btn.textContent = isDone ? "✓" : "↓";
-    btn.title = isDone ? KDI18n.get("alreadyDownloadedTooltip") : KDI18n.get("clickToDownloadTooltip");
-    btn.disabled = isDone;
-    entry.postEl.style.position = "relative";
-    entry.postEl.classList.add("kd-coomerfans-post");
-
-    btn.onclick = isDone
-      ? null
-      : (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (btn.disabled) return;
-          handleDownload(
-            btn,
-            entry.service,
-            entry.userId,
-            entry.postId,
-            entry.path,
-            true,
-            { source: "coomerfans", creatorName: entry.creatorName }
-          );
-        };
-  }
+  await renderCreatorDownloadButtons(entries, context, {
+    getContainer: (entry) => entry.postEl,
+    decorateContainer: (container) => container.classList.add("kd-coomerfans-post"),
+    getDownloadOptions: (entry) => ({
+      source: "coomerfans",
+      creatorName: entry.creatorName,
+    }),
+  });
 }
 
 function addCoomerFansPageFetchButton() {
@@ -206,16 +131,8 @@ function addCoomerFansPageFetchButton() {
     else section.prepend(actions);
   }
 
-  let btn = actions.querySelector('.kemono-download-all[data-batch-download="true"]');
-  if (!btn) {
-    btn = document.createElement("button");
-    btn.className = "kemono-download-all batch-download-btn";
-    btn.type = "button";
-    btn.setAttribute("data-batch-download", "true");
-    btn.textContent = KDI18n.get("pageFetchAction");
-    btn.title = KDI18n.get("pageFetchTooltip");
-    actions.appendChild(btn);
-  }
+  const btn = ensurePageFetchButton(actions);
+  if (!btn) return;
 
   btn.onclick = async (event) => {
     event.preventDefault();
@@ -236,11 +153,13 @@ function addCoomerFansPageFetchButton() {
       }));
 
     if (items.length === 0) {
-      updateButtonStatus(btn, "SUCCESS", KDI18n.get("statusAllDoneDecorated"), false);
-      setTimeout(() => {
-        btn.disabled = false;
-        updateButtonStatus(btn, "IDLE", KDI18n.get("pageFetchAction"), false);
-      }, 2000);
+      showTransientButtonStatus(
+        btn,
+        "SUCCESS",
+        KDI18n.get("statusAllDoneDecorated"),
+        false,
+        KDI18n.get("pageFetchAction")
+      );
       return;
     }
 

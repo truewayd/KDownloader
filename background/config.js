@@ -87,6 +87,26 @@ export function getDefaultDownloadRulesConfig() {
   };
 }
 
+export function getDefaultGistConfig() {
+  return { enabled: false, token: '', gistId: '' };
+}
+
+export async function restoreDefaultConfigs() {
+  const configs = {
+    backend: getDefaultBackendConfig(),
+    downloadRules: getDefaultDownloadRulesConfig(),
+    watch: getDefaultWatchConfig(),
+    gist: getDefaultGistConfig(),
+  };
+  await chrome.storage.sync.set({
+    [BACKEND_CONFIG_KEY]: configs.backend,
+    [DOWNLOAD_RULES_CONFIG_KEY]: configs.downloadRules,
+    [WATCH_CONFIG_KEY]: configs.watch,
+    [GIST_CONFIG_KEY]: configs.gist,
+  });
+  return configs;
+}
+
 export async function loadDownloadRulesConfig() {
   const r = await chrome.storage.sync.get(DOWNLOAD_RULES_CONFIG_KEY);
   const cfg = r[DOWNLOAD_RULES_CONFIG_KEY] || {};
@@ -109,10 +129,11 @@ export async function saveDownloadRulesConfig(cfg) {
 export async function loadGistConfig() {
   const r = await chrome.storage.sync.get(GIST_CONFIG_KEY);
   const cfg = r[GIST_CONFIG_KEY] || {};
+  const def = getDefaultGistConfig();
   return {
-    enabled: typeof cfg.enabled === 'boolean' ? cfg.enabled : false,
-    token: typeof cfg.token === 'string' ? cfg.token : '',
-    gistId: typeof cfg.gistId === 'string' ? cfg.gistId : ''
+    enabled: typeof cfg.enabled === 'boolean' ? cfg.enabled : def.enabled,
+    token: typeof cfg.token === 'string' ? cfg.token : def.token,
+    gistId: typeof cfg.gistId === 'string' ? cfg.gistId : def.gistId,
   };
 }
 

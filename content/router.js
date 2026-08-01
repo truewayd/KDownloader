@@ -43,7 +43,10 @@
   }
 
   function isOwnInjectedNode(node) {
-    return isElement(node) && nodeHasSelector(node, '[data-batch-download="true"], [data-kd-watch="true"]');
+    return isElement(node) && nodeHasSelector(
+      node,
+      '[data-batch-download="true"], [data-kd-watch="true"], [data-kd-flag="true"]'
+    );
   }
 
   function mutationLooksRelevant(mutations) {

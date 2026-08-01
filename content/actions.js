@@ -37,14 +37,6 @@ function getCreatorEntries() {
   return entries;
 }
 
-function findCreatorButton(container, path) {
-  return findDownloadButtonByPath(
-    container,
-    '.kemono-creator-btn[data-batch-download="true"]',
-    path
-  );
-}
-
 async function addPostButton(context) {
   const container =
     document.querySelector(".post__actions") ||
@@ -54,116 +46,25 @@ async function addPostButton(context) {
   const parsed = parseUrlPath(location.pathname);
   if (!parsed || !parsed.postId) return;
 
-  let btn = container.querySelector('.batch-download-btn[data-batch-download="true"]');
-  const isNew = !btn;
-  if (!btn) {
-    btn = document.createElement("button");
-    btn.className = "button _button_e60d849 batch-download-btn";
-    btn.type = "button";
-    btn.setAttribute("data-batch-download", "true");
-  }
-
-  btn.dataset.path = location.pathname;
-  btn.onmouseenter = function () {
-    if (!this.disabled) this.classList.add("kemono-btn-hover");
-  };
-  btn.onmouseleave = function () {
-    this.classList.remove("kemono-btn-hover");
-  };
-  btn.onclick = () => {
-    if (btn.disabled) return;
-    handleDownload(
-      btn,
-      parsed.service,
-      parsed.userId,
-      parsed.postId,
-      location.pathname,
-      false
-    );
-  };
-
-  if (!isActiveDownloadButton(btn)) {
-    updateButtonStatus(btn, "IDLE", null, false);
-    const downloaded = await isPostDownloaded(
-      parsed.service,
-      parsed.userId,
-      parsed.postId
-    );
-    if (!isRenderCurrent(context)) return;
-    if (downloaded) {
-      updateButtonStatus(btn, "SUCCESS", KDI18n.get("statusDownloadedDecorated"), false);
-      btn.disabled = true;
-    }
-  }
-
-  if (isNew) container.appendChild(btn);
+  await renderPostDownloadButton(context, { container, parsed });
 }
 
 async function addCreatorButtons(context) {
   const entries = getCreatorEntries();
   const livePaths = new Set(entries.map((entry) => entry.path));
-  removeStaleDownloadButtons('.kemono-creator-btn[data-batch-download="true"]', livePaths);
+  removeStaleDownloadButtons(KD_CREATOR_BUTTON_SELECTOR, livePaths);
 
-  const downloaded = await getDownloadedStatusMap(entries);
-  if (!isRenderCurrent(context)) return;
-
-  for (const entry of entries) {
-    const key = downloadedKey(entry.service, entry.userId, entry.postId);
-    const isDone = downloaded.get(key) === true;
-    const container = entry.anchor;
-    let btn = findCreatorButton(container, entry.path);
-
-    if (!btn) {
-      btn = document.createElement("div");
-      btn.className = "kemono-creator-btn";
-      btn.setAttribute("data-batch-download", "true");
-      btn.setAttribute("data-path", entry.path);
-      container.appendChild(btn);
-    }
-
-    if (isActiveDownloadButton(btn)) continue;
-
-    btn.textContent = isDone ? "✓" : "↓";
-    btn.title = isDone ? KDI18n.get("alreadyDownloadedTooltip") : KDI18n.get("clickToDownloadTooltip");
-    btn.disabled = isDone;
-    entry.article.style.position = "relative";
-
-    btn.onclick = isDone
-      ? null
-      : (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (btn.disabled) return;
-          handleDownload(
-            btn,
-            entry.service,
-            entry.userId,
-            entry.postId,
-            entry.path,
-            true
-          );
-        };
-  }
+  await renderCreatorDownloadButtons(entries, context, {
+    getContainer: (entry) => entry.article,
+  });
 }
 
 function addDownloadAllButton() {
   const header = document.querySelector(".user-header__actions");
   if (!header) return;
 
-  let btn = header.querySelector(
-    '.kemono-download-all[data-batch-download="true"]'
-  );
-  if (!btn) {
-    btn = document.createElement("button");
-    btn.className = "kemono-download-all button _button_e60d849";
-    btn.type = "button";
-    btn.setAttribute("data-batch-download", "true");
-    btn.textContent = KDI18n.get("pageFetchAction");
-    btn.title = KDI18n.get("pageFetchTooltip");
-    btn.style.margin = "0";
-    btn.style.padding = "0";
-    header.appendChild(btn);
-  }
+  const btn = ensurePageFetchButton(header);
+  if (!btn) return;
 
   btn.onclick = async (event) => {
     event.preventDefault();
@@ -172,11 +73,13 @@ function addDownloadAllButton() {
 
     const parsedPage = parseUrlPath(location.pathname);
     if (!parsedPage) {
-      updateButtonStatus(btn, "ERROR", "✗ Invalid page", false);
-      setTimeout(() => {
-        btn.disabled = false;
-        updateButtonStatus(btn, "IDLE", null, false);
-      }, 2000);
+      showTransientButtonStatus(
+        btn,
+        "ERROR",
+        KDI18n.get("statusFailedDecorated"),
+        false,
+        KDI18n.get("pageFetchAction")
+      );
       return;
     }
 
@@ -187,20 +90,25 @@ function addDownloadAllButton() {
         { retries: 1, retryDelay: 200 }
       );
       if (!cfg || !cfg.success || !cfg.config || !cfg.config.enabled) {
-        updateButtonStatus(btn, "ERROR", KDI18n.get("backendEnableRequired"), false);
-        setTimeout(() => {
-          btn.disabled = false;
-          updateButtonStatus(btn, "IDLE", null, false);
-        }, 2500);
+        showTransientButtonStatus(
+          btn,
+          "ERROR",
+          KDI18n.get("backendEnableRequired"),
+          false,
+          KDI18n.get("pageFetchAction"),
+          2500
+        );
         return;
       }
     } catch (err) {
       console.warn("[Content] backend.getConfig failed", err);
-      updateButtonStatus(btn, "ERROR", KDI18n.get("backendCheckFailed"), false);
-      setTimeout(() => {
-        btn.disabled = false;
-        updateButtonStatus(btn, "IDLE", null, false);
-      }, 2000);
+      showTransientButtonStatus(
+        btn,
+        "ERROR",
+        KDI18n.get("backendCheckFailed"),
+        false,
+        KDI18n.get("pageFetchAction")
+      );
       return;
     }
 
@@ -213,8 +121,8 @@ function addDownloadAllButton() {
       service,
       userId,
       requestMessage: { action: "creator.pageFetch", service, userId, offset },
-      initialText: "Dispatching page...",
-      ackText: "Dispatched, awaiting progress...",
+      initialText: KDI18n.get("statusSending"),
+      ackText: KDI18n.get("statusSending"),
     });
   };
 }
