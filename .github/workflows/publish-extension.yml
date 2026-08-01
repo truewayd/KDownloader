@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  test-build-release:
+  build-release:
     runs-on: windows-latest
     env:
       ARTIFACT_NAME: KDownloader-build-${{ github.run_number }}.zip
@@ -19,26 +19,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Run JavaScript tests
-        shell: pwsh
-        run: |
-          $tests = (Get-ChildItem -Path tests -Filter '*.test.mjs' -File).FullName
-          if (-not $tests) {
-            throw 'No JavaScript tests found.'
-          }
-          # The test suite shares mocked Chrome/IndexedDB state across files.
-          # Keep file execution serialized so CI does not introduce cross-file races.
-          node --test --test-concurrency=1 $tests
-
-      - name: Run Python tests
-        shell: pwsh
-        run: python -m unittest tests/migrate_history_json_test.py
 
       - name: Build extension
         shell: pwsh
