@@ -1,0 +1,62 @@
+name: Publish Extension
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test-build-release:
+    runs-on: windows-latest
+    env:
+      ARTIFACT_NAME: KDownloader-build-${{ github.run_number }}.zip
+      RELEASE_TAG: build-${{ github.run_number }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run JavaScript tests
+        shell: pwsh
+        run: |
+          $tests = (Get-ChildItem -Path tests -Filter '*.test.mjs' -File).FullName
+          if (-not $tests) {
+            throw 'No JavaScript tests found.'
+          }
+          node --test $tests
+
+      - name: Run Python tests
+        shell: pwsh
+        run: python -m unittest tests/migrate_history_json_test.py
+
+      - name: Build extension
+        shell: pwsh
+        run: ./tools/build-extension.ps1 -OutputDirectory dist/KDownloader
+
+      - name: Create release archive
+        shell: pwsh
+        run: Compress-Archive -Path dist/KDownloader/* -DestinationPath $env:ARTIFACT_NAME -CompressionLevel Optimal
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KDownloader-${{ env.RELEASE_TAG }}
+          path: ${{ env.ARTIFACT_NAME }}
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: KDownloader ${{ env.RELEASE_TAG }}
+          generate_release_notes: true
+          files: ${{ env.ARTIFACT_NAME }}
