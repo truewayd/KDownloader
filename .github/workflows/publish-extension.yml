@@ -32,7 +32,9 @@ jobs:
           if (-not $tests) {
             throw 'No JavaScript tests found.'
           }
-          node --test $tests
+          # The test suite shares mocked Chrome/IndexedDB state across files.
+          # Keep file execution serialized so CI does not introduce cross-file races.
+          node --test --test-concurrency=1 $tests
 
       - name: Run Python tests
         shell: pwsh
