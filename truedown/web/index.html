@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
+  <title>TrueDown</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand" aria-label="TrueDown">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 36 36" fill="none">
+            <rect width="36" height="36" rx="10"></rect>
+            <path d="M18 8v13M12 15l6 7 6-7M10 26h16" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </span>
+        <span class="brand-copy">
+          <strong>TrueDown</strong>
+          <span>aria2 dashboard</span>
+        </span>
+      </div>
+      <div class="topbar-actions">
+        <button class="kd-button secondary" id="batch-task-btn" type="button">
+          <span aria-hidden="true">☷</span>
+          批量下载
+        </button>
+        <button class="kd-button primary" id="new-task-btn" type="button">
+          <span aria-hidden="true">＋</span>
+          新建下载
+        </button>
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <section class="kd-panel task-panel" aria-labelledby="tasks-title">
+        <div class="panel-header">
+          <div>
+            <p class="kd-eyebrow">Downloads</p>
+            <h1 id="tasks-title">下载任务</h1>
+            <p class="panel-subtitle">通过本地 aria2 RPC 队列跟踪下载状态、暂停恢复和失败重试。</p>
+          </div>
+          <div class="panel-actions">
+            <button class="kd-button secondary" id="retry-all-btn" type="button" disabled>全部重试</button>
+            <button class="kd-button secondary" id="clear-done-btn" type="button">清理已完成</button>
+            <button class="kd-button secondary" id="refresh-tasks-btn" type="button">刷新任务</button>
+          </div>
+        </div>
+
+        <div class="metric-strip" aria-label="任务概览">
+          <article class="metric-card">
+            <span id="task-count">0</span>
+            <p>全部任务</p>
+          </article>
+          <article class="metric-card">
+            <span id="active-count">0</span>
+            <p>进行中</p>
+          </article>
+          <article class="metric-card">
+            <span id="error-count">0</span>
+            <p>需要处理</p>
+          </article>
+        </div>
+
+        <div class="table-scroll" id="tasks-wrap">
+          <div id="tasks-container" class="tasks-container" aria-live="polite">
+            <div class="empty-state">
+              <div class="empty-icon" aria-hidden="true">↓</div>
+              <h2>暂无任务</h2>
+              <p>点击右上角「新建下载」开始添加链接。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="kd-panel settings-panel" aria-labelledby="settings-title">
+        <div class="panel-header panel-header-compact">
+          <div>
+            <p class="kd-eyebrow">Defaults</p>
+            <h2 id="settings-title">默认 aria2 参数</h2>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="field">
+            <label for="cfg-conns">并发连接数</label>
+            <input class="kd-input" id="cfg-conns" type="number" min="1" max="16" placeholder="例如：16">
+            <p class="hint">对应 <code>--split</code> / <code>--max-connection-per-server</code>。</p>
+          </div>
+          <div class="field">
+            <label for="cfg-speed">限速（字节/秒）</label>
+            <input class="kd-input" id="cfg-speed" type="number" min="0" placeholder="0 = 不限速">
+            <p class="hint">1 MB/s 请输入 <code>1048576</code>。</p>
+          </div>
+          <div class="section-divider"></div>
+          <div class="field">
+            <label for="cfg-tries">最大重试次数</label>
+            <input class="kd-input" id="cfg-tries" type="number" min="0" placeholder="例如：5">
+          </div>
+          <div class="field">
+            <label for="cfg-wait">重试等待（秒）</label>
+            <input class="kd-input" id="cfg-wait" type="number" min="0" placeholder="例如：3">
+          </div>
+          <div class="section-divider"></div>
+          <div class="field">
+            <label for="cfg-extra">额外参数</label>
+            <textarea class="kd-input" id="cfg-extra" rows="4" placeholder="--check-integrity=true&#10;--file-allocation=falloc"></textarea>
+            <p class="hint">每行一个 aria2 flag，新建任务时自动带入。</p>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div class="overlay" id="overlay" aria-hidden="true">
+    <section class="kd-panel modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <form id="download-form">
+        <div class="modal-header">
+          <div>
+            <p class="kd-eyebrow" id="modal-eyebrow">New download</p>
+            <h2 id="modal-title">新建下载任务</h2>
+          </div>
+          <button class="kd-icon-button" id="modal-close-btn" type="button" aria-label="关闭">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="field">
+            <label for="m-link">下载链接 *</label>
+            <textarea id="m-link" class="kd-input link-list-field" rows="4" placeholder="https://example.com/file-a.zip&#10;https://example.com/file-b.zip" required></textarea>
+            <p class="hint">每行一个链接。</p>
+          </div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="m-folder">保存目录</label>
+              <input class="kd-input" id="m-folder" type="text" placeholder="/downloads">
+            </div>
+            <div class="field">
+              <label for="m-name">文件名</label>
+              <input class="kd-input" id="m-name" type="text" placeholder="留空自动命名">
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="m-referer">来源页面（Referer）</label>
+              <input class="kd-input" id="m-referer" type="url" placeholder="选填，HTTP 参考源页面">
+            </div>
+            <div class="field">
+              <label for="m-queueid">队列 ID</label>
+              <input class="kd-input" id="m-queueid" type="number" placeholder="选填">
+            </div>
+          </div>
+          <div class="field">
+            <label for="m-headers">自定义 Headers（JSON）</label>
+            <textarea class="kd-input" id="m-headers" rows="3" placeholder='{"Cookie": "...", "User-Agent": "Mozilla/5.0"}'></textarea>
+          </div>
+
+          <details class="advanced-options">
+            <summary>覆盖 aria2 参数</summary>
+            <div class="advanced-body">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="m-conns">并发连接数</label>
+                  <input class="kd-input" id="m-conns" type="number" min="1" max="16" placeholder="使用默认值">
+                </div>
+                <div class="field">
+                  <label for="m-speed">限速（字节/秒）</label>
+                  <input class="kd-input" id="m-speed" type="number" min="0" placeholder="使用默认值">
+                </div>
+              </div>
+              <div class="form-grid">
+                <div class="field">
+                  <label for="m-tries">最大重试次数</label>
+                  <input class="kd-input" id="m-tries" type="number" min="0" placeholder="使用默认值">
+                </div>
+                <div class="field">
+                  <label for="m-wait">重试等待（秒）</label>
+                  <input class="kd-input" id="m-wait" type="number" min="0" placeholder="使用默认值">
+                </div>
+              </div>
+              <div class="field">
+                <label for="m-extra">额外附加参数</label>
+                <textarea class="kd-input" id="m-extra" rows="3" placeholder="留空则使用默认参数面板的值"></textarea>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <div class="modal-footer">
+          <span id="modal-msg" role="status" aria-live="polite"></span>
+          <div class="modal-actions">
+            <button class="kd-button secondary" id="modal-cancel-btn" type="button">取消</button>
+            <button class="kd-button primary" id="submit-task-btn" type="submit">开始下载</button>
+          </div>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div class="kd-toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

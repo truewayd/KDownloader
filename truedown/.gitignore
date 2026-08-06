@@ -1,0 +1,25 @@
+# Build output
+dist/
+
+# AI stuff
+.remember/
+.claude/
+.agents/
+
+# Go test cache
+*.test
+*.out
+
+# Local runtime state
+.gocache/
+.tmp-*.exe
+.tmp-*.exe~
+.tmp-*/
+downloads/
+*.db
+*.db-shm
+*.db-wal
+aria2.log
+
+# Obsolete local stylesheet kept out of the packaged embedded web UI
+/settings.css

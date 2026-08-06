@@ -1,0 +1,64 @@
+name: Publish TrueDown
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-truedown.yml"
+      - "truedown/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-truedown-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    env:
+      ARTIFACT_NAME: TrueDown-build-${{ github.run_number }}.zip
+      RELEASE_TAG: truedown-build-${{ github.run_number }}
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: truedown/go.mod
+          cache: false
+
+      - name: Test TrueDown
+        working-directory: truedown
+        run: go test ./...
+
+      - name: Build TrueDown
+        run: ./truedown/build.ps1 -OutputDirectory dist/TrueDown
+
+      - name: Create release archive
+        run: Compress-Archive -Path truedown/dist/TrueDown/* -DestinationPath $env:ARTIFACT_NAME -CompressionLevel Optimal
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrueDown-${{ env.RELEASE_TAG }}
+          path: ${{ env.ARTIFACT_NAME }}
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: TrueDown ${{ env.RELEASE_TAG }}
+          generate_release_notes: false
+          body: Automated TrueDown build from `${{ github.sha }}`.
+          files: ${{ env.ARTIFACT_NAME }}

@@ -18,6 +18,8 @@ const [
   pawActionsSource,
   coomerFansActionsSource,
   flagSource,
+  trueDownHtml,
+  trueDownCss,
 ] = await Promise.all([
   read("popup/popup.html"),
   read("settings.html"),
@@ -31,6 +33,8 @@ const [
   read("content/paw_actions.js"),
   read("content/coomerfans_actions.js"),
   read("content/flag/index.js"),
+  read("truedown/web/index.html"),
+  read("truedown/web/styles.css"),
 ]);
 
 test("extension pages use one component and icon layer", () => {
@@ -119,4 +123,24 @@ test("shared busy state restores the prior button state", async () => {
   });
   assert.equal(button.disabled, false);
   assert.equal(attributes.has("aria-busy"), false);
+});
+
+function kdTokens(css) {
+  return [...css.matchAll(/^\s*(--kd-[\w-]+):\s*([^;]+);/gm)].map((match) => [
+    match[1],
+    match[2].trim(),
+  ]);
+}
+
+test("TrueDown keeps KDownloader's shared light and dark design tokens", () => {
+  assert.deepEqual(kdTokens(trueDownCss), kdTokens(sharedCss));
+});
+
+test("TrueDown markup uses the shared KDownloader component vocabulary", () => {
+  assert.match(trueDownHtml, /class="kd-panel task-panel"/);
+  assert.match(trueDownHtml, /class="kd-button primary"/);
+  assert.match(trueDownHtml, /class="kd-button secondary"/);
+  assert.match(trueDownHtml, /class="kd-icon-button"/);
+  assert.match(trueDownHtml, /class="kd-toast"/);
+  assert.doesNotMatch(trueDownHtml, /class="(?:button|panel|icon-button|toast)(?:\s|\")/);
 });

@@ -6,7 +6,7 @@ This file is the current engineering contract for the extension. Historical rele
 
 ## Project Shape
 
-KDownloader is a dependency-free Chrome Manifest V3 extension. Runtime code is plain JavaScript and CSS; background code uses ES modules and the content/page scripts are load-order-sensitive classic scripts.
+This repository is a monorepo containing KDownloader and TrueDown. KDownloader is a dependency-free Chrome Manifest V3 extension. Runtime code is plain JavaScript and CSS; background code uses ES modules and the content/page scripts are load-order-sensitive classic scripts.
 
 ```text
 background/             MV3 service-worker modules and RPC handlers
@@ -20,6 +20,7 @@ tests/                  Node test runner and Python migration tests
 tools/                  clean build and changelog selection scripts
 changelog/              dated release notes and historical archive
 manifest.json           permissions and content-script order
+truedown/               TrueDown Go application, embedded web UI, tests, and build script
 ```
 
 Do not edit `dist/` by hand. It is generated and ignored.
@@ -91,6 +92,8 @@ Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps
 - `package.json` is developer-only metadata (`npm test`, `npm run test:python`, and `npm run build`) and is not copied into the extension build.
 - Release notes are required in `changelog/YYYY-MM-DD-NNN-short-slug.md`. Increment the zero-padded daily sequence; `tools/read-latest-changelog.ps1` selects the newest dated file and writes `release-notes.md`.
 - `.github/workflows/publish-extension.yml` builds, archives, uploads, and publishes a release whose body is read from that latest changelog file. Keep the filename date prefix sortable and do not rely on GitHub-generated notes for project changes.
+- KDownloader and TrueDown releases are path-scoped. KDownloader changes publish through `publish-extension.yml`; `truedown/**` changes publish through `publish-truedown.yml`. A commit that changes both products publishes both releases.
+- `truedown/build.ps1` creates the TrueDown Windows package with `TrueDown.exe` and `aria2c.exe`. TrueDown tags use the `truedown-build-*` prefix so they cannot collide with KDownloader tags.
 
 ## Verification
 

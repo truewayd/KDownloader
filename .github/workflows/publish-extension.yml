@@ -4,6 +4,24 @@ on:
   push:
     branches:
       - main
+    paths:
+      - ".github/workflows/publish-extension.yml"
+      - "_locales/**"
+      - "background/**"
+      - "changelog/**"
+      - "content/**"
+      - "icons/**"
+      - "injected/**"
+      - "popup/**"
+      - "shared/**"
+      - "tools/build-extension.ps1"
+      - "tools/read-latest-changelog.ps1"
+      - "content.css"
+      - "manifest.json"
+      - "migrate_history_json.py"
+      - "settings.css"
+      - "settings.html"
+      - "settings.js"
   workflow_dispatch:
 
 permissions:
