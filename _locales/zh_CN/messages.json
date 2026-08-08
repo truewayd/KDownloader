@@ -71,8 +71,14 @@
   "creatorFetchModeLinksOnly": {
     "message": "仅链接"
   },
+  "creatorFetchModeDms": {
+    "message": "Pawchive 私信"
+  },
   "creatorFetchModeTooltip": {
-    "message": "默认模式跳过已下载帖子；全量模式忽略历史；仅链接模式不下载媒体、不写历史，并由 Chrome 直接下载 TXT"
+    "message": "默认模式跳过已下载帖子；全量模式忽略历史；仅链接和 Pawchive 私信模式不下载媒体、不写历史，并由 Chrome 直接下载 TXT"
+  },
+  "creatorFetchDmsPawchiveOnly": {
+    "message": "私信抓取需要 pawchive.pw 创作者 URL"
   },
   "openSettingsTooltip": {
     "message": "打开高级设置"

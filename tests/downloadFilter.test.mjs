@@ -55,8 +55,16 @@ test('normalizes Creator Fetch modes and preserves legacy fullMode compatibility
   assert.equal(util.normalizeCreatorFetchMode('default'), 'default');
   assert.equal(util.normalizeCreatorFetchMode('full'), 'full');
   assert.equal(util.normalizeCreatorFetchMode('links'), 'links');
+  assert.equal(util.normalizeCreatorFetchMode('dms'), 'dms');
   assert.equal(util.normalizeCreatorFetchMode('unexpected'), 'default');
   assert.equal(util.normalizeCreatorFetchMode(undefined, true), 'full');
+});
+
+test('builds a generic UTF-8 text download task', () => {
+  const task = util.buildTextDownloadTask('Published: 2026-07\nHello & goodbye\n', 'patreon_creator_dms.txt', 'pawchive_dms_txt');
+  assert.equal(task.fileName, 'patreon_creator_dms.txt');
+  assert.equal(task.type, 'pawchive_dms_txt');
+  assert.equal(decodeURIComponent(task.url.split(',', 2)[1]), 'Published: 2026-07\nHello & goodbye\n');
 });
 
 test('filters case-insensitive project suffixes using file names then URLs', () => {

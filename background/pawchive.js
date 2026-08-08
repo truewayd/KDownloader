@@ -1,6 +1,6 @@
 // background/pawchive.js - Pawchive JSON API and file-task parsing
 import { PAW } from './constants.js';
-import { fetchPawchiveJson } from './network.js';
+import { fetchPawchiveDmsHtml, fetchPawchiveJson } from './network.js';
 import UTIL from './util.js';
 
 function requiredPart(value, label) {
@@ -16,6 +16,96 @@ export function pawchiveCreatorApiUrl(service, userId, offset = 0) {
 
 export function pawchivePostApiUrl(service, userId, postId) {
   return `${PAW.ORIGIN}${PAW.API_PREFIX}/${requiredPart(service, 'service')}/user/${requiredPart(userId, 'user id')}/post/${requiredPart(postId, 'post id')}`;
+}
+
+export function pawchiveDmsUrl(service, userId) {
+  return `${PAW.ORIGIN}/${requiredPart(service, 'service')}/user/${requiredPart(userId, 'user id')}/dms`;
+}
+
+function decodeHtmlEntities(value) {
+  const named = {
+    amp: '&', apos: "'", gt: '>', lt: '<', nbsp: ' ', quot: '"',
+  };
+  return String(value || '').replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, code) => {
+    if (code[0] !== '#') return named[code.toLowerCase()] ?? entity;
+    const numeric = code[1].toLowerCase() === 'x'
+      ? Number.parseInt(code.slice(2), 16)
+      : Number.parseInt(code.slice(1), 10);
+    return Number.isFinite(numeric) && numeric > 0 && numeric <= 0x10ffff
+      ? String.fromCodePoint(numeric)
+      : entity;
+  });
+}
+
+function plainTextFromHtml(fragment) {
+  const withLinks = String(fragment || '').replace(
+    /<a\b([^>]*)>([\s\S]*?)<\/a>/gi,
+    (match, attributes, body) => {
+      const hrefMatch = attributes.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+      const label = plainTextFromHtml(body);
+      const href = decodeHtmlEntities(hrefMatch && (hrefMatch[1] || hrefMatch[2] || hrefMatch[3]) || '').trim();
+      if (!href || label === href) return label || href;
+      return label ? `${label} (${href})` : href;
+    }
+  );
+  return decodeHtmlEntities(withLinks
+    .replace(/<(?:script|style)\b[^>]*>[\s\S]*?<\/(?:script|style)>/gi, '')
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<\/(?:p|div|li|section|blockquote)>/gi, '\n')
+    .replace(/<li\b[^>]*>/gi, '- ')
+    .replace(/<[^>]+>/g, ''))
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.replace(/[\t ]+/g, ' ').trim())
+    .filter((line, index, lines) => line || (index > 0 && lines[index - 1]))
+    .join('\n')
+    .trim();
+}
+
+function classBody(fragment, tagName, className) {
+  const pattern = new RegExp(
+    `<${tagName}\\b[^>]*class\\s*=\\s*(?:"[^"]*\\b${className}\\b[^"]*"|'[^']*\\b${className}\\b[^']*')[^>]*>([\\s\\S]*?)<\\/${tagName}>`,
+    'i'
+  );
+  const match = pattern.exec(fragment);
+  return match ? match[1] : '';
+}
+
+export function parsePawchiveDmsHtml(html) {
+  const messages = [];
+  const cardPattern = /<article\b[^>]*class\s*=\s*(?:"[^"]*\bdm-card\b[^"]*"|'[^']*\bdm-card\b[^']*')[^>]*>([\s\S]*?)<\/article>/gi;
+  let match;
+  while ((match = cardPattern.exec(String(html || ''))) !== null) {
+    const content = plainTextFromHtml(classBody(match[1], 'div', 'dm-card__content'));
+    const added = plainTextFromHtml(classBody(match[1], 'div', 'dm-card__added'));
+    const published = added.replace(/^Published\s*:\s*/i, '').trim();
+    if (content || published) messages.push({ published, text: content });
+  }
+  return messages;
+}
+
+export function formatPawchiveDmsText(messages, context = {}) {
+  const items = Array.isArray(messages) ? messages : [];
+  const lines = [
+    'Pawchive DMs',
+    `Service: ${String(context.service || '')}`,
+    `User: ${String(context.userId || '')}`,
+    `Source: ${String(context.sourceUrl || '')}`,
+    `Messages: ${items.length}`,
+    '',
+  ];
+  items.forEach((message, index) => {
+    lines.push(`[${message.published || 'Unknown date'}]`);
+    if (message.text) lines.push(message.text);
+    if (index < items.length - 1) lines.push('', '---', '');
+  });
+  return `${lines.join('\n').trimEnd()}\n`;
+}
+
+export async function fetchPawchiveDms(service, userId) {
+  const url = pawchiveDmsUrl(service, userId);
+  const html = await fetchPawchiveDmsHtml(url);
+  return { url, messages: parsePawchiveDmsHtml(html) };
 }
 
 function normalizePostResponse(value) {

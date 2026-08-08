@@ -46,7 +46,7 @@ export const UTIL = {
 
   normalizeCreatorFetchMode: (mode, legacyFullMode = false) => {
     const normalized = String(mode || '').trim().toLowerCase();
-    if (normalized === 'full' || normalized === 'links') return normalized;
+    if (normalized === 'full' || normalized === 'links' || normalized === 'dms') return normalized;
     return legacyFullMode === true ? 'full' : 'default';
   },
 
@@ -111,12 +111,17 @@ export const UTIL = {
   buildExternalLinksTextTask: (entries, fileName = 'external-links.txt') => {
     const text = UTIL.buildExternalLinksText(entries);
     if (!text) return null;
+    return UTIL.buildTextDownloadTask(text, fileName, 'external_links_txt');
+  },
+
+  buildTextDownloadTask: (text, fileName = 'export.txt', type = 'text') => {
+    if (typeof text !== 'string' || !text) return null;
     const safeName = UTIL.sanitizeFileName(fileName || 'external-links.txt');
     const normalizedName = safeName.toLowerCase().endsWith('.txt') ? safeName : `${safeName}.txt`;
     return {
       url: `data:text/plain;charset=utf-8,${encodeURIComponent(text)}`,
       fileName: normalizedName,
-      type: 'external_links_txt',
+      type,
     };
   },
 

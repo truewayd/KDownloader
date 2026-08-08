@@ -78,6 +78,85 @@ test('builds Pawchive creator and single-post API URLs', () => {
     pawchive.pawchivePostApiUrl('patreon', 'creator-1', 'post-1'),
     'https://pawchive.pw/api/v1/patreon/user/creator-1/post/post-1'
   );
+  assert.equal(
+    pawchive.pawchiveDmsUrl('patreon', 'creator-1'),
+    'https://pawchive.pw/patreon/user/creator-1/dms'
+  );
+});
+
+test('extracts Pawchive DM dates, readable text, and link targets from HTML', () => {
+  const html = `
+    <main>
+      <article class="dm-card ">
+        <section class="dm-card__body" tabindex="0">
+          <div class="dm-card__content"><p>Links renewed &amp; ready</p>
+            <p><a href="https://example.com/file?a=1&amp;b=2" rel="nofollow">Open pack</a></p>
+          </div>
+        </section>
+        <footer class="dm-card__footer"><div class="dm-card__added"> Published: 2026-07 </div></footer>
+      </article>
+      <article class='dm-card featured'>
+        <div class='dm-card__content'><p>Second message<br>next line</p></div>
+        <div class='dm-card__added'>Published: 2026-06-30</div>
+      </article>
+    </main>`;
+
+  const messages = pawchive.parsePawchiveDmsHtml(html);
+  assert.deepEqual(messages, [
+    {
+      published: '2026-07',
+      text: 'Links renewed & ready\n\nOpen pack (https://example.com/file?a=1&b=2)',
+    },
+    { published: '2026-06-30', text: 'Second message\nnext line' },
+  ]);
+  assert.equal(pawchive.formatPawchiveDmsText(messages, {
+    service: 'patreon',
+    userId: 'creator-1',
+    sourceUrl: pawchive.pawchiveDmsUrl('patreon', 'creator-1'),
+  }), [
+    'Pawchive DMs',
+    'Service: patreon',
+    'User: creator-1',
+    'Source: https://pawchive.pw/patreon/user/creator-1/dms',
+    'Messages: 2',
+    '',
+    '[2026-07]',
+    'Links renewed & ready',
+    '',
+    'Open pack (https://example.com/file?a=1&b=2)',
+    '',
+    '---',
+    '',
+    '[2026-06-30]',
+    'Second message',
+    'next line',
+    '',
+  ].join('\n'));
+});
+
+test('fetches only the fixed Pawchive creator DMs HTML page with browser credentials', async () => {
+  const requested = [];
+  globalThis.fetch = async (url, options) => {
+    requested.push({ url, options });
+    return {
+      ok: true,
+      status: 200,
+      headers: mockHeaders({ 'content-type': 'text/html' }),
+      async text() {
+        return '<article class="dm-card"><div class="dm-card__content">Hello</div></article>';
+      },
+    };
+  };
+
+  const result = await pawchive.fetchPawchiveDms('fanbox', 'creator-2');
+  assert.equal(result.url, 'https://pawchive.pw/fanbox/user/creator-2/dms');
+  assert.deepEqual(result.messages, [{ published: '', text: 'Hello' }]);
+  assert.equal(requested[0].options.credentials, 'include');
+  assert.match(requested[0].options.headers.Accept, /^text\/html/);
+  await assert.rejects(
+    network.fetchPawchiveDmsHtml('https://pawchive.pw/fanbox/user/creator-2/posts'),
+    /unexpected Pawchive HTML URL/
+  );
 });
 
 test('builds only file.pawchive.pw data tasks and preserves API names', () => {

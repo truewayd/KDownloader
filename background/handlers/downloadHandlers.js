@@ -4,6 +4,7 @@ import UTIL from "../util.js";
 import { handleAPIRequest } from "../network.js";
 import {
   dispatchExternalLinksTextTask,
+  dispatchTextDownloadTask,
   startCoomerFansDownload,
   startFullDownload,
   startPawchiveDownload,
@@ -11,7 +12,9 @@ import {
 } from "../download.js";
 import {
   fetchAllPawchiveCreatorPosts,
+  fetchPawchiveDms,
   fetchPawchiveCreatorPage,
+  formatPawchiveDmsText,
   isCompletePawchivePost,
 } from "../pawchive.js";
 import {
@@ -544,6 +547,31 @@ async function runCreatorFetchBatch(allItems, sender, scope = {}) {
   await runFilteredDownloadBatch(allItems, sender, scope);
 }
 
+async function runPawchiveDmsFetch(service, userId, sender, scope) {
+  const tabId = getSenderTabId(sender);
+  const batchId = createBatchId();
+  registerBatch(batchId, 1);
+  try {
+    broadcastBatchProgress(scope, 0, 1, tabId);
+    const { url, messages } = await fetchPawchiveDms(service, userId);
+    const text = formatPawchiveDmsText(messages, {
+      service,
+      userId,
+      sourceUrl: url,
+    });
+    const result = await dispatchTextDownloadTask(text, {
+      fileName: `${service}_${userId}_dms.txt`,
+      type: "pawchive_dms_txt",
+    });
+    if (!result.success) throw new Error(result.error || "Pawchive DMs TXT download failed");
+    updateAcked(batchId, 1);
+    updateProcessed(batchId, 1);
+    broadcastBatchProgress(scope, 1, 1, tabId);
+  } finally {
+    completeBatch(batchId);
+  }
+}
+
 function linksFileName(kind, service, userId, qualifier = "") {
   const suffix = qualifier === "" || qualifier === null || qualifier === undefined ? "" : `_${qualifier}`;
   return `${service}_${userId}_${kind}${suffix}_links.txt`;
@@ -736,6 +764,12 @@ export function createDownloadHandlers() {
           linksFileName: linksFileName("creator", service, userId),
           linksPostId: "creator-links",
         };
+
+        if (mode === "dms") {
+          if (!isPawOrigin(origin)) throw new Error("DM fetch is available only for Pawchive creator URLs");
+          await runPawchiveDmsFetch(service, userId, sender, scope);
+          return;
+        }
 
         if (message.source === "coomerfans" || isCoomerFansOrigin(origin)) {
           const allItems = await fetchCoomerFansCreatorItems(origin, service, userId, creatorName);

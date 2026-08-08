@@ -92,6 +92,16 @@ function isPawchiveApiUrl(url) {
   }
 }
 
+function isPawchiveDmsUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.origin === PAW.ORIGIN
+      && /^\/[^/]+\/user\/[^/]+\/dms\/?$/.test(parsed.pathname);
+  } catch (error) {
+    return false;
+  }
+}
+
 function looksLikeCloudflareBlock(response, bodyText) {
   const status = Number(response && response.status) || 0;
   const mitigated = getHeader(response, 'cf-mitigated');
@@ -261,6 +271,41 @@ export async function fetchPawchiveJson(url, headers = {}, options = {}) {
   }
 
   return parsePawchiveResponse(response, { notifyOnCloudflare });
+}
+
+export async function fetchPawchiveDmsHtml(url) {
+  if (!isPawchiveDmsUrl(url)) throw new Error('Refusing to fetch an unexpected Pawchive HTML URL');
+
+  const requestHeaders = pawchiveRequestHeaders({
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      headers: requestHeaders,
+      credentials: 'include',
+      mode: 'cors',
+      cache: 'no-store',
+      redirect: 'follow',
+    });
+  } catch (error) {
+    const hasClearance = await hasCloudflareClearanceCookie();
+    if (hasClearance === false || error instanceof TypeError) {
+      await notifyPawchiveCloudflareBlocked();
+      throw pawchiveCloudflareError(0, error);
+    }
+    throw error;
+  }
+
+  const text = await response.text();
+  if (looksLikeCloudflareBlock(response, text)) {
+    await notifyPawchiveCloudflareBlocked();
+    throw pawchiveCloudflareError(Number(response.status) || 0);
+  }
+  if (!response.ok) throw new Error(`Pawchive DMs HTTP ${response.status}`);
+  if (!text.trim()) throw new Error('Empty Pawchive DMs response');
+  return text;
 }
 
 function delay(ms) {

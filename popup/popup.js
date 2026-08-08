@@ -6,6 +6,8 @@ const GLOBAL_PROGRESS_KEY = "globalProgressSnapshot";
 
 const CREATOR_FETCH_PLACEHOLDER =
     "https://kemono.cr/patreon/user/114514";
+const PAWCHIVE_DMS_PLACEHOLDER =
+    "https://pawchive.pw/patreon/user/114514";
 const t = (key, substitutions, fallback) => KDI18n.get(key, substitutions, fallback);
 KDI18n.localize();
 const safeSendMessage = (...args) => KDUI.sendMessage(...args);
@@ -82,10 +84,13 @@ function setIconButton(button, iconId, label) {
 
 function setCreatorFetchAvailability(config) {
     backendReady = !!(config && config.enabled);
-    const linksOnly = creatorFetchMode?.value === "links";
-    const fetchReady = backendReady || linksOnly;
+    const directMode = creatorFetchMode?.value === "links" || creatorFetchMode?.value === "dms";
+    const fetchReady = backendReady || directMode;
     if (creatorUrlInput && !creatorUrlInput.value) {
-        creatorUrlInput.placeholder = fetchReady ? CREATOR_FETCH_PLACEHOLDER : t("creatorFetchBackendRequiredPlaceholder");
+        const readyPlaceholder = creatorFetchMode?.value === "dms"
+            ? PAWCHIVE_DMS_PLACEHOLDER
+            : CREATOR_FETCH_PLACEHOLDER;
+        creatorUrlInput.placeholder = fetchReady ? readyPlaceholder : t("creatorFetchBackendRequiredPlaceholder");
     }
     if (!creatorFetchBtn) return;
     setIconButton(creatorFetchBtn, fetchReady ? "icon-download" : "icon-server", fetchReady ? t("creatorFetchAction") : t("settingsAction"));
@@ -332,7 +337,7 @@ async function importData(file) {
 
 async function handleCreatorFetchClick() {
     const mode = creatorFetchMode?.value || "default";
-    if (!backendReady && mode !== "links") {
+    if (!backendReady && mode !== "links" && mode !== "dms") {
         openOptionsPage();
         return;
     }
@@ -346,6 +351,10 @@ async function handleCreatorFetchClick() {
     const parsed = parseCreatorUrl(urlStr);
     if (!parsed) {
         showError(t("creatorUrlInvalid"));
+        return;
+    }
+    if (mode === "dms" && parsed.host !== "pawchive.pw") {
+        showError(t("creatorFetchDmsPawchiveOnly"));
         return;
     }
 

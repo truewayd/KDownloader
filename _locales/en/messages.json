@@ -71,8 +71,14 @@
   "creatorFetchModeLinksOnly": {
     "message": "Links only"
   },
+  "creatorFetchModeDms": {
+    "message": "Pawchive DMs"
+  },
   "creatorFetchModeTooltip": {
-    "message": "Default skips downloaded posts; Full ignores history; Links only downloads a TXT file directly through Chrome without media or history writes"
+    "message": "Default skips downloaded posts; Full ignores history; Links only and Pawchive DMs download TXT files directly through Chrome without media or history writes"
+  },
+  "creatorFetchDmsPawchiveOnly": {
+    "message": "DM fetch requires a pawchive.pw creator URL"
   },
   "openSettingsTooltip": {
     "message": "Open advanced settings"

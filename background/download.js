@@ -255,6 +255,20 @@ export async function dispatchExternalLinksTextTask(entries, context = {}) {
   };
 }
 
+export async function dispatchTextDownloadTask(text, context = {}) {
+  const task = UTIL.buildTextDownloadTask(text, context.fileName, context.type);
+  if (!task) return { success: true, skipped: true, results: [] };
+
+  const { successCount, results } = await runSequentialDownloads([task]);
+  return {
+    success: successCount > 0,
+    successCount,
+    results,
+    task,
+    error: successCount > 0 ? undefined : 'Chrome download failed',
+  };
+}
+
 export async function runSequentialDownloads(tasks, onProgress) {
   const results = [];
   let successCount = 0;

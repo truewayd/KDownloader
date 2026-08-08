@@ -73,7 +73,7 @@ The site action scripts are `actions.js`, `paw_actions.js`, and `coomerfans_acti
 ## Popup And Settings Behavior
 
 - Popup defaults to Pawchive Site Search and supports Pawchive, Kemono, Coomer, and CoomerFans URL shapes from `popup/search.js`.
-- Creator Fetch exposes non-persistent `default`, `full`, and `links` modes. Links mode may run without a media backend and declares its TXT directly through `chrome.downloads`.
+- Creator Fetch exposes non-persistent `default`, `full`, `links`, and Pawchive-only `dms` modes. Links and DMs modes may run without a media backend and declare their TXT directly through `chrome.downloads`; DMs scrape only the creator's fixed Pawchive `/dms` HTML page and export published dates, text, and links without history writes.
 - Popup shows Creator Fetch and History by default; Search Cache and Gist panels are visibility-controlled by their settings. Destructive history maintenance remains in settings.
 - Popup global progress is hidden when `total <= 0` and visible only for active work.
 - Settings uses RPCs for every persisted setting. Do not write `chrome.storage` directly from page scripts. Restore defaults preserves IndexedDB history and `pawchiveWatches`.
