@@ -72,6 +72,45 @@ func TestNormalizeRequestTreatsNilAndEmptyCollectionsEqually(t *testing.T) {
 	}
 }
 
+func TestAddTaskRejectsUnsafeRequestFields(t *testing.T) {
+	stateDir := t.TempDir()
+	m, err := NewManager("unused", filepath.Join(stateDir, "downloads"), filepath.Join(stateDir, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+
+	tests := []struct {
+		link    string
+		name    string
+		headers map[string]string
+	}{
+		{"file:///etc/passwd", "file.bin", nil},
+		{"https://example.test/file", "../escape.bin", nil},
+		{"https://example.test/file", "CON.txt.backup", nil},
+		{"https://example.test/file", "file.bin", map[string]string{"Cookie": "safe\r\nInjected: true"}},
+	}
+	for _, testCase := range tests {
+		if _, _, err := m.AddTask(testCase.link, testCase.name, "", testCase.headers, "", 0, Aria2Opts{}); !IsValidationError(err) {
+			t.Fatalf("request link=%q name=%q returned %v", testCase.link, testCase.name, err)
+		}
+	}
+}
+
+func TestProtectedAriaOptionsBlockHooksAndLocalFileAccess(t *testing.T) {
+	for _, name := range []string{
+		"on-download-complete", "on-bt-download-complete", "rpc-secret",
+		"load-cookies", "save-cookies", "private-key", "ca-certificate", "dht-file-path",
+	} {
+		if !isProtectedAriaOption(name) {
+			t.Fatalf("option %q is not protected", name)
+		}
+	}
+	if isProtectedAriaOption("user-agent") {
+		t.Fatal("ordinary per-download option was unexpectedly protected")
+	}
+}
+
 func TestAddTaskReservesOutputNamesBeforeFilesExist(t *testing.T) {
 	stateDir := t.TempDir()
 	m, err := NewManager("unused", filepath.Join(stateDir, "downloads"), filepath.Join(stateDir, "records.db"))

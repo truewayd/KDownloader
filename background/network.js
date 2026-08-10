@@ -1,5 +1,5 @@
 // background/network.js - network helpers (API fetch, cookies)
-import { PAW } from './constants.js';
+import { API, PAW } from './constants.js';
 
 export const PAWCHIVE_CLOUDFLARE_ERROR_CODE = 'PAWCHIVE_CLOUDFLARE_BLOCKED';
 
@@ -7,6 +7,16 @@ export const PAWCHIVE_CLOUDFLARE_NOTIFICATION_ID = 'pawchive-cloudflare-blocked'
 const PAWCHIVE_CLOUDFLARE_NOTICE_COOLDOWN_MS = 5 * 60 * 1000;
 const PAWCHIVE_BRIDGE_READY_TIMEOUT_MS = 15 * 1000;
 const PAWCHIVE_BRIDGE_POLL_MS = 250;
+const MAX_API_RESPONSE_BYTES = 16 * 1024 * 1024;
+const NETWORK_REQUEST_TIMEOUT_MS = 45 * 1000;
+const ALLOWED_COOKIE_DOMAINS = new Set([...API.HOSTS, API.COOMERFANS_HOST, ...PAW.HOSTS]);
+const SAFE_REQUEST_HEADERS = new Set([
+  'accept',
+  'accept-language',
+  'cache-control',
+  'content-type',
+  'pragma',
+]);
 const CLOUDFLARE_BODY_MARKERS = [
   'cf-chl-',
   'cf-error-code',
@@ -18,6 +28,10 @@ const CLOUDFLARE_BODY_MARKERS = [
 
 let lastPawchiveCloudflareNoticeAt = 0;
 let pawchiveCloudflareNoticePromise = null;
+
+async function fetchWithTimeout(url, options = {}) {
+  return fetch(url, { ...options, signal: AbortSignal.timeout(NETWORK_REQUEST_TIMEOUT_MS) });
+}
 
 function getHeader(response, name) {
   try {
@@ -92,6 +106,20 @@ function isPawchiveApiUrl(url) {
   }
 }
 
+function isSharedApiUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:'
+      && !parsed.username
+      && !parsed.password
+      && !parsed.port
+      && API.HOSTS.includes(parsed.hostname.toLowerCase())
+      && (parsed.pathname === API.API_PREFIX || parsed.pathname.startsWith(`${API.API_PREFIX}/`));
+  } catch (error) {
+    return false;
+  }
+}
+
 function isPawchiveDmsUrl(url) {
   try {
     const parsed = new URL(url);
@@ -139,6 +167,21 @@ function pawchiveCloudflareError(status = 0, cause) {
   return error;
 }
 
+function safeRequestHeaders(headers, defaults = {}) {
+  const result = {};
+  const input = {
+    ...defaults,
+    ...(headers && typeof headers === 'object' && !Array.isArray(headers) ? headers : {}),
+  };
+  for (const [name, value] of Object.entries(input)) {
+    if (!SAFE_REQUEST_HEADERS.has(name.toLowerCase())) continue;
+    const normalized = String(value ?? '').trim();
+    if (!normalized || normalized.length > 4096 || /[\r\n\0]/.test(normalized)) continue;
+    result[name] = normalized;
+  }
+  return result;
+}
+
 function pawchiveRequestHeaders(headers) {
   let language = '';
   try {
@@ -146,19 +189,92 @@ function pawchiveRequestHeaders(headers) {
   } catch (error) {
     language = '';
   }
-  const result = {
+  return safeRequestHeaders(headers, {
     Accept: 'application/json',
     ...(language ? { 'Accept-Language': language } : {}),
     'Cache-Control': 'no-cache',
     Pragma: 'no-cache',
-    ...headers,
-  };
-  // Cloudflare clearance is tied to the real browser request context. Never
-  // copy or spoof browser-controlled identity headers through the bridge.
-  for (const name of Object.keys(result)) {
-    if (/^(cookie|origin|referrer?|user-agent|sec-)/i.test(name)) delete result[name];
+  });
+}
+
+export async function readLimitedResponseText(response, maxBytes, label = 'Network') {
+  const declaredBytes = Number(response?.headers?.get?.('content-length'));
+  if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
+    throw new Error(`${label} response exceeds the ${maxBytes} byte safety limit`);
   }
-  return result;
+
+  const reader = response?.body && typeof response.body.getReader === 'function'
+    ? response.body.getReader()
+    : null;
+  if (!reader) {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > maxBytes) {
+      throw new Error(`${label} response exceeds the ${maxBytes} byte safety limit`);
+    }
+    return text;
+  }
+
+  const decoder = new TextDecoder();
+  const chunks = [];
+  let received = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > maxBytes) {
+        await reader.cancel();
+        throw new Error(`${label} response exceeds the ${maxBytes} byte safety limit`);
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return chunks.join('');
+  } finally {
+    reader.releaseLock?.();
+  }
+}
+
+export async function readLimitedResponseBytes(response, maxBytes, label = 'Network') {
+  const declaredBytes = Number(response?.headers?.get?.('content-length'));
+  if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
+    throw new Error(`${label} response exceeds the ${maxBytes} byte safety limit`);
+  }
+
+  const reader = response?.body && typeof response.body.getReader === 'function'
+    ? response.body.getReader()
+    : null;
+  if (!reader) {
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > maxBytes) {
+      throw new Error(`${label} response exceeds the ${maxBytes} byte safety limit`);
+    }
+    return buffer;
+  }
+
+  const chunks = [];
+  let received = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > maxBytes) {
+        await reader.cancel();
+        throw new Error(`${label} response exceeds the ${maxBytes} byte safety limit`);
+      }
+      chunks.push(value);
+    }
+    const result = new Uint8Array(received);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return result.buffer;
+  } finally {
+    reader.releaseLock?.();
+  }
 }
 
 function bridgeResponse(payload) {
@@ -218,7 +334,7 @@ async function fetchPawchiveFromOpenTab(url, headers) {
 async function parsePawchiveResponse(response, { notifyOnCloudflare = true } = {}) {
   let text = '';
   if (typeof response.text === 'function') {
-    text = await response.text();
+    text = await readLimitedResponseText(response, MAX_API_RESPONSE_BYTES, 'Pawchive API');
   } else if (response.ok && typeof response.json === 'function') {
     return response.json();
   }
@@ -226,6 +342,9 @@ async function parsePawchiveResponse(response, { notifyOnCloudflare = true } = {
   if (looksLikeCloudflareBlock(response, text)) {
     if (notifyOnCloudflare) await notifyPawchiveCloudflareBlocked();
     throw pawchiveCloudflareError(Number(response.status) || 0);
+  }
+  if (response.url && !isPawchiveApiUrl(response.url)) {
+    throw new Error('Pawchive API redirected outside the allowed API path');
   }
   if (!response.ok) throw new Error(`Pawchive API HTTP ${response.status}`);
   if (!text || !text.trim()) throw new Error('Empty Pawchive API response');
@@ -251,7 +370,7 @@ export async function fetchPawchiveJson(url, headers = {}, options = {}) {
 
   let response;
   try {
-    response = await fetch(url, {
+    response = await fetchWithTimeout(url, {
       method: 'GET',
       headers: requestHeaders,
       // Browser-managed credentials carry cf_clearance and other matching
@@ -281,7 +400,7 @@ export async function fetchPawchiveDmsHtml(url) {
   });
   let response;
   try {
-    response = await fetch(url, {
+    response = await fetchWithTimeout(url, {
       method: 'GET',
       headers: requestHeaders,
       credentials: 'include',
@@ -298,10 +417,13 @@ export async function fetchPawchiveDmsHtml(url) {
     throw error;
   }
 
-  const text = await response.text();
+  const text = await readLimitedResponseText(response, MAX_API_RESPONSE_BYTES, 'Pawchive DMs');
   if (looksLikeCloudflareBlock(response, text)) {
     await notifyPawchiveCloudflareBlocked();
     throw pawchiveCloudflareError(Number(response.status) || 0);
+  }
+  if (response.url && !isPawchiveDmsUrl(response.url)) {
+    throw new Error('Pawchive DMs redirected outside the allowed creator page');
   }
   if (!response.ok) throw new Error(`Pawchive DMs HTTP ${response.status}`);
   if (!text.trim()) throw new Error('Empty Pawchive DMs response');
@@ -372,13 +494,21 @@ export async function preparePawchiveWatchRequest(url) {
 
 export async function handleAPIRequest(url, headers = {}) {
   if (isPawchiveApiUrl(url)) return fetchPawchiveJson(url, headers);
+  if (!isSharedApiUrl(url)) throw new Error('Refusing an unexpected API URL');
   try {
-    const resp = await fetch(url, { method: 'GET', headers, credentials: 'include', mode: 'cors' });
+    const resp = await fetchWithTimeout(url, {
+      method: 'GET',
+      headers: safeRequestHeaders(headers, { Accept: 'application/json' }),
+      credentials: 'include',
+      mode: 'cors',
+      cache: 'no-store',
+      redirect: 'error',
+    });
     if (!resp.ok) {
       if (resp.status === 403) throw new Error('Access denied (403).');
       throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
     }
-    const text = await resp.text();
+    const text = await readLimitedResponseText(resp, MAX_API_RESPONSE_BYTES, 'API');
     if (!text || !text.trim()) throw new Error('Empty API response');
     try { return JSON.parse(text); } catch (e) { throw new Error('Invalid JSON from API'); }
   } catch (e) {
@@ -388,8 +518,12 @@ export async function handleAPIRequest(url, headers = {}) {
 }
 
 export async function getCookies(domain) {
+  const normalizedDomain = String(domain || '').trim().toLowerCase();
+  if (!ALLOWED_COOKIE_DOMAINS.has(normalizedDomain)) {
+    throw new Error('Refusing to export cookies for an unexpected domain');
+  }
   try {
-    const cookies = await chrome.cookies.getAll({ domain });
+    const cookies = await chrome.cookies.getAll({ domain: normalizedDomain });
     return cookies.map(c => `${c.name}=${c.value}`).join('; ');
   } catch (e) {
     console.error('[Background] getCookies error', e);

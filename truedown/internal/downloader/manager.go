@@ -18,6 +18,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 type Status string
@@ -60,6 +61,30 @@ type Task struct {
 	RequestJSON string `json:"-"`
 }
 
+// TaskSnapshot contains only fields needed by the web UI. Request headers and
+// aria2 options can contain credentials and must not be exposed by the API.
+type TaskSnapshot struct {
+	ID         int64     `json:"id"`
+	Name       string    `json:"name"`
+	Link       string    `json:"link"`
+	Folder     string    `json:"folder"`
+	OutputName string    `json:"outputName,omitempty"`
+	Status     Status    `json:"status"`
+	Progress   string    `json:"progress"`
+	Error      string    `json:"error,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+}
+
+type ValidationError struct{ Message string }
+
+func (e *ValidationError) Error() string { return e.Message }
+
+func IsValidationError(err error) bool {
+	_, ok := err.(*ValidationError)
+	return ok
+}
+
 type requestIdentity struct {
 	Link         string            `json:"link"`
 	Name         string            `json:"name"`
@@ -88,6 +113,7 @@ type Manager struct {
 	mu           sync.RWMutex
 	tasks        map[int64]*Task
 	fingerprints map[string]int64
+	gids         map[string]int64
 	opMu         sync.Mutex
 	nextID       atomic.Int64
 
@@ -124,6 +150,7 @@ func NewManager(aria2Path, defaultDir, databasePath string) (*Manager, error) {
 		store:        store,
 		tasks:        make(map[int64]*Task, len(tasks)),
 		fingerprints: make(map[string]int64, len(tasks)),
+		gids:         make(map[string]int64, len(tasks)),
 		wake:         make(chan struct{}, 1),
 		dbWake:       make(chan struct{}, 1),
 		done:         make(chan struct{}),
@@ -132,6 +159,7 @@ func NewManager(aria2Path, defaultDir, databasePath string) (*Manager, error) {
 	for _, task := range tasks {
 		m.tasks[task.ID] = task
 		m.fingerprints[task.Fingerprint] = task.ID
+		m.gids[task.GID] = task.ID
 		if task.ID > maxID {
 			maxID = task.ID
 		}
@@ -204,6 +232,9 @@ func (m *Manager) AddTask(link, name, folder string, headers map[string]string, 
 	defer m.opMu.Unlock()
 
 	identity := normalizeRequest(link, name, folder, m.defaultDir, headers, downloadPage, queueID, opts)
+	if err := validateRequest(identity); err != nil {
+		return nil, false, err
+	}
 	requestJSON, err := json.Marshal(identity)
 	if err != nil {
 		return nil, false, err
@@ -258,6 +289,7 @@ func (m *Manager) AddTask(link, name, folder string, headers map[string]string, 
 	}
 	m.tasks[task.ID] = task
 	m.fingerprints[fingerprint] = task.ID
+	m.gids[task.GID] = task.ID
 	result := cloneTask(task)
 	m.mu.Unlock()
 
@@ -281,6 +313,20 @@ func (m *Manager) ListTasks() []*Task {
 	result := make([]*Task, 0, len(m.tasks))
 	for _, task := range m.tasks {
 		result = append(result, cloneTask(task))
+	}
+	return result
+}
+
+func (m *Manager) ListTaskSnapshots() []TaskSnapshot {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]TaskSnapshot, 0, len(m.tasks))
+	for _, task := range m.tasks {
+		result = append(result, TaskSnapshot{
+			ID: task.ID, Name: task.Name, Link: task.Link, Folder: task.Folder,
+			OutputName: task.OutputName, Status: task.Status, Progress: task.Progress,
+			Error: task.Error, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt,
+		})
 	}
 	return result
 }
@@ -385,6 +431,7 @@ func (m *Manager) DeleteTask(id int64) bool {
 	}
 	delete(m.tasks, id)
 	delete(m.fingerprints, task.Fingerprint)
+	delete(m.gids, task.GID)
 	gid := task.GID
 	m.mu.Unlock()
 	if err := m.rpc.removeResult(gid); err != nil && !isGIDNotFound(err) {
@@ -407,6 +454,7 @@ func (m *Manager) ClearDone() int {
 		if task.Status == StatusDone {
 			gids = append(gids, task.GID)
 			delete(m.fingerprints, task.Fingerprint)
+			delete(m.gids, task.GID)
 			delete(m.tasks, id)
 		}
 	}
@@ -467,7 +515,13 @@ func (m *Manager) flushAdmissions(stopping bool) {
 			return
 		}
 		batch := append([]admission(nil), m.admissions[:batchSize]...)
+		for index := 0; index < batchSize; index++ {
+			m.admissions[index] = admission{}
+		}
 		m.admissions = m.admissions[batchSize:]
+		if len(m.admissions) == 0 {
+			m.admissions = nil
+		}
 		m.admissionMu.Unlock()
 
 		tasks := make([]*Task, 0, len(batch))
@@ -511,7 +565,11 @@ func (m *Manager) dispatcher() {
 			}
 			item := m.pending[0]
 			m.pending[0] = submission{}
-			m.pending = m.pending[1:]
+			if len(m.pending) == 1 {
+				m.pending = nil
+			} else {
+				m.pending = m.pending[1:]
+			}
 			m.pendingMu.Unlock()
 			select {
 			case <-m.done:
@@ -590,12 +648,8 @@ func (m *Manager) poller() {
 func (m *Manager) applyStatuses(statuses []ariaStatus) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	byGID := make(map[string]*Task, len(m.tasks))
-	for _, task := range m.tasks {
-		byGID[task.GID] = task
-	}
 	for _, state := range statuses {
-		task := byGID[state.GID]
+		task := m.tasks[m.gids[state.GID]]
 		if task == nil {
 			continue
 		}
@@ -728,6 +782,111 @@ func normalizeRequest(link, name, folder, defaultDir string, headers map[string]
 	}
 }
 
+func validateRequest(identity requestIdentity) error {
+	invalid := func(format string, args ...any) error {
+		return &ValidationError{Message: fmt.Sprintf(format, args...)}
+	}
+	if err := validateDownloadURL(identity.Link); err != nil {
+		return invalid("invalid download link: %v", err)
+	}
+	if identity.DownloadPage != "" {
+		if err := validateDownloadURL(identity.DownloadPage); err != nil {
+			return invalid("invalid download page: %v", err)
+		}
+	}
+	if identity.Name != "" {
+		if identity.Name == "." || identity.Name == ".." || filepath.IsAbs(identity.Name) ||
+			strings.ContainsAny(identity.Name, `/\\<>:"|?*`) || strings.HasSuffix(identity.Name, " ") ||
+			strings.HasSuffix(identity.Name, ".") || utf8.RuneCountInString(identity.Name) > 240 {
+			return invalid("invalid output file name")
+		}
+		for _, char := range identity.Name {
+			if char < 32 || char == 127 {
+				return invalid("invalid output file name")
+			}
+		}
+		base := strings.ToUpper(strings.SplitN(identity.Name, ".", 2)[0])
+		switch base {
+		case "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+			"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+			return invalid("invalid output file name")
+		}
+	}
+	if identity.Folder == "" || len(identity.Folder) > 4096 || strings.ContainsRune(identity.Folder, 0) {
+		return invalid("invalid download folder")
+	}
+	if identity.QueueID < 0 {
+		return invalid("queueId must be non-negative")
+	}
+	if identity.Opts.Connections < 0 || identity.Opts.Connections > 64 ||
+		identity.Opts.MaxSpeedBps < 0 || identity.Opts.MaxTries < 0 || identity.Opts.MaxTries > 100 ||
+		identity.Opts.RetryWait < 0 || identity.Opts.RetryWait > 3600 {
+		return invalid("aria2 options are outside the allowed range")
+	}
+	if len(identity.Opts.ExtraArgs) > 64 {
+		return invalid("too many extra aria2 options")
+	}
+	for _, raw := range identity.Opts.ExtraArgs {
+		value := strings.TrimSpace(strings.TrimPrefix(raw, "--"))
+		parts := strings.SplitN(value, "=", 2)
+		if len(value) > 4096 || value == "" || !validAriaOptionName(parts[0]) || strings.ContainsAny(value, "\r\n\x00") {
+			return invalid("invalid extra aria2 option")
+		}
+	}
+	if len(identity.Headers) > 64 {
+		return invalid("too many request headers")
+	}
+	totalHeaderBytes := 0
+	for name, value := range identity.Headers {
+		totalHeaderBytes += len(name) + len(value)
+		if !validHeaderName(name) || len(value) > 64*1024 || strings.ContainsAny(value, "\r\n\x00") {
+			return invalid("invalid request header")
+		}
+	}
+	if totalHeaderBytes > 256*1024 {
+		return invalid("request headers are too large")
+	}
+	return nil
+}
+
+func validateDownloadURL(value string) error {
+	if value == "" || len(value) > 16*1024 {
+		return fmt.Errorf("URL is empty or too long")
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("only absolute HTTP(S) URLs are supported")
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("credentials in URLs are not supported")
+	}
+	return nil
+}
+
+func validAriaOptionName(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if (char < 'a' || char > 'z') && (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func validHeaderName(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if char <= 32 || char >= 127 || strings.ContainsRune(`()<>@,;:\"/[]?={}`, char) {
+			return false
+		}
+	}
+	return true
+}
+
 func ariaOptions(task *Task, recheck bool) map[string]any {
 	connections := task.Opts.Connections
 	if connections <= 0 {
@@ -784,10 +943,11 @@ func ariaOptions(task *Task, recheck bool) map[string]any {
 		if len(parts) == 2 {
 			optionValue = parts[1]
 		}
-		if isProtectedAriaOption(parts[0]) {
+		optionName := strings.ToLower(parts[0])
+		if isProtectedAriaOption(optionName) {
 			continue
 		}
-		options[parts[0]] = optionValue
+		options[optionName] = optionValue
 	}
 	if recheck {
 		options["conditional-get"] = "true"
@@ -799,10 +959,13 @@ func ariaOptions(task *Task, recheck bool) map[string]any {
 
 func isProtectedAriaOption(name string) bool {
 	switch name {
-	case "gid", "dir", "out", "pause", "continue", "conditional-get", "allow-overwrite", "auto-file-renaming":
+	case "gid", "dir", "out", "pause", "continue", "conditional-get", "allow-overwrite", "auto-file-renaming",
+		"header", "referer", "enable-rpc", "input-file", "save-session", "log",
+		"ca-certificate", "certificate", "private-key", "load-cookies", "save-cookies", "netrc-path",
+		"server-stat-of", "server-stat-if", "dht-file-path", "dht-file-path6", "torrent-file", "metalink-file":
 		return true
 	default:
-		return false
+		return strings.HasPrefix(name, "rpc-") || strings.HasPrefix(name, "on-")
 	}
 }
 

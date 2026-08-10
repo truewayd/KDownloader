@@ -1,7 +1,7 @@
 // background/handlers/downloadHandlers.js - download and creator fetch RPCs
 import { API, PAW } from "../constants.js";
 import UTIL from "../util.js";
-import { handleAPIRequest } from "../network.js";
+import { handleAPIRequest, readLimitedResponseText } from "../network.js";
 import {
   dispatchExternalLinksTextTask,
   dispatchTextDownloadTask,
@@ -65,7 +65,7 @@ function isPawRequest(item, senderUrl) {
 async function runSingleDownload(item, sender, tabId) {
   const senderUrl = getSenderUrl(sender);
   if (isPawRequest(item, senderUrl)) {
-    return startPawchiveDownload(item.service, item.userId, item.postId, tabId, item.postData);
+    return startPawchiveDownload(item.service, item.userId, item.postId, tabId, item.postData, item.requestId);
   }
   if (item.source === "coomerfans") {
     return startCoomerFansDownload(
@@ -73,7 +73,8 @@ async function runSingleDownload(item, sender, tabId) {
       item.userId,
       item.postId,
       item.creatorName,
-      tabId
+      tabId,
+      item.requestId
     );
   }
   return startFullDownload(
@@ -82,14 +83,16 @@ async function runSingleDownload(item, sender, tabId) {
     item.postId,
     item.path,
     senderUrl,
-    tabId
+    tabId,
+    item.requestId
   );
 }
 
-function broadcastComplete(item, result, tabId) {
+function broadcastComplete(item, result, tabId, requestId = item?.requestId) {
   safeBroadcast(
     {
       action: "downloadComplete",
+      requestId,
       service: item.service,
       userId: item.userId,
       postId: item.postId,
@@ -103,6 +106,7 @@ function broadcastBatchProgress(scope, processed, total, tabId) {
   safeBroadcast(
     {
       action: "downloadProgress",
+      requestId: scope.requestId,
       batch: true,
       service: scope.service,
       userId: scope.userId,
@@ -118,6 +122,7 @@ function broadcastBatchError(scope, err, tabId) {
   safeBroadcast(
     {
       action: "downloadProgress",
+      requestId: scope.requestId,
       batch: true,
       service: scope.service,
       userId: scope.userId,
@@ -231,6 +236,7 @@ async function runDownloadBatch(items, sender, scope = {}) {
   const progressScope = {
     service: scope.service || (items[0] && items[0].service),
     userId: scope.userId || (items[0] && items[0].userId),
+    requestId: scope.requestId,
   };
 
   registerBatch(batchId, total);
@@ -246,13 +252,13 @@ async function runDownloadBatch(items, sender, scope = {}) {
         }
         if (result && result.backendFailed && Array.isArray(result.fallbackTasks)) {
           fallbackRequests.push({
-            item,
+            item: { ...item, requestId: scope.requestId },
             tasks: result.fallbackTasks,
             externalLinks: result.externalLinks,
             tabId,
           });
         } else {
-          broadcastComplete(item, result, tabId);
+          broadcastComplete(item, result, tabId, scope.requestId);
           const historyRecord = buildDownloadHistoryRecord(item, result);
           if (historyRecord) {
             historyRecords.push(historyRecord);
@@ -266,7 +272,8 @@ async function runDownloadBatch(items, sender, scope = {}) {
             success: false,
             error: err && err.message ? err.message : String(err),
           },
-          tabId
+          tabId,
+          scope.requestId
         );
       }
 
@@ -320,6 +327,7 @@ async function runDownloadBatch(items, sender, scope = {}) {
 function fallbackProgress(request, progress) {
   safeBroadcast({
     action: "downloadProgress",
+    requestId: request.item.requestId,
     service: request.item.service,
     userId: request.item.userId,
     postId: request.item.postId,
@@ -380,7 +388,7 @@ export async function handleNativeFallbackDecision(notificationId, shouldContinu
   const pending = await takeNativeFallback(notificationId);
   if (!pending) return false;
   await clearNativeFallbackNotification(notificationId);
-  for (const request of pending.requests || []) {
+  for (const request of (pending.requests || []).slice(0, 5000)) {
     await completeNativeFallbackRequest(request, shouldContinue === true);
   }
   return true;
@@ -414,8 +422,13 @@ function pawPostToDownloadItem(service, userId, post) {
 
 function isCoomerFansOrigin(origin) {
   try {
-    const host = new URL(origin || API.COOMERFANS_ORIGIN).hostname.toLowerCase();
-    return host === API.COOMERFANS_HOST || host.endsWith(`.${API.COOMERFANS_HOST}`);
+    const url = new URL(origin || API.COOMERFANS_ORIGIN);
+    const host = url.hostname.toLowerCase();
+    return url.protocol === "https:"
+      && !url.username
+      && !url.password
+      && !url.port
+      && (host === API.COOMERFANS_HOST || host.endsWith(`.${API.COOMERFANS_HOST}`));
   } catch (e) {
     return false;
   }
@@ -429,6 +442,7 @@ function coomerFansCreatorUrl(origin, service, userId, creatorName) {
 function getCoomerFansPostIdentity(rawUrl, expectedService, expectedUserId) {
   try {
     const u = new URL(rawUrl, API.COOMERFANS_ORIGIN);
+    if (!isCoomerFansOrigin(u.origin)) return null;
     const parts = u.pathname.split("/").filter(Boolean);
     const service = String(expectedService || "").toLowerCase();
     if (
@@ -455,15 +469,29 @@ function getCoomerFansPostIdentity(rawUrl, expectedService, expectedUserId) {
 }
 
 async function fetchCoomerFansCreatorHtml(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (error) {
+    throw new Error("Invalid CoomerFans URL");
+  }
+  if (!isCoomerFansOrigin(parsed.origin)) throw new Error("Unexpected CoomerFans URL");
   const headers = {
     Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9",
     "Cache-Control": "no-cache",
     "User-Agent": "Mozilla/5.0",
   };
-  const resp = await fetch(url, { method: "GET", headers, credentials: "include" });
+  const resp = await fetch(parsed.toString(), {
+    method: "GET",
+    headers,
+    credentials: "include",
+    cache: "no-store",
+    redirect: "error",
+    signal: AbortSignal.timeout(45 * 1000),
+  });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.text();
+  return readLimitedResponseText(resp, 16 * 1024 * 1024, "CoomerFans");
 }
 
 async function fetchCoomerFansCreatorItems(origin, service, userId, creatorName) {
@@ -585,21 +613,27 @@ function runAcceptedTask(label, task, scope, tabId) {
 }
 
 async function fetchCreatorPosts(origin, service, userId) {
+  const encodedService = encodeURIComponent(service);
+  const encodedUserId = encodeURIComponent(userId);
   const headers = {
     Accept: "text/css",
     "Content-Type": "text/css",
-    Referer: `${origin}/${service}/user/${userId}`,
+    Referer: `${origin}/${encodedService}/user/${encodedUserId}`,
   };
-  const profileUrl = `${origin}${API.API_PREFIX}/${service}/user/${userId}/profile`;
+  const profileUrl = `${origin}${API.API_PREFIX}/${encodedService}/user/${encodedUserId}/profile`;
   const profile = await handleAPIRequest(profileUrl, headers);
-  const postCount =
-    profile && typeof profile.post_count === "number" ? profile.post_count : 0;
+  const postCount = Math.min(
+    10000,
+    profile && Number.isFinite(profile.post_count)
+      ? Math.max(0, Math.floor(profile.post_count))
+      : 0
+  );
   const perPage = 50;
   const postMap = new Map();
 
   for (let offset = 0; offset < postCount; offset += perPage) {
     try {
-      const url = `${origin}${API.API_PREFIX}/${service}/user/${userId}/posts?o=${offset}`;
+      const url = `${origin}${API.API_PREFIX}/${encodedService}/user/${encodedUserId}/posts?o=${offset}`;
       const pageData = await handleAPIRequest(url, headers);
       if (Array.isArray(pageData)) {
         for (const post of pageData) {
@@ -622,10 +656,10 @@ async function fetchCreatorPage(origin, service, userId, offset) {
   const headers = {
     Accept: "text/css",
     "Content-Type": "text/css",
-    Referer: `${origin}/${service}/user/${userId}`,
+    Referer: `${origin}/${encodeURIComponent(service)}/user/${encodeURIComponent(userId)}`,
   };
   const suffix = offset ? `?o=${offset}` : "";
-  const url = `${origin}${API.API_PREFIX}/${service}/user/${userId}/posts${suffix}`;
+  const url = `${origin}${API.API_PREFIX}/${encodeURIComponent(service)}/user/${encodeURIComponent(userId)}/posts${suffix}`;
   try {
     const pageData = await handleAPIRequest(url, headers);
     return Array.isArray(pageData) ? pageData : [];
@@ -637,43 +671,106 @@ async function fetchCreatorPage(origin, service, userId, offset) {
 
 function isPawOrigin(origin) {
   try {
-    return new URL(origin).hostname.toLowerCase() === PAW.HOST;
+    return new URL(origin).origin === PAW.ORIGIN;
   } catch (error) {
     return false;
   }
+}
+
+function normalizeSupportedOrigin(value) {
+  const url = new URL(String(value || API.DEFAULT_ORIGIN));
+  if (url.protocol !== "https:" || url.username || url.password || url.port) {
+    throw new Error("Unsupported creator origin");
+  }
+  const host = url.hostname.toLowerCase();
+  if (host === PAW.HOST) return PAW.ORIGIN;
+  if (API.HOSTS.includes(host)) return `https://${host}`;
+  if (host === API.COOMERFANS_HOST || host.endsWith(`.${API.COOMERFANS_HOST}`)) {
+    return API.COOMERFANS_ORIGIN;
+  }
+  throw new Error("Unsupported creator origin");
+}
+
+function requiredIdentity(value, label) {
+  const normalized = String(value || "").trim();
+  if (!normalized || normalized.length > 512 || /[\0\r\n]/.test(normalized)) {
+    throw new Error(`Invalid ${label}`);
+  }
+  return normalized;
+}
+
+function optionalShortString(value, maxLength = 512) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const normalized = String(value).trim();
+  if (!normalized || normalized.length > maxLength || /[\0\r\n]/.test(normalized)) {
+    throw new Error("Invalid download metadata");
+  }
+  return normalized;
+}
+
+function normalizeDownloadItem(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid download item");
+  }
+  const source = optionalShortString(value.source, 32);
+  if (source && !["default", "pawchive", "coomerfans"].includes(source)) {
+    throw new Error("Unsupported download source");
+  }
+  const item = {
+    service: requiredIdentity(value.service, "service"),
+    userId: requiredIdentity(value.userId, "creator id"),
+    postId: requiredIdentity(value.postId, "post id"),
+    path: optionalShortString(value.path, 8192),
+    source,
+    creatorName: optionalShortString(value.creatorName, 512),
+    requestId: normalizeRequestId(value.requestId),
+  };
+  if (source === "coomerfans" && !getCoomerFansPostIdentity(item.path, item.service, item.userId)) {
+    throw new Error("Invalid CoomerFans post URL");
+  }
+  return item;
+}
+
+function normalizePageOffset(value) {
+  if (value === undefined || value === null || value === "") return 0;
+  const offset = Number(value);
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > 10000) {
+    throw new Error("Invalid creator page offset");
+  }
+  return offset;
+}
+
+function normalizeRequestId(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized && normalized.length <= 128 ? normalized : undefined;
 }
 
 function resolveOrigin(message, sender) {
   const senderUrl = getSenderUrl(sender);
   if (senderUrl) {
     try {
-      return new URL(senderUrl).origin;
+      return normalizeSupportedOrigin(new URL(senderUrl).origin);
     } catch (e) {
       /* fall through */
     }
   }
-  return message.origin || API.DEFAULT_ORIGIN;
+  return normalizeSupportedOrigin(message.origin || API.DEFAULT_ORIGIN);
 }
 
 export function createDownloadHandlers() {
   return {
     startDownload: ({ message, sender, sendResponse }) => {
+      let item;
       try {
+        item = normalizeDownloadItem(message);
         sendResponse({ success: true, accepted: true });
-      } catch (e) {
-        /* ignore */
+      } catch (error) {
+        sendResponse({ success: false, error: error.message || String(error) });
+        return false;
       }
 
       (async () => {
         const tabId = getSenderTabId(sender);
-        const item = {
-          service: message.service,
-          userId: message.userId,
-          postId: message.postId,
-          path: message.path,
-          source: message.source,
-          creatorName: message.creatorName,
-        };
         try {
           const result = await runSingleDownload(item, sender, tabId);
           if (result && result.backendFailed && Array.isArray(result.fallbackTasks)) {
@@ -716,43 +813,69 @@ export function createDownloadHandlers() {
     },
 
     startDownloadBatch: ({ message, sender, sendResponse }) => {
+      let items;
+      let scope;
       try {
+        if (!Array.isArray(message.items) || message.items.length === 0 || message.items.length > 5000) {
+          throw new Error("Invalid or oversized download batch");
+        }
+        items = message.items.map(normalizeDownloadItem);
+        const first = items[0];
+        const service = message.service
+          ? requiredIdentity(message.service, "service")
+          : first.service;
+        const userId = message.userId
+          ? requiredIdentity(message.userId, "creator id")
+          : first.userId;
+        if (items.some((item) => item.service !== service || item.userId !== userId)) {
+          throw new Error("Mixed-creator download batches are not supported");
+        }
+        scope = {
+          service,
+          userId,
+          aggregateExternalLinks: message.aggregateExternalLinks === true,
+          linksFileName: optionalShortString(message.linksFileName, 512),
+          linksPostId: optionalShortString(message.linksPostId, 512),
+          requestId: normalizeRequestId(message.requestId),
+        };
         sendResponse({ success: true, accepted: true });
-      } catch (e) {
-        /* ignore */
+      } catch (error) {
+        sendResponse({ success: false, error: error.message || String(error) });
+        return false;
       }
-      const items = Array.isArray(message.items) ? message.items : [];
-      const first = items[0] || {};
       const tabId = getSenderTabId(sender);
       runAcceptedTask(
         "startDownloadBatch",
-        () => runDownloadBatch(items, sender, {
-          service: message.service || first.service,
-          userId: message.userId || first.userId,
-          origin: message.origin,
-          referer: message.referer,
-          aggregateExternalLinks: message.aggregateExternalLinks === true,
-          linksFileName: message.linksFileName,
-          linksPostId: message.linksPostId,
-        }),
-        { service: first.service, userId: first.userId },
+        () => runDownloadBatch(items, sender, scope),
+        scope,
         tabId
       );
       return false;
     },
 
     "creator.fetch": ({ message, sender, sendResponse }) => {
+      let origin;
+      let service;
+      let userId;
+      const mode = UTIL.normalizeCreatorFetchMode(message.mode, message.fullMode);
       try {
+        origin = normalizeSupportedOrigin(message.origin || API.DEFAULT_ORIGIN);
+        service = requiredIdentity(message.service, "service");
+        userId = requiredIdentity(message.userId, "creator id");
+        if (mode === "dms" && !isPawOrigin(origin)) {
+          throw new Error("DM fetch is available only for Pawchive creator URLs");
+        }
+        if (message.source === "coomerfans" && !isCoomerFansOrigin(origin)) {
+          throw new Error("Invalid CoomerFans creator origin");
+        }
         sendResponse({ success: true, accepted: true });
-      } catch (e) {
-        /* ignore */
+      } catch (error) {
+        sendResponse({ success: false, error: error.message || String(error) });
+        return false;
       }
       const tabId = getSenderTabId(sender);
       runAcceptedTask("creator.fetch", async () => {
-        const origin = message.origin || API.DEFAULT_ORIGIN;
-        const { service, userId, creatorName } = message;
-        if (!service || !userId) return;
-        const mode = UTIL.normalizeCreatorFetchMode(message.mode, message.fullMode);
+        const { creatorName } = message;
         const scope = {
           service,
           userId,
@@ -763,10 +886,10 @@ export function createDownloadHandlers() {
           aggregateExternalLinks: true,
           linksFileName: linksFileName("creator", service, userId),
           linksPostId: "creator-links",
+          requestId: normalizeRequestId(message.requestId),
         };
 
         if (mode === "dms") {
-          if (!isPawOrigin(origin)) throw new Error("DM fetch is available only for Pawchive creator URLs");
           await runPawchiveDmsFetch(service, userId, sender, scope);
           return;
         }
@@ -791,25 +914,27 @@ export function createDownloadHandlers() {
           postToDownloadItem(origin, service, userId, post, mode === "links")
         );
         await runCreatorFetchBatch(allItems, sender, scope);
-      }, { service: message.service, userId: message.userId }, tabId);
+      }, { service, userId, requestId: normalizeRequestId(message.requestId) }, tabId);
       return false;
     },
 
     "creator.pageFetch": ({ message, sender, sendResponse }) => {
+      let service;
+      let userId;
+      let origin;
+      let offset;
       try {
+        service = requiredIdentity(message.service, "service");
+        userId = requiredIdentity(message.userId, "creator id");
+        origin = resolveOrigin(message, sender);
+        offset = normalizePageOffset(message.offset);
         sendResponse({ success: true, accepted: true });
-      } catch (e) {
-        /* ignore */
+      } catch (error) {
+        sendResponse({ success: false, error: error.message || String(error) });
+        return false;
       }
       const tabId = getSenderTabId(sender);
       runAcceptedTask("creator.pageFetch", async () => {
-        const { service, userId } = message;
-        if (!service || !userId) return;
-        const origin = resolveOrigin(message, sender);
-        const offset =
-          Number.isFinite(message.offset) || message.offset
-            ? Number(message.offset)
-            : null;
         const posts = await fetchCreatorPage(origin, service, userId, offset);
         const allItems = isPawOrigin(origin)
           ? posts.filter(isCompletePawchivePost).map((post) => pawPostToDownloadItem(service, userId, post))
@@ -820,10 +945,11 @@ export function createDownloadHandlers() {
           origin,
           referer: `${origin}/${encodeURIComponent(service)}/user/${encodeURIComponent(userId)}`,
           aggregateExternalLinks: true,
-          linksFileName: linksFileName("page", service, userId, Number.isFinite(offset) ? offset : 0),
-          linksPostId: `page-links-${Number.isFinite(offset) ? offset : 0}`,
+          linksFileName: linksFileName("page", service, userId, offset),
+          linksPostId: `page-links-${offset}`,
+          requestId: normalizeRequestId(message.requestId),
         });
-      }, { service: message.service, userId: message.userId }, tabId);
+      }, { service, userId, requestId: normalizeRequestId(message.requestId) }, tabId);
       return false;
     },
   };

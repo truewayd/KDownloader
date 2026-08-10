@@ -3,11 +3,16 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"truedown/internal/downloader"
 )
+
+const maxStartRequestBytes = 1024 * 1024
 
 type downloadSourceReq struct {
 	Link         string            `json:"link"`
@@ -29,9 +34,21 @@ func Register(mux *http.ServeMux, dm *downloader.Manager) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil || mediaType != "application/json" {
+			http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxStartRequestBytes)
 		var req startReq
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			http.Error(w, "invalid JSON request", http.StatusBadRequest)
+			return
+		}
+		if err := decoder.Decode(&struct{}{}); err != io.EOF {
+			http.Error(w, "request must contain one JSON object", http.StatusBadRequest)
 			return
 		}
 		if req.DownloadSource.Link == "" {
@@ -48,7 +65,11 @@ func Register(mux *http.ServeMux, dm *downloader.Manager) {
 			req.Opts,
 		)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			status := http.StatusInternalServerError
+			if downloader.IsValidationError(err) {
+				status = http.StatusBadRequest
+			}
+			http.Error(w, err.Error(), status)
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain")
@@ -61,12 +82,20 @@ func Register(mux *http.ServeMux, dm *downloader.Manager) {
 	})
 
 	mux.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
-		tasks := dm.ListTasks()
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		tasks := dm.ListTaskSnapshots()
 		sort.Slice(tasks, func(i, j int) bool {
 			return tasks[i].ID < tasks[j].ID
 		})
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(tasks)
+		w.Header().Set("Cache-Control", "no-store")
+		if err := json.NewEncoder(w).Encode(tasks); err != nil {
+			http.Error(w, "failed to encode task list", http.StatusInternalServerError)
+		}
 	})
 
 	// POST /tasks/{id}/requeue — re-enqueue a failed task
@@ -75,7 +104,7 @@ func Register(mux *http.ServeMux, dm *downloader.Manager) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+		id, err := taskID(r)
 		if err != nil {
 			http.Error(w, "invalid id", http.StatusBadRequest)
 			return
@@ -127,7 +156,7 @@ func Register(mux *http.ServeMux, dm *downloader.Manager) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+		id, err := taskID(r)
 		if err != nil {
 			http.Error(w, "invalid id", http.StatusBadRequest)
 			return
@@ -152,8 +181,9 @@ func Register(mux *http.ServeMux, dm *downloader.Manager) {
 }
 
 func taskID(r *http.Request) (int64, error) {
-	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
-	if err != nil {
+	raw := strings.TrimSpace(r.URL.Query().Get("id"))
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
 		return 0, fmt.Errorf("invalid id")
 	}
 	return id, nil

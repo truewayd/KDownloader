@@ -11,12 +11,43 @@ export function getDefaultWatchConfig() {
   return { intervalMinutes: 30, checkMode: 'batch' };
 }
 
+function boundedInteger(value, fallback, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(number)));
+}
+
+function normalizedBackendHost(value, fallback) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw || raw.length > 253 || /[\s/@?#]/.test(raw)) return fallback;
+  try {
+    const url = new URL(`http://${raw}`);
+    if (url.username || url.password || url.port || url.pathname !== '/' || url.search || url.hash) {
+      return fallback;
+    }
+    const hostname = url.hostname.toLowerCase();
+    return hostname === 'localhost' || hostname === '127.0.0.1' ? hostname : fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function normalizedShortString(value, fallback = '', maxLength = 4096) {
+  return typeof value === 'string' ? value.slice(0, maxLength) : fallback;
+}
+
+function normalizedSecret(value, fallback = '') {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim();
+  return normalized.length <= 4096 && !/[\0\r\n]/.test(normalized) ? normalized : fallback;
+}
+
 export async function loadWatchConfig() {
   const r = await chrome.storage.sync.get(WATCH_CONFIG_KEY);
   const cfg = r[WATCH_CONFIG_KEY] || {};
   const def = getDefaultWatchConfig();
   return {
-    intervalMinutes: Number.isFinite(cfg.intervalMinutes) && cfg.intervalMinutes > 0 ? cfg.intervalMinutes : def.intervalMinutes,
+    intervalMinutes: boundedInteger(cfg.intervalMinutes, def.intervalMinutes, 1, 10080),
     checkMode: cfg.checkMode === 'all' ? 'all' : def.checkMode,
   };
 }
@@ -24,9 +55,7 @@ export async function loadWatchConfig() {
 export async function saveWatchConfig(cfg) {
   const current = await loadWatchConfig();
   const next = {
-    intervalMinutes: Number.isFinite(cfg && cfg.intervalMinutes) && cfg.intervalMinutes > 0
-      ? Number(cfg.intervalMinutes)
-      : current.intervalMinutes,
+    intervalMinutes: boundedInteger(cfg && cfg.intervalMinutes, current.intervalMinutes, 1, 10080),
     checkMode: cfg && cfg.checkMode === 'all' ? 'all' : 'batch',
   };
   await chrome.storage.sync.set({ [WATCH_CONFIG_KEY]: next });
@@ -39,29 +68,32 @@ export function getDefaultBackendConfig() {
   return { enabled: false, backendType: 'abdm', host: '127.0.0.1', port: 15151, retryCount: 3, protocol: 'http', concurrency: 3, perPostFileLimit: 100, gopeedHost: '127.0.0.1', gopeedPort: 9999, gopeedToken: '', gopeedProtocol: 'http' };
 }
 
+function normalizeBackendConfig(cfg, fallback = getDefaultBackendConfig()) {
+  const value = cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? cfg : {};
+  return {
+    enabled: typeof value.enabled === 'boolean' ? value.enabled : fallback.enabled,
+    backendType: value.backendType === 'gopeed' ? 'gopeed' : 'abdm',
+    host: normalizedBackendHost(value.host, fallback.host),
+    port: boundedInteger(value.port, fallback.port, 1, 65535),
+    retryCount: boundedInteger(value.retryCount, fallback.retryCount, 0, 10),
+    protocol: value.protocol === 'https' ? 'https' : 'http',
+    concurrency: boundedInteger(value.concurrency, fallback.concurrency, 1, 6),
+    perPostFileLimit: boundedInteger(value.perPostFileLimit, fallback.perPostFileLimit, 1, 1000),
+    gopeedHost: normalizedBackendHost(value.gopeedHost, fallback.gopeedHost),
+    gopeedPort: boundedInteger(value.gopeedPort, fallback.gopeedPort, 1, 65535),
+    gopeedToken: normalizedSecret(value.gopeedToken, fallback.gopeedToken),
+    gopeedProtocol: value.gopeedProtocol === 'https' ? 'https' : 'http',
+  };
+}
+
 export async function loadBackendConfig() {
   const r = await chrome.storage.sync.get(BACKEND_CONFIG_KEY);
-  const cfg = r[BACKEND_CONFIG_KEY] || {};
-  const def = getDefaultBackendConfig();
-  return {
-    enabled: typeof cfg.enabled === 'boolean' ? cfg.enabled : def.enabled,
-    backendType: cfg.backendType === 'gopeed' ? 'gopeed' : 'abdm',
-    host: typeof cfg.host === 'string' && cfg.host.trim() ? cfg.host.trim() : def.host,
-    port: Number.isFinite(cfg.port) && cfg.port > 0 ? Number(cfg.port) : def.port,
-    retryCount: Number.isFinite(cfg.retryCount) && cfg.retryCount >= 0 ? Number(cfg.retryCount) : def.retryCount,
-    protocol: cfg.protocol === 'https' ? 'https' : 'http',
-    concurrency: Number.isFinite(cfg.concurrency) && cfg.concurrency > 0 ? Number(cfg.concurrency) : def.concurrency,
-    perPostFileLimit: Number.isFinite(cfg.perPostFileLimit) && cfg.perPostFileLimit > 0 ? Number(cfg.perPostFileLimit) : def.perPostFileLimit,
-    gopeedHost: typeof cfg.gopeedHost === 'string' && cfg.gopeedHost.trim() ? cfg.gopeedHost.trim() : def.gopeedHost,
-    gopeedPort: Number.isFinite(cfg.gopeedPort) && cfg.gopeedPort > 0 ? Number(cfg.gopeedPort) : def.gopeedPort,
-    gopeedToken: typeof cfg.gopeedToken === 'string' ? cfg.gopeedToken : def.gopeedToken,
-    gopeedProtocol: cfg.gopeedProtocol === 'https' ? 'https' : 'http',
-  };
+  return normalizeBackendConfig(r[BACKEND_CONFIG_KEY]);
 }
 
 export async function saveBackendConfig(cfg) {
   const current = await loadBackendConfig();
-  const next = { ...current, ...cfg };
+  const next = normalizeBackendConfig({ ...current, ...(cfg || {}) }, current);
   await chrome.storage.sync.set({ [BACKEND_CONFIG_KEY]: next });
   return next;
 }
@@ -132,14 +164,19 @@ export async function loadGistConfig() {
   const def = getDefaultGistConfig();
   return {
     enabled: typeof cfg.enabled === 'boolean' ? cfg.enabled : def.enabled,
-    token: typeof cfg.token === 'string' ? cfg.token : def.token,
-    gistId: typeof cfg.gistId === 'string' ? cfg.gistId : def.gistId,
+    token: normalizedSecret(cfg.token, def.token),
+    gistId: normalizedShortString(cfg.gistId, def.gistId, 128).trim(),
   };
 }
 
 export async function saveGistConfig(cfg) {
   const current = await loadGistConfig();
-  const next = { ...current, ...cfg };
+  const value = { ...current, ...(cfg || {}) };
+  const next = {
+    enabled: typeof value.enabled === 'boolean' ? value.enabled : current.enabled,
+    token: normalizedSecret(value.token, current.token),
+    gistId: normalizedShortString(value.gistId, current.gistId, 128).trim(),
+  };
   await chrome.storage.sync.set({ [GIST_CONFIG_KEY]: next });
   return next;
 }

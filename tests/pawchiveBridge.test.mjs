@@ -11,6 +11,7 @@ function createBridgeHarness() {
   const context = vm.createContext({
     AbortController,
     Blob,
+    TextDecoder,
     URL,
     clearTimeout,
     chrome: {

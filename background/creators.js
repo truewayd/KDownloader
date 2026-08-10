@@ -1,8 +1,11 @@
 // background/creators.js - manage creators override cache and page-level push to site storage
 import { CREATORS_OVERRIDE_KEY, CREATORS_OVERRIDE_ENABLED_KEY, API } from './constants.js';
+import { readLimitedResponseText } from './network.js';
 
 const TARGET_HOSTS = API.HOSTS;
 const KEY_BASE = CREATORS_OVERRIDE_KEY; // will store per-host as KEY_BASE + '_' + host
+const MAX_CREATORS_RESPONSE_BYTES = 16 * 1024 * 1024;
+const CREATORS_REQUEST_TIMEOUT_MS = 45 * 1000;
 
 function hostKey(host) {
   return `${KEY_BASE}_${host}`;
@@ -11,16 +14,22 @@ function hostKey(host) {
 // Fetch real creators.json from a host using Accept: text/css to bypass DDoS guard heuristics
 async function fetchCreatorsFromHost(host) {
   const url = `https://${host}${API.API_PREFIX}${API.CREATORS_PATH}`;
-  const res = await fetch(url, { method: 'GET', headers: { 'Accept': 'text/css' }, cache: 'no-store', credentials: 'omit' });
-  const txt = await res.text();
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { Accept: 'text/css' },
+    cache: 'no-store',
+    credentials: 'omit',
+    redirect: 'error',
+    signal: AbortSignal.timeout(CREATORS_REQUEST_TIMEOUT_MS),
+  });
+  if (res.ok === false) throw new Error(`Creators fetch failed: HTTP ${res.status}`);
+  const txt = await readLimitedResponseText(res, MAX_CREATORS_RESPONSE_BYTES, 'Creators');
   try {
-    return JSON.parse(txt);
+    const parsed = JSON.parse(txt);
+    if (!parsed || (typeof parsed !== 'object')) throw new Error('Unexpected creators response');
+    return parsed;
   } catch (e) {
-    const m = txt.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-    if (m) {
-      try { return JSON.parse(m[0]); } catch (ee) { throw new Error('Failed to parse creators response'); }
-    }
-    throw new Error('Creators fetch returned non-JSON response');
+    throw new Error('Creators fetch returned invalid JSON');
   }
 }
 

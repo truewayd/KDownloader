@@ -1,4 +1,4 @@
-// background/handlers/configHandlers.js - config, gist, network, and status RPCs
+// background/handlers/configHandlers.js - config, gist, and status RPCs
 import {
   loadBackendConfig,
   saveBackendConfig,
@@ -10,7 +10,6 @@ import {
 } from "../config.js";
 import { setCreatorsOverrideEnabled } from "../creators.js";
 import { gistUpload, gistDownload } from "../gist.js";
-import { handleAPIRequest, getCookies } from "../network.js";
 import { getGlobalProgress } from "../progress.js";
 import { configureWatchAlarm } from "../watch.js";
 import { respondWith } from "../messageHelpers.js";
@@ -52,12 +51,6 @@ export function createConfigHandlers() {
 
     "settings.restoreDefaults": ({ sendResponse }) =>
       respondWith(sendResponse, restoreSettingsDefaults(), (configs) => ({ configs })),
-
-    fetchAPI: ({ message, sendResponse }) =>
-      respondWith(sendResponse, handleAPIRequest(message.url, message.headers), (data) => ({ data })),
-
-    getCookies: ({ message, sendResponse }) =>
-      respondWith(sendResponse, getCookies(message.domain), (cookies) => ({ cookies })),
 
     "status.getGlobalProgress": ({ sendResponse }) => {
       sendResponse({ success: true, progress: getGlobalProgress() });

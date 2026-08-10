@@ -178,9 +178,9 @@ function addCoomerFansPageFetchButton() {
         linksFileName: `${creator.service}_${creator.userId}_page_links.txt`,
         linksPostId: "page-links",
       },
-      initialText: `Dispatching ${items.length}...`,
-      ackText: "Dispatched, awaiting ACK...",
-      resetText: "Page Fetch",
+      initialText: KDI18n.get("dispatchingCount", [String(items.length)]),
+      ackText: KDI18n.get("statusSending"),
+      resetText: KDI18n.get("pageFetchAction"),
       total: items.length,
     });
   };

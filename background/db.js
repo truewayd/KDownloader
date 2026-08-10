@@ -14,6 +14,8 @@ const ACTIVE_GENERATION_ID = "__active_generation__";
 const HISTORY_SCHEMA_VERSION = 2;
 const HISTORY_STATUSES = new Set(["complete", "partial", "empty"]);
 const HANDLED_STATUSES = new Set(["complete", "empty"]);
+const RETIRED_GENERATION_TTL_MS = 60 * 60 * 1000;
+const ABANDONED_IMPORT_TTL_MS = 24 * 60 * 60 * 1000;
 
 let historyDbPromise = null;
 let revisionCounter = 0;
@@ -299,6 +301,7 @@ export async function beginImportSession(envelope) {
 export async function appendImportChunk(sessionId, records, options = {}) {
   if (!sessionId || typeof sessionId !== "string") throw new Error("Invalid import session id");
   if (!Array.isArray(records)) throw new Error("Import chunk records must be an array");
+  if (records.length > 5000) throw new Error("Import chunk exceeds 5000 records");
   const normalized = records.map((record) => normalizeHistoryRecord(record, { strict: true }));
   const identities = new Set();
   for (const record of normalized) {
@@ -390,13 +393,26 @@ export async function commitImportSession(sessionId) {
       const activeRequest = metaStore.get(ACTIVE_GENERATION_ID);
       activeRequest.onsuccess = () => {
         previousGeneration = activeRequest.result?.generation || null;
+        const now = Date.now();
         meta.state = "committed";
-        meta.updatedAtMs = Date.now();
+        meta.updatedAtMs = now;
         metaStore.put(meta);
+        if (previousGeneration && previousGeneration !== sessionId) {
+          const previousRequest = metaStore.get(previousGeneration);
+          previousRequest.onsuccess = () => {
+            const previous = previousRequest.result;
+            if (!previous || previous.sessionId === sessionId) return;
+            previous.retiredAtMs = now;
+            metaStore.put(previous);
+          };
+        }
+        const legacyRetiredAtMs = activeRequest.result?.legacyRetiredAtMs
+          || (!previousGeneration ? now : null);
         metaStore.put({
           sessionId: ACTIVE_GENERATION_ID,
           generation: sessionId,
-          updatedAtMs: Date.now(),
+          updatedAtMs: now,
+          ...(legacyRetiredAtMs ? { legacyRetiredAtMs } : {}),
         });
       };
     } catch (error) {
@@ -413,10 +429,10 @@ export async function commitImportSession(sessionId) {
   await safeIncrementStorageVersion();
   if (previousGeneration !== sessionId) {
     const cleanupTimer = setTimeout(() => {
-      deleteGenerationRecords(previousGeneration).catch((error) =>
-        console.warn("[Background] old history generation cleanup failed", error)
+      cleanupHistoryStorage().catch((error) =>
+        console.warn("[Background] history generation cleanup failed", error)
       );
-    }, 60000);
+    }, RETIRED_GENERATION_TTL_MS);
     if (cleanupTimer && typeof cleanupTimer.unref === "function") cleanupTimer.unref();
   }
   return true;
@@ -434,6 +450,42 @@ async function deleteGenerationRecords(generation) {
   transaction.objectStore(IMPORT_STORE).delete(generationRange(generation));
   transaction.objectStore(IMPORT_META_STORE).delete(generation);
   await transactionToPromise(transaction);
+}
+
+export async function cleanupHistoryStorage(now = Date.now()) {
+  const db = await openHistoryDB();
+  const transaction = db.transaction(IMPORT_META_STORE, "readonly");
+  const allMeta = await requestToPromise(
+    transaction.objectStore(IMPORT_META_STORE).getAll()
+  );
+  const activePointer = allMeta.find((entry) => entry?.sessionId === ACTIVE_GENERATION_ID) || null;
+  const activeGeneration = activePointer?.generation || null;
+  const staleSessions = allMeta.filter((entry) => {
+    if (!entry || entry.sessionId === ACTIVE_GENERATION_ID || entry.sessionId === activeGeneration) return false;
+    const updatedAt = Number(entry.updatedAtMs || 0);
+    if (entry.state === "active") return updatedAt > 0 && now - updatedAt >= ABANDONED_IMPORT_TTL_MS;
+    if (entry.state === "committed") {
+      const retiredAt = Number(entry.retiredAtMs || 0);
+      if (retiredAt > 0) return now - retiredAt >= RETIRED_GENERATION_TTL_MS;
+      return updatedAt > 0 && now - updatedAt >= ABANDONED_IMPORT_TTL_MS;
+    }
+    return updatedAt > 0 && now - updatedAt >= ABANDONED_IMPORT_TTL_MS;
+  });
+
+  for (const session of staleSessions) {
+    await deleteGenerationRecords(session.sessionId);
+  }
+
+  const legacyRetiredAt = Number(activePointer?.legacyRetiredAtMs || 0);
+  if (legacyRetiredAt > 0 && now - legacyRetiredAt >= RETIRED_GENERATION_TTL_MS) {
+    const cleanup = db.transaction([HISTORY_STORE, IMPORT_META_STORE], "readwrite");
+    cleanup.objectStore(HISTORY_STORE).clear();
+    const { legacyRetiredAtMs: ignored, ...nextPointer } = activePointer;
+    cleanup.objectStore(IMPORT_META_STORE).put(nextPointer);
+    await transactionToPromise(cleanup);
+  }
+
+  return { removedSessions: staleSessions.length };
 }
 
 export async function abortImportSession(sessionId) {
@@ -470,27 +522,15 @@ export async function getImportSessionStatus(sessionId) {
 
 export async function checkDownloaded(service, userId, postId, source) {
   const db = await openHistoryDB();
-  const transaction = db.transaction(
-    [IMPORT_META_STORE, IMPORT_STORE, HISTORY_STORE],
-    "readonly"
-  );
-  const done = transactionToPromise(transaction);
-  let downloaded = false;
-  const metaRequest = transaction.objectStore(IMPORT_META_STORE).get(ACTIVE_GENERATION_ID);
-  metaRequest.onsuccess = () => {
-    const generation = metaRequest.result?.generation || null;
-    const storeName = generation ? IMPORT_STORE : HISTORY_STORE;
-    const recordRequest = transaction.objectStore(storeName).get(
-      generation
-        ? generationKey(generation, service, userId, postId, source)
-        : historyKey(service, userId, postId, source)
-    );
-    recordRequest.onsuccess = () => {
-      downloaded = !!recordRequest.result && HANDLED_STATUSES.has(recordRequest.result.status);
-    };
-  };
-  await done;
-  return downloaded;
+  const generation = await getActiveGeneration();
+  const storeName = generation ? IMPORT_STORE : HISTORY_STORE;
+  const transaction = db.transaction(storeName, "readonly");
+  const record = await requestToPromise(transaction.objectStore(storeName).get(
+    generation
+      ? generationKey(generation, service, userId, postId, source)
+      : historyKey(service, userId, postId, source)
+  ));
+  return !!record && HANDLED_STATUSES.has(record.status);
 }
 
 export async function checkDownloadedMany(items = []) {
@@ -500,26 +540,20 @@ export async function checkDownloadedMany(items = []) {
   if (validItems.length === 0) return {};
 
   const db = await openHistoryDB();
-  const transaction = db.transaction(
-    [IMPORT_META_STORE, IMPORT_STORE, HISTORY_STORE],
-    "readonly"
-  );
+  const generation = await getActiveGeneration();
+  const storeName = generation ? IMPORT_STORE : HISTORY_STORE;
+  const transaction = db.transaction(storeName, "readonly");
   const done = transactionToPromise(transaction);
   const results = new Array(validItems.length);
-  const metaRequest = transaction.objectStore(IMPORT_META_STORE).get(ACTIVE_GENERATION_ID);
-  metaRequest.onsuccess = () => {
-    const generation = metaRequest.result?.generation || null;
-    const storeName = generation ? IMPORT_STORE : HISTORY_STORE;
-    const store = transaction.objectStore(storeName);
-    validItems.forEach((item, index) => {
-      const request = store.get(
-        generation
-          ? generationKey(generation, item.service, item.userId, item.postId, item.source)
-          : historyKey(item.service, item.userId, item.postId, item.source)
-      );
-      request.onsuccess = () => { results[index] = request.result; };
-    });
-  };
+  const store = transaction.objectStore(storeName);
+  validItems.forEach((item, index) => {
+    const request = store.get(
+      generation
+        ? generationKey(generation, item.service, item.userId, item.postId, item.source)
+        : historyKey(item.service, item.userId, item.postId, item.source)
+    );
+    request.onsuccess = () => { results[index] = request.result; };
+  });
   await done;
   const downloaded = {};
   validItems.forEach((item, index) => {
@@ -530,7 +564,7 @@ export async function checkDownloadedMany(items = []) {
   return downloaded;
 }
 
-export async function safeIncrementStorageVersion() {
+async function safeIncrementStorageVersion() {
   revisionCounter++;
   const revision = `${Date.now()}:${revisionCounter}`;
   try {
@@ -850,7 +884,7 @@ export async function getHistoryStats() {
   return { bytes: 0, records };
 }
 
-export async function loadLastAccess() {
+async function loadLastAccess() {
   const r = await chrome.storage.sync.get(LAST_ACCESS_KEY);
   const raw = r[LAST_ACCESS_KEY] || {};
   const out = {};
@@ -858,7 +892,7 @@ export async function loadLastAccess() {
   return out;
 }
 
-export async function saveLastAccess(map) {
+async function saveLastAccess(map) {
   await chrome.storage.sync.set({ [LAST_ACCESS_KEY]: map });
 }
 
@@ -869,12 +903,12 @@ export async function setLastAccess(service, userId, when = new Date()) {
   await saveLastAccess(map);
 }
 
-export async function loadCreatorFlags() {
+async function loadCreatorFlags() {
   const r = await chrome.storage.local.get(CREATOR_FLAG_KEY);
   return r[CREATOR_FLAG_KEY] || {};
 }
 
-export async function saveCreatorFlags(flags) {
+async function saveCreatorFlags(flags) {
   await chrome.storage.local.set({ [CREATOR_FLAG_KEY]: flags });
 }
 

@@ -10,12 +10,15 @@ import {
   fetchPawchiveJson,
   PAWCHIVE_CLOUDFLARE_ERROR_CODE,
   preparePawchiveWatchRequest,
+  readLimitedResponseBytes,
 } from './network.js';
 
 const WATCH_SCHEMA_VERSION = 1;
 const WATCH_BATCH_SIZE = 5;
 const WATCH_BATCH_PAUSE_MS = 400;
+const WATCH_ALL_CONCURRENCY = 25;
 const MAX_NOTIFICATION_ICON_BYTES = 2 * 1024 * 1024;
+const MAX_WATCHES = 5000;
 
 let mutationQueue = Promise.resolve();
 let activeCheck = null;
@@ -28,8 +31,16 @@ function withWatchMutation(task) {
 
 function requiredString(value, label) {
   const normalized = String(value ?? '').trim();
-  if (!normalized) throw new Error(`Invalid watch ${label}`);
+  if (!normalized || normalized.length > 512 || /[\0\r\n]/.test(normalized)) {
+    throw new Error(`Invalid watch ${label}`);
+  }
   return normalized;
+}
+
+function boundedText(value, fallback, maxLength) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) return fallback;
+  return normalized.replace(/\0/g, '').slice(0, maxLength);
 }
 
 function timestampValue(value) {
@@ -40,7 +51,7 @@ function timestampValue(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function watchIdentityKey(service, userId) {
+function watchIdentityKey(service, userId) {
   return JSON.stringify([
     requiredString(service, 'service').toLowerCase(),
     requiredString(userId, 'creator id'),
@@ -53,24 +64,36 @@ function normalizeWatchRecord(value, { strict = false } = {}) {
   }
   const service = requiredString(value.service, 'service').toLowerCase();
   const userId = requiredString(value.userId, 'creator id');
-  const updated = typeof value.updated === 'string' ? value.updated.trim() : '';
+  const updated = boundedText(value.updated, '', 64);
   if (strict && updated && timestampValue(updated) === null) {
     throw new Error(`Invalid watch updated value for ${service}/${userId}`);
+  }
+  if (strict) {
+    for (const [field, raw] of Object.entries({
+      watchedAt: value.watchedAt,
+      checkedAt: value.checkedAt,
+      failedAt: value.failedAt,
+    })) {
+      if (raw && timestampValue(raw) === null) {
+        throw new Error(`Invalid watch ${field} value for ${service}/${userId}`);
+      }
+    }
   }
   return {
     service,
     userId,
-    name: String(value.name || userId).trim() || userId,
+    name: boundedText(value.name, userId, 512),
     updated,
-    watchedAt: typeof value.watchedAt === 'string' && value.watchedAt ? value.watchedAt : new Date().toISOString(),
-    checkedAt: typeof value.checkedAt === 'string' ? value.checkedAt : '',
-    failedAt: typeof value.failedAt === 'string' ? value.failedAt : '',
-    lastError: typeof value.lastError === 'string' ? value.lastError : '',
+    watchedAt: boundedText(value.watchedAt, new Date().toISOString(), 64),
+    checkedAt: boundedText(value.checkedAt, '', 64),
+    failedAt: boundedText(value.failedAt, '', 64),
+    lastError: boundedText(value.lastError, '', 2048),
   };
 }
 
 function normalizeWatchList(value, options) {
   const records = Array.isArray(value) ? value : [];
+  if (records.length > MAX_WATCHES) throw new Error(`Watch list exceeds ${MAX_WATCHES} records`);
   const keys = new Set();
   return records.map((record) => {
     const normalized = normalizeWatchRecord(record, options);
@@ -252,11 +275,17 @@ async function fetchCreatorIconData(watch) {
     headers: { Accept: 'image/jpeg' },
     credentials: 'include',
     cache: 'no-store',
+    redirect: 'error',
+    signal: AbortSignal.timeout(45 * 1000),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const buffer = await response.arrayBuffer();
+  const buffer = await readLimitedResponseBytes(response, MAX_NOTIFICATION_ICON_BYTES, 'Pawchive icon');
   if (!buffer.byteLength || buffer.byteLength > MAX_NOTIFICATION_ICON_BYTES) {
     throw new Error('Invalid Pawchive icon size');
+  }
+  const signature = new Uint8Array(buffer, 0, Math.min(3, buffer.byteLength));
+  if (signature.length < 3 || signature[0] !== 0xff || signature[1] !== 0xd8 || signature[2] !== 0xff) {
+    throw new Error('Invalid Pawchive JPEG icon');
   }
   return `data:image/jpeg;base64,${bytesToBase64(buffer)}`;
 }
@@ -380,8 +409,29 @@ function checkWithPrefetch(watch, prefetchedProfiles) {
   return checkOne(watch, prefetchedProfiles.has(key) ? prefetchedProfiles.get(key) : undefined);
 }
 
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function run() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await worker(items[index]);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => run())
+  );
+  return results;
+}
+
 async function collectChecks(watches, mode, prefetchedProfiles) {
-  if (mode === 'all') return Promise.all(watches.map((watch) => checkWithPrefetch(watch, prefetchedProfiles)));
+  if (mode === 'all') {
+    return mapWithConcurrency(
+      watches,
+      WATCH_ALL_CONCURRENCY,
+      (watch) => checkWithPrefetch(watch, prefetchedProfiles)
+    );
+  }
   const results = [];
   for (let offset = 0; offset < watches.length; offset += WATCH_BATCH_SIZE) {
     results.push(...await Promise.all(

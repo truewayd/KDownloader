@@ -1,15 +1,41 @@
 // background/gist.js - GitHub Gist upload/download helpers
 import { loadGistConfig, saveGistConfig } from './config.js';
 import { exportDB, importDB } from './db.js';
+import { readLimitedResponseText } from './network.js';
 
 const GITHUB_API = 'https://api.github.com';
+const MAX_GIST_FILE_BYTES = 64 * 1024 * 1024;
+const MAX_GIST_API_BYTES = 16 * 1024 * 1024;
+const GITHUB_TIMEOUT_MS = 60 * 1000;
+
+function validatedRawGistUrl(value) {
+  const url = new URL(String(value || ''));
+  if (url.protocol !== 'https:' || url.hostname !== 'gist.githubusercontent.com'
+      || url.username || url.password || url.port) {
+    throw new Error('Gist returned an unexpected raw file URL');
+  }
+  return url.toString();
+}
 
 async function fetchWithAuth(url, token, opts = {}) {
   const headers = Object.assign({}, opts.headers || {});
-  headers['Authorization'] = `token ${token}`;
+  headers['Authorization'] = `Bearer ${token}`;
   headers['Accept'] = 'application/vnd.github.v3+json';
-  const res = await fetch(url, Object.assign({}, opts, { headers }));
-  return res;
+  return fetch(url, Object.assign({}, opts, {
+    headers,
+    cache: 'no-store',
+    redirect: 'error',
+    signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
+  }));
+}
+
+async function readGistApiJson(response) {
+  const text = await readLimitedResponseText(response, MAX_GIST_API_BYTES, 'Gist API');
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error('Gist API returned invalid JSON');
+  }
 }
 
 export async function gistUpload() {
@@ -18,37 +44,28 @@ export async function gistUpload() {
   if (!token) throw new Error('No GitHub token configured');
 
   const text = await exportDB();
+  if (new TextEncoder().encode(text).byteLength > MAX_GIST_FILE_BYTES) {
+    throw new Error('History is too large for safe Gist upload');
+  }
   const filename = 'kemono_history.json';
 
   // If gistId present, try to update; otherwise create new gist
   if (cfg.gistId) {
     const url = `${GITHUB_API}/gists/${encodeURIComponent(cfg.gistId)}`;
-    try {
-      const body = { files: {} };
-      body.files[filename] = { content: text };
-      const res = await fetchWithAuth(url, token, { method: 'PATCH', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } });
-      if (res.ok) {
-        const data = await res.json();
-        // ensure gistId saved
-        await saveGistConfig({ gistId: data.id });
-        return { gistId: data.id };
-      } else {
-        // if not found, fall through to create new gist
-        if (res.status === 404) {
-          // create below
-        } else {
-          const txt = await res.text();
-          throw new Error(`Gist update failed: ${res.status} ${res.statusText} - ${txt}`);
-        }
-      }
-    } catch (e) {
-      // if update failed due to 404 or other, try create
-      if (e && typeof e.message === 'string' && e.message.includes('404')) {
-        // fallthrough to create
-      } else {
-        // for other errors, still try create as fallback
-        console.warn('[gistUpload] update failed, trying to create new gist', e);
-      }
+    const body = { files: { [filename]: { content: text } } };
+    const res = await fetchWithAuth(url, token, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (res.ok) {
+      const data = await readGistApiJson(res);
+      await saveGistConfig({ gistId: data.id });
+      return { gistId: data.id };
+    }
+    if (res.status !== 404) {
+      const detail = (await readLimitedResponseText(res, 64 * 1024, 'Gist API error').catch(() => '')).slice(0, 500);
+      throw new Error(`Gist update failed: ${res.status} ${res.statusText}${detail ? ` - ${detail}` : ''}`);
     }
   }
 
@@ -62,10 +79,10 @@ export async function gistUpload() {
 
   const createRes = await fetchWithAuth(createUrl, token, { method: 'POST', body: JSON.stringify(createBody), headers: { 'Content-Type': 'application/json' } });
   if (!createRes.ok) {
-    const txt = await createRes.text();
+    const txt = (await readLimitedResponseText(createRes, 64 * 1024, 'Gist API error').catch(() => '')).slice(0, 500);
     throw new Error(`Gist create failed: ${createRes.status} ${createRes.statusText} - ${txt}`);
   }
-  const created = await createRes.json();
+  const created = await readGistApiJson(createRes);
   if (created && created.id) {
     await saveGistConfig({ gistId: created.id });
     return { gistId: created.id };
@@ -83,7 +100,7 @@ export async function gistDownload() {
   const url = `${GITHUB_API}/gists/${encodeURIComponent(gistId)}`;
   const res = await fetchWithAuth(url, token, { method: 'GET' });
   if (!res.ok) throw new Error(`Gist fetch failed: ${res.status} ${res.statusText}`);
-  const data = await res.json();
+  const data = await readGistApiJson(res);
   if (!data || !data.files) throw new Error('Gist contains no files');
 
   // Prefer kemono_history.json if present, otherwise first file
@@ -100,9 +117,9 @@ export async function gistDownload() {
   // Fetch from raw_url to avoid truncation for large files
   let fileContent;
   if (fileObj.truncated || fileObj.size > 1000000) {
-    const rawRes = await fetchWithAuth(fileObj.raw_url, token, { method: 'GET' });
+    const rawRes = await fetchWithAuth(validatedRawGistUrl(fileObj.raw_url), token, { method: 'GET' });
     if (!rawRes.ok) throw new Error(`Failed to fetch raw content: ${rawRes.status}`);
-    fileContent = await rawRes.text();
+    fileContent = await readLimitedResponseText(rawRes, MAX_GIST_FILE_BYTES, 'Gist history file');
   } else {
     fileContent = fileObj.content;
   }

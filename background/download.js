@@ -2,12 +2,53 @@
 import { CONFIG, API, PAW } from './constants.js';
 import UTIL from './util.js';
 import { loadBackendConfig, loadDownloadRulesConfig } from './config.js';
-import { handleAPIRequest, getCookies } from './network.js';
+import { handleAPIRequest, getCookies, readLimitedResponseText } from './network.js';
 import {
   buildPawchiveDownloadTasks,
   fetchPawchivePost,
   isCompletePawchivePost,
 } from './pawchive.js';
+
+const BACKEND_REQUEST_TIMEOUT_MS = 60 * 1000;
+const HTML_REQUEST_TIMEOUT_MS = 45 * 1000;
+const COOMERFANS_MEDIA_EXTENSIONS = new Set([
+  '.mp4', '.webm', '.m4v', '.mov', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.zip', '.rar', '.7z',
+]);
+const TRUSTED_MEDIA_HOSTS = new Set([...API.HOSTS, API.COOMERFANS_HOST, PAW.HOST, PAW.FILE_HOST]);
+
+function trustedMediaUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
+    const host = url.hostname.toLowerCase();
+    for (const trustedHost of TRUSTED_MEDIA_HOSTS) {
+      if (host === trustedHost || host.endsWith(`.${trustedHost}`)) return true;
+    }
+  } catch (error) {
+    // Ignore malformed URLs from upstream data.
+  }
+  return false;
+}
+
+function cookieForTask(taskUrl, origin, cookieString) {
+  if (!cookieString) return '';
+  try {
+    const task = new URL(taskUrl);
+    const originHost = new URL(origin).hostname.toLowerCase();
+    const taskHost = task.hostname.toLowerCase();
+    if (task.protocol !== 'https:') return '';
+    if (originHost === PAW.HOST) {
+      return taskHost === PAW.HOST || taskHost === PAW.FILE_HOST ? cookieString : '';
+    }
+    return taskHost === originHost || taskHost.endsWith(`.${originHost}`) ? cookieString : '';
+  } catch (error) {
+    return '';
+  }
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  return fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+}
 
 // Unified in-memory task queue singleton to manage all outgoing dispatches to backends
 class TaskQueue {
@@ -113,23 +154,25 @@ class TaskQueue {
 
       const { meta, task, options } = item;
       const { endpoint, cookieString, origin, service, userId, postId, headers, referer, perFileRetry = 0, sendProgress } = options;
-      const requestReferer = referer || `${origin}/${service}/user/${userId}/post/${postId}`;
+      const requestReferer = referer || `${origin}/${encodeURIComponent(service)}/user/${encodeURIComponent(userId)}/post/${encodeURIComponent(postId)}`;
 
       // Wait the adaptive delay before sending to avoid spikes
       if (currentDelay > 0) await new Promise(r => setTimeout(r, currentDelay));
 
-      // Build payload
+      // Build payload. Site cookies never cross to a different media domain.
+      const downloadHeaders = {
+        Referer: requestReferer,
+        'User-Agent': headers['User-Agent'] || 'Mozilla/5.0',
+        Origin: `chrome-extension://${chrome.runtime.id}`,
+        Accept: headers['Accept'] || 'text/css',
+        'Accept-Language': headers['Accept-Language'] || 'zh-CN,zh;q=0.9'
+      };
+      const taskCookie = cookieForTask(task.url, origin, cookieString);
+      if (taskCookie) downloadHeaders.Cookie = taskCookie;
       const filePayload = {
         downloadSource: {
           link: task.url,
-          headers: {
-            Cookie: cookieString,
-            Referer: requestReferer,
-            'User-Agent': headers['User-Agent'] || 'Mozilla/5.0',
-            Origin: `chrome-extension://${chrome.runtime.id}`,
-            Accept: headers['Accept'] || 'text/css',
-            'Accept-Language': headers['Accept-Language'] || 'zh-CN,zh;q=0.9'
-          }
+          headers: downloadHeaders
         },
         name: task.fileName,
         queueId: 0,
@@ -142,13 +185,13 @@ class TaskQueue {
       while (attempts <= perFileRetry && !success) {
         try {
           attempts++;
-          const resp = await fetch(endpoint, {
+          const resp = await fetchWithTimeout(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(filePayload),
             credentials: 'include',
-          });
-          const text = await resp.text().catch(() => '');
+          }, BACKEND_REQUEST_TIMEOUT_MS);
+          const text = await readLimitedResponseText(resp, 64 * 1024, 'Backend').catch(() => '');
           if (!resp.ok) {
             throw new Error(`Backend HTTP ${resp.status}${text ? `: ${text.slice(0, 200)}` : ''}`);
           }
@@ -186,9 +229,10 @@ class TaskQueue {
 // Single global queue instance (will use default concurrency, can be adjusted later)
 const GLOBAL_TASK_QUEUE = new TaskQueue();
 
-function sendDownloadProgress(senderTabId, service, userId, postId, processed, total, sentCount = processed) {
+function sendDownloadProgress(senderTabId, service, userId, postId, processed, total, sentCount = processed, requestId) {
   const payload = {
     action: 'downloadProgress',
+    ...(requestId ? { requestId } : {}),
     service,
     userId,
     postId,
@@ -209,13 +253,25 @@ async function dispatchAllToBackend(tasks, backendCfg, context) {
   const endpoint = `${backendCfg.protocol}://${backendCfg.host}:${backendCfg.port}/start-headless-download`;
   const perFileRetry = Math.min(10, Math.max(0, Number(backendCfg.retryCount) || 0));
   const concurrency = Math.max(1, Math.min(6, Math.floor(backendCfg.concurrency || CONFIG.MAX_CONCURRENT_DOWNLOADS)));
-  const perPostFileLimit = Number.isFinite(backendCfg.perPostFileLimit) ? backendCfg.perPostFileLimit : context.defaultFileLimit;
+  const perPostFileLimit = Math.max(
+    1,
+    Math.min(1000, Number.isFinite(backendCfg.perPostFileLimit) ? backendCfg.perPostFileLimit : context.defaultFileLimit)
+  );
   const batches = [];
   for (let i = 0; i < tasks.length; i += perPostFileLimit) batches.push(tasks.slice(i, i + perPostFileLimit));
 
   const allFileResults = [];
   const sendProgress = (sent, total) => {
-    sendDownloadProgress(context.senderTabId, context.service, context.userId, context.postId, sent, total);
+    sendDownloadProgress(
+      context.senderTabId,
+      context.service,
+      context.userId,
+      context.postId,
+      sent,
+      total,
+      sent,
+      context.requestId
+    );
   };
 
   GLOBAL_TASK_QUEUE.setConcurrency(concurrency);
@@ -308,8 +364,15 @@ function backendFailureResult(tasks, externalLinks) {
 }
 
 async function applyDownloadRules(tasks, externalLinks) {
-  const filteredTasks = UTIL.filterDownloadTasks(tasks, await loadDownloadRulesConfig());
-  if (tasks.length > 0 && filteredTasks.length === 0) {
+  const trustedTasks = tasks.filter((task) => task && trustedMediaUrl(task.url));
+  if (tasks.length > 0 && trustedTasks.length === 0) {
+    throw new Error('The post contains no trusted HTTPS media URLs');
+  }
+  if (trustedTasks.length < tasks.length) {
+    console.warn(`[Background] ignored ${tasks.length - trustedTasks.length} untrusted media URLs`);
+  }
+  const filteredTasks = UTIL.filterDownloadTasks(trustedTasks, await loadDownloadRulesConfig());
+  if (trustedTasks.length > 0 && filteredTasks.length === 0) {
     return {
       tasks: filteredTasks,
       result: {
@@ -318,7 +381,7 @@ async function applyDownloadRules(tasks, externalLinks) {
         results: [],
         externalLinks,
         skippedByFilter: true,
-        filteredCount: tasks.length,
+        filteredCount: trustedTasks.length,
         message: 'All files were excluded by download rules',
       },
     };
@@ -353,8 +416,7 @@ function isCoomerFansMediaUrl(mediaUrl) {
     const host = u.hostname.toLowerCase();
     const path = u.pathname.toLowerCase();
     const ext = UTIL.getFileExtension(path);
-    const allowed = new Set(['.mp4', '.webm', '.m4v', '.mov', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.zip', '.rar', '.7z']);
-    if (!allowed.has(ext)) return false;
+    if (!COOMERFANS_MEDIA_EXTENSIONS.has(ext)) return false;
     if (path.includes('/istorage/')) return false;
     return (host === API.COOMERFANS_HOST || host.endsWith(`.${API.COOMERFANS_HOST}`)) && path.includes('/storage/');
   } catch (_) {
@@ -379,15 +441,31 @@ function extractCoomerFansMediaUrls(html) {
 }
 
 async function fetchCoomerFansHtml(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (error) {
+    throw new Error('Invalid CoomerFans URL');
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (parsed.protocol !== 'https:' || (host !== API.COOMERFANS_HOST && !host.endsWith(`.${API.COOMERFANS_HOST}`))) {
+    throw new Error('Unexpected CoomerFans URL');
+  }
   const headers = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Accept-Language': 'zh-CN,zh;q=0.9',
     'Cache-Control': 'no-cache',
     'User-Agent': 'Mozilla/5.0',
   };
-  const resp = await fetch(url, { method: 'GET', headers, credentials: 'include' });
+  const resp = await fetchWithTimeout(parsed.toString(), {
+    method: 'GET',
+    headers,
+    credentials: 'include',
+    cache: 'no-store',
+    redirect: 'error',
+  }, HTML_REQUEST_TIMEOUT_MS);
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.text();
+  return readLimitedResponseText(resp, 16 * 1024 * 1024, 'CoomerFans');
 }
 
 function coomerFansPostUrl(service, userId, postId) {
@@ -401,7 +479,7 @@ function buildCoomerFansFileName(creatorName, userId, postId, mediaUrl, index) {
   return UTIL.sanitizeFileName(`${base}.${postId}${suffix}${ext}`);
 }
 
-export async function startCoomerFansDownload(service, userId, postId, creatorName, senderTabId) {
+export async function startCoomerFansDownload(service, userId, postId, creatorName, senderTabId, requestId) {
   const postUrl = coomerFansPostUrl(service, userId, postId);
   let html;
   try {
@@ -432,7 +510,7 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
 
   if (backendCfg.enabled) {
     if (backendCfg.backendType === 'gopeed') {
-      const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieString, postUrl, service, userId, postId, senderTabId);
+      const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieString, API.COOMERFANS_ORIGIN, postUrl, service, userId, postId, senderTabId, requestId);
       if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, results, externalLinks };
     } else {
       const headers = {
@@ -449,6 +527,7 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
         headers,
         referer: postUrl,
         senderTabId,
+        requestId,
         defaultFileLimit: 100,
       });
 
@@ -458,7 +537,7 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
   }
 
   const progressCallback = ({ processed, total, successCount }) => {
-    sendDownloadProgress(senderTabId, service, userId, postId, processed, total, successCount);
+    sendDownloadProgress(senderTabId, service, userId, postId, processed, total, successCount, requestId);
   };
 
   const { successCount, results } = await runSequentialDownloads(tasks, progressCallback);
@@ -467,8 +546,8 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
 
 // Download a single Pawchive post from its JSON API representation. Creator
 // page batches can pass an already-fetched post to avoid duplicate requests.
-export async function startPawchiveDownload(service, userId, postId, senderTabId, prefetchedPost = null) {
-  const postUrl = `${PAW.ORIGIN}/${service}/user/${userId}/post/${postId}`;
+export async function startPawchiveDownload(service, userId, postId, senderTabId, prefetchedPost = null, requestId) {
+  const postUrl = `${PAW.ORIGIN}/${encodeURIComponent(service)}/user/${encodeURIComponent(userId)}/post/${encodeURIComponent(postId)}`;
   const cookies = await getCookies(PAW.HOST);
   const headers = {
     'Accept': 'application/json',
@@ -510,7 +589,7 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
   if (backendCfg.enabled) {
     if (backendCfg.backendType === 'gopeed') {
       const referer = postUrl;
-      const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookies, referer, service, userId, postId, senderTabId);
+      const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookies, PAW.ORIGIN, referer, service, userId, postId, senderTabId, requestId);
       if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, results, externalLinks };
     } else {
       const allFileResults = await dispatchAllToBackend(tasks, backendCfg, {
@@ -523,6 +602,7 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
         referer: postUrl,
         defaultFileLimit: 200,
         senderTabId,
+        requestId,
       });
 
       const anySuccess = allFileResults.some(fr => fr.success);
@@ -533,7 +613,7 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
 
   // Local chrome.downloads fallback
   const progressCallback = ({ processed, total, successCount }) => {
-    sendDownloadProgress(senderTabId, service, userId, postId, processed, total, successCount);
+    sendDownloadProgress(senderTabId, service, userId, postId, processed, total, successCount, requestId);
   };
 
   const { successCount, results } = await runSequentialDownloads(tasks, progressCallback);
@@ -544,12 +624,14 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
 // service worker. Do not use no-cors here: it strips Content-Type and
 // X-Api-Token, which makes token-protected Gopeed instances silently fail.
 async function dispatchToGopeed(baseUrl, token, fileUrl, cookieString, referer, fileName) {
+  const requestHeaders = { Referer: referer };
+  if (cookieString) requestHeaders.Cookie = cookieString;
   const payload = {
     rid: '',
     req: {
       url: fileUrl,
       method: 'GET',
-      extra: { header: { Cookie: cookieString, Referer: referer } },
+      extra: { header: requestHeaders },
     },
     opts: {
       name: fileName,
@@ -561,12 +643,12 @@ async function dispatchToGopeed(baseUrl, token, fileUrl, cookieString, referer, 
   if (token) headers['X-Api-Token'] = token;
 
   try {
-    const resp = await fetch(`${baseUrl}/api/v1/tasks`, {
+    const resp = await fetchWithTimeout(`${baseUrl}/api/v1/tasks`, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
-    });
-    const text = await resp.text().catch(() => '');
+    }, BACKEND_REQUEST_TIMEOUT_MS);
+    const text = await readLimitedResponseText(resp, 64 * 1024, 'Gopeed').catch(() => '');
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch (_) {}
     if (!resp.ok) {
@@ -583,37 +665,48 @@ async function dispatchToGopeed(baseUrl, token, fileUrl, cookieString, referer, 
 }
 
 // Dispatch all tasks to gopeed sequentially, reporting progress.
-async function dispatchAllToGopeed(tasks, backendCfg, cookieString, referer, service, userId, postId, senderTabId) {
+async function dispatchAllToGopeed(tasks, backendCfg, cookieString, origin, referer, service, userId, postId, senderTabId, requestId) {
   const baseUrl = `${backendCfg.gopeedProtocol}://${backendCfg.gopeedHost}:${backendCfg.gopeedPort}`;
   const token = backendCfg.gopeedToken || '';
   let successCount = 0;
   const results = [];
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[i];
-    const result = await dispatchToGopeed(baseUrl, token, task.url, cookieString, referer, task.fileName);
+    const result = await dispatchToGopeed(
+      baseUrl,
+      token,
+      task.url,
+      cookieForTask(task.url, origin, cookieString),
+      referer,
+      task.fileName
+    );
     results.push({ task, ...result });
     if (result.success) successCount++;
-    sendDownloadProgress(senderTabId, service, userId, postId, i + 1, tasks.length);
+    sendDownloadProgress(senderTabId, service, userId, postId, i + 1, tasks.length, i + 1, requestId);
   }
   return { successCount, results };
 }
 
-export async function startFullDownload(service, userId, postId, path, senderUrl, senderTabId) {
+export async function startFullDownload(service, userId, postId, path, senderUrl, senderTabId, requestId) {
   // 1. Determine origin using centralized API config
   let origin = API.DEFAULT_ORIGIN;
   try {
     if (senderUrl) {
       const su = new URL(senderUrl);
       const host = su.hostname.toLowerCase();
-      if (host.includes(API.HOSTS[0])) origin = `https://${API.HOSTS[0]}`;
-      else if (host.includes(API.HOSTS[1])) origin = `https://${API.HOSTS[1]}`;
+      if (host === API.HOSTS[0]) origin = `https://${API.HOSTS[0]}`;
+      else if (host === API.HOSTS[1]) origin = `https://${API.HOSTS[1]}`;
     } else if (path && path.includes('coomer')) {
       origin = `https://${API.HOSTS[0]}`;
     }
   } catch (e) { }
 
   // 2. API
-  const apiUrl = `${origin}${API.API_PREFIX}/${service}/user/${userId}/post/${postId}`;
+  const encodedService = encodeURIComponent(service);
+  const encodedUserId = encodeURIComponent(userId);
+  const encodedPostId = encodeURIComponent(postId);
+  const postUrl = `${origin}/${encodedService}/user/${encodedUserId}/post/${encodedPostId}`;
+  const apiUrl = `${origin}${API.API_PREFIX}/${encodedService}/user/${encodedUserId}/post/${encodedPostId}`;
   const domain = new URL(origin).hostname;
   const cookies = await getCookies(domain);
   const headers = {
@@ -623,7 +716,7 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
     'Cache-Control': 'no-cache',
     'DNT': '1',
     'Pragma': 'no-cache',
-    'Referer': `${origin}/${service}/user/${userId}/post/${postId}`,
+    'Referer': postUrl,
     'User-Agent': 'Mozilla/5.0',
     'Cookie': cookies
   };
@@ -649,8 +742,8 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
   // 3. Backend forwarding (with centralized queue/batching and adaptive throttle)
   if (backendCfg.enabled) {
     if (backendCfg.backendType === 'gopeed') {
-      const referer = `${origin}/${service}/user/${userId}/post/${postId}`;
-      const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieString, referer, service, userId, postId, senderTabId);
+      const referer = postUrl;
+      const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieString, origin, referer, service, userId, postId, senderTabId, requestId);
       if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, results, externalLinks };
     } else {
       const allFileResults = await dispatchAllToBackend(tasks, backendCfg, {
@@ -662,6 +755,7 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
         headers,
         defaultFileLimit: 200,
         senderTabId,
+        requestId,
       });
 
       const anySuccess = allFileResults.some(fr => fr.success);
@@ -674,7 +768,7 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
 
   // 4. Local chrome.downloads fallback
   const progressCallback = ({ processed, total, successCount }) => {
-    sendDownloadProgress(senderTabId, service, userId, postId, processed, total, successCount);
+    sendDownloadProgress(senderTabId, service, userId, postId, processed, total, successCount, requestId);
   };
 
   const { successCount, results } = await runSequentialDownloads(tasks, progressCallback);

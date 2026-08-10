@@ -1,7 +1,20 @@
 // background/nativeFallback.js - persistent backend-failure confirmation queue
-import { NATIVE_FALLBACK_KEY } from './constants.js';
+import { API, NATIVE_FALLBACK_KEY, PAW } from './constants.js';
 
 const MAX_PENDING_AGE_MS = 60 * 60 * 1000;
+const MAX_FALLBACK_REQUESTS = 5000;
+const MAX_FALLBACK_TASKS_PER_REQUEST = 1000;
+const MAX_FALLBACK_TASKS_TOTAL = 5000;
+const TRUSTED_MEDIA_HOSTS = new Set([...API.HOSTS, API.COOMERFANS_HOST, PAW.HOST, PAW.FILE_HOST]);
+
+function isTrustedMediaUrl(url) {
+  const host = url.hostname.toLowerCase();
+  if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
+  for (const trustedHost of TRUSTED_MEDIA_HOSTS) {
+    if (host === trustedHost || host.endsWith(`.${trustedHost}`)) return true;
+  }
+  return false;
+}
 
 let stateQueue = Promise.resolve();
 
@@ -58,31 +71,69 @@ async function savePending(pending) {
 function normalizeRequest(request) {
   const item = request && request.item ? request.item : {};
   const tasks = Array.isArray(request && request.tasks)
-    ? request.tasks.filter((task) => task && task.url && task.fileName).map((task) => ({
-        url: String(task.url),
-        fileName: String(task.fileName),
-        type: String(task.type || ''),
-      }))
+    ? request.tasks.slice(0, MAX_FALLBACK_TASKS_PER_REQUEST).map((task) => {
+        if (!task || typeof task !== 'object') return null;
+        let url;
+        try {
+          const parsed = new URL(String(task.url || ''));
+          if (!isTrustedMediaUrl(parsed)) return null;
+          url = parsed.toString();
+        } catch (error) {
+          return null;
+        }
+        const fileName = String(task.fileName || '').trim();
+        if (!fileName || fileName.length > 1024 || /[\0\r\n]/.test(fileName)) return null;
+        return {
+          url,
+          fileName,
+          type: String(task.type || '').slice(0, 64),
+        };
+      }).filter(Boolean)
     : [];
-  if (!item.service || !item.userId || !item.postId || tasks.length === 0) return null;
+  const service = String(item.service || '').trim();
+  const userId = String(item.userId || '').trim();
+  const postId = String(item.postId || '').trim();
+  if (
+    !service || !userId || !postId || tasks.length === 0
+    || [service, userId, postId].some((value) => value.length > 512 || /[\0\r\n]/.test(value))
+  ) return null;
+  const requestId = typeof item.requestId === 'string' && item.requestId.length <= 128
+    ? item.requestId
+    : undefined;
   return {
     item: {
-      source: item.source,
-      service: String(item.service),
-      userId: String(item.userId),
-      postId: String(item.postId),
+      source: ['default', 'pawchive', 'coomerfans'].includes(item.source) ? item.source : undefined,
+      service,
+      userId,
+      postId,
+      requestId,
     },
     tasks,
-    externalLinks: Array.isArray(request.externalLinks) ? request.externalLinks.map(String) : [],
+    externalLinks: Array.isArray(request.externalLinks)
+      ? request.externalLinks.slice(0, 5000).map((value) => {
+          try {
+            const parsed = new URL(String(value || ''));
+            return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password
+              ? parsed.toString()
+              : null;
+          } catch (error) {
+            return null;
+          }
+        }).filter(Boolean)
+      : [],
     tabId: typeof request.tabId === 'number' ? request.tabId : null,
   };
 }
 
 export async function enqueueNativeFallback(requests) {
-  const normalized = (Array.isArray(requests) ? requests : [requests])
+  const input = Array.isArray(requests) ? requests : [requests];
+  if (input.length > MAX_FALLBACK_REQUESTS) throw new Error('Too many native fallback requests');
+  const normalized = input
     .map(normalizeRequest)
     .filter(Boolean);
   if (normalized.length === 0) throw new Error('No native fallback tasks');
+  const taskCount = normalized.reduce((count, request) => count + request.tasks.length, 0);
+  if (taskCount > MAX_FALLBACK_TASKS_TOTAL) throw new Error('Too many native fallback tasks');
 
   const notificationId = `native-fallback-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await withStateMutation(async () => {
@@ -95,7 +146,7 @@ export async function enqueueNativeFallback(requests) {
     await savePending(pending);
   });
 
-  const fileCount = normalized.reduce((count, request) => count + request.tasks.length, 0);
+  const fileCount = taskCount;
   try {
     await notificationCreate(notificationId, {
       type: 'basic',
@@ -127,7 +178,15 @@ export function takeNativeFallback(notificationId) {
     if (!entry) return null;
     delete pending[notificationId];
     await savePending(pending);
-    return entry;
+    const requests = [];
+    let taskCount = 0;
+    for (const value of (Array.isArray(entry.requests) ? entry.requests : []).slice(0, MAX_FALLBACK_REQUESTS)) {
+      const request = normalizeRequest(value);
+      if (!request || taskCount + request.tasks.length > MAX_FALLBACK_TASKS_TOTAL) continue;
+      requests.push(request);
+      taskCount += request.tasks.length;
+    }
+    return { createdAt: Number(entry.createdAt) || 0, requests };
   });
 }
 

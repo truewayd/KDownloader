@@ -1,63 +1,66 @@
-// content/injector.js - inject page context script and bridge messages between extension and page
-(function () {
-  try {
-    // inject the page script (runs in page context, so it has access to window.fetch & IndexedDB)
-    const s = document.createElement('script');
-    s.src = chrome.runtime.getURL('injected/creators_page.js');
-    s.dataset.extInjected = 'creators';
-    (document.documentElement || document.head || document.body).appendChild(s);
-  } catch (e) {
-    console.error('[Injector] failed to inject page script', e);
+// content/injector.js - creator-cache bridge between extension and page contexts
+(() => {
+  const TARGET_HOSTS = new Set(['coomer.st', 'kemono.cr']);
+  const ENABLED_KEY = 'creatorsOverrideEnabled';
+  const host = location.hostname.toLowerCase();
+  if (!TARGET_HOSTS.has(host)) return;
+
+  function postState(enabled, payload = null) {
+    window.postMessage({
+      direction: 'EXT_TO_PAGE',
+      message: {
+        action: 'creators.state',
+        host,
+        enabled: enabled === true,
+        payload: enabled === true ? payload : null,
+      },
+    }, location.origin);
   }
 
-  // Bridge messages from background to page script via window.postMessage
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    try {
-      if (!message || !message.action) return false;
-      // Only handle our creators messages to reduce noise
-      if (/^creators\./.test(message.action)) {
-        window.postMessage({ direction: 'EXT_TO_PAGE', message }, '*');
-        sendResponse && sendResponse({ success: true });
-        return true;
+  function readAndPostState() {
+    const key = `creatorsOverride_${host}`;
+    chrome.storage.local.get([ENABLED_KEY, key], (stored) => {
+      if (chrome.runtime.lastError) {
+        postState(false);
+        return;
       }
-    } catch (e) {
-      console.error('[Injector] forward message failed', e);
-      try { sendResponse && sendResponse({ success: false, error: e.message }); } catch (_) { }
-    }
-    return false;
+      const enabled = stored?.[ENABLED_KEY] === true;
+      const cached = stored?.[key] || null;
+      let payload = null;
+      if (enabled && cached && typeof cached.__text === 'string') {
+        try {
+          payload = JSON.parse(cached.__text);
+        } catch (error) {
+          payload = null;
+        }
+      } else if (enabled && cached && typeof cached === 'object') {
+        payload = cached;
+      }
+      postState(enabled, payload);
+    });
+  }
+
+  try {
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL('injected/creators_page.js');
+    script.dataset.extInjected = 'creators';
+    script.addEventListener('load', () => script.remove(), { once: true });
+    script.addEventListener('error', () => script.remove(), { once: true });
+    (document.documentElement || document.head || document.body).appendChild(script);
+  } catch (error) {
+    console.error('[Injector] failed to inject creator cache script', error);
+  }
+
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || event.origin !== location.origin) return;
+    const message = event.data?.message;
+    if (event.data?.direction !== 'PAGE_TO_EXT' || message?.action !== 'creators.requestState') return;
+    if (String(message.host || '').toLowerCase() !== host) return;
+    readAndPostState();
   });
 
-
-  // Bridge messages from page to extension: page sends PAGE_TO_EXT requests via window.postMessage
-  window.addEventListener('message', (ev) => {
-    try {
-      if (!ev || ev.source !== window) return;
-      const msg = ev.data;
-      if (!msg || msg.direction !== 'PAGE_TO_EXT' || !msg.message) return;
-      const m = msg.message;
-      if (m.action === 'creators.requestCache' && m.host) {
-        const key = `creatorsOverride_${m.host}`;
-        chrome.storage.local.get([key], (res) => {
-          let payload = null;
-          const stored = res && res[key] ? res[key] : null;
-          if (stored && typeof stored.__text === 'string') {
-            try { payload = JSON.parse(stored.__text); } catch (e) { payload = null; }
-          } else if (stored) {
-            // backward compatibility for earlier format
-            payload = stored;
-          }
-          window.postMessage({ direction: 'EXT_TO_PAGE', message: { action: 'creators.pushToPage', host: m.host, payload } }, '*');
-        });
-      } else if (m.action === 'creators.requestSummary') {
-        const metaKey = `creatorsOverride_${m.host}_meta`;
-        chrome.storage.local.get([metaKey], (res) => {
-          const meta = res && res[metaKey] ? res[metaKey] : null;
-          window.postMessage({ direction: 'EXT_TO_PAGE', message: { action: 'creators.pushMeta', host: m.host, meta } }, '*');
-        });
-      }
-    } catch (e) {
-      console.error('[Injector] page->ext bridge error', e);
-    }
-  }, false);
-
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local') return;
+    if (changes[ENABLED_KEY] || changes[`creatorsOverride_${host}`]) readAndPostState();
+  });
 })();

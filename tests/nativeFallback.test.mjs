@@ -65,7 +65,7 @@ function request(postId, taskCount = 1) {
   return {
     item: { source: 'default', service: 'patreon', userId: 'creator-1', postId },
     tasks: Array.from({ length: taskCount }, (_, index) => ({
-      url: `https://file.invalid/${postId}/${index}`,
+      url: `https://file.pawchive.pw/data/${postId}/${index}`,
       fileName: `${postId}-${index}.jpg`,
       type: 'attachment',
     })),
@@ -104,4 +104,15 @@ test('fallback prompts reject empty or malformed task sets', async () => {
     tasks: [],
   }), /No native fallback tasks/);
   assert.equal(created.length, 0);
+});
+
+test('fallback tasks preserve request correlation and reject unsafe URLs', async () => {
+  const correlated = request('post-1');
+  correlated.item.requestId = 'request-123';
+  const id = await fallback.enqueueNativeFallback(correlated);
+  assert.equal(stored.pendingNativeFallbacks[id].requests[0].item.requestId, 'request-123');
+
+  const unsafe = request('post-2');
+  unsafe.tasks[0].url = 'file:///sensitive.txt';
+  await assert.rejects(fallback.enqueueNativeFallback(unsafe), /No native fallback tasks/);
 });

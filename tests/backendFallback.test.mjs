@@ -16,8 +16,12 @@ const configUrl = asModuleUrl(`
   }
 `);
 const networkUrl = asModuleUrl(`
-  export async function handleAPIRequest() { throw new Error('unexpected API request'); }
-  export async function getCookies() { return ''; }
+  export async function handleAPIRequest() {
+    if (globalThis.__apiResponse) return globalThis.__apiResponse;
+    throw new Error('unexpected API request');
+  }
+  export async function getCookies() { return globalThis.__cookieString || ''; }
+  export async function readLimitedResponseText(response) { return response.text(); }
 `);
 const pawchiveUrl = asModuleUrl(`
   export function isCompletePawchivePost(post) { return post && post.has_full === true; }
@@ -36,6 +40,7 @@ const downloadSource = (await readFile(path.join(root, 'background', 'download.j
 
 let nativeDownloadCalls;
 let nativeDownloadOptions;
+let runtimeMessages;
 const testChrome = {
   downloads: {
     download(options, callback) {
@@ -48,6 +53,7 @@ const testChrome = {
     id: 'test-extension',
     lastError: null,
     sendMessage(_payload, callback) {
+      runtimeMessages.push(_payload);
       callback?.();
     },
   },
@@ -59,17 +65,21 @@ const testChrome = {
 };
 
 globalThis.chrome = testChrome;
-globalThis.fetch = async () => ({
-  ok: false,
-  status: 503,
-  async text() { return 'backend unavailable'; },
-});
+globalThis.fetch = (...args) => globalThis.__fetchImplementation(...args);
 const download = await import(asModuleUrl(downloadSource));
 
 beforeEach(() => {
   globalThis.chrome = testChrome;
   nativeDownloadCalls = 0;
   nativeDownloadOptions = [];
+  runtimeMessages = [];
+  globalThis.__apiResponse = null;
+  globalThis.__cookieString = '';
+  globalThis.__fetchImplementation = async () => ({
+    ok: false,
+    status: 503,
+    async text() { return 'backend unavailable'; },
+  });
   globalThis.__backendConfig = {
     enabled: true,
     backendType: 'abdm',
@@ -128,4 +138,66 @@ test('downloads the aggregated external-link TXT directly through Chrome', async
   const text = decodeURIComponent(nativeDownloadOptions[0].url.split(',', 2)[1]);
   assert.match(text, /https:\/\/mega\.nz\/file\/no-key/);
   assert.match(text, /https:\/\/pawchive\.pw\/patreon\/user\/creator-1\/post\/post-1/);
+});
+
+test('rejects media URLs outside supported HTTPS site families', async () => {
+  globalThis.__apiResponse = {
+    post: { title: 'unsafe' },
+    videos: [{ url: 'https://attacker.example/payload.exe' }],
+  };
+
+  await assert.rejects(
+    download.startFullDownload('patreon', 'creator-1', 'post-1', '', 'https://kemono.cr/post-1'),
+    /no trusted HTTPS media URLs/
+  );
+});
+
+test('does not forward a site cookie to another supported media family', async () => {
+  globalThis.__apiResponse = {
+    post: { title: 'cross-site media' },
+    videos: [{ url: 'https://coomer.st/data/media.jpg' }],
+  };
+  globalThis.__cookieString = 'session=secret';
+  let backendPayload;
+  globalThis.__fetchImplementation = async (_url, options) => {
+    backendPayload = JSON.parse(options.body);
+    return { ok: true, status: 200, async text() { return ''; } };
+  };
+
+  const result = await download.startFullDownload(
+    'patreon',
+    'creator-1',
+    'post-1',
+    '',
+    'https://kemono.cr/post-1'
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(backendPayload.downloadSource.link, 'https://coomer.st/data/media.jpg');
+  assert.equal('Cookie' in backendPayload.downloadSource.headers, false);
+});
+
+test('backend progress preserves the originating request id', async () => {
+  globalThis.__apiResponse = {
+    post: { title: 'progress' },
+    videos: [{ url: 'https://kemono.cr/data/media.jpg' }],
+  };
+  globalThis.__fetchImplementation = async () => ({
+    ok: true,
+    status: 200,
+    async text() { return ''; },
+  });
+
+  await download.startFullDownload(
+    'patreon',
+    'creator-1',
+    'post-1',
+    '',
+    'https://kemono.cr/post-1',
+    undefined,
+    'request-123'
+  );
+
+  const progress = runtimeMessages.find((message) => message.action === 'downloadProgress');
+  assert.equal(progress.requestId, 'request-123');
 });

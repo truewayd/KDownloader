@@ -1,6 +1,6 @@
 # KDownloader Agent Guide
 
-Last reviewed: 2026-08-02
+Last reviewed: 2026-08-10
 
 This file is the current engineering contract for the extension. Historical release notes live in `changelog/`; do not append dated entries here.
 
@@ -29,13 +29,13 @@ Do not edit `dist/` by hand. It is generated and ignored.
 
 - `background/constants.js` is the only source for `CONFIG`, storage keys, `API`, and `PAW`.
 - `API.HOSTS` contains only hosts that use the shared `/api/v1` and creator override flows. `API.COOMERFANS_ORIGIN` is separate. `PAW` is fixed to `pawchive.pw` and `file.pawchive.pw`; do not reintroduce old Pawchive domains.
-- `background/messages.js` builds the RPC table from `background/handlers/*.js`. Long operations acknowledge synchronously with `{ accepted: true }`, then broadcast progress and a terminal completion message.
-- `background/network.js` owns fetch, cookies, Pawchive bridge routing, Cloudflare/WAF detection, and challenge notifications. Pawchive JSON requests go through `fetchPawchiveJson`.
+- `background/messages.js` builds the RPC table from `background/handlers/*.js` and dispatches only own, string-named function entries. Long operations acknowledge synchronously with `{ accepted: true }`, then broadcast progress and a terminal completion message carrying the request ID.
+- `background/network.js` owns fetch, cookies, response-size limits, request timeouts, Pawchive bridge routing, Cloudflare/WAF detection, and challenge notifications. API requests are HTTPS allowlisted; Pawchive JSON requests go through `fetchPawchiveJson`.
 - `background/db.js` owns IndexedDB history version 3. The active generation pointer and generation metadata make import commit and stats O(1). Records use compound identity `[source, service, userId, postId]`; supported statuses are `partial`, `complete`, and `empty`.
-- History is not copied through a single runtime message. Use `db.import.begin/chunk/commit/abort` and `db.export.begin/page` with bounded payloads. Duplicate identities must abort an import without changing the active generation.
-- `background/download.js` owns task construction, suffix filtering, batching, bounded workers, retries, progress, backend dispatch, and link TXT declaration. Native Chrome fallback is only offered after the persisted, user-confirmed total-failure notification.
-- `background/config.js` owns backend, download-rule, Watch, and Gist defaults/normalization. `settings.restoreDefaults` resets those values in one sync write, disables the creators override, and reschedules the Watch alarm; it never clears history or the Watch list.
-- `background/creators.js` owns the Kemono/Coomer creator cache and enable flag. `background/watch.js` owns Pawchive Watch only.
+- History is not copied through a single runtime message. Use `db.import.begin/chunk/commit/abort` and `db.export.begin/page` with bounded payloads. Duplicate identities must abort an import without changing the active generation. Retired generations and abandoned imports are reclaimed after their safety windows.
+- `background/download.js` owns task construction, trusted media-host validation, suffix filtering, batching, bounded workers, retries, progress, backend dispatch, and link TXT declaration. Site cookies may be forwarded only to the same trusted site family. Native Chrome fallback is only offered after the persisted, user-confirmed total-failure notification.
+- `background/config.js` owns backend, download-rule, Watch, and Gist defaults/normalization. Download backends are loopback-only (`localhost` or `127.0.0.1`). `settings.restoreDefaults` resets those values in one sync write, disables the creators override, and reschedules the Watch alarm; it never clears history or the Watch list.
+- `background/creators.js` owns the Kemono/Coomer creator cache and enable flag. The injected cache bridge must honor enable/disable changes immediately. `background/watch.js` owns Pawchive Watch only and bounds high-concurrency checks.
 - Remove exports only after `rg`/`git grep` confirms there are no runtime, test, or build references.
 
 ## Content Script Order
@@ -86,6 +86,13 @@ Download rules are stored in sync storage as `{ enabled, excludedExtensions }`. 
 
 Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps avatar data outside exports. A manual add establishes the current profile update baseline before notifications are enabled. Scheduled checks aggregate updates/failures and preserve baselines on failure.
 
+## TrueDown Runtime
+
+- TrueDown listens on `127.0.0.1:15151` by default. A non-loopback `TRUEDOWN_ADDR` requires `TRUEDOWN_ALLOW_REMOTE=1` and must name a specific interface; wildcard binds are rejected.
+- The HTTP boundary validates request hosts and write origins, applies security headers and timeouts, limits start requests to 1 MiB, accepts exactly one known-field JSON object, and returns task snapshots without headers or aria2 options.
+- Download URLs are absolute HTTP(S) URLs without embedded credentials. Output names, headers, folders, queue IDs, and aria2 options are bounded; process hooks, RPC controls, and local-file aria2 options cannot be overridden through `extraArgs`.
+- The manager indexes aria2 GIDs for status polling, clears drained queue references for GC, and exposes UI snapshots instead of cloning secret-bearing task payloads on every poll.
+
 ## Build And Release
 
 - `tools/build-extension.ps1` creates a clean unpacked directory (normally `dist/KDownloader`) containing runtime files only. It rejects Python artifacts and underscore-prefixed reserved paths other than `_locales`.
@@ -104,6 +111,9 @@ npm test
 python -m unittest tests/migrate_history_json_test.py
 pwsh -NoProfile -ExecutionPolicy Bypass -File tools/build-extension.ps1
 pwsh -NoProfile -ExecutionPolicy Bypass -File tools/read-latest-changelog.ps1 -OutputFile release-notes.md
+cd truedown
+go test ./...
+go vet ./...
 ```
 
 When UI or content code changes, also verify:

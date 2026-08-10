@@ -3,7 +3,6 @@ import { createConfigHandlers } from "./handlers/configHandlers.js";
 import { createDbHandlers } from "./handlers/dbHandlers.js";
 import { createDownloadHandlers } from "./handlers/downloadHandlers.js";
 import { createCreatorsHandlers } from "./handlers/creatorsHandlers.js";
-import { createUtilityHandlers } from "./handlers/utilityHandlers.js";
 import { createWatchHandlers } from "./handlers/watchHandlers.js";
 
 function buildHandlers() {
@@ -12,7 +11,6 @@ function buildHandlers() {
     ...createDbHandlers(),
     ...createDownloadHandlers(),
     ...createCreatorsHandlers(),
-    ...createUtilityHandlers(),
     ...createWatchHandlers(),
   };
 }
@@ -22,9 +20,10 @@ export function registerMessageHandlers() {
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
-      if (!message || !message.action) return false;
+      if (!message || typeof message.action !== "string") return false;
+      if (!Object.prototype.hasOwnProperty.call(handlers, message.action)) return false;
       const handler = handlers[message.action];
-      if (!handler) return false;
+      if (typeof handler !== "function") return false;
       return handler({ message, sender, sendResponse });
     } catch (err) {
       console.error("[Background] onMessage error", err);

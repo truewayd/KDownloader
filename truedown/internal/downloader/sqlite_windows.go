@@ -4,6 +4,7 @@ package downloader
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -20,6 +21,7 @@ const (
 
 var (
 	sqliteDLL          = syscall.NewLazyDLL("winsqlite3.dll")
+	kernel32DLL        = syscall.NewLazyDLL("kernel32.dll")
 	sqliteOpenV2       = sqliteDLL.NewProc("sqlite3_open_v2")
 	sqliteCloseV2      = sqliteDLL.NewProc("sqlite3_close_v2")
 	sqlitePrepareV2    = sqliteDLL.NewProc("sqlite3_prepare_v2")
@@ -29,10 +31,13 @@ var (
 	sqliteBindInt64    = sqliteDLL.NewProc("sqlite3_bind_int64")
 	sqliteBindNull     = sqliteDLL.NewProc("sqlite3_bind_null")
 	sqliteColumnText   = sqliteDLL.NewProc("sqlite3_column_text")
+	sqliteColumnBytes  = sqliteDLL.NewProc("sqlite3_column_bytes")
 	sqliteColumnInt64  = sqliteDLL.NewProc("sqlite3_column_int64")
 	sqliteColumnType   = sqliteDLL.NewProc("sqlite3_column_type")
 	sqliteErrmsg       = sqliteDLL.NewProc("sqlite3_errmsg")
 	sqliteLastInsertID = sqliteDLL.NewProc("sqlite3_last_insert_rowid")
+	lstrlenA           = kernel32DLL.NewProc("lstrlenA")
+	rtlMoveMemory      = kernel32DLL.NewProc("RtlMoveMemory")
 )
 
 type sqliteConn struct {
@@ -179,7 +184,8 @@ func (r *sqliteRows) Next() (bool, error) {
 
 func (r *sqliteRows) Text(column int) string {
 	ptr, _, _ := sqliteColumnText.Call(r.stmt, uintptr(column))
-	return cString(ptr)
+	length, _, _ := sqliteColumnBytes.Call(r.stmt, uintptr(column))
+	return copyCString(ptr, length)
 }
 
 func (r *sqliteRows) Int64(column int) int64 {
@@ -200,17 +206,28 @@ func (r *sqliteRows) Close() {
 	}
 }
 
-//go:nocheckptr
 func cString(ptr uintptr) string {
 	if ptr == 0 {
 		return ""
 	}
 	const maxCString = 64 << 20
-	bytes := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), maxCString)
-	for i, b := range bytes {
-		if b == 0 {
-			return string(bytes[:i])
-		}
+	length, _, _ := lstrlenA.Call(ptr)
+	if length > maxCString {
+		return ""
 	}
-	return ""
+	return copyCString(ptr, length)
+}
+
+func copyCString(ptr, length uintptr) string {
+	if ptr == 0 || length == 0 {
+		return ""
+	}
+	const maxCString = 64 << 20
+	if length > maxCString {
+		return ""
+	}
+	buffer := make([]byte, int(length))
+	rtlMoveMemory.Call(uintptr(unsafe.Pointer(&buffer[0])), ptr, length)
+	runtime.KeepAlive(buffer)
+	return string(buffer)
 }

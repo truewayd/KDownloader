@@ -12,6 +12,7 @@
     lastHref: location.href,
     generation: 0,
     stopped: false,
+    listenerController: null,
   };
 
   function stop() {
@@ -27,6 +28,8 @@
       state.observer.disconnect();
       state.observer = null;
     }
+    state.listenerController?.abort();
+    state.listenerController = null;
   }
 
   function isElement(node) {
@@ -50,18 +53,19 @@
   }
 
   function mutationLooksRelevant(mutations) {
+    const selector = handlers
+      .map((handler) => handler.targetSelector)
+      .filter(Boolean)
+      .join(", ");
+    if (!selector) return false;
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
         if (isOwnInjectedNode(node)) continue;
-        for (const handler of handlers) {
-          if (nodeHasSelector(node, handler.targetSelector)) return true;
-        }
+        if (nodeHasSelector(node, selector)) return true;
       }
       for (const node of mutation.removedNodes) {
         if (isOwnInjectedNode(node)) continue;
-        for (const handler of handlers) {
-          if (nodeHasSelector(node, handler.targetSelector)) return true;
-        }
+        if (nodeHasSelector(node, selector)) return true;
       }
     }
     return false;
@@ -178,16 +182,18 @@
   function start() {
     if (state.started) return;
     state.started = true;
+    state.listenerController = typeof AbortController === "function" ? new AbortController() : null;
+    const signal = state.listenerController?.signal;
     patchHistory();
-    window.addEventListener(EXTENSION_CONTEXT_INVALIDATED_EVENT, stop, { once: true });
+    window.addEventListener(EXTENSION_CONTEXT_INVALIDATED_EVENT, stop, { once: true, signal });
 
-    window.addEventListener("kd:locationchange", () => schedule("history", 220));
-    window.addEventListener("popstate", () => schedule("popstate", 220));
-    window.addEventListener("hashchange", () => schedule("hashchange", 220));
-    window.addEventListener("pageshow", () => schedule("pageshow", 220));
+    window.addEventListener("kd:locationchange", () => schedule("history", 220), { signal });
+    window.addEventListener("popstate", () => schedule("popstate", 220), { signal });
+    window.addEventListener("hashchange", () => schedule("hashchange", 220), { signal });
+    window.addEventListener("pageshow", () => schedule("pageshow", 220), { signal });
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) schedule("visible", 220);
-    });
+    }, { signal });
 
     for (const eventName of [
       "htmx:afterSwap",
@@ -195,7 +201,7 @@
       "htmx:load",
       "htmx:historyRestore",
     ]) {
-      document.addEventListener(eventName, () => schedule(eventName, 180));
+      document.addEventListener(eventName, () => schedule(eventName, 180), { signal });
     }
 
     if (document.readyState === "loading") {
@@ -205,7 +211,7 @@
           ensureObserver();
           schedule("domcontentloaded", getInitDelay());
         },
-        { once: true }
+        { once: true, signal }
       );
     } else {
       ensureObserver();

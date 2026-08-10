@@ -28,6 +28,8 @@ const {
   getDefaultGistConfig,
   getDefaultWatchConfig,
   restoreDefaultConfigs,
+  saveBackendConfig,
+  saveGistConfig,
 } = await import("../background/config.js");
 
 test("default config restoration batches every sync value into one write", async () => {
@@ -47,6 +49,34 @@ test("default config restoration batches every sync value into one write", async
     "gistConfig",
     "watchConfig",
   ]);
+});
+
+test("backend and token settings are bounded and restricted to loopback", async () => {
+  const backend = await saveBackendConfig({
+    enabled: true,
+    host: "api.github.com",
+    port: "99999",
+    concurrency: 99,
+    retryCount: -4,
+    perPostFileLimit: 50000,
+    gopeedHost: "localhost",
+    gopeedToken: " token-value ",
+    unknown: "discarded",
+  });
+  assert.deepEqual(backend, {
+    ...getDefaultBackendConfig(),
+    enabled: true,
+    port: 65535,
+    concurrency: 6,
+    retryCount: 0,
+    perPostFileLimit: 1000,
+    gopeedHost: "localhost",
+    gopeedToken: "token-value",
+  });
+  assert.equal(Object.hasOwn(backend, "unknown"), false);
+
+  const gist = await saveGistConfig({ token: "unsafe\r\nheader", gistId: "  gist-id  " });
+  assert.deepEqual(gist, { enabled: false, token: "", gistId: "gist-id" });
 });
 
 test("settings restore RPC resets config, search override, and watch schedule", async () => {

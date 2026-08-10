@@ -141,7 +141,7 @@
     "message": "ABDM 协议"
   },
   "abdmHost": {
-    "message": "ABDM 主机"
+    "message": "ABDM 本机地址"
   },
   "abdmPort": {
     "message": "ABDM 端口"
@@ -150,7 +150,10 @@
     "message": "Gopeed 协议"
   },
   "gopeedHost": {
-    "message": "Gopeed 主机"
+    "message": "Gopeed 本机地址"
+  },
+  "backendLoopbackRequired": {
+    "message": "后端地址只能使用 localhost 或 127.0.0.1"
   },
   "gopeedPort": {
     "message": "Gopeed 端口"
@@ -177,7 +180,7 @@
     "message": "排除的文件后缀"
   },
   "watchTitle": {
-    "message": "Pawchive 关注监控"
+    "message": "Pawchive 创作者关注"
   },
   "intervalMinutes": {
     "message": "间隔分钟数"
@@ -189,7 +192,7 @@
     "message": "分批检查"
   },
   "watchCheckAll": {
-    "message": "一次检查"
+    "message": "高并发检查"
   },
   "watchCountEmpty": {
     "message": "尚未关注创作者"
@@ -281,7 +284,7 @@
     "message": "已恢复默认值"
   },
   "watchCheckStarted": {
-    "message": "关注检查已开始"
+    "message": "已开始检查关注列表"
   },
   "watchExported": {
     "message": "关注列表已导出"

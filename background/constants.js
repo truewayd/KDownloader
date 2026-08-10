@@ -1,15 +1,13 @@
 // background/constants.js - shared constants and storage keys
 
 export const CONFIG = {
-  MAX_RETRIES: 1,
-  DOWNLOAD_TIMEOUT: 300000,
-  // Legacy fixed interval (kept for backwards compatibility)
+  // Fixed interval used by native Chrome downloads.
   TASK_INTERVAL: 100,
-  // Adaptive dispatch interval settings (for centralized queue)
-  TASK_INTERVAL_INITIAL: 50, // initial delay between dispatches (ms)
-  TASK_INTERVAL_BACKOFF_FACTOR: 1.5, // multiplicative backoff factor applied after each dispatch
-  TASK_INTERVAL_LINEAR_INC: 20, // small linear increment applied after each dispatch (ms)
-  TASK_INTERVAL_MAX: 5000, // maximum delay cap (ms)
+  // Adaptive backend dispatch interval settings.
+  TASK_INTERVAL_INITIAL: 50,
+  TASK_INTERVAL_BACKOFF_FACTOR: 1.5,
+  TASK_INTERVAL_LINEAR_INC: 20,
+  TASK_INTERVAL_MAX: 5000,
   MAX_CONCURRENT_DOWNLOADS: 3,
   MAX_FILENAME_LENGTH: 200,
 };
@@ -69,6 +67,3 @@ export const CREATORS_OVERRIDE_ENABLED_KEY = "creatorsOverrideEnabled";
 
 // Creator flag storage key
 export const CREATOR_FLAG_KEY = "creatorFlags";
-
-// Declarative Net Request rule IDs
-export const DNR_CREATOR_RULE_ID = 1001;

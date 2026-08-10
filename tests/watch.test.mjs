@@ -306,17 +306,17 @@ test('multiple updates use one notification with the newest creator icon', async
   assert.ok(requestedUrls.includes('https://pawchive.pw/icons/fanbox/creator-2'));
 });
 
-async function importConcurrencyFixtures() {
+async function importConcurrencyFixtures(count = 6) {
   const watches = [];
   profiles = new Map();
-  for (let index = 1; index <= 6; index++) {
+  for (let index = 1; index <= count; index++) {
     const userId = `creator-${index}`;
     watches.push({
       service: 'patreon',
       userId,
       name: `Creator ${index}`,
       updated: '2026-07-01T00:00:00',
-      watchedAt: `2026-07-14T00:00:0${index}.000Z`,
+      watchedAt: new Date(Date.UTC(2026, 6, 14, 0, 0, index)).toISOString(),
     });
     profiles.set(userId, {
       id: userId,
@@ -336,11 +336,11 @@ test('batch mode checks at most five creator profiles concurrently', async () =>
   assert.equal(maxProfileRequestsInFlight, 5);
 });
 
-test('all mode checks every creator profile in one concurrent round', async () => {
+test('all mode checks every creator with bounded high concurrency', async () => {
   areas.sync.watchConfig.checkMode = 'all';
-  await importConcurrencyFixtures();
+  await importConcurrencyFixtures(30);
   await watch.runWatchCheck();
-  assert.equal(maxProfileRequestsInFlight, 6);
+  assert.equal(maxProfileRequestsInFlight, 25);
 });
 
 test('default alarm scheduling uses a 30-minute period', async () => {

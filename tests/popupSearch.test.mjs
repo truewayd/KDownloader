@@ -6,7 +6,7 @@ import vm from "node:vm";
 const source = fs.readFileSync(new URL("../popup/search.js", import.meta.url), "utf8");
 const context = vm.createContext({ URL });
 vm.runInContext(source, context);
-const { buildSearchUrl } = context.KDPopupSearch;
+const { buildSearchUrl, parseCreatorUrl } = context.KDPopupSearch;
 
 test("buildSearchUrl creates favorited artist searches", () => {
     assert.equal(
@@ -33,4 +33,19 @@ test("buildSearchUrl creates CoomerFans root searches", () => {
 test("buildSearchUrl rejects empty queries and unknown sites", () => {
     assert.equal(buildSearchUrl("pawchive", "  "), null);
     assert.equal(buildSearchUrl("unknown", "creator"), null);
+});
+
+test("parseCreatorUrl accepts only supported HTTPS creator pages", () => {
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(parseCreatorUrl("https://kemono.cr/patreon/user/42"))),
+        {
+            origin: "https://kemono.cr",
+            host: "kemono.cr",
+            service: "patreon",
+            userId: "42",
+        }
+    );
+    assert.equal(parseCreatorUrl("https://example.com/patreon/user/42"), null);
+    assert.equal(parseCreatorUrl("http://kemono.cr/patreon/user/42"), null);
+    assert.equal(parseCreatorUrl("https://127.0.0.1/api/user/42"), null);
 });

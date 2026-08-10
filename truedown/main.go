@@ -4,9 +4,12 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -67,19 +70,24 @@ func main() {
 	}
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
-	addr := os.Getenv("TRUEDOWN_ADDR")
-	if addr == "" {
-		addr = ":15151"
+	addr, err := validateListenAddress(os.Getenv("TRUEDOWN_ADDR"), os.Getenv("TRUEDOWN_ALLOW_REMOTE") == "1")
+	if err != nil {
+		log.Fatal(err)
 	}
-	browserURL := "http://" + addr
-	if strings.HasPrefix(addr, ":") {
-		browserURL = "http://localhost" + addr
-	}
+	browserURL := browserURLForAddress(addr)
 	log.Printf("TrueDown listening on %s", addr)
 	if os.Getenv("TRUEDOWN_NO_BROWSER") == "" {
 		go openBrowser(browserURL)
 	}
-	server := &http.Server{Addr: addr, Handler: mux}
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           secureHandler(mux, addr),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    32 * 1024,
+	}
 	serverErr := make(chan error, 1)
 	go func() { serverErr <- server.ListenAndServe() }()
 	stop := make(chan os.Signal, 1)
@@ -96,6 +104,104 @@ func main() {
 			log.Printf("HTTP shutdown: %v", err)
 		}
 	}
+}
+
+func validateListenAddress(value string, allowRemote bool) (string, error) {
+	addr := strings.TrimSpace(value)
+	if addr == "" {
+		addr = "127.0.0.1:15151"
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || port == "" {
+		return "", fmt.Errorf("invalid TRUEDOWN_ADDR %q", addr)
+	}
+	if _, err := net.LookupPort("tcp", port); err != nil {
+		return "", fmt.Errorf("invalid TRUEDOWN_ADDR port %q", port)
+	}
+	plainHost := strings.Trim(host, "[]")
+	if plainHost == "" {
+		return "", fmt.Errorf("TRUEDOWN_ADDR must name a specific interface")
+	}
+	isLoopback := strings.EqualFold(plainHost, "localhost")
+	if ip := net.ParseIP(plainHost); ip != nil {
+		if ip.IsUnspecified() {
+			return "", fmt.Errorf("TRUEDOWN_ADDR must name a specific interface, not %q", plainHost)
+		}
+		isLoopback = ip.IsLoopback()
+	} else if !isLoopback {
+		return "", fmt.Errorf("TRUEDOWN_ADDR must use an IP literal or localhost")
+	}
+	if !isLoopback && !allowRemote {
+		return "", fmt.Errorf("TRUEDOWN_ADDR must use a loopback host unless TRUEDOWN_ALLOW_REMOTE=1")
+	}
+	return addr, nil
+}
+
+func browserURLForAddress(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "http://127.0.0.1:15151"
+	}
+	plainHost := strings.Trim(host, "[]")
+	if plainHost == "" || plainHost == "0.0.0.0" || plainHost == "::" {
+		plainHost = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(plainHost, port)
+}
+
+func secureHandler(next http.Handler, listenAddresses ...string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		if !allowedRequestHost(r.Host, listenAddresses...) {
+			http.Error(w, "unrecognized request host", http.StatusForbidden)
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && !allowedRequestOrigin(r) {
+			http.Error(w, "cross-origin request rejected", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func allowedRequestHost(requestHost string, listenAddresses ...string) bool {
+	host := requestHost
+	if parsedHost, _, err := net.SplitHostPort(requestHost); err == nil {
+		host = parsedHost
+	}
+	plainHost := strings.Trim(strings.TrimSpace(host), "[]")
+	if strings.EqualFold(plainHost, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(plainHost); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	for _, address := range listenAddresses {
+		configuredHost, _, err := net.SplitHostPort(address)
+		if err == nil && strings.EqualFold(strings.Trim(configuredHost, "[]"), plainHost) {
+			return true
+		}
+	}
+	return false
+}
+
+func allowedRequestOrigin(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme == "chrome-extension" && parsed.Host != "" {
+		return true
+	}
+	return (parsed.Scheme == "http" || parsed.Scheme == "https") && strings.EqualFold(parsed.Host, r.Host)
 }
 
 func openBrowser(url string) {

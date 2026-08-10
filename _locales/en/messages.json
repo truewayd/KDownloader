@@ -141,7 +141,7 @@
     "message": "ABDM protocol"
   },
   "abdmHost": {
-    "message": "ABDM host"
+    "message": "ABDM loopback host"
   },
   "abdmPort": {
     "message": "ABDM port"
@@ -150,7 +150,10 @@
     "message": "Gopeed protocol"
   },
   "gopeedHost": {
-    "message": "Gopeed host"
+    "message": "Gopeed loopback host"
+  },
+  "backendLoopbackRequired": {
+    "message": "Backend host must be localhost or 127.0.0.1"
   },
   "gopeedPort": {
     "message": "Gopeed port"
@@ -189,7 +192,7 @@
     "message": "Batched"
   },
   "watchCheckAll": {
-    "message": "All at once"
+    "message": "High concurrency"
   },
   "watchCountEmpty": {
     "message": "No watched creators"
@@ -311,7 +314,7 @@
     "message": "Fetching..."
   },
   "statusAllSent": {
-    "message": "✓ All Sent"
+    "message": "✓ All sent"
   },
   "statusFailedDecorated": {
     "message": "✗ Failed"

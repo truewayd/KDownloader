@@ -99,30 +99,6 @@ function setCreatorFetchAvailability(config) {
     creatorFetchBtn.title = fetchReady ? t("creatorFetchTooltip") : t("openSettingsTooltip");
 }
 
-function parseCreatorUrl(urlStr) {
-    try {
-        const u = new URL(urlStr);
-        const host = u.hostname.toLowerCase();
-        const parts = u.pathname.split("/").filter(Boolean);
-
-        if ((host === "coomerfans.com" || host.endsWith(".coomerfans.com")) && parts[0] === "u" && parts.length >= 3) {
-            return {
-                origin: u.origin,
-                host,
-                service: parts[1].toLowerCase(),
-                userId: parts[2],
-                creatorName: parts[3] ? decodeURIComponent(parts[3]) : "",
-                source: "coomerfans",
-            };
-        }
-
-        if (parts.length < 3 || parts[1] !== "user") return null;
-        return { origin: u.origin, host, service: parts[0], userId: parts[2] };
-    } catch (_) {
-        return null;
-    }
-}
-
 async function loadBackendState() {
     try {
         const response = await safeSendMessage({ action: "backend.getConfig" }, 3000, { retries: 1, retryDelay: 200 });
@@ -170,7 +146,16 @@ async function loadStats() {
 }
 
 function notifyContentUpdate() {
-    chrome.tabs.query({ url: ["*://coomer.st/*", "*://kemono.cr/*", "*://coomerfans.com/*"] }, (tabs) => {
+    chrome.tabs.query({
+        url: [
+            "https://coomer.st/*",
+            "https://*.coomer.st/*",
+            "https://kemono.cr/*",
+            "https://*.kemono.cr/*",
+            "https://coomerfans.com/*",
+            "https://*.coomerfans.com/*",
+        ],
+    }, (tabs) => {
         tabs.forEach((tab) => {
             try {
                 chrome.tabs.sendMessage(tab.id, { action: "updateUI" });
@@ -229,6 +214,9 @@ async function importData(file) {
     let sessionId = null;
     try {
         setLoading(true);
+        if (!file || file.size > 64 * 1024 * 1024) {
+            throw new Error("History import file exceeds the 64 MiB safety limit");
+        }
         let text = await file.text();
         const parsed = JSON.parse(text);
         text = null;
@@ -257,7 +245,7 @@ async function importData(file) {
             let chunkBytes = 2;
             let hash = 2166136261;
             const startIndex = index;
-            while (index < parsed.records.length) {
+            while (index < parsed.records.length && chunk.length < 5000) {
                 const record = parsed.records[index];
                 const recordText = JSON.stringify(record);
                 // Three bytes per UTF-16 code unit is a conservative UTF-8
@@ -348,7 +336,7 @@ async function handleCreatorFetchClick() {
         return;
     }
 
-    const parsed = parseCreatorUrl(urlStr);
+    const parsed = KDPopupSearch.parseCreatorUrl(urlStr);
     if (!parsed) {
         showError(t("creatorUrlInvalid"));
         return;

@@ -19,6 +19,14 @@ function numberValue(id, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) {
   return Math.min(max, Math.max(min, Math.floor(value)));
 }
 
+function loopbackHostValue(id) {
+  const value = ($(id)?.value || "127.0.0.1").trim().toLowerCase();
+  if (value !== "127.0.0.1" && value !== "localhost") {
+    throw new Error(t("backendLoopbackRequired", null, "Backend host must be localhost or 127.0.0.1"));
+  }
+  return value;
+}
+
 function setValue(id, value) {
   const el = $(id);
   if (!el) return;
@@ -88,13 +96,13 @@ async function saveBackend() {
     enabled: !!$("backend-enabled")?.checked,
     backendType,
     protocol: $("backend-protocol")?.value === "https" ? "https" : "http",
-    host: ($("backend-host")?.value || "").trim() || "127.0.0.1",
+    host: loopbackHostValue("backend-host"),
     port: numberValue("backend-port", 15151, 1, 65535),
     concurrency: numberValue("backend-concurrency", 3, 1, 6),
     retryCount: numberValue("backend-retry-count", 3, 0, 10),
     perPostFileLimit: numberValue("backend-file-limit", 100, 1, 1000),
     gopeedProtocol: $("gopeed-protocol")?.value === "https" ? "https" : "http",
-    gopeedHost: ($("gopeed-host")?.value || "").trim() || "127.0.0.1",
+    gopeedHost: loopbackHostValue("gopeed-host"),
     gopeedPort: numberValue("gopeed-port", 9999, 1, 65535),
     gopeedToken: $("gopeed-token")?.value || "",
   };
@@ -160,6 +168,7 @@ async function exportWatchList() {
 
 async function importWatchList(file) {
   if (!file) return false;
+  if (file.size > 4 * 1024 * 1024) throw new Error("Watch import file exceeds the 4 MiB safety limit");
   const confirmed = confirm(t("watchImportConfirm"));
   if (!confirmed) return false;
   const data = JSON.parse(await file.text());

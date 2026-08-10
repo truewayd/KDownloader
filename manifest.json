@@ -9,24 +9,23 @@
     "unlimitedStorage",
     "cookies",
     "downloads",
-    "webRequest",
     "notifications",
-    "alarms",
-    "declarativeNetRequest",
-    "declarativeNetRequestWithHostAccess"
+    "alarms"
   ],
   "host_permissions": [
-    "*://coomer.st/*",
-    "*://kemono.cr/*",
-    "*://coomerfans.com/*",
-    "*://*.coomer.st/*",
-    "*://*.kemono.cr/*",
-    "*://*.coomerfans.com/*",
+    "https://coomer.st/*",
+    "https://kemono.cr/*",
+    "https://coomerfans.com/*",
+    "https://*.coomer.st/*",
+    "https://*.kemono.cr/*",
+    "https://*.coomerfans.com/*",
     "https://pawchive.pw/*",
     "https://file.pawchive.pw/*",
     "https://api.github.com/*",
     "http://127.0.0.1/*",
-    "http://localhost/*"
+    "http://localhost/*",
+    "https://127.0.0.1/*",
+    "https://localhost/*"
   ],
   "background": {
     "service_worker": "background/index.js",
@@ -39,16 +38,16 @@
       "run_at": "document_start"
     },
     {
-      "matches": ["*://coomer.st/*", "*://kemono.cr/*"],
+      "matches": ["https://coomer.st/*", "https://kemono.cr/*"],
       "js": ["content/injector.js"],
       "run_at": "document_start"
     },
     {
       "matches": [
-        "*://coomer.st/*/user/*/post/*",
-        "*://kemono.cr/*/user/*/post/*",
-        "*://coomer.st/*/user/*",
-        "*://kemono.cr/*/user/*"
+        "https://coomer.st/*/user/*/post/*",
+        "https://kemono.cr/*/user/*/post/*",
+        "https://coomer.st/*/user/*",
+        "https://kemono.cr/*/user/*"
       ],
       "js": [
         "content/helpers.js",
@@ -63,8 +62,8 @@
     },
     {
       "matches": [
-        "*://coomer.st/*/account/favorites/artists*",
-        "*://kemono.cr/*/account/favorites/artists*"
+        "https://coomer.st/*/account/favorites/artists*",
+        "https://kemono.cr/*/account/favorites/artists*"
       ],
       "js": ["content/helpers.js", "shared/i18n.js", "content/ui.js", "content/router.js", "content/flag/index.js"],
       "css": ["content.css"],
@@ -87,10 +86,10 @@
     },
     {
       "matches": [
-        "*://coomerfans.com/u/*",
-        "*://coomerfans.com/p/*",
-        "*://*.coomerfans.com/u/*",
-        "*://*.coomerfans.com/p/*"
+        "https://coomerfans.com/u/*",
+        "https://coomerfans.com/p/*",
+        "https://*.coomerfans.com/u/*",
+        "https://*.coomerfans.com/p/*"
       ],
       "js": [
         "content/helpers.js",
@@ -119,7 +118,7 @@
   "web_accessible_resources": [
     {
       "resources": ["injected/creators_page.js"],
-      "matches": ["*://coomer.st/*", "*://kemono.cr/*"]
+      "matches": ["https://coomer.st/*", "https://kemono.cr/*"]
     }
   ]
 }

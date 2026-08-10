@@ -132,7 +132,7 @@ function addPawPageFetchButton() {
        ackText: KDI18n.get("statusSending"),
       total: entries.length,
       renderProgress: ({ btn: progressBtn, message, state }) => {
-        progressBtn.title = `Sending ${message.sentCount || 0}/${state.total}`;
+        progressBtn.title = KDI18n.get("sendingCount", [message.sentCount || 0, state.total]);
       },
     });
   };

@@ -41,7 +41,7 @@ function scheduleRuntimeProgress(progress, immediate = false) {
   }, RUNTIME_EMIT_INTERVAL_MS);
 }
 
-export function emitGlobalProgress(immediate = false) {
+function emitGlobalProgress(immediate = false) {
   const progress = getGlobalProgress();
   scheduleRuntimeProgress(progress, immediate);
 

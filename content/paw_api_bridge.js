@@ -23,9 +23,44 @@
     const output = {};
     for (const [name, headerValue] of Object.entries(input)) {
       if (!/^(accept|accept-language|cache-control|pragma)$/i.test(name)) continue;
-      output[name] = String(headerValue);
+      const normalized = String(headerValue).trim();
+      if (normalized && normalized.length <= 4096 && !/[\0\r\n]/.test(normalized)) {
+        output[name] = normalized;
+      }
     }
     return output;
+  }
+
+  async function readLimitedText(response) {
+    const reader = response.body && typeof response.body.getReader === 'function'
+      ? response.body.getReader()
+      : null;
+    if (!reader) {
+      const body = await response.text();
+      if (new Blob([body]).size > MAX_RESPONSE_BYTES) {
+        throw new Error('Pawchive API response is too large for the extension bridge');
+      }
+      return body;
+    }
+    const decoder = new TextDecoder();
+    const chunks = [];
+    let received = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        received += value.byteLength;
+        if (received > MAX_RESPONSE_BYTES) {
+          await reader.cancel();
+          throw new Error('Pawchive API response is too large for the extension bridge');
+        }
+        chunks.push(decoder.decode(value, { stream: true }));
+      }
+      chunks.push(decoder.decode());
+      return chunks.join('');
+    } finally {
+      reader.releaseLock?.();
+    }
   }
 
   async function fetchApi(message) {
@@ -45,10 +80,8 @@
       if (Number.isFinite(declaredBytes) && declaredBytes > MAX_RESPONSE_BYTES) {
         throw new Error('Pawchive API response is too large for the extension bridge');
       }
-      const body = await response.text();
-      if (new Blob([body]).size > MAX_RESPONSE_BYTES) {
-        throw new Error('Pawchive API response is too large for the extension bridge');
-      }
+      normalizeApiUrl(response.url);
+      const body = await readLimitedText(response);
       const headers = {};
       for (const name of RESPONSE_HEADER_NAMES) {
         const value = response.headers.get(name);

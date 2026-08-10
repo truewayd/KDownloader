@@ -1,6 +1,12 @@
 // content/download.js - download request and progress state machines
 
 const DOWNLOAD_WATCHDOG_MS = 10 * 60 * 1000;
+let downloadRequestSequence = 0;
+
+function createDownloadRequestId() {
+  downloadRequestSequence += 1;
+  return `content:${Date.now()}:${downloadRequestSequence}`;
+}
 
 function matchesPostMessage(message, service, userId, postId) {
   return message?.service === service
@@ -86,6 +92,7 @@ async function handleDownload(
 ) {
   if (!button || button.disabled) return;
   updateButtonStatus(button, 'SCANNING', null, isCreatorPage);
+  const requestId = createDownloadRequestId();
 
   let ack;
   try {
@@ -97,6 +104,7 @@ async function handleDownload(
       path,
       source: options.source,
       creatorName: options.creatorName,
+      requestId,
     }, 7000, { retries: 2, retryDelay: 400 });
   } catch (error) {
     console.error('[Content] startDownload ack error:', getErrorMessage(error));
@@ -150,6 +158,7 @@ async function handleDownload(
 
   function onDownloadMessage(message) {
     if (!matchesPostMessage(message, service, userId, postId)) return;
+    if (message.requestId && message.requestId !== requestId) return;
     if (message.action === 'downloadProgress') {
       setDownloadProgressText(button, message, isCreatorPage);
       resetWatchdog();
@@ -196,6 +205,7 @@ async function runPageFetchWithProgress(options) {
   let successCount = 0;
   let watchdogTimer = null;
   let finished = false;
+  const requestId = createDownloadRequestId();
 
   const state = () => ({ total, completed, successCount });
   const cleanup = () => {
@@ -243,6 +253,7 @@ async function runPageFetchWithProgress(options) {
 
   function onBatchMessage(message) {
     if (finished || !message) return;
+    if (message.requestId !== requestId) return;
     if (message.service !== service || message.userId !== userId) return;
     if (message.action !== 'downloadProgress' && message.action !== 'downloadComplete') return;
 
@@ -278,12 +289,16 @@ async function runPageFetchWithProgress(options) {
   resetWatchdog();
 
   try {
-    const ack = await safeSendMessage(requestMessage, 10000, { retries: 2, retryDelay: 400 });
-    if (!ack || (!ack.accepted && !ack.success)) throw new Error('No ack');
+    const ack = await safeSendMessage(
+      { ...requestMessage, requestId },
+      10000,
+      { retries: 2, retryDelay: 400 }
+    );
+    if (!ack || (!ack.accepted && !ack.success)) throw new Error(ack?.error || 'No ack');
     if (!finished && btn.dataset.status !== 'SUCCESS') {
       updateButtonStatus(btn, 'SENDING', ackText, false);
     }
   } catch (error) {
-    finish('ERROR', `× ${KDI18n.get('errorNoAck')}`, false);
+    finish('ERROR', `× ${getErrorMessage(error) || KDI18n.get('errorNoAck')}`, false);
   }
 }

@@ -1,7 +1,7 @@
 // background/index.js - service worker entry
 import { WATCH_ALARM } from './constants.js';
 import { registerMessageHandlers } from './messages.js';
-import { ensureRuleState } from './creators.js';
+import { cleanupHistoryStorage } from './db.js';
 import { configureWatchAlarm, runWatchCheck } from './watch.js';
 import { handleNativeFallbackDecision } from './handlers/downloadHandlers.js';
 import {
@@ -15,12 +15,12 @@ registerMessageHandlers();
 // Init alarms on installed/startup
 chrome.runtime.onInstalled.addListener(async () => {
   try { await configureWatchAlarm(); } catch (e) { console.warn('[Background] configureWatchAlarm failed', e); }
-  try { await ensureRuleState(); } catch (e) { console.warn('[Background] ensureRuleState failed', e); }
+  try { await cleanupHistoryStorage(); } catch (e) { console.warn('[Background] history cleanup failed', e); }
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   try { await configureWatchAlarm(); } catch (e) { console.warn('[Background] configureWatchAlarm failed', e); }
-  try { await ensureRuleState(); } catch (e) { console.warn('[Background] ensureRuleState failed', e); }
+  try { await cleanupHistoryStorage(); } catch (e) { console.warn('[Background] history cleanup failed', e); }
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {

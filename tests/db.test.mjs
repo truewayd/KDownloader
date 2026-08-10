@@ -219,7 +219,16 @@ class FakeObjectStore {
   }
 
   delete(key) {
-    return this.transaction.request(() => this.store.records.delete(keyToken(key)));
+    return this.transaction.request(() => {
+      if (!(key instanceof FakeKeyRange)) return this.store.records.delete(keyToken(key));
+      let deleted = false;
+      for (const token of [...this.store.records.keys()]) {
+        if (!key.includes(JSON.parse(token))) continue;
+        this.store.records.delete(token);
+        deleted = true;
+      }
+      return deleted;
+    });
   }
 
   clear() {
@@ -705,4 +714,29 @@ test("marks after generation commit remain visible in the active generation", as
   assert.equal(await db.checkDownloaded("patreon", "creator-1", "after-import", "default"), true);
   const exported = JSON.parse(await db.exportDB());
   assert.equal(exported.records.some((item) => item.postId === "after-import"), true);
+});
+
+test("history cleanup reclaims retired generations and the legacy store", async () => {
+  const db = await loadDBModule();
+  await db.markDownloaded(record({ postId: "legacy" }));
+
+  const first = await db.beginImportSession(importEnvelope({ expectedRecords: 1 }));
+  await db.appendImportChunk(first, [record({ postId: "first" })]);
+  await db.commitImportSession(first);
+
+  const second = await db.beginImportSession(importEnvelope({ expectedRecords: 1 }));
+  await db.appendImportChunk(second, [record({ postId: "second" })]);
+  await db.commitImportSession(second);
+
+  const result = await db.cleanupHistoryStorage(Date.now() + 61 * 60 * 1000);
+  assert.deepEqual(result, { removedSessions: 1 });
+  assert.equal((await db.getImportSessionStatus(first)).state, "missing");
+  assert.deepEqual(JSON.parse(await db.exportDB()).records, [record({ postId: "second" })]);
+
+  const database = globalThis.indexedDB.databases.get(db.HISTORY_DB_INFO.name);
+  assert.equal(database.stores.get("records").records.size, 0);
+  assert.equal(
+    [...database.stores.get("importRecords").records.values()].every((item) => item.sessionId === second),
+    true
+  );
 });

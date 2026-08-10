@@ -3,6 +3,7 @@
 const CONFIG = { INIT_DELAY: 300 };
 const accessReports = new Map();
 const ACCESS_REPORT_INTERVAL_MS = 5 * 60 * 1000;
+const MAX_ACCESS_REPORTS = 512;
 const EXTENSION_CONTEXT_INVALIDATED_EVENT = "kd:extensioncontextinvalidated";
 let extensionContextInvalidated = false;
 
@@ -151,9 +152,10 @@ function isRenderCurrent(context) {
 }
 
 function findDownloadButtonByPath(container, selector, path) {
-  return Array.from(container.querySelectorAll(selector)).find((btn) =>
-    btn.getAttribute('data-path') === path
-  );
+  for (const button of container.querySelectorAll(selector)) {
+    if (button.getAttribute('data-path') === path) return button;
+  }
+  return undefined;
 }
 
 function removeStaleDownloadButtons(selector, livePaths) {
@@ -200,9 +202,18 @@ function reportAccessIfApplicable() {
 
 function reportCreatorAccess(service, userId) {
   if (!service || !userId || !isExtensionContextAvailable()) return;
-  const key = `${service}:${userId}`;
+  const key = JSON.stringify([String(service), String(userId)]);
   const now = Date.now();
   if (now - (accessReports.get(key) || 0) < ACCESS_REPORT_INTERVAL_MS) return;
+  if (accessReports.size >= MAX_ACCESS_REPORTS) {
+    for (const [storedKey, reportedAt] of accessReports) {
+      if (now - reportedAt >= ACCESS_REPORT_INTERVAL_MS) accessReports.delete(storedKey);
+    }
+    while (accessReports.size >= MAX_ACCESS_REPORTS) {
+      accessReports.delete(accessReports.keys().next().value);
+    }
+  }
+  accessReports.delete(key);
   accessReports.set(key, now);
   try {
     chrome.runtime.sendMessage(

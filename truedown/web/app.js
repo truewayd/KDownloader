@@ -13,13 +13,21 @@ const els = {};
 let toastTimer = 0;
 let modalMode = "single";
 let currentTasks = [];
+let loadTasksPromise = null;
+let lastTaskRenderSignature = "";
 
 document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
   initTheme();
   bindEvents();
   loadTasks();
-  setInterval(loadTasks, POLL_INTERVAL_MS);
+  const pollId = window.setInterval(() => {
+    if (!document.hidden) loadTasks();
+  }, POLL_INTERVAL_MS);
+  window.addEventListener("pagehide", () => window.clearInterval(pollId), { once: true });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) loadTasks();
+  });
 });
 
 function cacheElements() {
@@ -113,7 +121,13 @@ function closeModal() {
 
 async function submitTask(event) {
   event.preventDefault();
-  const links = parseLinks(els.mLink.value);
+  let links;
+  try {
+    links = parseLinks(els.mLink.value);
+  } catch (error) {
+    showModalMsg(error.message, true);
+    return;
+  }
   if (!links.length) {
     showModalMsg("请填写下载链接", true);
     return;
@@ -124,6 +138,10 @@ async function submitTask(event) {
   if (rawHeaders) {
     try {
       headers = JSON.parse(rawHeaders);
+      if (!headers || typeof headers !== "object" || Array.isArray(headers) ||
+          Object.values(headers).some((value) => typeof value !== "string")) {
+        throw new Error("invalid headers");
+      }
     } catch {
       showModalMsg("Headers JSON 格式错误", true);
       return;
@@ -141,21 +159,33 @@ async function submitTask(event) {
 
   setSubmitting(true);
   try {
-    const created = await mapLimit(links, 8, (link) =>
+    const outcomes = await mapLimitSettled(links, 8, (link) =>
       requestText("/start-headless-download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildStartBody(link, sharedBody)),
       }),
     );
+    const created = outcomes
+      .filter((outcome) => outcome.status === "fulfilled")
+      .map((outcome) => outcome.value);
+    const failed = outcomes.filter((outcome) => outcome.status === "rejected");
 
     const duplicateCount = created.filter((text) => text.includes("DUPLICATE")).length;
     const summary = duplicateCount
       ? `已接收 ${created.length} 项，其中 ${duplicateCount} 项复用原记录并检查更新`
       : `已创建 ${created.length} 个任务`;
+    await loadTasks();
+    if (failed.length) {
+      els.mLink.value = failed.map((outcome) => outcome.item).join("\n");
+      showModalMsg(
+        `已创建 ${created.length} 项，失败 ${failed.length} 项：${failed[0].reason?.message || "请求失败"}`,
+        true,
+      );
+      return;
+    }
     showModalMsg(links.length === 1 ? (duplicateCount ? "已复用原记录并检查更新" : `已创建：${created[0]}`) : summary);
     els.mLink.value = "";
-    await loadTasks();
     window.setTimeout(closeModal, 700);
   } catch (error) {
     showModalMsg(`创建失败：${error.message}`, true);
@@ -294,33 +324,48 @@ async function clearDone() {
 }
 
 async function loadTasks(showSuccess = false) {
-  try {
-    const response = await fetch("/tasks");
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-    const tasks = await response.json();
-    renderTasks(Array.isArray(tasks) ? tasks : []);
+  if (loadTasksPromise) {
+    await loadTasksPromise;
     if (showSuccess) showToast("任务列表已刷新。");
-  } catch (error) {
-    console.error("loadTasks:", error);
-    showToast(`加载任务失败：${error.message}`, "error");
+    return;
   }
+  loadTasksPromise = (async () => {
+    try {
+      const response = await fetch("/tasks");
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const tasks = await response.json();
+      renderTasks(Array.isArray(tasks) ? tasks : []);
+      if (showSuccess) showToast("任务列表已刷新。");
+    } catch (error) {
+      console.error("loadTasks:", error);
+      showToast(`加载任务失败：${error.message}`, "error");
+    } finally {
+      loadTasksPromise = null;
+    }
+  })();
+  await loadTasksPromise;
 }
 
 function renderTasks(tasks) {
   currentTasks = tasks;
   updateMetrics(tasks);
 
-  if (!tasks.length) {
-    els.tasksContainer.innerHTML = emptyMarkup();
-    return;
-  }
-
   const sortedTasks = [...tasks].sort((a, b) => {
     const statusDiff = (statusMeta[a.status]?.rank ?? 9) - (statusMeta[b.status]?.rank ?? 9);
     return statusDiff || b.id - a.id;
   });
+  const signature = JSON.stringify(sortedTasks.map((task) => [
+    task.id, task.status, task.outputName, task.name, task.folder, task.link, task.progress, task.error,
+  ]));
+  if (signature === lastTaskRenderSignature) return;
+  lastTaskRenderSignature = signature;
+
+  if (!sortedTasks.length) {
+    els.tasksContainer.innerHTML = emptyMarkup();
+    return;
+  }
 
   const rows = sortedTasks.map((task, index) => taskRow(task, index)).join("");
   els.tasksContainer.innerHTML = `
@@ -412,14 +457,18 @@ async function requestText(url, options) {
   return text;
 }
 
-async function mapLimit(items, limit, worker) {
+async function mapLimitSettled(items, limit, worker) {
   const results = new Array(items.length);
   let nextIndex = 0;
   async function run() {
     while (nextIndex < items.length) {
       const index = nextIndex;
       nextIndex += 1;
-      results[index] = await worker(items[index], index);
+      try {
+        results[index] = { status: "fulfilled", value: await worker(items[index], index) };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason, item: items[index] };
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
@@ -487,10 +536,30 @@ function lines(key) {
 }
 
 function parseLinks(value) {
-  return value
+  const links = value
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
+  if (links.length > 5000) throw new Error("单次最多添加 5000 个链接");
+  const unique = [];
+  const seen = new Set();
+  for (const link of links) {
+    let parsed;
+    try {
+      parsed = new URL(link);
+    } catch (error) {
+      throw new Error(`下载链接无效：${link}`);
+    }
+    if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname) {
+      throw new Error(`仅支持 HTTP(S) 下载链接：${link}`);
+    }
+    const normalized = parsed.toString();
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      unique.push(normalized);
+    }
+  }
+  return unique;
 }
 
 function emptyToUndefined(value) {
@@ -513,7 +582,8 @@ function esc(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function toCamel(value) {
