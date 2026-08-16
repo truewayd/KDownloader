@@ -14,6 +14,9 @@ const configUrl = asModuleUrl(`
   export async function loadDownloadRulesConfig() {
     return globalThis.__downloadRulesConfig || { enabled: false, excludedExtensions: [] };
   }
+  export async function loadExternalLinkFilterConfig() {
+    return globalThis.__externalLinkFilterConfig || { mode: 'blacklist', blacklist: ['patreon.com'] };
+  }
 `);
 const networkUrl = asModuleUrl(`
   export async function handleAPIRequest() {

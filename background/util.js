@@ -79,6 +79,47 @@ export const UTIL = {
     return result;
   },
 
+  extractPostExternalLinks: (postData) => {
+    const post = postData?.post || postData;
+    if (!post || typeof post !== 'object') return [];
+
+    const candidates = [];
+    if (typeof post.content === 'string') candidates.push(post.content);
+    if (typeof post.embed?.url === 'string') candidates.push(post.embed.url);
+
+    const seen = new Set();
+    const result = [];
+    for (const candidate of candidates) {
+      for (const url of UTIL.extractExternalLinks(candidate)) {
+        if (seen.has(url)) continue;
+        seen.add(url);
+        result.push(url);
+      }
+    }
+    return result;
+  },
+
+  filterExternalLinks: (links, config) => {
+    const blacklist = config?.mode === 'blacklist' && Array.isArray(config.blacklist)
+      ? config.blacklist.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
+      : [];
+    const seen = new Set();
+    const result = [];
+    for (const value of Array.isArray(links) ? links : []) {
+      try {
+        const url = new URL(String(value || '')).toString();
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+        const host = parsed.hostname.toLowerCase();
+        if (blacklist.some((blocked) => host === blocked || host.endsWith(`.${blocked}`))) continue;
+        if (seen.has(url)) continue;
+        seen.add(url);
+        result.push(url);
+      } catch (e) { }
+    }
+    return result;
+  },
+
   buildExternalLinksText: (entries) => {
     const links = new Set();
     for (const entry of Array.isArray(entries) ? entries : []) {

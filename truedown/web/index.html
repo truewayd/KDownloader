@@ -24,6 +24,10 @@
         </span>
       </div>
       <div class="topbar-actions">
+        <button class="kd-button secondary" id="settings-btn" type="button">
+          <span aria-hidden="true">⚙</span>
+          设置
+        </button>
         <button class="kd-button secondary" id="batch-task-btn" type="button">
           <span aria-hidden="true">☷</span>
           批量下载
@@ -104,44 +108,127 @@
         </div>
       </section>
 
-      <aside class="kd-panel settings-panel" aria-labelledby="settings-title">
-        <div class="panel-header panel-header-compact">
+    </main>
+  </div>
+
+  <div class="overlay" id="settings-overlay" aria-hidden="true" inert>
+    <section class="kd-panel modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <form id="settings-form">
+        <div class="modal-header">
           <div>
-            <p class="kd-eyebrow">Defaults</p>
-            <h2 id="settings-title">默认 aria2 参数</h2>
+            <p class="kd-eyebrow">Preferences</p>
+            <h2 id="settings-title">下载器设置</h2>
+            <p class="panel-subtitle">作为新任务的默认值，可在创建任务时单独覆盖。</p>
           </div>
+          <button class="kd-icon-button" id="settings-close-btn" type="button" aria-label="关闭设置">✕</button>
         </div>
-        <div class="panel-body">
-          <div class="field">
-            <label for="cfg-conns">并发连接数</label>
-            <input class="kd-input" id="cfg-conns" type="number" min="1" max="16" placeholder="例如：16">
-            <p class="hint">对应 <code>--split</code> / <code>--max-connection-per-server</code>。</p>
-          </div>
-          <div class="field">
-            <label for="cfg-speed">限速（字节/秒）</label>
-            <input class="kd-input" id="cfg-speed" type="number" min="0" placeholder="0 = 不限速">
-            <p class="hint">1 MB/s 请输入 <code>1048576</code>。</p>
-          </div>
-          <div class="section-divider"></div>
-          <div class="field">
-            <label for="cfg-tries">最大重试次数</label>
-            <input class="kd-input" id="cfg-tries" type="number" min="0" placeholder="例如：5">
-          </div>
-          <div class="field">
-            <label for="cfg-wait">重试等待（秒）</label>
-            <input class="kd-input" id="cfg-wait" type="number" min="0" placeholder="例如：3">
-          </div>
-          <div class="section-divider"></div>
-          <div class="field">
-            <label for="cfg-extra">额外参数</label>
-            <textarea class="kd-input" id="cfg-extra" rows="4" placeholder="--check-integrity=true&#10;--file-allocation=falloc"></textarea>
-            <p class="hint">每行一个 aria2 flag，新建任务时自动带入。</p>
-          </div>
-          <div class="section-divider"></div>
-          <div class="token-card">
-            <div>
-              <strong>API Key（可选）</strong>
-              <p class="hint">默认关闭。启用后，KDownloader、AB 扩展和远程仪表盘都使用此 API Key。</p>
+
+        <div class="modal-body settings-body">
+          <section class="settings-section" aria-labelledby="settings-general-title">
+            <div class="settings-section-heading">
+              <h3 id="settings-general-title">常规</h3>
+              <p>保存位置、连接数与速度限制。</p>
+            </div>
+            <div class="form-grid">
+              <div class="field field-span-2">
+                <label for="cfg-folder">默认保存目录</label>
+                <input class="kd-input" id="cfg-folder" type="text" placeholder="留空使用 TrueDown downloads 目录">
+              </div>
+              <div class="field">
+                <label for="cfg-conns">单任务连接数</label>
+                <input class="kd-input" id="cfg-conns" type="number" min="1" max="64" placeholder="16">
+              </div>
+              <div class="field">
+                <label for="cfg-speed">单任务限速</label>
+                <div class="input-group">
+                  <input class="kd-input" id="cfg-speed" type="number" min="0" step="0.1" placeholder="0">
+                  <select class="kd-select" id="cfg-speed-unit" aria-label="限速单位">
+                    <option value="1048576">MB/s</option>
+                    <option value="1024">KB/s</option>
+                    <option value="1073741824">GB/s</option>
+                  </select>
+                </div>
+                <p class="hint">0 表示不限速。</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section" aria-labelledby="settings-network-title">
+            <div class="settings-section-heading">
+              <h3 id="settings-network-title">网络与重试</h3>
+              <p>为普通 HTTP(S) 下载提供常用网络选项。</p>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label for="cfg-tries">最大重试次数</label>
+                <input class="kd-input" id="cfg-tries" type="number" min="0" max="100" placeholder="5">
+              </div>
+              <div class="field">
+                <label for="cfg-wait">重试间隔（秒）</label>
+                <input class="kd-input" id="cfg-wait" type="number" min="0" max="3600" placeholder="3">
+              </div>
+              <div class="field field-span-2">
+                <label for="cfg-proxy">HTTP(S) 代理</label>
+                <input class="kd-input" id="cfg-proxy" type="url" placeholder="http://127.0.0.1:7890">
+              </div>
+              <div class="field">
+                <label for="cfg-user-agent">User-Agent</label>
+                <input class="kd-input" id="cfg-user-agent" type="text" placeholder="留空使用 aria2 默认值">
+              </div>
+              <div class="field">
+                <label for="cfg-referer">默认 Referer</label>
+                <input class="kd-input" id="cfg-referer" type="url" placeholder="https://example.com/">
+              </div>
+              <div class="field field-span-2">
+                <label for="cfg-headers">默认 Headers（JSON）</label>
+                <textarea class="kd-input" id="cfg-headers" rows="3" placeholder='{"Authorization": "Bearer ..."}'></textarea>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section" aria-labelledby="settings-file-title">
+            <div class="settings-section-heading">
+              <h3 id="settings-file-title">文件处理</h3>
+              <p>控制文件预分配、完整性校验与远程时间。</p>
+            </div>
+            <div class="form-grid">
+              <div class="field field-span-2">
+                <label for="cfg-allocation">文件预分配</label>
+                <select class="kd-select" id="cfg-allocation">
+                  <option value="none">不预分配（速度优先）</option>
+                  <option value="prealloc">预分配</option>
+                  <option value="trunc">快速截断</option>
+                  <option value="falloc">falloc（Linux）</option>
+                </select>
+              </div>
+            </div>
+            <div class="toggle-grid">
+              <label class="setting-toggle" for="cfg-check-integrity">
+                <input id="cfg-check-integrity" type="checkbox">
+                <span><strong>完整性校验</strong><small>下载完成后校验文件分块。</small></span>
+              </label>
+              <label class="setting-toggle" for="cfg-remote-time">
+                <input id="cfg-remote-time" type="checkbox">
+                <span><strong>保留远程时间</strong><small>使用服务器的文件修改时间。</small></span>
+              </label>
+            </div>
+          </section>
+
+          <section class="settings-section" aria-labelledby="settings-advanced-title">
+            <div class="settings-section-heading">
+              <h3 id="settings-advanced-title">高级</h3>
+              <p>每行一个 aria2 flag，受 TrueDown 安全边界限制。</p>
+            </div>
+            <div class="field">
+              <label for="cfg-extra">额外 aria2 参数</label>
+              <textarea class="kd-input" id="cfg-extra" rows="4" placeholder="--min-split-size=1M"></textarea>
+            </div>
+          </section>
+
+          <section class="settings-section token-card" aria-labelledby="settings-security-title">
+            <div class="settings-section-heading">
+              <h3 id="settings-security-title">API Key 认证</h3>
+              <p>KDownloader、AB 扩展和远程仪表盘共用此认证。</p>
             </div>
             <label class="token-auth-toggle" for="token-auth-enabled">
               <input id="token-auth-enabled" type="checkbox">
@@ -149,13 +236,21 @@
             </label>
             <p class="hint" id="token-auth-status" aria-live="polite">正在读取认证设置…</p>
             <button class="kd-button secondary" id="copy-api-token-btn" type="button" disabled>复制 API Key</button>
+          </section>
+        </div>
+
+        <div class="modal-footer">
+          <button class="kd-button secondary" id="settings-reset-btn" type="button">恢复默认</button>
+          <div class="modal-actions">
+            <button class="kd-button secondary" id="settings-cancel-btn" type="button">取消</button>
+            <button class="kd-button primary" type="submit">保存设置</button>
           </div>
         </div>
-      </aside>
-    </main>
+      </form>
+    </section>
   </div>
 
-  <div class="overlay" id="overlay" aria-hidden="true">
+  <div class="overlay" id="overlay" aria-hidden="true" inert>
     <section class="kd-panel modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <form id="download-form">
         <div class="modal-header">

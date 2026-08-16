@@ -41,6 +41,7 @@ import {
   enqueueNativeFallback,
   takeNativeFallback,
 } from "../nativeFallback.js";
+import { loadExternalLinkFilterConfig } from "../config.js";
 
 function createBatchId() {
   return `batch:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
@@ -162,31 +163,27 @@ function collectExternalLinkEntries(target, item, result, senderUrl) {
   for (const url of result.externalLinks) target.push({ url, sourceUrl });
 }
 
-function postContent(postData) {
-  if (typeof postData?.content === "string") return postData.content;
-  if (typeof postData?.post?.content === "string") return postData.post.content;
-  return null;
-}
-
-async function extractItemExternalLinks(item) {
+async function extractItemExternalLinks(item, filterConfig) {
+  let links;
   if (item.source === "coomerfans") {
     const html = await fetchCoomerFansCreatorHtml(item.postUrl || item.path);
-    return UTIL.extractExternalLinks(html);
+    links = UTIL.extractExternalLinks(html);
+  } else if (item.postData && typeof item.postData === "object") {
+    links = UTIL.extractPostExternalLinks(item.postData);
+  } else if (item.site === "pawchive") {
+    links = [];
+  } else {
+    const origin = item.origin || API.DEFAULT_ORIGIN;
+    const postUrl = `${origin}/${encodeURIComponent(item.service)}/user/${encodeURIComponent(item.userId)}/post/${encodeURIComponent(item.postId)}`;
+    const apiUrl = `${origin}${API.API_PREFIX}/${encodeURIComponent(item.service)}/user/${encodeURIComponent(item.userId)}/post/${encodeURIComponent(item.postId)}`;
+    const postData = await handleAPIRequest(apiUrl, {
+      Accept: "text/css",
+      "Content-Type": "text/css",
+      Referer: postUrl,
+    });
+    links = UTIL.extractPostExternalLinks(postData);
   }
-
-  const prefetchedContent = postContent(item.postData);
-  if (prefetchedContent !== null) return UTIL.extractExternalLinks(prefetchedContent);
-  if (item.site === "pawchive") return [];
-
-  const origin = item.origin || API.DEFAULT_ORIGIN;
-  const postUrl = `${origin}/${encodeURIComponent(item.service)}/user/${encodeURIComponent(item.userId)}/post/${encodeURIComponent(item.postId)}`;
-  const apiUrl = `${origin}${API.API_PREFIX}/${encodeURIComponent(item.service)}/user/${encodeURIComponent(item.userId)}/post/${encodeURIComponent(item.postId)}`;
-  const postData = await handleAPIRequest(apiUrl, {
-    Accept: "text/css",
-    "Content-Type": "text/css",
-    Referer: postUrl,
-  });
-  return UTIL.extractExternalLinks(postContent(postData) || "");
+  return UTIL.filterExternalLinks(links, filterConfig);
 }
 
 async function runLinksOnlyBatch(items, sender, scope = {}) {
@@ -194,6 +191,7 @@ async function runLinksOnlyBatch(items, sender, scope = {}) {
   const total = items.length;
   const batchId = createBatchId();
   const externalLinkEntries = [];
+  const filterConfig = await loadExternalLinkFilterConfig();
   let processed = 0;
 
   registerBatch(batchId, total);
@@ -201,7 +199,7 @@ async function runLinksOnlyBatch(items, sender, scope = {}) {
     broadcastBatchProgress(scope, 0, total, tabId);
     for (const item of items) {
       try {
-        const links = await extractItemExternalLinks(item);
+        const links = await extractItemExternalLinks(item, filterConfig);
         collectExternalLinkEntries(externalLinkEntries, item, { externalLinks: links }, getSenderUrl(sender));
         updateAcked(batchId, 1);
       } catch (error) {

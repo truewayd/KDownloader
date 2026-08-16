@@ -47,6 +47,7 @@ export const NATIVE_FALLBACK_KEY = "pendingNativeFallbacks";
 export const BACKEND_CONFIG_KEY = "backendConfig";
 export const BACKEND_SECRETS_KEY = "backendSecrets";
 export const DOWNLOAD_RULES_CONFIG_KEY = "downloadRulesConfig";
+export const EXTERNAL_LINK_FILTER_CONFIG_KEY = "externalLinkFilterConfig";
 export const GIST_CONFIG_KEY = "gistConfig";
 export const GIST_SECRETS_KEY = "gistSecrets";
 
@@ -62,6 +63,8 @@ export const DEFAULT_EXCLUDED_EXTENSIONS = [
   ".afdesign",
   ".blend",
 ];
+
+export const DEFAULT_EXTERNAL_LINK_BLACKLIST = ["patreon.com"];
 
 // Creators override cache
 export const CREATORS_OVERRIDE_KEY = "creatorsOverride";

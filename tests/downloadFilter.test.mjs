@@ -51,6 +51,23 @@ test('download rules normalize suffixes and reject invalid values', async () => 
   assert.deepEqual(stored.downloadRulesConfig, value);
 });
 
+test('external link filtering defaults to a user-editable Patreon domain blacklist', async () => {
+  assert.deepEqual(await config.loadExternalLinkFilterConfig(), {
+    mode: 'blacklist',
+    blacklist: ['patreon.com'],
+  });
+
+  const saved = await config.saveExternalLinkFilterConfig({
+    mode: 'blacklist',
+    blacklist: [' Example.com ', '*.FILES.EXAMPLE.com', 'example.com', 'https://invalid.example/path', ''],
+  });
+  assert.deepEqual(saved, {
+    mode: 'blacklist',
+    blacklist: ['example.com', 'files.example.com'],
+  });
+  assert.deepEqual(stored.externalLinkFilterConfig, saved);
+});
+
 test('normalizes Creator Fetch modes and preserves legacy fullMode compatibility', () => {
   assert.equal(util.normalizeCreatorFetchMode('default'), 'default');
   assert.equal(util.normalizeCreatorFetchMode('full'), 'full');
@@ -95,6 +112,46 @@ test('extracts all HTTP links without dropping query strings or MEGA keys', () =
     'https://mega.nz/file/abc#secret-key',
     'https://mega.nz/file/abc',
   ]);
+});
+
+test('extracts provider links from flat and wrapped post embeds', () => {
+  const dropboxUrl = 'https://www.dropbox.com/scl/fo/ibju6f6q1ohywlbu1f1em/APvTAy3vnHQip_vEOt-0w1s?rlkey=vaw05ep4cio2051ph3of0paxu&st=buynhedk&dl=0';
+  const post = {
+    id: '15583',
+    content: '<p>Thank you! <a href="https://example.invalid/help">Help</a></p>',
+    embed: {
+      url: dropboxUrl,
+      provider: 'Dropbox',
+      provider_url: 'Dropbox',
+    },
+  };
+
+  assert.deepEqual(util.extractPostExternalLinks(post), [
+    'https://example.invalid/help',
+    dropboxUrl,
+  ]);
+  assert.deepEqual(util.extractPostExternalLinks({ post }), [
+    'https://example.invalid/help',
+    dropboxUrl,
+  ]);
+});
+
+test('deduplicates extracted links and filters blacklisted domains and subdomains', () => {
+  const links = [
+    'https://www.patreon.com/posts/1',
+    'https://patreon.com/posts/2',
+    'https://notpatreon.com/file',
+    'https://dropbox.com/file?id=1',
+    'https://dropbox.com/file?id=1',
+  ];
+  assert.deepEqual(util.filterExternalLinks(links, {
+    mode: 'blacklist',
+    blacklist: ['patreon.com'],
+  }), [
+    'https://notpatreon.com/file',
+    'https://dropbox.com/file?id=1',
+  ]);
+  assert.deepEqual(util.filterExternalLinks(links, { mode: 'disabled', blacklist: ['patreon.com'] }), links.slice(0, 4));
 });
 
 test('builds a sorted deduplicated TXT task and adds source posts for keyless MEGA links', () => {

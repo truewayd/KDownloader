@@ -188,6 +188,18 @@
   "downloadFilterExtensions": {
     "message": "Excluded file extensions"
   },
+  "externalLinkFilterMode": {
+    "message": "External link filter"
+  },
+  "externalLinkFilterBlacklist": {
+    "message": "Domain blacklist"
+  },
+  "externalLinkFilterDisabled": {
+    "message": "No filtering"
+  },
+  "externalLinkFilterDomains": {
+    "message": "Blocked domains (one per line)"
+  },
   "watchTitle": {
     "message": "Pawchive Watch"
   },

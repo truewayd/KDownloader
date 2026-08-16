@@ -4,6 +4,24 @@ const PAGE_SIZE = 100;
 const MAX_SELECTED_TASKS = 1000;
 const LEGACY_THEME_KEY = "truedown-theme";
 const API_TOKEN_SESSION_KEY = "truedown-api-token";
+const DOWNLOAD_DEFAULTS_KEY = "truedown-download-defaults-v1";
+const MAX_SPEED_BPS = 2 ** 50;
+const DEFAULT_DOWNLOAD_SETTINGS = Object.freeze({
+  folder: "",
+  connections: 16,
+  speed: 0,
+  speedUnit: 1048576,
+  maxTries: 5,
+  retryWait: 3,
+  proxy: "",
+  userAgent: "",
+  referer: "",
+  headers: "",
+  allocation: "none",
+  checkIntegrity: false,
+  remoteTime: true,
+  extra: "",
+});
 
 const statusMeta = {
   downloading: { label: "下载中", rank: 0 },
@@ -31,10 +49,13 @@ let apiToken = readSessionToken();
 let apiTokenPromptDismissed = false;
 let tokenAuthEnabled = false;
 let tokenAuthManaged = false;
+let downloadSettings = loadDownloadSettings();
+let settingsReturnFocus = null;
 
 document.addEventListener("DOMContentLoaded", async () => {
   cacheElements();
   initTheme();
+  renderDownloadSettings();
   bindEvents();
   try {
     await loadAuthSettings();
@@ -54,9 +75,18 @@ function cacheElements() {
     "batch-task-btn",
     "batch-toolbar",
     "cfg-conns",
+    "cfg-allocation",
+    "cfg-check-integrity",
     "cfg-extra",
+    "cfg-folder",
+    "cfg-headers",
+    "cfg-proxy",
+    "cfg-referer",
+    "cfg-remote-time",
     "cfg-speed",
+    "cfg-speed-unit",
     "cfg-tries",
+    "cfg-user-agent",
     "cfg-wait",
     "clear-done-btn",
     "copy-api-token-btn",
@@ -85,10 +115,17 @@ function cacheElements() {
     "prev-page-btn",
     "refresh-tasks-btn",
     "retry-all-btn",
+    "settings-btn",
+    "settings-cancel-btn",
+    "settings-close-btn",
+    "settings-form",
+    "settings-overlay",
+    "settings-reset-btn",
     "submit-task-btn",
     "task-count",
     "task-filter",
     "tasks-container",
+    "tasks-wrap",
     "token-auth-enabled",
     "token-auth-status",
     "toast",
@@ -100,6 +137,14 @@ function cacheElements() {
 function bindEvents() {
   els.newTaskBtn.addEventListener("click", () => openModal("single"));
   els.batchTaskBtn.addEventListener("click", () => openModal("batch"));
+  els.settingsBtn.addEventListener("click", openSettingsModal);
+  els.settingsCloseBtn.addEventListener("click", closeSettingsModal);
+  els.settingsCancelBtn.addEventListener("click", closeSettingsModal);
+  els.settingsResetBtn.addEventListener("click", resetDownloadSettings);
+  els.settingsForm.addEventListener("submit", saveDownloadSettings);
+  els.settingsOverlay.addEventListener("click", (event) => {
+    if (event.target === els.settingsOverlay) closeSettingsModal();
+  });
   els.modalCloseBtn.addEventListener("click", closeModal);
   els.modalCancelBtn.addEventListener("click", closeModal);
   els.overlay.addEventListener("click", (event) => {
@@ -146,14 +191,17 @@ function initTheme() {
 }
 
 function onDocumentKeydown(event) {
-  if (!els.overlay.classList.contains("open")) return;
+  const activeOverlay = els.settingsOverlay.classList.contains("open") ? els.settingsOverlay :
+    els.overlay.classList.contains("open") ? els.overlay : null;
+  if (!activeOverlay) return;
   if (event.key === "Escape") {
     event.preventDefault();
-    closeModal();
+    if (activeOverlay === els.settingsOverlay) closeSettingsModal();
+    else closeModal();
     return;
   }
   if (event.key !== "Tab") return;
-  const focusable = [...els.overlay.querySelectorAll(
+  const focusable = [...activeOverlay.querySelectorAll(
     'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
   )].filter((element) => element.getClientRects().length > 0);
   if (!focusable.length) return;
@@ -184,6 +232,8 @@ function openModal(mode = "single") {
   if (isBatch) els.mName.value = "";
   els.overlay.classList.add("open");
   els.overlay.setAttribute("aria-hidden", "false");
+  els.overlay.removeAttribute("inert");
+  document.body.classList.add("modal-open");
   window.setTimeout(() => els.mLink.focus(), 80);
 }
 
@@ -191,6 +241,8 @@ function closeModal() {
   if (!els.overlay.classList.contains("open")) return;
   els.overlay.classList.remove("open");
   els.overlay.setAttribute("aria-hidden", "true");
+  els.overlay.setAttribute("inert", "");
+  document.body.classList.remove("modal-open");
   showModalMsg("");
   if (modalReturnFocus instanceof HTMLElement && modalReturnFocus.isConnected) {
     modalReturnFocus.focus();
@@ -212,25 +264,21 @@ async function submitTask(event) {
     return;
   }
 
-  let headers = {};
-  const rawHeaders = els.mHeaders.value.trim();
-  if (rawHeaders) {
-    try {
-      headers = JSON.parse(rawHeaders);
-      if (!headers || typeof headers !== "object" || Array.isArray(headers) ||
-          Object.values(headers).some((value) => typeof value !== "string")) {
-        throw new Error("invalid headers");
-      }
-    } catch {
-      showModalMsg("Headers JSON 格式错误", true);
-      return;
+  let headers;
+  try {
+    headers = mergeHeaders(parseHeaders(downloadSettings.headers), parseHeaders(els.mHeaders.value));
+    if (downloadSettings.userAgent && !hasHeader(headers, "user-agent")) {
+      headers["User-Agent"] = downloadSettings.userAgent;
     }
+  } catch {
+    showModalMsg("Headers JSON 格式错误", true);
+    return;
   }
 
   const sharedBody = {
     headers,
-    downloadPage: emptyToUndefined(els.mReferer.value),
-    folder: emptyToUndefined(els.mFolder.value),
+    downloadPage: emptyToUndefined(els.mReferer.value) || emptyToUndefined(downloadSettings.referer),
+    folder: emptyToUndefined(els.mFolder.value) || emptyToUndefined(downloadSettings.folder),
     name: links.length === 1 ? emptyToUndefined(els.mName.value) : undefined,
     queueId: optionalInt("mQueueid") || undefined,
     opts: buildOpts("m"),
@@ -290,11 +338,11 @@ function buildStartBody(link, sharedBody) {
 function buildOpts(prefix) {
   const extraFromModal = lines(`${prefix}Extra`);
   return {
-    connections: optionalInt(`${prefix}Conns`) || optionalInt("cfgConns"),
-    maxSpeedBps: optionalInt(`${prefix}Speed`) || optionalInt("cfgSpeed"),
-    maxTries: optionalInt(`${prefix}Tries`) || optionalInt("cfgTries"),
-    retryWait: optionalInt(`${prefix}Wait`) || optionalInt("cfgWait"),
-    extraArgs: extraFromModal.length ? extraFromModal : lines("cfgExtra"),
+    connections: optionalInt(`${prefix}Conns`) || downloadSettings.connections,
+    maxSpeedBps: optionalInt(`${prefix}Speed`) || settingsSpeedBps(),
+    maxTries: optionalInt(`${prefix}Tries`) || downloadSettings.maxTries,
+    retryWait: optionalInt(`${prefix}Wait`) || downloadSettings.retryWait,
+    extraArgs: extraFromModal.length ? extraFromModal : settingsExtraArgs(),
   };
 }
 
@@ -619,12 +667,171 @@ async function changePage(direction) {
   currentOffset = nextOffset;
   lastTaskRenderSignature = "";
   await refreshAndSchedule();
-  els.tasksContainer.scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "smooth" });
+  els.tasksWrap.scrollTo({ top: 0, behavior: reducedMotion() ? "auto" : "smooth" });
 }
 
 function emptyMarkup() {
   const filtered = currentFilter !== "all";
   return `<div class="empty-state"><div class="empty-icon" aria-hidden="true">↓</div><h2>${filtered ? "此筛选下暂无任务" : "暂无任务"}</h2><p>${filtered ? "请选择其他状态筛选。" : "点击右上角「新建下载」开始添加链接。"}</p></div>`;
+}
+
+function openSettingsModal() {
+  settingsReturnFocus = document.activeElement;
+  renderDownloadSettings();
+  els.settingsOverlay.classList.add("open");
+  els.settingsOverlay.setAttribute("aria-hidden", "false");
+  els.settingsOverlay.removeAttribute("inert");
+  document.body.classList.add("modal-open");
+  window.setTimeout(() => els.cfgFolder.focus(), 80);
+}
+
+function closeSettingsModal() {
+  if (!els.settingsOverlay.classList.contains("open")) return;
+  els.settingsOverlay.classList.remove("open");
+  els.settingsOverlay.setAttribute("aria-hidden", "true");
+  els.settingsOverlay.setAttribute("inert", "");
+  document.body.classList.remove("modal-open");
+  if (settingsReturnFocus instanceof HTMLElement && settingsReturnFocus.isConnected) {
+    settingsReturnFocus.focus();
+  }
+  settingsReturnFocus = null;
+}
+
+function loadDownloadSettings() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(DOWNLOAD_DEFAULTS_KEY) || "null");
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return { ...DEFAULT_DOWNLOAD_SETTINGS };
+    return {
+      ...DEFAULT_DOWNLOAD_SETTINGS,
+      folder: stringValue(stored.folder),
+      connections: boundedInt(stored.connections, 1, 64, DEFAULT_DOWNLOAD_SETTINGS.connections),
+      speed: boundedNumber(stored.speed, 0, 1 << 30, DEFAULT_DOWNLOAD_SETTINGS.speed),
+      speedUnit: [1024, 1048576, 1073741824].includes(Number(stored.speedUnit))
+        ? Number(stored.speedUnit) : DEFAULT_DOWNLOAD_SETTINGS.speedUnit,
+      maxTries: boundedInt(stored.maxTries, 0, 100, DEFAULT_DOWNLOAD_SETTINGS.maxTries),
+      retryWait: boundedInt(stored.retryWait, 0, 3600, DEFAULT_DOWNLOAD_SETTINGS.retryWait),
+      proxy: stringValue(stored.proxy),
+      userAgent: stringValue(stored.userAgent),
+      referer: stringValue(stored.referer),
+      headers: stringValue(stored.headers),
+      allocation: ["none", "prealloc", "trunc", "falloc"].includes(stored.allocation)
+        ? stored.allocation : DEFAULT_DOWNLOAD_SETTINGS.allocation,
+      checkIntegrity: stored.checkIntegrity === true,
+      remoteTime: stored.remoteTime !== false,
+      extra: stringValue(stored.extra),
+    };
+  } catch {
+    return { ...DEFAULT_DOWNLOAD_SETTINGS };
+  }
+}
+
+function renderDownloadSettings(settings = downloadSettings) {
+  els.cfgFolder.value = settings.folder;
+  els.cfgConns.value = settings.connections;
+  els.cfgSpeed.value = settings.speed || "";
+  els.cfgSpeedUnit.value = String(settings.speedUnit);
+  els.cfgTries.value = settings.maxTries;
+  els.cfgWait.value = settings.retryWait;
+  els.cfgProxy.value = settings.proxy;
+  els.cfgUserAgent.value = settings.userAgent;
+  els.cfgReferer.value = settings.referer;
+  els.cfgHeaders.value = settings.headers;
+  els.cfgAllocation.value = settings.allocation;
+  els.cfgCheckIntegrity.checked = settings.checkIntegrity;
+  els.cfgRemoteTime.checked = settings.remoteTime;
+  els.cfgExtra.value = settings.extra;
+}
+
+function saveDownloadSettings(event) {
+  event.preventDefault();
+  try {
+    parseHeaders(els.cfgHeaders.value);
+    const speed = Number(els.cfgSpeed.value || 0);
+    const speedUnit = Number(els.cfgSpeedUnit.value);
+    const speedBps = Math.round(speed * speedUnit);
+    if (!Number.isFinite(speed) || speed < 0 || !Number.isSafeInteger(speedBps) || speedBps > MAX_SPEED_BPS) {
+      throw new Error("限速数值过大");
+    }
+    const nextSettings = {
+      folder: els.cfgFolder.value.trim(),
+      connections: optionalInt("cfgConns") || DEFAULT_DOWNLOAD_SETTINGS.connections,
+      speed,
+      speedUnit,
+      maxTries: optionalIntAllowZero("cfgTries", DEFAULT_DOWNLOAD_SETTINGS.maxTries),
+      retryWait: optionalIntAllowZero("cfgWait", DEFAULT_DOWNLOAD_SETTINGS.retryWait),
+      proxy: els.cfgProxy.value.trim(),
+      userAgent: els.cfgUserAgent.value.trim(),
+      referer: els.cfgReferer.value.trim(),
+      headers: els.cfgHeaders.value.trim(),
+      allocation: els.cfgAllocation.value,
+      checkIntegrity: els.cfgCheckIntegrity.checked,
+      remoteTime: els.cfgRemoteTime.checked,
+      extra: els.cfgExtra.value.trim(),
+    };
+    localStorage.setItem(DOWNLOAD_DEFAULTS_KEY, JSON.stringify(nextSettings));
+    downloadSettings = nextSettings;
+    closeSettingsModal();
+    showToast("下载器默认设置已保存。");
+  } catch (error) {
+    showToast(`设置未保存：${error.message}`, "error");
+  }
+}
+
+function resetDownloadSettings() {
+  renderDownloadSettings(DEFAULT_DOWNLOAD_SETTINGS);
+  showToast("已恢复默认值，点击「保存设置」后生效。");
+}
+
+function settingsSpeedBps() {
+  return Math.round(downloadSettings.speed * downloadSettings.speedUnit);
+}
+
+function settingsExtraArgs() {
+  const args = [];
+  if (downloadSettings.proxy) args.push(`--all-proxy=${downloadSettings.proxy}`);
+  args.push(`--file-allocation=${downloadSettings.allocation}`);
+  args.push(`--check-integrity=${downloadSettings.checkIntegrity}`);
+  args.push(`--remote-time=${downloadSettings.remoteTime}`);
+  return [...args, ...downloadSettings.extra.split("\n").map((line) => line.trim()).filter(Boolean)];
+}
+
+function parseHeaders(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return {};
+  const parsed = JSON.parse(trimmed);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) ||
+      Object.values(parsed).some((item) => typeof item !== "string")) {
+    throw new Error("Headers 必须是字符串键值的 JSON 对象");
+  }
+  return parsed;
+}
+
+function hasHeader(headers, name) {
+  return Object.keys(headers).some((key) => key.toLowerCase() === name);
+}
+
+function mergeHeaders(defaults, overrides) {
+  const merged = { ...defaults };
+  for (const [name, value] of Object.entries(overrides)) {
+    const previous = Object.keys(merged).find((key) => key.toLowerCase() === name.toLowerCase());
+    if (previous) delete merged[previous];
+    merged[name] = value;
+  }
+  return merged;
+}
+
+function stringValue(value) {
+  return typeof value === "string" ? value : "";
+}
+
+function boundedInt(value, min, max, fallback) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+}
+
+function boundedNumber(value, min, max, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
 }
 
 async function loadAuthSettings() {
@@ -832,6 +1039,13 @@ function optionalInt(key) {
   if (!value) return 0;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : 0;
+}
+
+function optionalIntAllowZero(key, fallback) {
+  const value = els[key].value.trim();
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : fallback;
 }
 
 function lines(key) {

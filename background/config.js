@@ -5,6 +5,8 @@ import {
   BACKEND_SECRETS_KEY,
   DOWNLOAD_RULES_CONFIG_KEY,
   DEFAULT_EXCLUDED_EXTENSIONS,
+  EXTERNAL_LINK_FILTER_CONFIG_KEY,
+  DEFAULT_EXTERNAL_LINK_BLACKLIST,
   GIST_CONFIG_KEY,
   GIST_SECRETS_KEY,
 } from './constants.js';
@@ -159,10 +161,33 @@ function normalizeExcludedExtensions(value, fallback = DEFAULT_EXCLUDED_EXTENSIO
   return normalized;
 }
 
+function normalizeExternalLinkBlacklist(value, fallback = DEFAULT_EXTERNAL_LINK_BLACKLIST) {
+  if (!Array.isArray(value)) return [...fallback];
+  const normalized = [];
+  const seen = new Set();
+  let totalLength = 0;
+  for (const entry of value) {
+    const host = String(entry || '').trim().toLowerCase().replace(/^\*\./, '').replace(/^\.+|\.+$/g, '');
+    if (!host || host.length > 253 || !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(host) || seen.has(host)) continue;
+    if (normalized.length >= 100 || totalLength + host.length > 6000) break;
+    seen.add(host);
+    normalized.push(host);
+    totalLength += host.length;
+  }
+  return normalized;
+}
+
 export function getDefaultDownloadRulesConfig() {
   return {
     enabled: false,
     excludedExtensions: [...DEFAULT_EXCLUDED_EXTENSIONS],
+  };
+}
+
+export function getDefaultExternalLinkFilterConfig() {
+  return {
+    mode: 'blacklist',
+    blacklist: [...DEFAULT_EXTERNAL_LINK_BLACKLIST],
   };
 }
 
@@ -174,6 +199,7 @@ export async function restoreDefaultConfigs() {
   const configs = {
     backend: getDefaultBackendConfig(),
     downloadRules: getDefaultDownloadRulesConfig(),
+    externalLinkFilter: getDefaultExternalLinkFilterConfig(),
     watch: getDefaultWatchConfig(),
     gist: getDefaultGistConfig(),
   };
@@ -186,6 +212,7 @@ export async function restoreDefaultConfigs() {
     chrome.storage.sync.set({
       [BACKEND_CONFIG_KEY]: publicBackend,
       [DOWNLOAD_RULES_CONFIG_KEY]: configs.downloadRules,
+      [EXTERNAL_LINK_FILTER_CONFIG_KEY]: configs.externalLinkFilter,
       [WATCH_CONFIG_KEY]: configs.watch,
       [GIST_CONFIG_KEY]: publicGist,
     }),
@@ -213,6 +240,25 @@ export async function saveDownloadRulesConfig(cfg) {
     excludedExtensions: normalizeExcludedExtensions(cfg && cfg.excludedExtensions),
   };
   await chrome.storage.sync.set({ [DOWNLOAD_RULES_CONFIG_KEY]: next });
+  return next;
+}
+
+export async function loadExternalLinkFilterConfig() {
+  const r = await chrome.storage.sync.get(EXTERNAL_LINK_FILTER_CONFIG_KEY);
+  const cfg = r[EXTERNAL_LINK_FILTER_CONFIG_KEY] || {};
+  const def = getDefaultExternalLinkFilterConfig();
+  return {
+    mode: cfg.mode === 'disabled' ? 'disabled' : def.mode,
+    blacklist: normalizeExternalLinkBlacklist(cfg.blacklist),
+  };
+}
+
+export async function saveExternalLinkFilterConfig(cfg) {
+  const next = {
+    mode: cfg && cfg.mode === 'disabled' ? 'disabled' : 'blacklist',
+    blacklist: normalizeExternalLinkBlacklist(cfg && cfg.blacklist),
+  };
+  await chrome.storage.sync.set({ [EXTERNAL_LINK_FILTER_CONFIG_KEY]: next });
   return next;
 }
 

@@ -90,7 +90,8 @@
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -283,6 +284,14 @@ select:focus {
   border-color: var(--kd-button-border);
   background: var(--kd-input-focus);
   box-shadow: 0 0 0 3px var(--kd-accent-soft);
+}
+
+textarea.kd-input {
+  height: auto;
+  min-height: 96px;
+  padding: 9px 10px;
+  line-height: 1.4;
+  resize: vertical;
 }
 
 .kd-select {

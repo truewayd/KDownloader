@@ -126,6 +126,17 @@
               <label class="extension-option"><input type="checkbox" value=".blend" data-download-extension> <span>.blend</span></label>
             </div>
           </div>
+          <label class="field">
+            <span data-i18n="externalLinkFilterMode">External link filter</span>
+            <select id="external-link-filter-mode" class="kd-select">
+              <option value="blacklist" data-i18n="externalLinkFilterBlacklist">Domain blacklist</option>
+              <option value="disabled" data-i18n="externalLinkFilterDisabled">No filtering</option>
+            </select>
+          </label>
+          <label class="field" id="external-link-filter-details">
+            <span data-i18n="externalLinkFilterDomains">Blocked domains (one per line)</span>
+            <textarea id="external-link-filter-blacklist" class="kd-input" rows="4" spellcheck="false" placeholder="patreon.com"></textarea>
+          </label>
         </div>
       </article>
 

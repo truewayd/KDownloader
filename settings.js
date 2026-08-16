@@ -64,6 +64,11 @@ function updateDownloadFilterVisibility() {
   $("download-filter-details")?.classList.toggle("kd-hidden", !enabled);
 }
 
+function updateExternalLinkFilterVisibility() {
+  const enabled = $("external-link-filter-mode")?.value === "blacklist";
+  $("external-link-filter-details")?.classList.toggle("kd-hidden", !enabled);
+}
+
 function setWatchMode(mode) {
   watchMode = mode === "all" ? "all" : "batch";
   KDUI.setSegmentedValue(
@@ -140,6 +145,27 @@ async function saveDownloadRules() {
     config: {
       enabled: !!$("download-filter-enabled")?.checked,
       excludedExtensions,
+    },
+  });
+}
+
+async function loadExternalLinkFilter() {
+  const { config } = await sendMessage({ action: "externalLinkFilter.getConfig" });
+  setValue("external-link-filter-mode", config.mode);
+  setValue("external-link-filter-blacklist", (config.blacklist || []).join("\n"));
+  updateExternalLinkFilterVisibility();
+}
+
+async function saveExternalLinkFilter() {
+  const blacklist = ($("external-link-filter-blacklist")?.value || "")
+    .split(/[\r\n,]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  await sendMessage({
+    action: "externalLinkFilter.setConfig",
+    config: {
+      mode: $("external-link-filter-mode")?.value === "disabled" ? "disabled" : "blacklist",
+      blacklist,
     },
   });
 }
@@ -226,7 +252,7 @@ async function saveCreators() {
 async function loadAll() {
   try {
     $("save-status").textContent = t("statusLoading");
-    await Promise.all([loadBackend(), loadDownloadRules(), loadWatch(), loadGist(), loadCreators()]);
+    await Promise.all([loadBackend(), loadDownloadRules(), loadExternalLinkFilter(), loadWatch(), loadGist(), loadCreators()]);
     $("save-status").textContent = t("statusIdle");
   } catch (err) {
     console.error("[Settings] load failed", err);
@@ -242,6 +268,7 @@ async function saveAll() {
       await Promise.all([
         saveBackend(),
         saveDownloadRules(),
+        saveExternalLinkFilter(),
         saveWatch(),
         saveGist(),
         saveCreators(),
@@ -291,6 +318,7 @@ function bindEvents() {
   $("backend-type-gopeed")?.addEventListener("click", () => setBackendType("gopeed"));
   $("backend-enabled")?.addEventListener("change", updateBackendVisibility);
   $("download-filter-enabled")?.addEventListener("change", updateDownloadFilterVisibility);
+  $("external-link-filter-mode")?.addEventListener("change", updateExternalLinkFilterVisibility);
   $("save-settings")?.addEventListener("click", saveAll);
   $("reload-settings")?.addEventListener("click", (event) => withBusyButton(event.currentTarget, loadAll));
   $("restore-defaults")?.addEventListener("click", (event) => restoreDefaults(event.currentTarget));

@@ -25,6 +25,7 @@ globalThis.chrome = {
 const {
   getDefaultBackendConfig,
   getDefaultDownloadRulesConfig,
+  getDefaultExternalLinkFilterConfig,
   getDefaultGistConfig,
   getDefaultWatchConfig,
   loadBackendConfig,
@@ -72,6 +73,7 @@ test("default config restoration batches every sync value into one write", async
   assert.deepEqual(configs, {
     backend: getDefaultBackendConfig(),
     downloadRules: getDefaultDownloadRulesConfig(),
+    externalLinkFilter: getDefaultExternalLinkFilterConfig(),
     watch: getDefaultWatchConfig(),
     gist: getDefaultGistConfig(),
   });
@@ -79,6 +81,7 @@ test("default config restoration batches every sync value into one write", async
   assert.deepEqual(Object.keys(syncWrites[0]).sort(), [
     "backendConfig",
     "downloadRulesConfig",
+    "externalLinkFilterConfig",
     "gistConfig",
     "watchConfig",
   ]);

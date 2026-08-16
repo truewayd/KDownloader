@@ -188,6 +188,18 @@
   "downloadFilterExtensions": {
     "message": "排除的文件后缀"
   },
+  "externalLinkFilterMode": {
+    "message": "外链提取过滤"
+  },
+  "externalLinkFilterBlacklist": {
+    "message": "域名黑名单"
+  },
+  "externalLinkFilterDisabled": {
+    "message": "不过滤"
+  },
+  "externalLinkFilterDomains": {
+    "message": "屏蔽域名（每行一个）"
+  },
   "watchTitle": {
     "message": "Pawchive 创作者关注"
   },

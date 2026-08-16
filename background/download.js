@@ -1,7 +1,7 @@
 // background/download.js - download orchestration (local chrome.downloads and backend forwarding)
 import { CONFIG, API, PAW } from './constants.js';
 import UTIL from './util.js';
-import { loadBackendConfig, loadDownloadRulesConfig } from './config.js';
+import { loadBackendConfig, loadDownloadRulesConfig, loadExternalLinkFilterConfig } from './config.js';
 import { handleAPIRequest, getCookies, readLimitedResponseText } from './network.js';
 import {
   buildPawchiveDownloadTasks,
@@ -497,7 +497,10 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
     fileName: buildCoomerFansFileName(creatorName, userId, postId, url, index + 1),
     type: 'coomerfans_media',
   }));
-  const externalLinks = UTIL.extractExternalLinks(html);
+  const externalLinks = UTIL.filterExternalLinks(
+    UTIL.extractExternalLinks(html),
+    await loadExternalLinkFilterConfig()
+  );
 
   if (tasks.length === 0) {
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
@@ -577,7 +580,10 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
   }
 
   let tasks = buildPawchiveDownloadTasks(post);
-  const externalLinks = UTIL.extractExternalLinks(typeof post.content === 'string' ? post.content : '');
+  const externalLinks = UTIL.filterExternalLinks(
+    UTIL.extractPostExternalLinks(post),
+    await loadExternalLinkFilterConfig()
+  );
 
   if (tasks.length === 0) {
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
@@ -729,7 +735,10 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
 
   const title = UTIL.sanitizeFileName(postData.post.title || 'Untitled');
   let tasks = UTIL.buildDownloadTasks(postData, title, origin);
-  const externalLinks = UTIL.extractExternalLinks(postData.post && postData.post.content ? postData.post.content : '');
+  const externalLinks = UTIL.filterExternalLinks(
+    UTIL.extractPostExternalLinks(postData),
+    await loadExternalLinkFilterConfig()
+  );
 
   if (tasks.length === 0) {
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };

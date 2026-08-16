@@ -4,6 +4,8 @@ import {
   saveBackendConfig,
   loadDownloadRulesConfig,
   saveDownloadRulesConfig,
+  loadExternalLinkFilterConfig,
+  saveExternalLinkFilterConfig,
   loadGistConfig,
   saveGistConfig,
   restoreDefaultConfigs,
@@ -59,6 +61,14 @@ export function createConfigHandlers() {
     "downloadRules.setConfig": ({ message, sender, sendResponse }) => {
       requireExtensionPage(sender, "Download-rule configuration");
       return respondWith(sendResponse, saveDownloadRulesConfig(message.config || {}), (config) => ({ config }));
+    },
+
+    "externalLinkFilter.getConfig": ({ sendResponse }) =>
+      respondWith(sendResponse, loadExternalLinkFilterConfig(), (config) => ({ config })),
+
+    "externalLinkFilter.setConfig": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "External-link filter configuration");
+      return respondWith(sendResponse, saveExternalLinkFilterConfig(message.config || {}), (config) => ({ config }));
     },
 
     "gist.getConfig": ({ sender, sendResponse }) =>
