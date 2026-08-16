@@ -144,6 +144,7 @@ type ariaRPC interface {
 	pause(string) error
 	unpause(string) error
 	forceRemove(string) error
+	status(string) (ariaStatus, error)
 	removeResult(string) error
 	purgeResults() error
 	shutdown() error
@@ -565,8 +566,9 @@ func (m *Manager) ResumeTasks(ids []int64) TaskOperationResult {
 }
 
 type rpcTarget struct {
-	id  int64
-	gid string
+	id   int64
+	gid  string
+	task *Task
 }
 
 func (m *Manager) changePauseState(ids []int64, pause bool) TaskOperationResult {
@@ -675,8 +677,9 @@ func (m *Manager) DeleteTask(id int64) bool {
 	return len(result.Succeeded) == 1
 }
 
-// RemoveTasks cancels active aria2 work when necessary and removes only the
-// task record. Partial and completed files on disk are deliberately preserved.
+// RemoveTasks cancels active aria2 work when necessary. Completed downloads
+// are preserved, while an aria2-confirmed active download has its partial data
+// and control file removed before its task record is deleted.
 func (m *Manager) RemoveTasks(ids []int64) TaskOperationResult {
 	return m.removeTasks(ids, true)
 }
@@ -699,11 +702,13 @@ func (m *Manager) removeTasks(ids []int64, allowActive bool) TaskOperationResult
 			result.fail(id, fmt.Errorf("task %d is still active", id))
 			continue
 		}
-		targets = append(targets, rpcTarget{id: id, gid: task.GID})
+		targets = append(targets, rpcTarget{id: id, gid: task.GID, task: cloneTask(task)})
 		active[id] = isActive
 	}
 	m.mu.RUnlock()
 
+	partialPaths := make(map[int64]string)
+	var partialPathsMu sync.Mutex
 	errorsByID := runRPCOperations(targets, 8, func(target rpcTarget) error {
 		if m.rpc == nil {
 			if active[target.id] {
@@ -712,10 +717,74 @@ func (m *Manager) removeTasks(ids []int64, allowActive bool) TaskOperationResult
 			return nil
 		}
 		if active[target.id] {
-			err := m.rpc.forceRemove(target.gid)
-			if err != nil && !isGIDNotFound(err) {
+			state, err := m.rpc.status(target.gid)
+			if err != nil {
+				if isGIDNotFound(err) {
+					return nil
+				}
 				return err
 			}
+			switch state.Status {
+			case "active", "waiting", "paused":
+				if err := m.rpc.forceRemove(target.gid); err != nil {
+					if isGIDNotFound(err) {
+						return nil
+					}
+					return err
+				}
+				stopped, err := waitForAriaStop(m.rpc, target.gid)
+				if err != nil {
+					return err
+				}
+				if stopped.Status == "complete" || stopped.Status == "error" {
+					return nil
+				}
+				path := ""
+				if len(stopped.Files) > 0 {
+					path = stopped.Files[0].Path
+				} else if len(state.Files) > 0 {
+					path = state.Files[0].Path
+				}
+				partialPathsMu.Lock()
+				partialPaths[target.id] = path
+				partialPathsMu.Unlock()
+			case "removed":
+				path := ""
+				if len(state.Files) > 0 {
+					path = state.Files[0].Path
+				}
+				partialPathsMu.Lock()
+				partialPaths[target.id] = path
+				partialPathsMu.Unlock()
+			case "complete", "error":
+				// The aria2 state is authoritative when the local poller lags.
+			default:
+				return fmt.Errorf("unexpected aria2 status %q", state.Status)
+			}
+		}
+		return nil
+	})
+	for _, target := range targets {
+		if errorsByID[target.id] != nil {
+			continue
+		}
+		path, shouldRemove := partialPaths[target.id]
+		if !shouldRemove {
+			continue
+		}
+		if err := removePartialFiles(target.task, path); err != nil {
+			errorsByID[target.id] = err
+		}
+	}
+	resultTargets := make([]rpcTarget, 0, len(targets))
+	for _, target := range targets {
+		if errorsByID[target.id] == nil {
+			resultTargets = append(resultTargets, target)
+		}
+	}
+	_ = runRPCOperations(resultTargets, 8, func(target rpcTarget) error {
+		if m.rpc == nil {
+			return nil
 		}
 		if err := m.rpc.removeResult(target.gid); err != nil && !isGIDNotFound(err) {
 			log.Printf("remove aria2 result %s: %v", target.gid, err)
@@ -1665,6 +1734,83 @@ func outputNameKey(dir, name string) string {
 func pathExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil || !os.IsNotExist(err)
+}
+
+func removePartialFiles(task *Task, ariaPath string) error {
+	if task == nil {
+		return fmt.Errorf("missing task metadata for partial-file cleanup")
+	}
+	folder, err := filepath.Abs(task.Folder)
+	if err != nil {
+		return fmt.Errorf("resolve download directory: %w", err)
+	}
+	folder = filepath.Clean(folder)
+	target := strings.TrimSpace(ariaPath)
+	if target == "" {
+		if task.OutputName == "" {
+			return fmt.Errorf("cannot identify partial download path")
+		}
+		target = filepath.Join(folder, task.OutputName)
+	}
+	target, err = filepath.Abs(target)
+	if err != nil {
+		return fmt.Errorf("resolve partial download path: %w", err)
+	}
+	target = filepath.Clean(target)
+	relative, err := filepath.Rel(folder, target)
+	if err != nil || relative == "." || filepath.IsAbs(relative) || filepath.Dir(relative) != "." {
+		return fmt.Errorf("partial download path is outside its download directory")
+	}
+	if task.OutputName != "" && !samePathName(relative, task.OutputName) {
+		return fmt.Errorf("partial download path does not match the task output name")
+	}
+	for _, path := range []string{target, target + ".aria2"} {
+		info, statErr := os.Lstat(path)
+		if os.IsNotExist(statErr) {
+			continue
+		}
+		if statErr != nil {
+			return fmt.Errorf("inspect partial download %q: %w", filepath.Base(path), statErr)
+		}
+		if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("refuse to remove non-file partial download %q", filepath.Base(path))
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove partial download %q: %w", filepath.Base(path), err)
+		}
+	}
+	return nil
+}
+
+func waitForAriaStop(rpc ariaRPC, gid string) (ariaStatus, error) {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		state, err := rpc.status(gid)
+		if err != nil {
+			if isGIDNotFound(err) {
+				return ariaStatus{GID: gid, Status: "removed"}, nil
+			}
+			return ariaStatus{}, err
+		}
+		switch state.Status {
+		case "removed", "complete", "error":
+			return state, nil
+		case "active", "waiting", "paused":
+		default:
+			return ariaStatus{}, fmt.Errorf("unexpected aria2 status %q after removal", state.Status)
+		}
+		if time.Now().After(deadline) {
+			return ariaStatus{}, fmt.Errorf("timed out waiting for aria2 to stop task %s", gid)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+func samePathName(left, right string) bool {
+	if os.PathSeparator == '\\' {
+		return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+	}
+	return filepath.Clean(left) == filepath.Clean(right)
 }
 
 func outputNameAvailable(dir, name string) bool {

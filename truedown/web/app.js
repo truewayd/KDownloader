@@ -363,7 +363,7 @@ async function onTaskAction(event) {
     if (action === "pause") await runTaskAction("pause", id, "任务已暂停。");
     if (action === "resume") await runTaskAction("resume", id, "任务已继续。");
     if (action === "remove") {
-      if (!window.confirm("移除此任务？正在下载的任务会停止，但已下载或未完成的文件会保留。")) return;
+      if (!window.confirm("移除此任务？已完成文件会保留；正在下载的任务会停止并删除未完成文件。")) return;
       await runTaskAction("remove", id, "任务已移除。");
       selectedTaskIDs.delete(id);
     }
@@ -423,7 +423,7 @@ async function runSelectedAction(action, label, requiresConfirmation = false) {
     showToast("请先选择任务。", "error");
     return;
   }
-  if (requiresConfirmation && !window.confirm(`移除选中的 ${ids.length} 个任务？活动任务会停止，但磁盘文件会保留。`)) return;
+  if (requiresConfirmation && !window.confirm(`移除选中的 ${ids.length} 个任务？已完成文件会保留；活动任务会停止并删除未完成文件。`)) return;
   setBatchBusy(true);
   try {
     const result = await requestJSON("/tasks/batch", {

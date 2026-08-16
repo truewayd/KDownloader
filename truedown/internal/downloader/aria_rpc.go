@@ -142,6 +142,13 @@ func (c *ariaClient) forceRemove(gid string) error {
 	return c.call("aria2.forceRemove", []any{gid}, &result)
 }
 
+func (c *ariaClient) status(gid string) (ariaStatus, error) {
+	keys := []string{"gid", "status", "files"}
+	var status ariaStatus
+	err := c.call("aria2.tellStatus", []any{gid, keys}, &status)
+	return status, err
+}
+
 func (c *ariaClient) removeResult(gid string) error {
 	var result string
 	return c.call("aria2.removeDownloadResult", []any{gid}, &result)

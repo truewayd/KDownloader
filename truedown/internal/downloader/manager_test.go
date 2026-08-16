@@ -179,22 +179,42 @@ func TestTaskPageIsBoundedSummarizedAndVersioned(t *testing.T) {
 }
 
 type fakeAriaRPC struct {
-	mu      sync.Mutex
-	paused  []string
-	resumed []string
-	removed []string
-	stopped bool
+	mu           sync.Mutex
+	paused       []string
+	resumed      []string
+	removed      []string
+	statusValue  string
+	forceRemoved bool
+	stopped      bool
 }
 
 func (f *fakeAriaRPC) ready() error                       { return nil }
 func (f *fakeAriaRPC) addURI(*Task, map[string]any) error { return nil }
-func (f *fakeAriaRPC) removeResult(string) error          { return nil }
-func (f *fakeAriaRPC) purgeResults() error                { return nil }
-func (f *fakeAriaRPC) statuses() ([]ariaStatus, error)    { return nil, nil }
-func (f *fakeAriaRPC) pause(gid string) error             { f.record(&f.paused, gid); return nil }
-func (f *fakeAriaRPC) unpause(gid string) error           { f.record(&f.resumed, gid); return nil }
-func (f *fakeAriaRPC) forceRemove(gid string) error       { f.record(&f.removed, gid); return nil }
-func (f *fakeAriaRPC) shutdown() error                    { f.mu.Lock(); f.stopped = true; f.mu.Unlock(); return nil }
+func (f *fakeAriaRPC) status(gid string) (ariaStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	status := f.statusValue
+	if status == "" {
+		status = "active"
+		if f.forceRemoved {
+			status = "removed"
+		}
+	}
+	return ariaStatus{GID: gid, Status: status}, nil
+}
+func (f *fakeAriaRPC) removeResult(string) error       { return nil }
+func (f *fakeAriaRPC) purgeResults() error             { return nil }
+func (f *fakeAriaRPC) statuses() ([]ariaStatus, error) { return nil, nil }
+func (f *fakeAriaRPC) pause(gid string) error          { f.record(&f.paused, gid); return nil }
+func (f *fakeAriaRPC) unpause(gid string) error        { f.record(&f.resumed, gid); return nil }
+func (f *fakeAriaRPC) forceRemove(gid string) error {
+	f.record(&f.removed, gid)
+	f.mu.Lock()
+	f.forceRemoved = true
+	f.mu.Unlock()
+	return nil
+}
+func (f *fakeAriaRPC) shutdown() error { f.mu.Lock(); f.stopped = true; f.mu.Unlock(); return nil }
 func (f *fakeAriaRPC) record(target *[]string, gid string) {
 	f.mu.Lock()
 	*target = append(*target, gid)
@@ -242,6 +262,113 @@ func TestBatchPauseResumeAndRemovePersistAtomically(t *testing.T) {
 	}
 	if len(fake.paused) != 1 || len(fake.resumed) != 1 || len(fake.removed) != 1 {
 		t.Fatalf("unexpected aria calls: pause=%v resume=%v remove=%v", fake.paused, fake.resumed, fake.removed)
+	}
+}
+
+func TestRemoveActiveTaskDeletesPartialFiles(t *testing.T) {
+	stateDir := t.TempDir()
+	downloadDir := filepath.Join(stateDir, "downloads")
+	m, err := NewManager("unused", downloadDir, filepath.Join(stateDir, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	m.rpc = &fakeAriaRPC{}
+	task, _, err := m.AddTask("https://example.test/partial", "partial.bin", "", nil, "", 0, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.flushAdmissions(false)
+	if err := os.MkdirAll(downloadDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(downloadDir, task.OutputName)
+	for _, path := range []string{outputPath, outputPath + ".aria2"} {
+		if err := os.WriteFile(path, []byte("partial"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result := m.RemoveTasks([]int64{task.ID})
+	if len(result.Succeeded) != 1 || len(result.Failed) != 0 {
+		t.Fatalf("remove result: %+v", result)
+	}
+	for _, path := range []string{outputPath, outputPath + ".aria2"} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("partial file %q remains: %v", path, err)
+		}
+	}
+}
+
+func TestRemovePreservesFilesWhenAria2AlreadyCompleted(t *testing.T) {
+	stateDir := t.TempDir()
+	downloadDir := filepath.Join(stateDir, "downloads")
+	m, err := NewManager("unused", downloadDir, filepath.Join(stateDir, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	fake := &fakeAriaRPC{statusValue: "complete"}
+	m.rpc = fake
+	task, _, err := m.AddTask("https://example.test/complete", "complete.bin", "", nil, "", 0, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.flushAdmissions(false)
+	if err := os.MkdirAll(downloadDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(downloadDir, task.OutputName)
+	if err := os.WriteFile(outputPath, []byte("complete"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := m.RemoveTasks([]int64{task.ID})
+	if len(result.Succeeded) != 1 || len(result.Failed) != 0 {
+		t.Fatalf("remove result: %+v", result)
+	}
+	if _, err := os.Stat(outputPath); err != nil {
+		t.Fatalf("completed file was removed: %v", err)
+	}
+	if len(fake.removed) != 0 {
+		t.Fatalf("completed aria2 result was force-removed: %v", fake.removed)
+	}
+}
+
+func TestRemoveKeepsRecordWhenPartialPathIsUnsafe(t *testing.T) {
+	stateDir := t.TempDir()
+	downloadDir := filepath.Join(stateDir, "downloads")
+	m, err := NewManager("unused", downloadDir, filepath.Join(stateDir, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	m.rpc = &fakeAriaRPC{}
+	task, _, err := m.AddTask("https://example.test/directory", "directory.bin", "", nil, "", 0, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.flushAdmissions(false)
+	if err := os.MkdirAll(filepath.Join(downloadDir, task.OutputName), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	result := m.RemoveTasks([]int64{task.ID})
+	if len(result.Succeeded) != 0 || len(result.Failed) != 1 {
+		t.Fatalf("remove result: %+v", result)
+	}
+	if _, ok := m.GetTask(task.ID); !ok {
+		t.Fatal("task record was removed after unsafe cleanup failed")
+	}
+	outsidePath := filepath.Join(stateDir, "outside.bin")
+	if err := os.WriteFile(outsidePath, []byte("keep"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := removePartialFiles(task, outsidePath); err == nil {
+		t.Fatal("outside partial path was accepted")
+	}
+	if _, err := os.Stat(outsidePath); err != nil {
+		t.Fatalf("outside file was changed: %v", err)
 	}
 }
 

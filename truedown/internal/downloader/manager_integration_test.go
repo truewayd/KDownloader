@@ -72,6 +72,21 @@ func TestManagerAria2Lifecycle(t *testing.T) {
 	if tasks := m.ListTasks(); len(tasks) != 0 {
 		t.Fatalf("tasks remained after ClearDone: %v", tasks)
 	}
+
+	partial, duplicate, err := m.AddTask(link, "partial.bin", "", nil, "", 0, Aria2Opts{MaxSpeedBps: 16384})
+	if err != nil || duplicate {
+		t.Fatalf("partial AddTask: task=%v duplicate=%v err=%v", partial, duplicate, err)
+	}
+	waitForStatus(t, m, partial.ID, 8*time.Second, StatusDownloading)
+	partialPath := filepath.Join(stateDir, "downloads", partial.OutputName)
+	if result := m.RemoveTasks([]int64{partial.ID}); len(result.Succeeded) != 1 || len(result.Failed) != 0 {
+		t.Fatalf("RemoveTasks: %+v", result)
+	}
+	for _, path := range []string{partialPath, partialPath + ".aria2"} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("removed partial file %q remains: %v", path, err)
+		}
+	}
 }
 
 func waitForStatus(t *testing.T, m *Manager, id int64, timeout time.Duration, want Status) {
