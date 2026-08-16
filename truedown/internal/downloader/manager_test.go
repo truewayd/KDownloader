@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -89,6 +91,7 @@ func TestAddTaskRejectsUnsafeRequestFields(t *testing.T) {
 		{"https://example.test/file", "../escape.bin", nil},
 		{"https://example.test/file", "CON.txt.backup", nil},
 		{"https://example.test/file", "file.bin", map[string]string{"Cookie": "safe\r\nInjected: true"}},
+		{"https://example.test/file", "file.bin", map[string]string{"Host": "internal.example"}},
 	}
 	for _, testCase := range tests {
 		if _, _, err := m.AddTask(testCase.link, testCase.name, "", testCase.headers, "", 0, Aria2Opts{}); !IsValidationError(err) {
@@ -101,6 +104,7 @@ func TestProtectedAriaOptionsBlockHooksAndLocalFileAccess(t *testing.T) {
 	for _, name := range []string{
 		"on-download-complete", "on-bt-download-complete", "rpc-secret",
 		"load-cookies", "save-cookies", "private-key", "ca-certificate", "dht-file-path",
+		"parameterized-uri", "index-out", "follow-torrent", "follow-metalink",
 	} {
 		if !isProtectedAriaOption(name) {
 			t.Fatalf("option %q is not protected", name)
@@ -109,6 +113,165 @@ func TestProtectedAriaOptionsBlockHooksAndLocalFileAccess(t *testing.T) {
 	if isProtectedAriaOption("user-agent") {
 		t.Fatal("ordinary per-download option was unexpectedly protected")
 	}
+}
+
+func TestAriaOptionsCarryTrustedDownloadCredentials(t *testing.T) {
+	task := &Task{
+		GID: "0123456789abcdef", Link: "https://example.test/file", Folder: t.TempDir(),
+		Headers: map[string]string{
+			"Cookie":     "session=secret",
+			"Referer":    "https://example.test/post/1",
+			"User-Agent": "Test Browser",
+		},
+	}
+	options := ariaOptions(task, false)
+	headers, ok := options["header"].([]string)
+	if !ok {
+		t.Fatalf("aria2 header option has type %T", options["header"])
+	}
+	joined := strings.Join(headers, "\n")
+	for _, expected := range []string{"Cookie: session=secret", "Referer: https://example.test/post/1", "User-Agent: Test Browser"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("aria2 headers %q do not include %q", joined, expected)
+		}
+	}
+}
+
+func TestTaskPageIsBoundedSummarizedAndVersioned(t *testing.T) {
+	stateDir := t.TempDir()
+	m, err := NewManager("unused", filepath.Join(stateDir, "downloads"), filepath.Join(stateDir, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	for i := 0; i < 230; i++ {
+		if _, _, err := m.AddTask(fmt.Sprintf("https://example.test/page-%d", i), "", "", nil, "", 0, Aria2Opts{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.mu.Lock()
+	for _, id := range []int64{5, 225} {
+		task := m.tasks[id]
+		m.setStatusLocked(task, StatusError)
+		task.Error = "test error"
+		m.touchTaskLocked(task)
+	}
+	m.mu.Unlock()
+
+	page := m.PageTaskSnapshots(0, 100, "")
+	if len(page.Tasks) != 100 || page.Total != 230 || page.Summary.Total != 230 || page.Summary.Error != 2 {
+		t.Fatalf("unexpected page: tasks=%d total=%d summary=%+v", len(page.Tasks), page.Total, page.Summary)
+	}
+	if page.Tasks[0].ID != 230 || page.Tasks[99].ID != 131 {
+		t.Fatalf("page IDs are %d..%d, want 230..131", page.Tasks[0].ID, page.Tasks[99].ID)
+	}
+	errorPage := m.PageTaskSnapshots(0, 100, StatusError)
+	if errorPage.Total != 2 || len(errorPage.Tasks) != 2 || errorPage.Tasks[0].ID != 225 {
+		t.Fatalf("unexpected error page: %+v", errorPage)
+	}
+	oldVersion := page.Version
+	if err := m.setTask(230, func(task *Task) { task.Progress = "changed" }); err != nil {
+		t.Fatal(err)
+	}
+	if next := m.PageTaskSnapshots(0, 100, ""); next.Version == oldVersion {
+		t.Fatal("page version did not change with a visible task")
+	}
+}
+
+type fakeAriaRPC struct {
+	mu      sync.Mutex
+	paused  []string
+	resumed []string
+	removed []string
+	stopped bool
+}
+
+func (f *fakeAriaRPC) ready() error                       { return nil }
+func (f *fakeAriaRPC) addURI(*Task, map[string]any) error { return nil }
+func (f *fakeAriaRPC) removeResult(string) error          { return nil }
+func (f *fakeAriaRPC) purgeResults() error                { return nil }
+func (f *fakeAriaRPC) statuses() ([]ariaStatus, error)    { return nil, nil }
+func (f *fakeAriaRPC) pause(gid string) error             { f.record(&f.paused, gid); return nil }
+func (f *fakeAriaRPC) unpause(gid string) error           { f.record(&f.resumed, gid); return nil }
+func (f *fakeAriaRPC) forceRemove(gid string) error       { f.record(&f.removed, gid); return nil }
+func (f *fakeAriaRPC) shutdown() error                    { f.mu.Lock(); f.stopped = true; f.mu.Unlock(); return nil }
+func (f *fakeAriaRPC) record(target *[]string, gid string) {
+	f.mu.Lock()
+	*target = append(*target, gid)
+	f.mu.Unlock()
+}
+
+func TestBatchPauseResumeAndRemovePersistAtomically(t *testing.T) {
+	stateDir := t.TempDir()
+	databasePath := filepath.Join(stateDir, "records.db")
+	m, err := NewManager("unused", filepath.Join(stateDir, "downloads"), databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeAriaRPC{}
+	m.rpc = fake
+	task, _, err := m.AddTask("https://example.test/batch", "batch.bin", "", nil, "", 0, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.flushAdmissions(false)
+	if result := m.PauseTasks([]int64{task.ID}); len(result.Succeeded) != 1 || len(result.Failed) != 0 {
+		t.Fatalf("pause result: %+v", result)
+	}
+	if current, _ := m.GetTask(task.ID); current.Status != StatusPaused {
+		t.Fatalf("paused task status is %s", current.Status)
+	}
+	if result := m.ResumeTasks([]int64{task.ID}); len(result.Succeeded) != 1 || len(result.Failed) != 0 {
+		t.Fatalf("resume result: %+v", result)
+	}
+	if result := m.RemoveTasks([]int64{task.ID}); len(result.Succeeded) != 1 || len(result.Failed) != 0 {
+		t.Fatalf("remove result: %+v", result)
+	}
+	if _, ok := m.GetTask(task.ID); ok {
+		t.Fatal("removed task remains in memory")
+	}
+	m.Stop()
+
+	reopened, err := NewManager("unused", filepath.Join(stateDir, "downloads"), databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Stop()
+	if tasks := reopened.ListTasks(); len(tasks) != 0 {
+		t.Fatalf("removed task remains in database: %+v", tasks)
+	}
+	if len(fake.paused) != 1 || len(fake.resumed) != 1 || len(fake.removed) != 1 {
+		t.Fatalf("unexpected aria calls: pause=%v resume=%v remove=%v", fake.paused, fake.resumed, fake.removed)
+	}
+}
+
+func TestAriaAdmissionWindowIsBounded(t *testing.T) {
+	m := &Manager{
+		ariaSlots: make(chan struct{}, ariaBacklogLimit),
+		done:      make(chan struct{}),
+	}
+	for index := 0; index < ariaBacklogLimit; index++ {
+		if !m.acquireAriaSlot() {
+			t.Fatal("slot acquisition stopped early")
+		}
+	}
+	acquired := make(chan bool, 1)
+	go func() { acquired <- m.acquireAriaSlot() }()
+	select {
+	case <-acquired:
+		t.Fatal("admission exceeded the aria backlog limit")
+	case <-time.After(25 * time.Millisecond):
+	}
+	m.releaseAriaSlot()
+	select {
+	case ok := <-acquired:
+		if !ok {
+			t.Fatal("waiting admission did not acquire the released slot")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("waiting admission was not released")
+	}
+	close(m.done)
 }
 
 func TestAddTaskReservesOutputNamesBeforeFilesExist(t *testing.T) {
@@ -129,6 +292,25 @@ func TestAddTaskReservesOutputNamesBeforeFilesExist(t *testing.T) {
 	}
 	if first.OutputName != "Live Stream.png" || second.OutputName != "Live Stream(1).png" {
 		t.Fatalf("reserved output names are %q and %q", first.OutputName, second.OutputName)
+	}
+}
+
+func TestTaskIDsByStatusAreBounded(t *testing.T) {
+	stateDir := t.TempDir()
+	m, err := NewManager("unused", filepath.Join(stateDir, "downloads"), filepath.Join(stateDir, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+
+	for index := 0; index < 5; index++ {
+		if _, _, err := m.AddTask(fmt.Sprintf("https://example.test/%d", index), fmt.Sprintf("%d.bin", index), "", nil, "", 0, Aria2Opts{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := m.TaskIDsByStatus(StatusQueued, 2)
+	if len(ids) != 2 || m.TaskCountByStatus(StatusQueued) != 5 {
+		t.Fatalf("ids=%v queued=%d", ids, m.TaskCountByStatus(StatusQueued))
 	}
 }
 
@@ -202,4 +384,25 @@ func jsonFingerprint(identity requestIdentity) (string, error) {
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+func BenchmarkPageTaskSnapshots100Of10000(b *testing.B) {
+	m := &Manager{
+		tasks:        make(map[int64]*Task, 10_000),
+		orderedIDs:   make([]int64, 0, 10_000),
+		statusCounts: map[Status]int{StatusDone: 10_000},
+		structureRev: 1,
+	}
+	for id := int64(1); id <= 10_000; id++ {
+		m.tasks[id] = &Task{ID: id, Name: "file.bin", Status: StatusDone, Revision: id}
+		m.orderedIDs = append(m.orderedIDs, id)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		page := m.PageTaskSnapshots(0, 100, "")
+		if len(page.Tasks) != 100 {
+			b.Fatal(len(page.Tasks))
+		}
+	}
 }

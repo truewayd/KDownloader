@@ -65,8 +65,36 @@
           </article>
         </div>
 
+        <div class="task-controls">
+          <label class="filter-control" for="task-filter">
+            <span>状态</span>
+            <select class="kd-select" id="task-filter">
+              <option value="all">全部</option>
+              <option value="downloading">下载中</option>
+              <option value="queued">排队中</option>
+              <option value="paused">已暂停</option>
+              <option value="error">出错</option>
+              <option value="done">已完成</option>
+            </select>
+          </label>
+          <nav class="pagination" aria-label="任务分页">
+            <button class="kd-button secondary compact" id="prev-page-btn" type="button" disabled>上一页</button>
+            <span id="page-info" aria-live="polite">0–0 / 0</span>
+            <button class="kd-button secondary compact" id="next-page-btn" type="button" disabled>下一页</button>
+          </nav>
+        </div>
+
+        <div class="batch-toolbar" id="batch-toolbar" hidden>
+          <strong id="batch-selection-count">已选择 0 项</strong>
+          <div class="batch-actions">
+            <button class="kd-button secondary compact" id="batch-pause-btn" type="button">批量暂停</button>
+            <button class="kd-button secondary compact" id="batch-resume-btn" type="button">批量继续</button>
+            <button class="kd-button danger compact" id="batch-remove-btn" type="button">批量移除</button>
+          </div>
+        </div>
+
         <div class="table-scroll" id="tasks-wrap">
-          <div id="tasks-container" class="tasks-container" aria-live="polite">
+          <div id="tasks-container" class="tasks-container">
             <div class="empty-state">
               <div class="empty-icon" aria-hidden="true">↓</div>
               <h2>暂无任务</h2>
@@ -108,6 +136,19 @@
             <label for="cfg-extra">额外参数</label>
             <textarea class="kd-input" id="cfg-extra" rows="4" placeholder="--check-integrity=true&#10;--file-allocation=falloc"></textarea>
             <p class="hint">每行一个 aria2 flag，新建任务时自动带入。</p>
+          </div>
+          <div class="section-divider"></div>
+          <div class="token-card">
+            <div>
+              <strong>API Key（可选）</strong>
+              <p class="hint">默认关闭。启用后，KDownloader、AB 扩展和远程仪表盘都使用此 API Key。</p>
+            </div>
+            <label class="token-auth-toggle" for="token-auth-enabled">
+              <input id="token-auth-enabled" type="checkbox">
+              <span>启用 API Key 认证</span>
+            </label>
+            <p class="hint" id="token-auth-status" aria-live="polite">正在读取认证设置…</p>
+            <button class="kd-button secondary" id="copy-api-token-btn" type="button" disabled>复制 API Key</button>
           </div>
         </div>
       </aside>

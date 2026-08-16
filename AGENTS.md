@@ -1,6 +1,6 @@
 # KDownloader Agent Guide
 
-Last reviewed: 2026-08-10
+Last reviewed: 2026-08-13
 
 This file is the current engineering contract for the extension. Historical release notes live in `changelog/`; do not append dated entries here.
 
@@ -34,7 +34,7 @@ Do not edit `dist/` by hand. It is generated and ignored.
 - `background/db.js` owns IndexedDB history version 3. The active generation pointer and generation metadata make import commit and stats O(1). Records use compound identity `[source, service, userId, postId]`; supported statuses are `partial`, `complete`, and `empty`.
 - History is not copied through a single runtime message. Use `db.import.begin/chunk/commit/abort` and `db.export.begin/page` with bounded payloads. Duplicate identities must abort an import without changing the active generation. Retired generations and abandoned imports are reclaimed after their safety windows.
 - `background/download.js` owns task construction, trusted media-host validation, suffix filtering, batching, bounded workers, retries, progress, backend dispatch, and link TXT declaration. Site cookies may be forwarded only to the same trusted site family. Native Chrome fallback is only offered after the persisted, user-confirmed total-failure notification.
-- `background/config.js` owns backend, download-rule, Watch, and Gist defaults/normalization. Download backends are loopback-only (`localhost` or `127.0.0.1`). `settings.restoreDefaults` resets those values in one sync write, disables the creators override, and reschedules the Watch alarm; it never clears history or the Watch list.
+- `background/config.js` owns backend, download-rule, Watch, and Gist defaults/normalization. Download backends are loopback-only (`localhost` or `127.0.0.1`). The AB-compatible 32-256 character API Key is optional and empty by default; when configured it lives in local-only extension storage, and browser cookies for the TrueDown dashboard are never used as backend credentials. `settings.restoreDefaults` resets those values, disables the creators override, and reschedules the Watch alarm; it never clears history or the Watch list.
 - `background/creators.js` owns the Kemono/Coomer creator cache and enable flag. The injected cache bridge must honor enable/disable changes immediately. `background/watch.js` owns Pawchive Watch only and bounds high-concurrency checks.
 - Remove exports only after `rg`/`git grep` confirms there are no runtime, test, or build references.
 
@@ -80,7 +80,7 @@ The site action scripts are `actions.js`, `paw_actions.js`, and `coomerfans_acti
 
 ## Storage And Configuration
 
-Current durable keys are `backendConfig`, `downloadRulesConfig`, `watchConfig`, `gistConfig`, `creatorsOverrideEnabled`, `pawchiveWatches`, `pawchiveWatchIcons`, and lightweight progress/revision signals. Download history is IndexedDB; pending native fallback tasks use session storage.
+Current durable keys are `backendConfig`, `backendSecrets`, `downloadRulesConfig`, `watchConfig`, `gistConfig`, `gistSecrets`, `creatorsOverrideEnabled`, `pawchiveWatches`, `pawchiveWatchIcons`, and lightweight progress/revision signals. Backend and Gist tokens live only in the local secret keys and are omitted from sync storage. Download history is IndexedDB; pending native fallback tasks use session storage.
 
 Download rules are stored in sync storage as `{ enabled, excludedExtensions }`. Values are lowercase dot-prefixed suffixes and matching is case-insensitive against normalized filenames, then URL paths. The default selectable list is `.psd`, `.clip`, `.sai`, `.sai2`, `.kra`, `.xcf`, `.procreate`, `.afphoto`, `.afdesign`, `.blend`.
 
@@ -89,9 +89,13 @@ Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps
 ## TrueDown Runtime
 
 - TrueDown listens on `127.0.0.1:15151` by default. A non-loopback `TRUEDOWN_ADDR` requires `TRUEDOWN_ALLOW_REMOTE=1` and must name a specific interface; wildcard binds are rejected.
-- The HTTP boundary validates request hosts and write origins, applies security headers and timeouts, limits start requests to 1 MiB, accepts exactly one known-field JSON object, and returns task snapshots without headers or aria2 options.
+- TrueDown implements AB Download Manager's HTTP browser-integration fallback on the same listener: `POST /ping` returns `pong`, and `POST /add` accepts bounded HTTP download batches from the official extension. It maps each item's link, suggested name, headers, and download page into the normal TrueDown queue; HLS items are rejected because aria2 does not provide AB's HLS download behavior.
+- API Key authentication is disabled by default and is persisted in `truedown.auth.json` when changed from the dashboard. Enabling it creates or reuses `truedown.token`, returns an authenticated session in the same settings response so the UI remains connected, and makes the KDownloader API Key field mandatory only for that TrueDown instance. `TRUEDOWN_REQUIRE_TOKEN=1` or `TRUEDOWN_API_TOKEN` manages the setting externally.
+- A non-loopback TrueDown listener also requires `TRUEDOWN_TLS_CERT`, `TRUEDOWN_TLS_KEY`, and enabled token authentication. Remote listeners lock the dashboard toggle on; remote dashboards ask for the token and keep it only in the current tab's session storage.
+- The HTTP boundary validates request hosts and write origins, applies security headers and timeouts, limits start requests to 1 MiB, accepts exactly one known-field JSON object, and returns task snapshots without headers or aria2 options. KDownloader, AB's extension, and the TrueDown dashboard all use the same `X-Api-Key` authentication header.
 - Download URLs are absolute HTTP(S) URLs without embedded credentials. Output names, headers, folders, queue IDs, and aria2 options are bounded; process hooks, RPC controls, and local-file aria2 options cannot be overridden through `extraArgs`.
 - The manager indexes aria2 GIDs for status polling, clears drained queue references for GC, and exposes UI snapshots instead of cloning secret-bearing task payloads on every poll.
+- TrueDown admits at most 256 queued/active tasks to aria2 at once, persists polled state outside the task lock in revision-guarded batches, and exposes bounded task pages with summary counts and ETags. The dashboard renders 100 tasks per page and uses operations bounded to 1,000 task IDs for pause, resume, retry, and record removal; "retry all" drains multiple bounded batches and removal never deletes downloaded or partial files.
 
 ## Build And Release
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -40,10 +41,20 @@ type ariaStatus struct {
 }
 
 func newAriaClient(port int, secret string) *ariaClient {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.MaxIdleConns = 4
+	transport.MaxIdleConnsPerHost = 4
 	return &ariaClient{
 		url:    fmt.Sprintf("http://127.0.0.1:%d/jsonrpc", port),
 		secret: secret,
-		http:   &http.Client{Timeout: 8 * time.Second},
+		http: &http.Client{
+			Timeout:   8 * time.Second,
+			Transport: transport,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}
 }
 
@@ -65,11 +76,21 @@ func (c *ariaClient) call(method string, params []any, result any) error {
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("aria2 RPC returned HTTP %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024*1024+1))
+	if err != nil {
+		return fmt.Errorf("read aria2 RPC response: %w", err)
+	}
+	if len(data) > 16*1024*1024 {
+		return fmt.Errorf("aria2 RPC response exceeds 16 MiB")
+	}
 	var envelope struct {
 		Result json.RawMessage `json:"result"`
 		Error  *ariaRPCError   `json:"error"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+	if err := json.Unmarshal(data, &envelope); err != nil {
 		return fmt.Errorf("decode aria2 RPC response: %w", err)
 	}
 	if envelope.Error != nil {
@@ -116,9 +137,18 @@ func (c *ariaClient) unpause(gid string) error {
 	return c.call("aria2.unpause", []any{gid}, &result)
 }
 
+func (c *ariaClient) forceRemove(gid string) error {
+	var result string
+	return c.call("aria2.forceRemove", []any{gid}, &result)
+}
+
 func (c *ariaClient) removeResult(gid string) error {
 	var result string
 	return c.call("aria2.removeDownloadResult", []any{gid}, &result)
+}
+
+func (c *ariaClient) purgeResults() error {
+	return c.call("aria2.purgeDownloadResult", nil, nil)
 }
 
 func (c *ariaClient) shutdown() error {
@@ -132,7 +162,10 @@ func (c *ariaClient) statuses() ([]ariaStatus, error) {
 	if err := c.call("aria2.tellActive", []any{keys}, &active); err != nil {
 		return nil, err
 	}
-	if err := c.call("aria2.tellWaiting", []any{0, 10000, keys}, &waiting); err != nil {
+	// Queued items are already known locally. A bounded window is enough to
+	// observe aria2-side state without transferring thousands of stable rows
+	// every second when a large batch is waiting.
+	if err := c.call("aria2.tellWaiting", []any{0, 256, keys}, &waiting); err != nil {
 		return nil, err
 	}
 	if err := c.call("aria2.tellStopped", []any{0, 256, keys}, &stopped); err != nil {

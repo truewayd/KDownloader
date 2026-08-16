@@ -47,7 +47,6 @@ func openRecordStore(path string) (*recordStore, error) {
 			updated_at TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_download_records_status ON download_records(status)`,
-		`PRAGMA user_version=1`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
@@ -55,12 +54,50 @@ func openRecordStore(path string) (*recordStore, error) {
 			return nil, fmt.Errorf("initialize download database: %w", err)
 		}
 	}
+	if err := migrateRecordStore(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return s, nil
+}
+
+func migrateRecordStore(db *sqliteConn) error {
+	rows, err := db.Query(`PRAGMA table_info(download_records)`)
+	if err != nil {
+		return fmt.Errorf("inspect download database: %w", err)
+	}
+	hasRevision := false
+	for {
+		hasRow, nextErr := rows.Next()
+		if nextErr != nil {
+			rows.Close()
+			return fmt.Errorf("inspect download database: %w", nextErr)
+		}
+		if !hasRow {
+			break
+		}
+		if rows.Text(1) == "revision" {
+			hasRevision = true
+		}
+	}
+	rows.Close()
+	if !hasRevision {
+		if _, err := db.Exec(`ALTER TABLE download_records ADD COLUMN revision INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("upgrade download database: %w", err)
+		}
+	}
+	if _, err := db.Exec(`PRAGMA user_version=2`); err != nil {
+		return fmt.Errorf("record download database version: %w", err)
+	}
+	return nil
 }
 
 func (s *recordStore) Close() error { return s.db.Close() }
 
 func (s *recordStore) InsertBatch(tasks []*Task) error {
+	if len(tasks) == 0 {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, err := s.db.Exec(`BEGIN IMMEDIATE`); err != nil {
@@ -91,32 +128,70 @@ func (s *recordStore) insert(t *Task) error {
 	_, err = s.db.Exec(`INSERT INTO download_records (
 		id, fingerprint, request_json, name, link, folder, queue_id, headers_json,
 		download_page, opts_json, output_name, gid, status, progress, error,
-		created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		created_at, updated_at, revision
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.Fingerprint, t.RequestJSON, t.Name, t.Link, t.Folder, t.QueueID,
 		string(headers), t.DownloadPage, string(opts), t.OutputName, t.GID,
-		string(t.Status), t.Progress, t.Error, formatDBTime(t.CreatedAt), formatDBTime(t.UpdatedAt),
+		string(t.Status), t.Progress, t.Error, formatDBTime(t.CreatedAt), formatDBTime(t.UpdatedAt), t.Revision,
 	)
 	return err
 }
 
 func (s *recordStore) Update(t *Task) error {
+	return s.UpdateBatch([]*Task{t})
+}
+
+func (s *recordStore) UpdateBatch(tasks []*Task) error {
+	if len(tasks) == 0 {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.Exec(`UPDATE download_records SET
-		name=?, output_name=?, gid=?, status=?, progress=?, error=?, updated_at=?
-		WHERE id=?`,
-		t.Name, t.OutputName, t.GID, string(t.Status), t.Progress, t.Error,
-		formatDBTime(t.UpdatedAt), t.ID,
-	)
-	return err
+	if _, err := s.db.Exec(`BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	for _, t := range tasks {
+		if _, err := s.db.Exec(`UPDATE download_records SET
+			name=?, output_name=?, gid=?, status=?, progress=?, error=?, updated_at=?, revision=?
+			WHERE id=? AND revision<=?`,
+			t.Name, t.OutputName, t.GID, string(t.Status), t.Progress, t.Error,
+			formatDBTime(t.UpdatedAt), t.Revision, t.ID, t.Revision,
+		); err != nil {
+			_, _ = s.db.Exec(`ROLLBACK`)
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`COMMIT`); err != nil {
+		_, _ = s.db.Exec(`ROLLBACK`)
+		return err
+	}
+	return nil
 }
 
 func (s *recordStore) Delete(id int64) error {
+	return s.DeleteBatch([]int64{id})
+}
+
+func (s *recordStore) DeleteBatch(ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.Exec(`DELETE FROM download_records WHERE id=?`, id)
-	return err
+	if _, err := s.db.Exec(`BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, err := s.db.Exec(`DELETE FROM download_records WHERE id=?`, id); err != nil {
+			_, _ = s.db.Exec(`ROLLBACK`)
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`COMMIT`); err != nil {
+		_, _ = s.db.Exec(`ROLLBACK`)
+		return err
+	}
+	return nil
 }
 
 func (s *recordStore) ClearDone() error {
@@ -132,7 +207,7 @@ func (s *recordStore) LoadAll() ([]*Task, error) {
 	rows, err := s.db.Query(`SELECT
 		id, fingerprint, request_json, name, link, folder, queue_id, headers_json,
 		download_page, opts_json, output_name, gid, status, progress, error,
-		created_at, updated_at
+		created_at, updated_at, revision
 		FROM download_records ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -163,6 +238,7 @@ func (s *recordStore) LoadAll() ([]*Task, error) {
 			Error:        rows.Text(14),
 			CreatedAt:    parseDBTime(rows.Text(15)),
 			UpdatedAt:    parseDBTime(rows.Text(16)),
+			Revision:     rows.Int64(17),
 		}
 		if err := json.Unmarshal([]byte(rows.Text(7)), &t.Headers); err != nil {
 			return nil, fmt.Errorf("decode headers for task %d: %w", t.ID, err)

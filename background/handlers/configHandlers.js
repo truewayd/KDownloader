@@ -23,34 +23,68 @@ async function restoreSettingsDefaults() {
   return configs;
 }
 
+function isExtensionPageSender(sender) {
+  return !sender || !sender.tab;
+}
+
+function requireExtensionPage(sender, operation) {
+  if (!isExtensionPageSender(sender)) {
+    throw new Error(`${operation} is restricted to extension pages`);
+  }
+}
+
+function withoutBackendSecrets(config) {
+  return { ...config, apiKey: "", gopeedToken: "" };
+}
+
+function withoutGistSecret(config) {
+  return { ...config, token: "" };
+}
+
 export function createConfigHandlers() {
   return {
-    "backend.getConfig": ({ sendResponse }) =>
-      respondWith(sendResponse, loadBackendConfig(), (config) => ({ config })),
+    "backend.getConfig": ({ sender, sendResponse }) =>
+      respondWith(sendResponse, loadBackendConfig(), (config) => ({
+        config: isExtensionPageSender(sender) ? config : withoutBackendSecrets(config),
+      })),
 
-    "backend.setConfig": ({ message, sendResponse }) =>
-      respondWith(sendResponse, saveBackendConfig(message.config || {}), (config) => ({ config })),
+    "backend.setConfig": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "Backend configuration");
+      return respondWith(sendResponse, saveBackendConfig(message.config || {}), (config) => ({ config }));
+    },
 
     "downloadRules.getConfig": ({ sendResponse }) =>
       respondWith(sendResponse, loadDownloadRulesConfig(), (config) => ({ config })),
 
-    "downloadRules.setConfig": ({ message, sendResponse }) =>
-      respondWith(sendResponse, saveDownloadRulesConfig(message.config || {}), (config) => ({ config })),
+    "downloadRules.setConfig": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "Download-rule configuration");
+      return respondWith(sendResponse, saveDownloadRulesConfig(message.config || {}), (config) => ({ config }));
+    },
 
-    "gist.getConfig": ({ sendResponse }) =>
-      respondWith(sendResponse, loadGistConfig(), (config) => ({ config })),
+    "gist.getConfig": ({ sender, sendResponse }) =>
+      respondWith(sendResponse, loadGistConfig(), (config) => ({
+        config: isExtensionPageSender(sender) ? config : withoutGistSecret(config),
+      })),
 
-    "gist.setConfig": ({ message, sendResponse }) =>
-      respondWith(sendResponse, saveGistConfig(message.config || {}), (config) => ({ config })),
+    "gist.setConfig": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "Gist configuration");
+      return respondWith(sendResponse, saveGistConfig(message.config || {}), (config) => ({ config }));
+    },
 
-    "gist.upload": ({ sendResponse }) =>
-      respondWith(sendResponse, gistUpload(), (result) => ({ result })),
+    "gist.upload": ({ sender, sendResponse }) => {
+      requireExtensionPage(sender, "Gist upload");
+      return respondWith(sendResponse, gistUpload(), (result) => ({ result }));
+    },
 
-    "gist.download": ({ sendResponse }) =>
-      respondWith(sendResponse, gistDownload(), (result) => ({ result })),
+    "gist.download": ({ sender, sendResponse }) => {
+      requireExtensionPage(sender, "Gist download");
+      return respondWith(sendResponse, gistDownload(), (result) => ({ result }));
+    },
 
-    "settings.restoreDefaults": ({ sendResponse }) =>
-      respondWith(sendResponse, restoreSettingsDefaults(), (configs) => ({ configs })),
+    "settings.restoreDefaults": ({ sender, sendResponse }) => {
+      requireExtensionPage(sender, "Settings restore");
+      return respondWith(sendResponse, restoreSettingsDefaults(), (configs) => ({ configs }));
+    },
 
     "status.getGlobalProgress": ({ sendResponse }) => {
       sendResponse({ success: true, progress: getGlobalProgress() });

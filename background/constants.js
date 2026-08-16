@@ -45,8 +45,10 @@ export const WATCH_ICON_CACHE_KEY = "pawchiveWatchIcons";
 export const WATCH_ALARM = "pawchiveWatchCheck";
 export const NATIVE_FALLBACK_KEY = "pendingNativeFallbacks";
 export const BACKEND_CONFIG_KEY = "backendConfig";
+export const BACKEND_SECRETS_KEY = "backendSecrets";
 export const DOWNLOAD_RULES_CONFIG_KEY = "downloadRulesConfig";
 export const GIST_CONFIG_KEY = "gistConfig";
+export const GIST_SECRETS_KEY = "gistSecrets";
 
 export const DEFAULT_EXCLUDED_EXTENSIONS = [
   ".psd",

@@ -27,6 +27,14 @@ function loopbackHostValue(id) {
   return value;
 }
 
+function backendApiKeyValue() {
+  const value = ($("backend-api-key")?.value || "").trim();
+  if (value && (value.length < 32 || value.length > 256 || /[\0\r\n]/.test(value))) {
+    throw new Error(t("backendApiKeyInvalid", null, "API Key must contain 32 to 256 safe characters"));
+  }
+  return value;
+}
+
 function setValue(id, value) {
   const el = $(id);
   if (!el) return;
@@ -84,6 +92,7 @@ async function loadBackend() {
   setValue("backend-concurrency", config.concurrency);
   setValue("backend-retry-count", config.retryCount);
   setValue("backend-file-limit", config.perPostFileLimit);
+  setValue("backend-api-key", config.apiKey);
   setValue("gopeed-protocol", config.gopeedProtocol);
   setValue("gopeed-host", config.gopeedHost);
   setValue("gopeed-port", config.gopeedPort);
@@ -92,6 +101,7 @@ async function loadBackend() {
 }
 
 async function saveBackend() {
+  const apiKey = backendApiKeyValue();
   const config = {
     enabled: !!$("backend-enabled")?.checked,
     backendType,
@@ -101,6 +111,7 @@ async function saveBackend() {
     concurrency: numberValue("backend-concurrency", 3, 1, 6),
     retryCount: numberValue("backend-retry-count", 3, 0, 10),
     perPostFileLimit: numberValue("backend-file-limit", 100, 1, 1000),
+    apiKey,
     gopeedProtocol: $("gopeed-protocol")?.value === "https" ? "https" : "http",
     gopeedHost: loopbackHostValue("gopeed-host"),
     gopeedPort: numberValue("gopeed-port", 9999, 1, 65535),

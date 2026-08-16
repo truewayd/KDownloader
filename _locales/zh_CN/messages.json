@@ -146,6 +146,15 @@
   "abdmPort": {
     "message": "ABDM 端口"
   },
+  "backendApiKey": {
+    "message": "API Key"
+  },
+  "backendApiKeyHelp": {
+    "message": "可选；与 AB 兼容后端配置的 API Key 保持一致。"
+  },
+  "backendApiKeyInvalid": {
+    "message": "API Key 必须包含 32 到 256 个安全字符"
+  },
   "gopeedProtocol": {
     "message": "Gopeed 协议"
   },

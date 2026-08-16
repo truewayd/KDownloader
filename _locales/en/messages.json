@@ -146,6 +146,15 @@
   "abdmPort": {
     "message": "ABDM port"
   },
+  "backendApiKey": {
+    "message": "API Key"
+  },
+  "backendApiKeyHelp": {
+    "message": "Optional; use the same API Key configured by the AB-compatible backend."
+  },
+  "backendApiKeyInvalid": {
+    "message": "API Key must contain 32 to 256 safe characters"
+  },
   "gopeedProtocol": {
     "message": "Gopeed protocol"
   },

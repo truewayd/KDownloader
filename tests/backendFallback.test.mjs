@@ -89,6 +89,7 @@ beforeEach(() => {
     concurrency: 1,
     perPostFileLimit: 100,
     retryCount: 0,
+    apiKey: 't'.repeat(32),
   };
 });
 
@@ -159,8 +160,10 @@ test('does not forward a site cookie to another supported media family', async (
   };
   globalThis.__cookieString = 'session=secret';
   let backendPayload;
+  let backendOptions;
   globalThis.__fetchImplementation = async (_url, options) => {
     backendPayload = JSON.parse(options.body);
+    backendOptions = options;
     return { ok: true, status: 200, async text() { return ''; } };
   };
 
@@ -175,6 +178,37 @@ test('does not forward a site cookie to another supported media family', async (
   assert.equal(result.success, true);
   assert.equal(backendPayload.downloadSource.link, 'https://coomer.st/data/media.jpg');
   assert.equal('Cookie' in backendPayload.downloadSource.headers, false);
+  assert.equal(backendOptions.headers['X-Api-Key'], 't'.repeat(32));
+  assert.equal(backendOptions.credentials, 'omit');
+});
+
+test('forwards a site cookie through TrueDown for same-family media', async () => {
+  globalThis.__apiResponse = {
+    post: { title: 'protected media' },
+    videos: [{ url: 'https://n1.kemono.cr/data/protected.jpg' }],
+  };
+  globalThis.__cookieString = 'session=secret; clearance=allowed';
+  let backendPayload;
+  let backendOptions;
+  globalThis.__backendConfig.apiKey = '';
+  globalThis.__fetchImplementation = async (_url, options) => {
+    backendPayload = JSON.parse(options.body);
+    backendOptions = options;
+    return { ok: true, status: 200, async text() { return ''; } };
+  };
+
+  const result = await download.startFullDownload(
+    'patreon',
+    'creator-1',
+    'post-1',
+    '',
+    'https://kemono.cr/post-1'
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(backendPayload.downloadSource.link, 'https://n1.kemono.cr/data/protected.jpg');
+  assert.equal(backendPayload.downloadSource.headers.Cookie, 'session=secret; clearance=allowed');
+  assert.equal('X-Api-Key' in backendOptions.headers, false);
 });
 
 test('backend progress preserves the originating request id', async () => {

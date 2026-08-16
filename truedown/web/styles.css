@@ -182,6 +182,7 @@ code {
 .kd-button:focus-visible,
 .kd-icon-button:focus-visible,
 .kd-input:focus-visible,
+.kd-select:focus-visible,
 .text-button:focus-visible,
 .task-link:focus-visible,
 .advanced-options summary:focus-visible {
@@ -213,12 +214,30 @@ code {
   color: var(--kd-text);
 }
 
+.kd-button.danger {
+  border-color: var(--kd-danger-button-border);
+  background: var(--kd-danger-button-bg);
+  color: var(--kd-danger-button-text);
+}
+
+.kd-button.danger:hover {
+  border-color: var(--kd-danger-button-hover-border);
+  background: var(--kd-danger-button-hover-bg);
+}
+
+.kd-button.compact {
+  min-height: 30px;
+  padding: 6px 9px;
+  font-size: 12px;
+}
+
 .kd-icon-button {
   width: var(--kd-control-height);
   padding: 0;
 }
 
 .kd-input,
+.kd-select,
 input,
 textarea {
   width: 100%;
@@ -232,6 +251,11 @@ textarea {
     border-color var(--kd-motion-fast) ease,
     background-color var(--kd-motion-fast) ease,
     box-shadow var(--kd-motion-fast) ease;
+}
+
+.kd-select {
+  min-height: var(--kd-control-height);
+  padding: 0 30px 0 10px;
 }
 
 input {
@@ -255,11 +279,16 @@ textarea::placeholder {
 }
 
 .kd-input:focus,
+.kd-select:focus,
 input:focus,
 textarea:focus {
   border-color: var(--kd-button-border);
   background: var(--kd-input-focus);
   box-shadow: 0 0 0 3px var(--kd-accent-soft);
+}
+
+[hidden] {
+  display: none !important;
 }
 
 input:disabled,
@@ -471,6 +500,49 @@ h2 {
   font-size: 12px;
 }
 
+.task-controls,
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--kd-border);
+  padding: 10px 15px;
+}
+
+.filter-control,
+.pagination,
+.batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-control {
+  color: var(--kd-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.filter-control .kd-select {
+  width: 112px;
+}
+
+.pagination {
+  color: var(--kd-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.batch-toolbar {
+  background: var(--kd-accent-soft);
+}
+
+.batch-toolbar strong {
+  color: var(--kd-text);
+  font-size: 12px;
+}
+
 .table-scroll {
   min-height: 320px;
   overflow: auto;
@@ -488,6 +560,7 @@ h2 {
   font-size: 13px;
 }
 
+.col-select { width: 40px; }
 .col-index { width: 44px; }
 .col-file { width: 24%; }
 .col-status { width: 92px; }
@@ -515,6 +588,18 @@ h2 {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.select-cell {
+  text-align: center !important;
+}
+
+.select-cell input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--kd-accent);
+  vertical-align: middle;
 }
 
 .tasks-table tr:hover td {
@@ -679,6 +764,53 @@ h2 {
 
 .panel-body {
   padding: 15px;
+}
+
+.token-card {
+  display: grid;
+  gap: 10px;
+}
+
+.token-card strong {
+  color: var(--kd-text);
+  font-size: 13px;
+}
+
+.token-card .hint {
+  margin: 5px 0 0;
+}
+
+.token-card .kd-button {
+  justify-self: start;
+}
+
+.token-auth-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  color: var(--kd-text);
+  cursor: pointer;
+}
+
+.token-auth-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--kd-accent);
+}
+
+.token-auth-toggle:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.clipboard-fallback {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
 }
 
 .field {
@@ -881,6 +1013,18 @@ label {
     flex-direction: column;
   }
 
+  .task-controls,
+  .batch-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .filter-control,
+  .pagination,
+  .batch-actions {
+    justify-content: space-between;
+  }
+
   .panel-actions .kd-button:last-child {
     grid-column: 1 / -1;
   }
@@ -890,7 +1034,7 @@ label {
   }
 
   .tasks-table {
-    min-width: 760px;
+    min-width: 820px;
   }
 
   .panel-body,

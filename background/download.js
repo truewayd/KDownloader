@@ -185,11 +185,13 @@ class TaskQueue {
       while (attempts <= perFileRetry && !success) {
         try {
           attempts++;
+          const requestHeaders = { 'Content-Type': 'application/json' };
+          if (options.apiKey) requestHeaders['X-Api-Key'] = options.apiKey;
           const resp = await fetchWithTimeout(endpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: requestHeaders,
             body: JSON.stringify(filePayload),
-            credentials: 'include',
+            credentials: 'omit',
           }, BACKEND_REQUEST_TIMEOUT_MS);
           const text = await readLimitedResponseText(resp, 64 * 1024, 'Backend').catch(() => '');
           if (!resp.ok) {
@@ -287,6 +289,7 @@ async function dispatchAllToBackend(tasks, backendCfg, context) {
       referer: context.referer,
       perFileRetry,
       sendProgress,
+      apiKey: backendCfg.apiKey || '',
       totalCount: tasks.length,
       progressOffset: allFileResults.length,
     });

@@ -2,9 +2,11 @@
 import {
   WATCH_CONFIG_KEY,
   BACKEND_CONFIG_KEY,
+  BACKEND_SECRETS_KEY,
   DOWNLOAD_RULES_CONFIG_KEY,
   DEFAULT_EXCLUDED_EXTENSIONS,
   GIST_CONFIG_KEY,
+  GIST_SECRETS_KEY,
 } from './constants.js';
 
 export function getDefaultWatchConfig() {
@@ -42,6 +44,15 @@ function normalizedSecret(value, fallback = '') {
   return normalized.length <= 4096 && !/[\0\r\n]/.test(normalized) ? normalized : fallback;
 }
 
+function normalizedApiKey(value, fallback = '') {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim();
+  if (!normalized) return '';
+  return normalized.length >= 32 && normalized.length <= 256 && !/[\0\r\n]/.test(normalized)
+    ? normalized
+    : fallback;
+}
+
 export async function loadWatchConfig() {
   const r = await chrome.storage.sync.get(WATCH_CONFIG_KEY);
   const cfg = r[WATCH_CONFIG_KEY] || {};
@@ -65,7 +76,7 @@ export async function saveWatchConfig(cfg) {
 export function getDefaultBackendConfig() {
   // Default per-post batch limit reduced to 100 because most posts have fewer files.
   // Larger batch downloads (many posts) are still supported by batching across posts.
-  return { enabled: false, backendType: 'abdm', host: '127.0.0.1', port: 15151, retryCount: 3, protocol: 'http', concurrency: 3, perPostFileLimit: 100, gopeedHost: '127.0.0.1', gopeedPort: 9999, gopeedToken: '', gopeedProtocol: 'http' };
+  return { enabled: false, backendType: 'abdm', host: '127.0.0.1', port: 15151, retryCount: 3, protocol: 'http', concurrency: 3, perPostFileLimit: 100, apiKey: '', gopeedHost: '127.0.0.1', gopeedPort: 9999, gopeedToken: '', gopeedProtocol: 'http' };
 }
 
 function normalizeBackendConfig(cfg, fallback = getDefaultBackendConfig()) {
@@ -79,6 +90,7 @@ function normalizeBackendConfig(cfg, fallback = getDefaultBackendConfig()) {
     protocol: value.protocol === 'https' ? 'https' : 'http',
     concurrency: boundedInteger(value.concurrency, fallback.concurrency, 1, 6),
     perPostFileLimit: boundedInteger(value.perPostFileLimit, fallback.perPostFileLimit, 1, 1000),
+    apiKey: normalizedApiKey(value.apiKey, fallback.apiKey),
     gopeedHost: normalizedBackendHost(value.gopeedHost, fallback.gopeedHost),
     gopeedPort: boundedInteger(value.gopeedPort, fallback.gopeedPort, 1, 65535),
     gopeedToken: normalizedSecret(value.gopeedToken, fallback.gopeedToken),
@@ -87,14 +99,49 @@ function normalizeBackendConfig(cfg, fallback = getDefaultBackendConfig()) {
 }
 
 export async function loadBackendConfig() {
-  const r = await chrome.storage.sync.get(BACKEND_CONFIG_KEY);
-  return normalizeBackendConfig(r[BACKEND_CONFIG_KEY]);
+  const [synced, local] = await Promise.all([
+    chrome.storage.sync.get(BACKEND_CONFIG_KEY),
+    chrome.storage.local.get(BACKEND_SECRETS_KEY),
+  ]);
+  const legacy = synced[BACKEND_CONFIG_KEY] || {};
+  const secrets = local[BACKEND_SECRETS_KEY] || {};
+  const config = normalizeBackendConfig({
+    ...legacy,
+    apiKey: secrets.apiKey,
+    gopeedToken: Object.hasOwn(secrets, 'gopeedToken') ? secrets.gopeedToken : legacy.gopeedToken,
+  });
+  if (Object.hasOwn(legacy, 'gopeedToken')) {
+    const publicConfig = { ...config };
+    delete publicConfig.apiKey;
+    delete publicConfig.gopeedToken;
+    await Promise.all([
+      chrome.storage.sync.set({ [BACKEND_CONFIG_KEY]: publicConfig }),
+      chrome.storage.local.set({
+        [BACKEND_SECRETS_KEY]: {
+          apiKey: config.apiKey,
+          gopeedToken: config.gopeedToken,
+        },
+      }),
+    ]);
+  }
+  return config;
 }
 
 export async function saveBackendConfig(cfg) {
   const current = await loadBackendConfig();
   const next = normalizeBackendConfig({ ...current, ...(cfg || {}) }, current);
-  await chrome.storage.sync.set({ [BACKEND_CONFIG_KEY]: next });
+  const publicConfig = { ...next };
+  delete publicConfig.apiKey;
+  delete publicConfig.gopeedToken;
+  await Promise.all([
+    chrome.storage.sync.set({ [BACKEND_CONFIG_KEY]: publicConfig }),
+    chrome.storage.local.set({
+      [BACKEND_SECRETS_KEY]: {
+        apiKey: next.apiKey,
+        gopeedToken: next.gopeedToken,
+      },
+    }),
+  ]);
   return next;
 }
 
@@ -130,12 +177,23 @@ export async function restoreDefaultConfigs() {
     watch: getDefaultWatchConfig(),
     gist: getDefaultGistConfig(),
   };
-  await chrome.storage.sync.set({
-    [BACKEND_CONFIG_KEY]: configs.backend,
-    [DOWNLOAD_RULES_CONFIG_KEY]: configs.downloadRules,
-    [WATCH_CONFIG_KEY]: configs.watch,
-    [GIST_CONFIG_KEY]: configs.gist,
-  });
+  const publicBackend = { ...configs.backend };
+  delete publicBackend.apiKey;
+  delete publicBackend.gopeedToken;
+  const publicGist = { ...configs.gist };
+  delete publicGist.token;
+  await Promise.all([
+    chrome.storage.sync.set({
+      [BACKEND_CONFIG_KEY]: publicBackend,
+      [DOWNLOAD_RULES_CONFIG_KEY]: configs.downloadRules,
+      [WATCH_CONFIG_KEY]: configs.watch,
+      [GIST_CONFIG_KEY]: publicGist,
+    }),
+    chrome.storage.local.set({
+      [BACKEND_SECRETS_KEY]: { apiKey: '', gopeedToken: '' },
+      [GIST_SECRETS_KEY]: { token: '' },
+    }),
+  ]);
   return configs;
 }
 
@@ -159,14 +217,31 @@ export async function saveDownloadRulesConfig(cfg) {
 }
 
 export async function loadGistConfig() {
-  const r = await chrome.storage.sync.get(GIST_CONFIG_KEY);
-  const cfg = r[GIST_CONFIG_KEY] || {};
+  const [synced, local] = await Promise.all([
+    chrome.storage.sync.get(GIST_CONFIG_KEY),
+    chrome.storage.local.get(GIST_SECRETS_KEY),
+  ]);
+  const legacy = synced[GIST_CONFIG_KEY] || {};
+  const secrets = local[GIST_SECRETS_KEY] || {};
+  const cfg = {
+    ...legacy,
+    token: Object.hasOwn(secrets, 'token') ? secrets.token : legacy.token,
+  };
   const def = getDefaultGistConfig();
-  return {
+  const config = {
     enabled: typeof cfg.enabled === 'boolean' ? cfg.enabled : def.enabled,
     token: normalizedSecret(cfg.token, def.token),
     gistId: normalizedShortString(cfg.gistId, def.gistId, 128).trim(),
   };
+  if (Object.hasOwn(legacy, 'token')) {
+    const publicConfig = { ...config };
+    delete publicConfig.token;
+    await Promise.all([
+      chrome.storage.sync.set({ [GIST_CONFIG_KEY]: publicConfig }),
+      chrome.storage.local.set({ [GIST_SECRETS_KEY]: { token: config.token } }),
+    ]);
+  }
+  return config;
 }
 
 export async function saveGistConfig(cfg) {
@@ -177,6 +252,11 @@ export async function saveGistConfig(cfg) {
     token: normalizedSecret(value.token, current.token),
     gistId: normalizedShortString(value.gistId, current.gistId, 128).trim(),
   };
-  await chrome.storage.sync.set({ [GIST_CONFIG_KEY]: next });
+  const publicConfig = { ...next };
+  delete publicConfig.token;
+  await Promise.all([
+    chrome.storage.sync.set({ [GIST_CONFIG_KEY]: publicConfig }),
+    chrome.storage.local.set({ [GIST_SECRETS_KEY]: { token: next.token } }),
+  ]);
   return next;
 }
