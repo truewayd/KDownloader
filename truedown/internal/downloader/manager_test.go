@@ -184,6 +184,7 @@ type fakeAriaRPC struct {
 	resumed      []string
 	removed      []string
 	statusValue  string
+	statusErr    error
 	forceRemoved bool
 	stopped      bool
 }
@@ -193,6 +194,9 @@ func (f *fakeAriaRPC) addURI(*Task, map[string]any) error { return nil }
 func (f *fakeAriaRPC) status(gid string) (ariaStatus, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.statusErr != nil {
+		return ariaStatus{}, f.statusErr
+	}
 	status := f.statusValue
 	if status == "" {
 		status = "active"
@@ -262,6 +266,28 @@ func TestBatchPauseResumeAndRemovePersistAtomically(t *testing.T) {
 	}
 	if len(fake.paused) != 1 || len(fake.resumed) != 1 || len(fake.removed) != 1 {
 		t.Fatalf("unexpected aria calls: pause=%v resume=%v remove=%v", fake.paused, fake.resumed, fake.removed)
+	}
+}
+
+func TestRemoveQueuedTaskBeforeAriaAdmission(t *testing.T) {
+	stateDir := t.TempDir()
+	m, err := NewManager("unused", filepath.Join(stateDir, "downloads"), filepath.Join(stateDir, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	m.rpc = &fakeAriaRPC{statusErr: &ariaRPCError{Code: 1, Message: "GID 0123456789abcdef is not found"}}
+	task, _, err := m.AddTask("https://example.test/waiting", "waiting.bin", "", nil, "", 0, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := m.RemoveTasks([]int64{task.ID})
+	if len(result.Succeeded) != 1 || len(result.Failed) != 0 {
+		t.Fatalf("remove result: %+v", result)
+	}
+	if _, ok := m.GetTask(task.ID); ok {
+		t.Fatal("queued task remains after aria2 reported its GID missing")
 	}
 }
 

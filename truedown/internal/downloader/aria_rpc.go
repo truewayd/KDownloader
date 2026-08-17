@@ -76,9 +76,6 @@ func (c *ariaClient) call(method string, params []any, result any) error {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("aria2 RPC returned HTTP %d", resp.StatusCode)
-	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024*1024+1))
 	if err != nil {
 		return fmt.Errorf("read aria2 RPC response: %w", err)
@@ -91,10 +88,16 @@ func (c *ariaClient) call(method string, params []any, result any) error {
 		Error  *ariaRPCError   `json:"error"`
 	}
 	if err := json.Unmarshal(data, &envelope); err != nil {
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("aria2 RPC returned HTTP %d", resp.StatusCode)
+		}
 		return fmt.Errorf("decode aria2 RPC response: %w", err)
 	}
 	if envelope.Error != nil {
 		return envelope.Error
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("aria2 RPC returned HTTP %d", resp.StatusCode)
 	}
 	if result == nil {
 		return nil
