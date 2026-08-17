@@ -28,6 +28,20 @@ body {
   line-height: 1.15;
 }
 
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 12px;
+}
+
+.settings-logo {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: var(--kd-radius);
+}
+
 .status-chip {
   min-width: 116px;
   border: 1px solid var(--kd-border);
@@ -217,6 +231,10 @@ body {
   .action-bar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .topbar-brand {
+    align-items: center;
   }
 
   .status-chip {

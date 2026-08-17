@@ -6,5 +6,6 @@ __pycache__/
 *.pyo
 dist/
 *.md
+!README.zh-CN.md
 !changelog/
 !changelog/*.md

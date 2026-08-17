@@ -848,8 +848,8 @@ function applyAuthSettings(settings) {
   els.tokenAuthStatus.textContent = tokenAuthManaged
     ? "认证由启动参数或远程监听策略管理，不能在当前页面关闭。"
     : tokenAuthEnabled
-      ? "已启用；KDownloader 和 AB 扩展需要填写下方可复制的 API Key。"
-      : "已关闭；KDownloader 和 AB 扩展的 API Key 请保持为空。";
+      ? "已启用；浏览器集成需要填写下方可复制的 API Key。"
+      : "已关闭；浏览器集成的 API Key 请保持为空。";
 }
 
 async function updateAuthSettings() {
@@ -887,12 +887,12 @@ async function copyAPIToken() {
   try {
     const response = await requestJSON("/auth/token");
     if (!response.enabled) {
-      showToast("API Key 认证当前未启用；KDownloader 和 AB 扩展的 API Key 可留空。");
+      showToast("API Key 认证当前未启用；浏览器集成可将 API Key 留空。");
       return;
     }
     if (!response.token) throw new Error("API Key 不可用");
     await writeClipboard(response.token);
-    showToast("TrueDown API Key 已复制，请粘贴到 KDownloader 或 AB 扩展设置页。");
+    showToast("TrueDown API Key 已复制，请粘贴到需要连接的浏览器扩展设置页。");
   } catch (error) {
     showToast(`复制 API Key 失败：${error.message}`, "error");
   } finally {

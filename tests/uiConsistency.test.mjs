@@ -21,6 +21,8 @@ const [
   trueDownHtml,
   trueDownCss,
   trueDownApp,
+  kdownloaderLogo,
+  trueDownLogo,
 ] = await Promise.all([
   read("popup/popup.html"),
   read("settings.html"),
@@ -37,6 +39,8 @@ const [
   read("truedown/web/index.html"),
   read("truedown/web/styles.css"),
   read("truedown/web/app.js"),
+  read("icons/kdownloader-logo.svg"),
+  read("truedown/web/truedown-logo.svg"),
 ]);
 
 test("extension pages use one component and icon layer", () => {
@@ -57,6 +61,22 @@ test("extension pages use one component and icon layer", () => {
     assert.doesNotMatch(pageCss, /@keyframes\b/);
   }
   assert.match(sharedCss, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(settingsHtml, /class="settings-logo" src="icons\/kdownloader-logo\.svg"/);
+  assert.match(kdownloaderLogo, /viewBox="0 0 1024 1024"/);
+  assert.match(kdownloaderLogo, /<linearGradient\b/);
+  assert.doesNotMatch(kdownloaderLogo, /<image\b/);
+});
+
+test("TrueDown branding stays standalone and uses the production SVG mark", () => {
+  assert.match(trueDownHtml, /rel="icon" href="\/truedown-logo\.svg"/);
+  assert.match(trueDownHtml, /class="brand-mark"[\s\S]*src="\/truedown-logo\.svg"/);
+  assert.match(trueDownLogo, /viewBox="0 0 1024 1024"/);
+  assert.match(trueDownLogo, /<linearGradient\b/);
+  assert.doesNotMatch(trueDownLogo, /<image\b/);
+
+  for (const source of [trueDownHtml, trueDownCss, trueDownApp]) {
+    assert.doesNotMatch(source, /KDownloader/i);
+  }
 });
 
 test("injected UI is scoped and site scripts reuse shared renderers", () => {
@@ -134,11 +154,11 @@ function kdTokens(css) {
   ]);
 }
 
-test("TrueDown keeps KDownloader's shared light and dark design tokens", () => {
+test("TrueDown keeps its light and dark design tokens", () => {
   assert.deepEqual(kdTokens(trueDownCss), kdTokens(sharedCss));
 });
 
-test("TrueDown markup uses the shared KDownloader component vocabulary", () => {
+test("TrueDown markup uses a consistent component vocabulary", () => {
   assert.match(trueDownHtml, /class="kd-panel task-panel"/);
   assert.match(trueDownHtml, /class="kd-button primary"/);
   assert.match(trueDownHtml, /class="kd-button secondary"/);

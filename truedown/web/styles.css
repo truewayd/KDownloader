@@ -1,4 +1,4 @@
-/* TrueDown uses the same visual tokens and component vocabulary as KDownloader. */
+/* TrueDown visual tokens and component primitives. */
 :root {
   color-scheme: dark;
   --kd-bg: #17191b;
@@ -376,7 +376,7 @@ body.modal-open {
 }
 
 .brand-mark,
-.brand-mark svg {
+.brand-mark img {
   width: 36px;
   height: 36px;
 }
@@ -387,12 +387,8 @@ body.modal-open {
   place-items: center;
 }
 
-.brand-mark rect {
-  fill: var(--kd-accent);
-}
-
-.brand-mark path {
-  stroke: var(--kd-button-text);
+.brand-mark img {
+  display: block;
 }
 
 .brand-copy {
