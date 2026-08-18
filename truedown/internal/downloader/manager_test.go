@@ -158,14 +158,14 @@ func TestTaskPageIsBoundedSummarizedAndVersioned(t *testing.T) {
 	}
 	m.mu.Unlock()
 
-	page := m.PageTaskSnapshots(0, 100, "")
+	page := m.PageTaskSnapshots(0, 100, "", "")
 	if len(page.Tasks) != 100 || page.Total != 230 || page.Summary.Total != 230 || page.Summary.Error != 2 {
 		t.Fatalf("unexpected page: tasks=%d total=%d summary=%+v", len(page.Tasks), page.Total, page.Summary)
 	}
 	if page.Tasks[0].ID != 230 || page.Tasks[99].ID != 131 {
 		t.Fatalf("page IDs are %d..%d, want 230..131", page.Tasks[0].ID, page.Tasks[99].ID)
 	}
-	errorPage := m.PageTaskSnapshots(0, 100, StatusError)
+	errorPage := m.PageTaskSnapshots(0, 100, StatusError, "")
 	if errorPage.Total != 2 || len(errorPage.Tasks) != 2 || errorPage.Tasks[0].ID != 225 {
 		t.Fatalf("unexpected error page: %+v", errorPage)
 	}
@@ -173,8 +173,12 @@ func TestTaskPageIsBoundedSummarizedAndVersioned(t *testing.T) {
 	if err := m.setTask(230, func(task *Task) { task.Progress = "changed" }); err != nil {
 		t.Fatal(err)
 	}
-	if next := m.PageTaskSnapshots(0, 100, ""); next.Version == oldVersion {
+	if next := m.PageTaskSnapshots(0, 100, "", ""); next.Version == oldVersion {
 		t.Fatal("page version did not change with a visible task")
+	}
+	searchPage := m.PageTaskSnapshots(0, 100, "", "PAGE-22")
+	if searchPage.Total != 11 || len(searchPage.Tasks) != 11 || searchPage.Tasks[0].ID != 230 {
+		t.Fatalf("unexpected search page: %+v", searchPage)
 	}
 }
 
@@ -553,7 +557,7 @@ func BenchmarkPageTaskSnapshots100Of10000(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for index := 0; index < b.N; index++ {
-		page := m.PageTaskSnapshots(0, 100, "")
+		page := m.PageTaskSnapshots(0, 100, "", "")
 		if len(page.Tasks) != 100 {
 			b.Fatal(len(page.Tasks))
 		}

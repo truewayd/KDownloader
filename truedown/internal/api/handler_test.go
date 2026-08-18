@@ -89,6 +89,20 @@ func TestTaskPageIsBoundedAndSupportsConditionalRequests(t *testing.T) {
 	if invalidResponse.Code != http.StatusBadRequest {
 		t.Fatalf("invalid filter status=%d", invalidResponse.Code)
 	}
+
+	search := httptest.NewRequest(http.MethodGet, "/tasks?search=TWO.BIN", nil)
+	searchResponse := httptest.NewRecorder()
+	mux.ServeHTTP(searchResponse, search)
+	if searchResponse.Code != http.StatusOK {
+		t.Fatalf("search status=%d body=%s", searchResponse.Code, searchResponse.Body.String())
+	}
+	var searchPage downloader.TaskPage
+	if err := json.Unmarshal(searchResponse.Body.Bytes(), &searchPage); err != nil {
+		t.Fatal(err)
+	}
+	if searchPage.Total != 1 || len(searchPage.Tasks) != 1 || searchPage.Tasks[0].Name != "two.bin" {
+		t.Fatalf("unexpected search page: %+v", searchPage)
+	}
 }
 
 func TestBatchEndpointRejectsMalformedOperations(t *testing.T) {

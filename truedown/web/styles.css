@@ -125,6 +125,16 @@ code {
   display: none !important;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .kd-eyebrow {
   margin: 0 0 4px;
   color: var(--kd-muted);
@@ -514,6 +524,21 @@ h2 {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.task-query-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.search-control {
+  width: min(320px, 40vw);
+}
+
+.search-control .kd-input {
+  width: 100%;
 }
 
 .filter-control {
@@ -1066,6 +1091,26 @@ label {
   color: var(--kd-error-text);
 }
 
+.dialog-modal {
+  width: min(480px, 100%);
+}
+
+.dialog-body {
+  display: grid;
+  gap: 16px;
+}
+
+.dialog-body > p {
+  margin: 0;
+  color: var(--kd-muted);
+  line-height: 1.6;
+}
+
+.dialog-error {
+  color: var(--kd-error-text) !important;
+  font-size: 12px;
+}
+
 @keyframes kd-toast-in {
   from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }
@@ -1116,6 +1161,15 @@ label {
   .pagination,
   .batch-actions {
     justify-content: space-between;
+  }
+
+  .task-query-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .search-control {
+    width: 100%;
   }
 
   .panel-actions .kd-button:last-child {

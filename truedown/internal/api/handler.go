@@ -236,7 +236,12 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		page := dm.PageTaskSnapshots(offset, limit, status)
+		search := strings.TrimSpace(r.URL.Query().Get("search"))
+		if len(search) > 512 {
+			http.Error(w, "search is too long", http.StatusBadRequest)
+			return
+		}
+		page := dm.PageTaskSnapshots(offset, limit, status, search)
 		w.Header().Set("ETag", page.Version)
 		if r.Header.Get("If-None-Match") == page.Version {
 			w.WriteHeader(http.StatusNotModified)

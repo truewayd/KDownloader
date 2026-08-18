@@ -68,17 +68,23 @@
         </div>
 
         <div class="task-controls">
-          <label class="filter-control" for="task-filter">
-            <span>状态</span>
-            <select class="kd-select" id="task-filter">
-              <option value="all">全部</option>
-              <option value="downloading">下载中</option>
-              <option value="queued">排队中</option>
-              <option value="paused">已暂停</option>
-              <option value="error">出错</option>
-              <option value="done">已完成</option>
-            </select>
-          </label>
+          <div class="task-query-controls">
+            <label class="search-control" for="task-search">
+              <span class="visually-hidden">搜索文件名或链接</span>
+              <input class="kd-input" id="task-search" type="search" placeholder="搜索文件名或链接" autocomplete="off">
+            </label>
+            <label class="filter-control" for="task-filter">
+              <span>状态</span>
+              <select class="kd-select" id="task-filter">
+                <option value="all">全部</option>
+                <option value="downloading">下载中</option>
+                <option value="queued">排队中</option>
+                <option value="paused">已暂停</option>
+                <option value="error">出错</option>
+                <option value="done">已完成</option>
+              </select>
+            </label>
+          </div>
           <nav class="pagination" aria-label="任务分页">
             <button class="kd-button secondary compact" id="prev-page-btn" type="button" disabled>上一页</button>
             <span id="page-info" aria-live="polite">0–0 / 0</span>
@@ -326,6 +332,35 @@
           <div class="modal-actions">
             <button class="kd-button secondary" id="modal-cancel-btn" type="button">取消</button>
             <button class="kd-button primary" id="submit-task-btn" type="submit">开始下载</button>
+          </div>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div class="overlay" id="dialog-overlay" aria-hidden="true" inert>
+    <section class="kd-panel modal dialog-modal" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-message">
+      <form id="dialog-form">
+        <div class="modal-header">
+          <div>
+            <p class="kd-eyebrow" id="dialog-eyebrow">Confirm action</p>
+            <h2 id="dialog-title">确认操作</h2>
+          </div>
+          <button class="kd-icon-button" id="dialog-close-btn" type="button" aria-label="关闭对话框">✕</button>
+        </div>
+        <div class="modal-body dialog-body">
+          <p id="dialog-message"></p>
+          <label class="field" id="dialog-input-field" for="dialog-input" hidden>
+            <span id="dialog-input-label">输入内容</span>
+            <input class="kd-input" id="dialog-input" type="password" autocomplete="off">
+          </label>
+          <p class="dialog-error" id="dialog-error" role="alert" hidden></p>
+        </div>
+        <div class="modal-footer">
+          <span></span>
+          <div class="modal-actions">
+            <button class="kd-button secondary" id="dialog-cancel-btn" type="button">取消</button>
+            <button class="kd-button primary" id="dialog-confirm-btn" type="submit">确认</button>
           </div>
         </div>
       </form>

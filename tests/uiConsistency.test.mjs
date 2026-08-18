@@ -169,6 +169,7 @@ test("TrueDown markup uses a consistent component vocabulary", () => {
 
 test("TrueDown bounds task rendering and exposes accessible batch controls", () => {
   assert.match(trueDownHtml, /id="task-filter"/);
+  assert.match(trueDownHtml, /id="task-search"[^>]+type="search"/);
   assert.match(trueDownHtml, /id="batch-pause-btn"/);
   assert.match(trueDownHtml, /id="batch-resume-btn"/);
   assert.match(trueDownHtml, /id="batch-remove-btn"/);
@@ -179,6 +180,9 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownApp, /JSON\.stringify\(\{ action, ids \}\)/);
   assert.match(trueDownApp, /result\.remaining/);
   assert.match(trueDownApp, /sessionStorage/);
+  assert.match(trueDownApp, /params\.set\("search", currentSearch\)/);
+  assert.match(trueDownHtml, /id="dialog-overlay"[^>]+aria-hidden="true"[^>]+inert/);
+  assert.doesNotMatch(trueDownApp, /window\.(?:alert|confirm|prompt)\s*\(/);
   assert.match(trueDownApp, /current page connection remains valid|当前页面连接保持有效/);
   assert.doesNotMatch(trueDownApp, /setInterval\(/);
   assert.doesNotMatch(trueDownApp, /credentials:\s*["']include["']/);

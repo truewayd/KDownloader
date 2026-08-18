@@ -33,15 +33,18 @@ const statusMeta = {
 
 const els = {};
 const selectedTaskIDs = new Set();
+const taskStatusByID = new Map();
 const pageETags = new Map();
 let toastTimer = 0;
 let pollTimer = 0;
+let searchTimer = 0;
 let modalMode = "single";
 let currentTasks = [];
 let currentSummary = emptySummary();
 let currentOffset = 0;
 let currentTotal = 0;
 let currentFilter = "all";
+let currentSearch = "";
 let loadTasksPromise = null;
 let lastTaskRenderSignature = "";
 let modalReturnFocus = null;
@@ -51,6 +54,11 @@ let tokenAuthEnabled = false;
 let tokenAuthManaged = false;
 let downloadSettings = loadDownloadSettings();
 let settingsReturnFocus = null;
+let dialogReturnFocus = null;
+let dialogResolver = null;
+let dialogHasInput = false;
+let dialogValidator = null;
+let apiTokenRequestPromise = null;
 
 document.addEventListener("DOMContentLoaded", async () => {
   cacheElements();
@@ -91,6 +99,18 @@ function cacheElements() {
     "clear-done-btn",
     "copy-api-token-btn",
     "download-form",
+    "dialog-cancel-btn",
+    "dialog-close-btn",
+    "dialog-confirm-btn",
+    "dialog-error",
+    "dialog-eyebrow",
+    "dialog-form",
+    "dialog-input",
+    "dialog-input-field",
+    "dialog-input-label",
+    "dialog-message",
+    "dialog-overlay",
+    "dialog-title",
     "error-count",
     "m-conns",
     "m-extra",
@@ -124,6 +144,7 @@ function cacheElements() {
     "submit-task-btn",
     "task-count",
     "task-filter",
+    "task-search",
     "tasks-container",
     "tasks-wrap",
     "token-auth-enabled",
@@ -170,6 +191,11 @@ function bindEvents() {
   els.clearDoneBtn.addEventListener("click", clearDone);
   els.tasksContainer.addEventListener("click", onTaskAction);
   els.tasksContainer.addEventListener("change", onTaskSelection);
+  els.taskSearch.addEventListener("input", () => {
+    window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(applyTaskSearch, 250);
+  });
+  els.taskSearch.addEventListener("search", applyTaskSearch);
   els.taskFilter.addEventListener("change", () => {
     currentFilter = els.taskFilter.value;
     currentOffset = 0;
@@ -183,6 +209,22 @@ function bindEvents() {
   els.batchRemoveBtn.addEventListener("click", () => runSelectedAction("remove", "移除", true));
   els.copyApiTokenBtn.addEventListener("click", copyAPIToken);
   els.tokenAuthEnabled.addEventListener("change", updateAuthSettings);
+  els.dialogForm.addEventListener("submit", submitDialog);
+  els.dialogCloseBtn.addEventListener("click", cancelDialog);
+  els.dialogCancelBtn.addEventListener("click", cancelDialog);
+  els.dialogOverlay.addEventListener("click", (event) => {
+    if (event.target === els.dialogOverlay) cancelDialog();
+  });
+}
+
+function applyTaskSearch() {
+  window.clearTimeout(searchTimer);
+  const next = els.taskSearch.value.trim();
+  if (next === currentSearch) return;
+  currentSearch = next;
+  currentOffset = 0;
+  lastTaskRenderSignature = "";
+  refreshAndSchedule(true);
 }
 
 function initTheme() {
@@ -191,12 +233,14 @@ function initTheme() {
 }
 
 function onDocumentKeydown(event) {
-  const activeOverlay = els.settingsOverlay.classList.contains("open") ? els.settingsOverlay :
+  const activeOverlay = els.dialogOverlay.classList.contains("open") ? els.dialogOverlay :
+    els.settingsOverlay.classList.contains("open") ? els.settingsOverlay :
     els.overlay.classList.contains("open") ? els.overlay : null;
   if (!activeOverlay) return;
   if (event.key === "Escape") {
     event.preventDefault();
-    if (activeOverlay === els.settingsOverlay) closeSettingsModal();
+    if (activeOverlay === els.dialogOverlay) cancelDialog();
+    else if (activeOverlay === els.settingsOverlay) closeSettingsModal();
     else closeModal();
     return;
   }
@@ -248,6 +292,76 @@ function closeModal() {
     modalReturnFocus.focus();
   }
   modalReturnFocus = null;
+}
+
+function showDialog({
+  title,
+  message,
+  eyebrow = "Confirm action",
+  confirmLabel = "确认",
+  danger = false,
+  inputLabel = "",
+  inputType = "text",
+  validate = null,
+}) {
+  if (dialogResolver) throw new Error("已有对话框正在等待处理");
+  dialogReturnFocus = document.activeElement;
+  dialogHasInput = Boolean(inputLabel);
+  dialogValidator = validate;
+  els.dialogEyebrow.textContent = eyebrow;
+  els.dialogTitle.textContent = title;
+  els.dialogMessage.textContent = message;
+  els.dialogConfirmBtn.textContent = confirmLabel;
+  els.dialogConfirmBtn.className = `kd-button ${danger ? "danger" : "primary"}`;
+  els.dialogInputField.hidden = !dialogHasInput;
+  els.dialogInputLabel.textContent = inputLabel;
+  els.dialogInput.type = inputType;
+  els.dialogInput.value = "";
+  els.dialogError.hidden = true;
+  els.dialogError.textContent = "";
+  els.dialogOverlay.classList.add("open");
+  els.dialogOverlay.setAttribute("aria-hidden", "false");
+  els.dialogOverlay.removeAttribute("inert");
+  document.body.classList.add("modal-open");
+  window.setTimeout(() => (dialogHasInput ? els.dialogInput : els.dialogConfirmBtn).focus(), 80);
+  return new Promise((resolve) => { dialogResolver = resolve; });
+}
+
+function submitDialog(event) {
+  event.preventDefault();
+  const value = dialogHasInput ? els.dialogInput.value : true;
+  const error = dialogValidator ? dialogValidator(value) : "";
+  if (error) {
+    els.dialogError.textContent = error;
+    els.dialogError.hidden = false;
+    els.dialogInput.focus();
+    return;
+  }
+  settleDialog(value);
+}
+
+function cancelDialog() {
+  settleDialog(dialogHasInput ? null : false);
+}
+
+function settleDialog(value) {
+  if (!dialogResolver) return;
+  const resolve = dialogResolver;
+  dialogResolver = null;
+  dialogValidator = null;
+  els.dialogOverlay.classList.remove("open");
+  els.dialogOverlay.setAttribute("aria-hidden", "true");
+  els.dialogOverlay.setAttribute("inert", "");
+  document.body.classList.remove("modal-open");
+  if (dialogReturnFocus instanceof HTMLElement && dialogReturnFocus.isConnected) {
+    dialogReturnFocus.focus();
+  }
+  dialogReturnFocus = null;
+  resolve(value);
+}
+
+function confirmAction(options) {
+  return showDialog(options);
 }
 
 async function submitTask(event) {
@@ -363,9 +477,15 @@ async function onTaskAction(event) {
     if (action === "pause") await runTaskAction("pause", id, "任务已暂停。");
     if (action === "resume") await runTaskAction("resume", id, "任务已继续。");
     if (action === "remove") {
-      if (!window.confirm("移除此任务？已完成文件会保留；正在下载的任务会停止并删除未完成文件。")) return;
+      if (taskStatusByID.get(id) !== "done" && !await confirmAction({
+        title: "移除下载任务",
+        message: "正在下载的任务会停止，并删除未完成文件。此操作无法撤销。",
+        confirmLabel: "移除任务",
+        danger: true,
+      })) return;
       await runTaskAction("remove", id, "任务已移除。");
       selectedTaskIDs.delete(id);
+      taskStatusByID.delete(id);
     }
   } finally {
     button.disabled = false;
@@ -423,7 +543,13 @@ async function runSelectedAction(action, label, requiresConfirmation = false) {
     showToast("请先选择任务。", "error");
     return;
   }
-  if (requiresConfirmation && !window.confirm(`移除选中的 ${ids.length} 个任务？已完成文件会保留；活动任务会停止并删除未完成文件。`)) return;
+  const allDownloaded = ids.every((id) => taskStatusByID.get(id) === "done");
+  if (requiresConfirmation && !allDownloaded && !await confirmAction({
+    title: `移除 ${ids.length} 个任务`,
+    message: "已完成文件会保留；活动任务会停止，并删除未完成文件。此操作无法撤销。",
+    confirmLabel: "批量移除",
+    danger: true,
+  })) return;
   setBatchBusy(true);
   try {
     const result = await requestJSON("/tasks/batch", {
@@ -432,7 +558,10 @@ async function runSelectedAction(action, label, requiresConfirmation = false) {
       body: JSON.stringify({ action, ids }),
     });
     if (action === "remove") {
-      (result.succeeded || []).forEach((id) => selectedTaskIDs.delete(id));
+      (result.succeeded || []).forEach((id) => {
+        selectedTaskIDs.delete(id);
+        taskStatusByID.delete(id);
+      });
     }
     const succeeded = result.succeeded?.length || 0;
     const failed = result.failed?.length || 0;
@@ -495,7 +624,6 @@ async function clearDone() {
     showToast("没有已完成任务可清理。");
     return;
   }
-  if (!window.confirm(`清理 ${currentSummary.done} 条已完成任务记录？磁盘文件不会被删除。`)) return;
   try {
     const text = await requestText("/tasks/clear-done", { method: "POST" });
     selectedTaskIDs.clear();
@@ -535,6 +663,7 @@ async function loadTasks({ force = false } = {}) {
           offset: String(currentOffset),
           status: currentFilter,
         });
+        if (currentSearch) params.set("search", currentSearch);
         const url = `/tasks?${params}`;
         const headers = {};
         if (!force && pageETags.has(url)) headers["If-None-Match"] = pageETags.get(url);
@@ -568,6 +697,7 @@ async function loadTasks({ force = false } = {}) {
 }
 
 function renderTasks(tasks) {
+  tasks.forEach((task) => taskStatusByID.set(task.id, task.status));
   currentTasks = [...tasks].sort((a, b) => {
     const statusDiff = (statusMeta[a.status]?.rank ?? 9) - (statusMeta[b.status]?.rank ?? 9);
     return statusDiff || b.id - a.id;
@@ -575,6 +705,7 @@ function renderTasks(tasks) {
   const signature = JSON.stringify([
     currentOffset,
     currentFilter,
+    currentSearch,
     currentTasks.map((task) => [
       task.id, task.status, task.outputName, task.name, task.folder, task.link, task.progress, task.error,
     ]),
@@ -672,7 +803,10 @@ async function changePage(direction) {
 
 function emptyMarkup() {
   const filtered = currentFilter !== "all";
-  return `<div class="empty-state"><div class="empty-icon" aria-hidden="true">↓</div><h2>${filtered ? "此筛选下暂无任务" : "暂无任务"}</h2><p>${filtered ? "请选择其他状态筛选。" : "点击右上角「新建下载」开始添加链接。"}</p></div>`;
+  const searched = Boolean(currentSearch);
+  const title = searched ? "没有匹配的任务" : filtered ? "此筛选下暂无任务" : "暂无任务";
+  const detail = searched ? "请尝试其他文件名或链接关键词。" : filtered ? "请选择其他状态筛选。" : "点击右上角「新建下载」开始添加链接。";
+  return `<div class="empty-state"><div class="empty-icon" aria-hidden="true">↓</div><h2>${title}</h2><p>${detail}</p></div>`;
 }
 
 function openSettingsModal() {
@@ -924,16 +1058,28 @@ async function apiFetch(url, options = {}) {
   if (response.status !== 401 || apiTokenPromptDismissed) return response;
 
   clearSessionToken();
-  const supplied = window.prompt("此 TrueDown 正在远程接口上运行。请输入 API Key：");
+  if (!apiTokenRequestPromise) {
+    apiTokenRequestPromise = showDialog({
+      title: "连接 TrueDown",
+      eyebrow: "Authentication required",
+      message: "此 TrueDown 正在远程接口上运行，请输入 API Key 以继续。Key 只保存在当前标签页会话中。",
+      confirmLabel: "连接",
+      inputLabel: "API Key",
+      inputType: "password",
+      validate: (value) => {
+        const normalized = value.trim();
+        return normalized.length < 32 || normalized.length > 256 || /[\0\r\n]/.test(normalized)
+          ? "API Key 应为 32–256 个字符，且不能包含换行。"
+          : "";
+      },
+    }).finally(() => { apiTokenRequestPromise = null; });
+  }
+  const supplied = await apiTokenRequestPromise;
   if (supplied === null) {
     apiTokenPromptDismissed = true;
     return response;
   }
   const normalized = supplied.trim();
-  if (normalized.length < 32 || normalized.length > 256 || /[\0\r\n]/.test(normalized)) {
-    apiTokenPromptDismissed = true;
-    throw new Error("API Key 格式无效；请刷新页面后重试");
-  }
   rememberSessionToken(normalized);
 
   response = await fetchWithAPIToken(url, options);

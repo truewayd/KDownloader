@@ -403,8 +403,9 @@ func (m *Manager) ListTasks() []*Task {
 }
 
 // PageTaskSnapshots returns a bounded newest-first view without sorting or
-// cloning the full task map. A status filter of "" includes every task.
-func (m *Manager) PageTaskSnapshots(offset, limit int, status Status) TaskPage {
+// cloning the full task map. A status filter of "" includes every task. Search
+// matches the requested file name or download link case-insensitively.
+func (m *Manager) PageTaskSnapshots(offset, limit int, status Status, search string) TaskPage {
 	if offset < 0 {
 		offset = 0
 	}
@@ -414,9 +415,18 @@ func (m *Manager) PageTaskSnapshots(offset, limit int, status Status) TaskPage {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	search = strings.ToLower(strings.TrimSpace(search))
 	total := len(m.tasks)
 	if status != "" {
 		total = m.statusCounts[status]
+	}
+	if search != "" {
+		total = 0
+		for _, task := range m.tasks {
+			if taskMatchesPage(task, status, search) {
+				total++
+			}
+		}
 	}
 	page := TaskPage{
 		Tasks:    make([]TaskSnapshot, 0, min(limit, max(0, total-offset))),
@@ -427,10 +437,18 @@ func (m *Manager) PageTaskSnapshots(offset, limit int, status Status) TaskPage {
 		Revision: m.revision,
 	}
 	version := uint64(m.structureRev) ^ uint64(offset+1)*1099511628211 ^ uint64(limit)
+	for _, char := range search {
+		version ^= uint64(char) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
+	}
+	if search != "" {
+		// A file name update can move a task into or out of a search page without
+		// changing the task collection structure.
+		version ^= uint64(m.revision) * 1099511628211
+	}
 	skipped := 0
 	for index := len(m.orderedIDs) - 1; index >= 0 && len(page.Tasks) < limit; index-- {
 		task := m.tasks[m.orderedIDs[index]]
-		if task == nil || (status != "" && task.Status != status) {
+		if !taskMatchesPage(task, status, search) {
 			continue
 		}
 		if skipped < offset {
@@ -443,6 +461,18 @@ func (m *Manager) PageTaskSnapshots(offset, limit int, status Status) TaskPage {
 	}
 	page.Version = fmt.Sprintf(`"td-%x"`, version)
 	return page
+}
+
+func taskMatchesPage(task *Task, status Status, search string) bool {
+	if task == nil || (status != "" && task.Status != status) {
+		return false
+	}
+	if search == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(task.OutputName), search) ||
+		strings.Contains(strings.ToLower(task.Name), search) ||
+		strings.Contains(strings.ToLower(task.Link), search)
 }
 
 func (m *Manager) TaskIDsByStatus(status Status, limit int) []int64 {
