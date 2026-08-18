@@ -246,6 +246,14 @@
             </div>
           </section>
 
+		  <section class="settings-section" aria-labelledby="settings-modules-title">
+			<div class="settings-section-heading">
+			  <h3 id="settings-modules-title">解析模块</h3>
+			  <p>内置模块彼此独立；移除后不再接管新链接，已有任务仍可继续和续传。</p>
+			</div>
+			<div class="module-list" id="module-list" aria-live="polite"></div>
+		  </section>
+
           <section class="settings-section" aria-labelledby="settings-advanced-title">
             <div class="settings-section-heading">
               <h3 id="settings-advanced-title">高级</h3>
@@ -324,23 +332,29 @@
             <textarea class="kd-input" id="m-headers" rows="3" placeholder='{"Cookie": "...", "User-Agent": "Mozilla/5.0"}'></textarea>
           </div>
 
-          <fieldset class="dropbox-options">
-            <legend>Dropbox 共享目录</legend>
-            <div class="form-grid">
-              <div class="field">
-                <label for="m-dropbox-mode">处理方式</label>
-                <select class="kd-select" id="m-dropbox-mode">
-                  <option value="direct">直接下载目录压缩包</option>
-                  <option value="expand">展开为独立文件任务</option>
-                </select>
-              </div>
-              <label class="setting-toggle" for="m-dropbox-filter">
-                <input id="m-dropbox-filter" type="checkbox" disabled>
-                <span><strong>应用后缀过滤</strong><small>只在展开 Dropbox 目录时可用。</small></span>
-              </label>
-            </div>
-            <p class="hint">此选项仅影响 Dropbox `/scl/fo/` 共享目录；普通链接会照常下载。</p>
-          </fieldset>
+		  <fieldset class="dropbox-options" id="m-resolver-options">
+			<legend>链接解析模块</legend>
+			<div class="module-option-note" id="m-google-drive-option">
+			  <strong>Google Drive 自动解析</strong>
+			  <span>支持公开文件、目录、大文件确认页，以及 Docs / Sheets / Slides 导出。</span>
+			</div>
+			<div id="m-dropbox-option">
+			  <div class="form-grid">
+				<div class="field">
+				  <label for="m-dropbox-mode">Dropbox 共享目录</label>
+				  <select class="kd-select" id="m-dropbox-mode">
+					<option value="direct">直接下载目录压缩包</option>
+					<option value="expand">展开为独立文件任务</option>
+				  </select>
+				</div>
+				<label class="setting-toggle" for="m-dropbox-filter">
+				  <input id="m-dropbox-filter" type="checkbox" disabled>
+				  <span><strong>应用后缀过滤</strong><small>只在展开 Dropbox 目录时可用。</small></span>
+				</label>
+			  </div>
+			  <p class="hint">此选项仅影响 Dropbox `/scl/fo/` 共享目录；普通链接会照常下载。</p>
+			</div>
+		  </fieldset>
 
           <details class="advanced-options">
             <summary>覆盖 aria2 参数</summary>

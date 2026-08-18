@@ -15,6 +15,7 @@ type taskAddRequest struct {
 	DownloadPage string
 	QueueID      int
 	Opts         Aria2Opts
+	ModuleID     string
 }
 
 type taskAddResult struct {
@@ -39,6 +40,7 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 			request.Link, request.Name, request.Folder, m.defaultDir, request.Headers,
 			request.DownloadPage, request.QueueID, request.Opts,
 		)
+		identity.ModuleID = request.ModuleID
 		if err := validateRequest(identity); err != nil {
 			return nil, err
 		}
@@ -63,7 +65,7 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 	m.mu.Lock()
 	resumeKeys := make(map[string]struct{})
 	for _, task := range m.tasks {
-		if task != nil && task.DropboxDirect && task.Status == StatusError {
+		if task != nil && task.ModuleID != "" && task.Status == StatusError {
 			resumeKeys[outputNameKey(task.Folder, task.Name)] = struct{}{}
 		}
 	}
@@ -89,7 +91,8 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 			DownloadPage:  item.identity.DownloadPage,
 			QueueID:       item.identity.QueueID,
 			Opts:          item.identity.Opts,
-			DropboxDirect: isDropboxDirectDownload(item.identity.Link),
+			ModuleID:      item.request.ModuleID,
+			DropboxDirect: item.request.ModuleID == DropboxModuleID,
 			GID:           m.newGIDLocked(),
 			Status:        StatusQueued,
 			Progress:      "Waiting for aria2",
@@ -120,9 +123,9 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 
 	for _, index := range fallback {
 		request := prepared[index].request
-		task, duplicate, err := m.AddTask(
+		task, duplicate, err := m.addTaskWithModule(
 			request.Link, request.Name, request.Folder, request.Headers,
-			request.DownloadPage, request.QueueID, request.Opts,
+			request.DownloadPage, request.QueueID, request.Opts, request.ModuleID,
 		)
 		if err != nil {
 			return nil, err

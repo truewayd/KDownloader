@@ -179,6 +179,8 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownHtml, /id="cfg-task-concurrency"[^>]+placeholder="3"/);
   assert.match(trueDownHtml, /id="m-dropbox-mode"/);
   assert.match(trueDownHtml, /id="m-dropbox-filter"/);
+	assert.match(trueDownHtml, /id="module-list"/);
+	assert.match(trueDownHtml, /id="m-google-drive-option"/);
   assert.match(trueDownHtml, /href="\/icons\.svg#icon-/);
   assert.match(trueDownHtml, /id="token-auth-enabled"/);
   assert.match(trueDownApp, /const PAGE_SIZE = 100/);
@@ -190,6 +192,8 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownApp, /params\.set\("search", currentSearch\)/);
   assert.match(trueDownApp, /data-sort-field/);
   assert.match(trueDownApp, /aria-sort/);
+	assert.match(trueDownApp, /requestJSON\("\/modules"/);
+	assert.match(trueDownApp, /moduleOptions: sharedBody\.moduleOptions/);
   assert.match(trueDownHtml, /id="dialog-overlay"[^>]+aria-hidden="true"[^>]+inert/);
   assert.doesNotMatch(trueDownApp, /window\.(?:alert|confirm|prompt)\s*\(/);
   assert.match(trueDownApp, /current page connection remains valid|当前页面连接保持有效/);

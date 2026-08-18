@@ -49,7 +49,8 @@ func openRecordStore(path string) (*recordStore, error) {
 			dropbox_direct INTEGER NOT NULL DEFAULT 0,
 			total_length INTEGER NOT NULL DEFAULT 0,
 			remote_digest TEXT NOT NULL DEFAULT '',
-			remote_name TEXT NOT NULL DEFAULT ''
+			remote_name TEXT NOT NULL DEFAULT '',
+			module_id TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_download_records_status ON download_records(status)`,
 	}
@@ -76,6 +77,7 @@ func migrateRecordStore(db *sqliteConn) error {
 	hasTotalLength := false
 	hasRemoteDigest := false
 	hasRemoteName := false
+	hasModuleID := false
 	for {
 		hasRow, nextErr := rows.Next()
 		if nextErr != nil {
@@ -96,6 +98,8 @@ func migrateRecordStore(db *sqliteConn) error {
 			hasRemoteDigest = true
 		case "remote_name":
 			hasRemoteName = true
+		case "module_id":
+			hasModuleID = true
 		}
 	}
 	rows.Close()
@@ -124,7 +128,15 @@ func migrateRecordStore(db *sqliteConn) error {
 			return fmt.Errorf("upgrade download database for remote file names: %w", err)
 		}
 	}
-	if _, err := db.Exec(`PRAGMA user_version=5`); err != nil {
+	if !hasModuleID {
+		if _, err := db.Exec(`ALTER TABLE download_records ADD COLUMN module_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("upgrade download database for resolver modules: %w", err)
+		}
+	}
+	if _, err := db.Exec(`UPDATE download_records SET module_id='dropbox' WHERE module_id='' AND dropbox_direct<>0`); err != nil {
+		return fmt.Errorf("migrate Dropbox tasks to resolver modules: %w", err)
+	}
+	if _, err := db.Exec(`PRAGMA user_version=6`); err != nil {
 		return fmt.Errorf("record download database version: %w", err)
 	}
 	return nil
@@ -166,13 +178,13 @@ func (s *recordStore) insert(t *Task) error {
 	_, err = s.db.Exec(`INSERT INTO download_records (
 		id, fingerprint, request_json, name, link, folder, queue_id, headers_json,
 		download_page, opts_json, output_name, gid, status, progress, error,
-		created_at, updated_at, revision, dropbox_direct, total_length, remote_digest, remote_name
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		created_at, updated_at, revision, dropbox_direct, total_length, remote_digest, remote_name, module_id
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.Fingerprint, t.RequestJSON, t.Name, t.Link, t.Folder, t.QueueID,
 		string(headers), t.DownloadPage, string(opts), t.OutputName, t.GID,
 		string(t.Status), t.Progress, t.Error, formatDBTime(t.CreatedAt), formatDBTime(t.UpdatedAt), t.Revision,
 		boolInt(t.DropboxDirect),
-		t.TotalLength, t.RemoteDigest, t.RemoteName,
+		t.TotalLength, t.RemoteDigest, t.RemoteName, t.ModuleID,
 	)
 	return err
 }
@@ -191,11 +203,11 @@ func (s *recordStore) UpdateRequest(t *Task) error {
 	_, err = s.db.Exec(`UPDATE download_records SET
 		fingerprint=?, request_json=?, name=?, link=?, folder=?, queue_id=?, headers_json=?,
 		download_page=?, opts_json=?, output_name=?, gid=?, status=?, progress=?, error=?,
-		updated_at=?, revision=?, dropbox_direct=?, total_length=?, remote_digest=?, remote_name=?
+		updated_at=?, revision=?, dropbox_direct=?, total_length=?, remote_digest=?, remote_name=?, module_id=?
 		WHERE id=? AND revision<=?`,
 		t.Fingerprint, t.RequestJSON, t.Name, t.Link, t.Folder, t.QueueID, string(headers),
 		t.DownloadPage, string(opts), t.OutputName, t.GID, string(t.Status), t.Progress, t.Error,
-		formatDBTime(t.UpdatedAt), t.Revision, boolInt(t.DropboxDirect), t.TotalLength, t.RemoteDigest, t.RemoteName, t.ID, t.Revision,
+		formatDBTime(t.UpdatedAt), t.Revision, boolInt(t.DropboxDirect), t.TotalLength, t.RemoteDigest, t.RemoteName, t.ModuleID, t.ID, t.Revision,
 	)
 	return err
 }
@@ -270,7 +282,7 @@ func (s *recordStore) LoadAll() ([]*Task, error) {
 	rows, err := s.db.Query(`SELECT
 		id, fingerprint, request_json, name, link, folder, queue_id, headers_json,
 		download_page, opts_json, output_name, gid, status, progress, error,
-		created_at, updated_at, revision, dropbox_direct, total_length, remote_digest, remote_name
+		created_at, updated_at, revision, dropbox_direct, total_length, remote_digest, remote_name, module_id
 		FROM download_records ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -306,10 +318,12 @@ func (s *recordStore) LoadAll() ([]*Task, error) {
 			TotalLength:   rows.Int64(19),
 			RemoteDigest:  rows.Text(20),
 			RemoteName:    rows.Text(21),
+			ModuleID:      rows.Text(22),
 		}
-		if !t.DropboxDirect {
-			t.DropboxDirect = isDropboxDirectDownload(t.Link)
+		if t.ModuleID == "" && t.DropboxDirect {
+			t.ModuleID = DropboxModuleID
 		}
+		t.DropboxDirect = t.ModuleID == DropboxModuleID
 		if err := json.Unmarshal([]byte(rows.Text(7)), &t.Headers); err != nil {
 			return nil, fmt.Errorf("decode headers for task %d: %w", t.ID, err)
 		}

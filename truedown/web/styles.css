@@ -930,6 +930,53 @@ h2 {
   gap: 8px;
 }
 
+.module-list {
+	display: grid;
+	gap: 8px;
+}
+
+.module-card {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 14px;
+	border: 1px solid var(--kd-border);
+	border-radius: var(--kd-radius);
+	padding: 11px;
+	background: var(--kd-input);
+}
+
+.module-card-copy {
+	display: grid;
+	min-width: 0;
+	gap: 4px;
+}
+
+.module-card-heading {
+	display: flex;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 7px;
+}
+
+.module-card-heading strong {
+	color: var(--kd-text);
+	font-size: 12px;
+}
+
+.module-card-heading span,
+.module-card-copy small {
+	color: var(--kd-muted);
+	font-size: 10px;
+}
+
+.module-card-copy p {
+	margin: 0;
+	color: var(--kd-muted);
+	font-size: 11px;
+	line-height: 1.5;
+}
+
 .setting-toggle {
   display: flex;
   align-items: flex-start;
@@ -1159,6 +1206,31 @@ label {
   margin-top: 9px;
 }
 
+.module-option-note {
+	display: grid;
+	gap: 3px;
+	margin-bottom: 10px;
+	border: 1px solid var(--kd-border);
+	border-radius: var(--kd-radius);
+	padding: 10px;
+	background: var(--kd-surface);
+}
+
+.module-option-note strong {
+	color: var(--kd-text);
+	font-size: 12px;
+}
+
+.module-option-note span {
+	color: var(--kd-muted);
+	font-size: 11px;
+	line-height: 1.45;
+}
+
+#m-dropbox-option > .hint {
+	margin-top: 9px;
+}
+
 .advanced-options {
   border: 1px solid var(--kd-border);
   border-radius: var(--kd-radius);
@@ -1371,6 +1443,11 @@ label {
   .modal-actions .kd-button {
     width: 100%;
   }
+
+	.module-card {
+		align-items: stretch;
+		flex-direction: column;
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {

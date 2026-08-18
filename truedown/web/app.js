@@ -68,6 +68,7 @@ let downloadRules = {
   excludedExtensions: [...DEFAULT_DOWNLOAD_RULES.excludedExtensions],
 };
 let runtimeSettings = { ...DEFAULT_RUNTIME_SETTINGS };
+let resolverModules = [];
 let settingsReturnFocus = null;
 let dialogReturnFocus = null;
 let dialogResolver = null;
@@ -86,7 +87,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     showToast(`读取认证设置失败：${error.message}`, "error");
   }
   try {
-    await Promise.all([loadServerDownloadRules(), loadServerRuntimeSettings()]);
+    await Promise.all([loadServerDownloadRules(), loadServerRuntimeSettings(), loadResolverModules()]);
   } catch (error) {
     showToast(`读取服务端设置失败：${error.message}`, "error");
   }
@@ -137,6 +138,7 @@ function cacheElements() {
     "m-conns",
     "m-dropbox-filter",
     "m-dropbox-mode",
+	"m-dropbox-option",
     "m-extra",
     "m-folder",
     "m-headers",
@@ -144,6 +146,8 @@ function cacheElements() {
     "m-name",
     "m-queueid",
     "m-referer",
+	"m-google-drive-option",
+	"m-resolver-options",
     "m-speed",
     "m-tries",
     "m-wait",
@@ -152,6 +156,7 @@ function cacheElements() {
     "modal-eyebrow",
     "modal-msg",
     "modal-title",
+	"module-list",
     "new-task-btn",
     "next-page-btn",
     "open-downloads-btn",
@@ -241,6 +246,7 @@ function bindEvents() {
   els.batchRemoveBtn.addEventListener("click", () => runSelectedAction("remove", "移除", true));
   els.copyApiTokenBtn.addEventListener("click", copyAPIToken);
   els.tokenAuthEnabled.addEventListener("change", updateAuthSettings);
+	els.moduleList.addEventListener("click", onModuleAction);
   els.dialogForm.addEventListener("submit", submitDialog);
   els.dialogCloseBtn.addEventListener("click", cancelDialog);
   els.dialogCancelBtn.addEventListener("click", cancelDialog);
@@ -309,6 +315,7 @@ function openModal(mode = "single") {
   els.mDropboxMode.value = "direct";
   els.mDropboxFilter.checked = downloadRules.enabled;
   updateDropboxOptions();
+	renderModuleAvailability();
   els.overlay.classList.add("open");
   els.overlay.setAttribute("aria-hidden", "false");
   els.overlay.removeAttribute("inert");
@@ -319,6 +326,27 @@ function openModal(mode = "single") {
 function updateDropboxOptions() {
   const expanded = els.mDropboxMode.value === "expand";
   els.mDropboxFilter.disabled = !expanded;
+}
+
+function buildModuleOptions() {
+	const options = {};
+	if (isModuleInstalled("dropbox")) {
+		options.dropbox = {
+			mode: els.mDropboxMode.value,
+			applyFilter: els.mDropboxMode.value === "expand" && els.mDropboxFilter.checked,
+		};
+	}
+	if (isModuleInstalled("google-drive")) options["google-drive"] = {};
+	return options;
+}
+
+function renderModuleAvailability() {
+	const dropboxInstalled = isModuleInstalled("dropbox");
+	const googleDriveInstalled = isModuleInstalled("google-drive");
+	els.mDropboxOption.hidden = !dropboxInstalled;
+	els.mGoogleDriveOption.hidden = !googleDriveInstalled;
+	els.mResolverOptions.hidden = !dropboxInstalled && !googleDriveInstalled;
+	updateDropboxOptions();
 }
 
 function closeModal() {
@@ -436,10 +464,7 @@ async function submitTask(event) {
     name: links.length === 1 ? emptyToUndefined(els.mName.value) : undefined,
     queueId: optionalInt("mQueueid") || undefined,
     opts: buildOpts("m"),
-    dropbox: {
-      mode: els.mDropboxMode.value,
-      applyFilter: els.mDropboxMode.value === "expand" && els.mDropboxFilter.checked,
-    },
+	moduleOptions: buildModuleOptions(),
   };
 
   setSubmitting(true);
@@ -502,7 +527,7 @@ function buildStartBody(link, sharedBody) {
     name: sharedBody.name,
     queueId: sharedBody.queueId,
     opts: sharedBody.opts,
-    dropbox: sharedBody.dropbox,
+	moduleOptions: sharedBody.moduleOptions,
   };
 }
 
@@ -944,11 +969,12 @@ function emptyMarkup() {
 async function openSettingsModal() {
   settingsReturnFocus = document.activeElement;
   try {
-    await Promise.all([loadServerDownloadRules(), loadServerRuntimeSettings()]);
+    await Promise.all([loadServerDownloadRules(), loadServerRuntimeSettings(), loadResolverModules()]);
   } catch (error) {
     showToast(`刷新服务端设置失败：${error.message}`, "error");
   }
   renderDownloadSettings();
+	renderResolverModules();
   els.settingsOverlay.classList.add("open");
   els.settingsOverlay.setAttribute("aria-hidden", "false");
   els.settingsOverlay.removeAttribute("inert");
@@ -1162,6 +1188,95 @@ function normalizeServerRuntimeSettings(value) {
 
 async function loadServerRuntimeSettings() {
   runtimeSettings = normalizeServerRuntimeSettings(await requestJSON("/settings/runtime"));
+}
+
+function normalizeResolverModules(value) {
+	const modules = Array.isArray(value?.modules) ? value.modules : [];
+	return modules.slice(0, 32).filter((module) => module && typeof module === "object").map((module) => ({
+		id: stringValue(module.id),
+		name: stringValue(module.name),
+		version: stringValue(module.version),
+		description: stringValue(module.description),
+		capabilities: Array.isArray(module.capabilities)
+			? module.capabilities.slice(0, 16).map(stringValue).filter(Boolean) : [],
+		builtIn: module.builtIn === true,
+		installed: module.installed === true,
+	})).filter((module) => module.id && module.name);
+}
+
+async function loadResolverModules() {
+	resolverModules = normalizeResolverModules(await requestJSON("/modules"));
+	renderResolverModules();
+	renderModuleAvailability();
+}
+
+function isModuleInstalled(id) {
+	return resolverModules.some((module) => module.id === id && module.installed);
+}
+
+function renderResolverModules() {
+	if (!els.moduleList) return;
+	els.moduleList.replaceChildren();
+	if (!resolverModules.length) {
+		const empty = document.createElement("p");
+		empty.className = "hint";
+		empty.textContent = "没有可用的解析模块。";
+		els.moduleList.append(empty);
+		return;
+	}
+	for (const module of resolverModules) {
+		const card = document.createElement("article");
+		card.className = "module-card";
+		const copy = document.createElement("div");
+		copy.className = "module-card-copy";
+		const heading = document.createElement("div");
+		heading.className = "module-card-heading";
+		const name = document.createElement("strong");
+		name.textContent = module.name;
+		const version = document.createElement("span");
+		version.textContent = `v${module.version}${module.builtIn ? " · 内置" : ""}`;
+		heading.append(name, version);
+		const description = document.createElement("p");
+		description.textContent = module.description;
+		const capabilities = document.createElement("small");
+		capabilities.textContent = module.capabilities.join(" · ");
+		copy.append(heading, description, capabilities);
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = `kd-button ${module.installed ? "secondary" : "primary"} compact`;
+		button.dataset.moduleToggle = module.id;
+		button.dataset.installed = String(module.installed);
+		button.setAttribute("aria-pressed", String(module.installed));
+		button.setAttribute("aria-label", `${module.installed ? "移除" : "安装"} ${module.name} 解析模块`);
+		button.textContent = module.installed ? "移除" : "安装";
+		card.append(copy, button);
+		els.moduleList.append(card);
+	}
+}
+
+async function onModuleAction(event) {
+	const button = event.target.closest("button[data-module-toggle]");
+	if (!button) return;
+	const id = button.dataset.moduleToggle;
+	const installed = button.dataset.installed !== "true";
+	button.disabled = true;
+	button.setAttribute("aria-busy", "true");
+	try {
+		const saved = await requestJSON("/modules", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ id, installed }),
+		});
+		resolverModules = resolverModules.map((module) => module.id === id
+			? { ...module, installed: saved.installed === true } : module);
+		renderResolverModules();
+		renderModuleAvailability();
+		showToast(`${stringValue(saved.name) || id} 模块已${installed ? "安装" : "移除"}。`);
+	} catch (error) {
+		showToast(`模块状态更新失败：${error.message}`, "error");
+		button.disabled = false;
+		button.removeAttribute("aria-busy");
+	}
 }
 
 function hasHeader(headers, name) {

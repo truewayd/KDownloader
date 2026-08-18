@@ -225,6 +225,9 @@ func TestStartDownloadValidatesContentTypeAndURL(t *testing.T) {
 		{"application/json", `{"downloadSource":{"link":"https://example.test/file"},"downloadRules":{"enabled":true}}`, http.StatusBadRequest},
 		{"application/json", `{"downloadSource":{"link":"https://example.test/file"},"dropbox":{"mode":"invalid","applyFilter":false}}`, http.StatusBadRequest},
 		{"application/json", `{"downloadSource":{"link":"https://example.test/file"},"dropbox":{"mode":"direct","applyFilter":true}}`, http.StatusBadRequest},
+		{"application/json", `{"downloadSource":{"link":"https://example.test/file"},"moduleOptions":{"unknown":{}}}`, http.StatusBadRequest},
+		{"application/json", `{"downloadSource":{"link":"https://example.test/file"},"moduleOptions":{"google-drive":{"documentFormat":"exe"}}}`, http.StatusBadRequest},
+		{"application/json", `{"downloadSource":{"link":"https://example.test/file"},"moduleOptions":{"google-drive":null}}`, http.StatusBadRequest},
 	} {
 		request := httptest.NewRequest(http.MethodPost, "/start-headless-download", strings.NewReader(testCase.body))
 		request.Header.Set("Content-Type", testCase.contentType)
@@ -233,6 +236,32 @@ func TestStartDownloadValidatesContentTypeAndURL(t *testing.T) {
 		if response.Code != testCase.status {
 			t.Fatalf("status=%d, want %d; body=%s", response.Code, testCase.status, response.Body.String())
 		}
+	}
+}
+
+func TestResolverModulesEndpointInstallsAndRemovesBuiltIns(t *testing.T) {
+	mux, manager := testHandler(t)
+	defer manager.Stop()
+	get := httptest.NewRequest(http.MethodGet, "/modules", nil)
+	getResponse := httptest.NewRecorder()
+	mux.ServeHTTP(getResponse, get)
+	if getResponse.Code != http.StatusOK || !strings.Contains(getResponse.Body.String(), `"id":"dropbox"`) ||
+		!strings.Contains(getResponse.Body.String(), `"id":"google-drive"`) {
+		t.Fatalf("module catalog status=%d body=%s", getResponse.Code, getResponse.Body.String())
+	}
+	remove := httptest.NewRequest(http.MethodPost, "/modules", strings.NewReader(`{"id":"google-drive","installed":false}`))
+	remove.Header.Set("Content-Type", "application/json")
+	removeResponse := httptest.NewRecorder()
+	mux.ServeHTTP(removeResponse, remove)
+	if removeResponse.Code != http.StatusOK || !strings.Contains(removeResponse.Body.String(), `"installed":false`) {
+		t.Fatalf("remove module status=%d body=%s", removeResponse.Code, removeResponse.Body.String())
+	}
+	invalid := httptest.NewRequest(http.MethodPost, "/modules", strings.NewReader(`{"id":"unknown","installed":true}`))
+	invalid.Header.Set("Content-Type", "application/json")
+	invalidResponse := httptest.NewRecorder()
+	mux.ServeHTTP(invalidResponse, invalid)
+	if invalidResponse.Code != http.StatusBadRequest {
+		t.Fatalf("unknown module status=%d body=%s", invalidResponse.Code, invalidResponse.Body.String())
 	}
 }
 

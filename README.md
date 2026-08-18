@@ -72,6 +72,8 @@ TrueDown is a standalone Windows download manager written in Go. It embeds an ar
 - Listens on `127.0.0.1:15151` by default.
 - Provides an embedded dashboard for creating, filtering, paging, column sorting, pausing, resuming, retrying, opening, and removing tasks, including whole-queue controls.
 - Lets each Dropbox shared-folder submission choose direct archive download or bounded parallel expansion, with an independent per-submission filter choice and bulk task import.
+- Ships Dropbox and Google Drive as independently installable built-in resolver modules, with installation state managed from the dashboard.
+- Resolves public Google Drive files, large-file confirmation pages, recursive folders, and Docs/Sheets/Slides exports without a Google Developer API key.
 - Persists the aria2 simultaneous-download limit, defaults it to 3, and applies changes immediately.
 - Bounds queue admission, request sizes, batch operations, filenames, folders, headers, and aria2 options.
 - Supports optional API Key authentication and requires authentication plus TLS for non-loopback listeners.

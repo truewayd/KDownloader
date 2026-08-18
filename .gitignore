@@ -7,5 +7,6 @@ __pycache__/
 dist/
 *.md
 !README.zh-CN.md
+!truedown/THIRD_PARTY_NOTICES.md
 !changelog/
 !changelog/*.md

@@ -20,4 +20,5 @@ try {
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Copy-Item -Force $aria "$dist\aria2c.exe"
+Copy-Item -Force (Join-Path $projectRoot "THIRD_PARTY_NOTICES.md") "$dist\THIRD_PARTY_NOTICES.md"
 Write-Host "Build OK -> $dist\"

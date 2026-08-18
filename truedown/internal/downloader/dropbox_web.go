@@ -125,7 +125,7 @@ func (m *Manager) AddDropboxFolder(
 		requests = append(requests, taskAddRequest{
 			Link: file.Link, Name: fileName, Folder: targetFolder,
 			Headers: identity.Headers, DownloadPage: identity.DownloadPage,
-			QueueID: identity.QueueID, Opts: identity.Opts,
+			QueueID: identity.QueueID, Opts: identity.Opts, ModuleID: DropboxModuleID,
 		})
 	}
 	added, err := m.addTasksBatch(requests)

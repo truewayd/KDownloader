@@ -67,6 +67,7 @@ type Task struct {
 
 	Fingerprint   string `json:"-"`
 	RequestJSON   string `json:"-"`
+	ModuleID      string `json:"-"`
 	DropboxDirect bool   `json:"-"`
 	RemoteDigest  string `json:"-"`
 	RemoteName    string `json:"-"`
@@ -134,6 +135,7 @@ type requestIdentity struct {
 	Headers      map[string]string `json:"headers"`
 	DownloadPage string            `json:"downloadPage"`
 	Opts         Aria2Opts         `json:"opts"`
+	ModuleID     string            `json:"-"`
 }
 
 type submission struct {
@@ -176,6 +178,7 @@ type Manager struct {
 	store           *recordStore
 	downloadRules   *downloadRulesStore
 	runtimeSettings *runtimeSettingsStore
+	modules         *moduleRegistry
 
 	mu           sync.RWMutex
 	tasks        map[int64]*Task
@@ -207,9 +210,11 @@ type Manager struct {
 	cmdDone chan error
 	logFile *os.File
 
-	dropboxClient *http.Client
-	dropboxProxy  func(*http.Request) (*url.URL, error)
-	openPath      func(string) error
+	dropboxClient     *http.Client
+	dropboxProxy      func(*http.Request) (*url.URL, error)
+	googleDriveClient *http.Client
+	googleDriveProxy  func(*http.Request) (*url.URL, error)
+	openPath          func(string) error
 }
 
 func NewManager(aria2Path, defaultDir, databasePath string) (*Manager, error) {
@@ -232,27 +237,36 @@ func NewManager(aria2Path, defaultDir, databasePath string) (*Manager, error) {
 		store.Close()
 		return nil, err
 	}
+	modules, err := newModuleRegistry(databasePath, &dropboxResolverModule{}, &googleDriveResolverModule{})
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
 	dropboxProxy := systemProxyFunc()
+	googleDriveProxy := systemProxyFunc()
 	m := &Manager{
-		aria2Path:       aria2Path,
-		defaultDir:      defaultDir,
-		store:           store,
-		downloadRules:   downloadRules,
-		runtimeSettings: runtimeSettings,
-		tasks:           make(map[int64]*Task, len(tasks)),
-		fingerprints:    make(map[string]int64, len(tasks)),
-		gids:            make(map[string]int64, len(tasks)),
-		outputNames:     make(map[string]int64, len(tasks)),
-		orderedIDs:      make([]int64, 0, len(tasks)),
-		statusCounts:    make(map[Status]int, 5),
-		ariaAdmitted:    make(map[int64]bool, ariaBacklogLimit),
-		ariaSlots:       make(chan struct{}, ariaBacklogLimit),
-		dropboxClient:   newDropboxHTTPClient(dropboxProxy),
-		dropboxProxy:    dropboxProxy,
-		openPath:        systemOpenPath,
-		wake:            make(chan struct{}, 1),
-		dbWake:          make(chan struct{}, 1),
-		done:            make(chan struct{}),
+		aria2Path:         aria2Path,
+		defaultDir:        defaultDir,
+		store:             store,
+		downloadRules:     downloadRules,
+		runtimeSettings:   runtimeSettings,
+		modules:           modules,
+		tasks:             make(map[int64]*Task, len(tasks)),
+		fingerprints:      make(map[string]int64, len(tasks)),
+		gids:              make(map[string]int64, len(tasks)),
+		outputNames:       make(map[string]int64, len(tasks)),
+		orderedIDs:        make([]int64, 0, len(tasks)),
+		statusCounts:      make(map[Status]int, 5),
+		ariaAdmitted:      make(map[int64]bool, ariaBacklogLimit),
+		ariaSlots:         make(chan struct{}, ariaBacklogLimit),
+		dropboxClient:     newDropboxHTTPClient(dropboxProxy),
+		dropboxProxy:      dropboxProxy,
+		googleDriveClient: newGoogleDriveHTTPClient(googleDriveProxy),
+		googleDriveProxy:  googleDriveProxy,
+		openPath:          systemOpenPath,
+		wake:              make(chan struct{}, 1),
+		dbWake:            make(chan struct{}, 1),
+		done:              make(chan struct{}),
 	}
 	var maxID int64
 	for _, task := range tasks {
@@ -346,10 +360,15 @@ func (m *Manager) Stop() {
 // AddTask records the request and returns immediately. Persistence and aria2
 // admission run asynchronously behind a bounded aria2 backlog window.
 func (m *Manager) AddTask(link, name, folder string, headers map[string]string, downloadPage string, queueID int, opts Aria2Opts) (*Task, bool, error) {
+	return m.addTaskWithModule(link, name, folder, headers, downloadPage, queueID, opts, m.installedModuleID(link))
+}
+
+func (m *Manager) addTaskWithModule(link, name, folder string, headers map[string]string, downloadPage string, queueID int, opts Aria2Opts, moduleID string) (*Task, bool, error) {
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
 
 	identity := normalizeRequest(link, name, folder, m.defaultDir, headers, downloadPage, queueID, opts)
+	identity.ModuleID = moduleID
 	if err := validateRequest(identity); err != nil {
 		return nil, false, err
 	}
@@ -361,7 +380,7 @@ func (m *Manager) AddTask(link, name, folder string, headers map[string]string, 
 	fingerprint := hex.EncodeToString(fingerprintBytes[:])
 
 	m.mu.Lock()
-	if task := m.findDropboxResumeLocked(identity, fingerprint); task != nil {
+	if task := m.findModuleResumeLocked(identity, fingerprint); task != nil {
 		original := cloneTask(task)
 		oldFingerprint := task.Fingerprint
 		removeGID := m.rotateGIDLocked(task)
@@ -373,11 +392,12 @@ func (m *Manager) AddTask(link, name, folder string, headers map[string]string, 
 		task.DownloadPage = identity.DownloadPage
 		task.QueueID = identity.QueueID
 		task.Opts = identity.Opts
-		task.DropboxDirect = true
+		task.ModuleID = moduleID
+		task.DropboxDirect = moduleID == DropboxModuleID
 		m.fingerprints[fingerprint] = task.ID
 		m.setStatusLocked(task, StatusQueued)
 		task.Error = ""
-		task.Progress = "Waiting for aria2 to verify and resume Dropbox partial data"
+		task.Progress = "Waiting for aria2 to verify and resume partial data"
 		m.touchTaskLocked(task)
 		result := cloneTask(task)
 		m.mu.Unlock()
@@ -433,7 +453,8 @@ func (m *Manager) AddTask(link, name, folder string, headers map[string]string, 
 		DownloadPage:  identity.DownloadPage,
 		QueueID:       identity.QueueID,
 		Opts:          identity.Opts,
-		DropboxDirect: isDropboxDirectDownload(identity.Link),
+		ModuleID:      moduleID,
+		DropboxDirect: moduleID == DropboxModuleID,
 		GID:           m.newGIDLocked(),
 		Status:        StatusQueued,
 		Progress:      "Waiting for aria2",
@@ -462,13 +483,12 @@ func (m *Manager) AddTask(link, name, folder string, headers map[string]string, 
 	return result, false, nil
 }
 
-// findDropboxResumeLocked locates an errored Dropbox direct-download task
-// whose partial data can be validated by aria2. The file name selects the
-// candidate; aria2 then rejects a different total length or Digest hash while
-// loading the existing control file, so redirected URLs are deliberately not
-// part of this resume identity.
-func (m *Manager) findDropboxResumeLocked(identity requestIdentity, fingerprint string) *Task {
-	if !isDropboxDirectDownload(identity.Link) {
+// findModuleResumeLocked locates an errored resolver task whose partial data
+// can be validated by aria2. Redirected content URLs are deliberately absent
+// from the identity because modules refresh them before every admission.
+func (m *Manager) findModuleResumeLocked(identity requestIdentity, fingerprint string) *Task {
+	module := m.modules.module(identity.ModuleID)
+	if module == nil || !module.supportsPartialResume(identity.Link) {
 		return nil
 	}
 	name := identity.Name
@@ -476,7 +496,7 @@ func (m *Manager) findDropboxResumeLocked(identity requestIdentity, fingerprint 
 		name = displayName(identity.Link)
 	}
 	eligible := func(task *Task) bool {
-		if task == nil || !task.DropboxDirect || task.Status != StatusError || task.OutputName == "" {
+		if task == nil || task.ModuleID != identity.ModuleID || task.Status != StatusError || task.OutputName == "" {
 			return false
 		}
 		if !samePathName(task.Folder, identity.Folder) || !samePathName(task.Name, name) {
@@ -1384,6 +1404,29 @@ func (m *Manager) submit(item submission) bool {
 		m.failTask(snapshot.ID, fmt.Errorf("create download directory: %w", err))
 		return false
 	}
+	if item.removeGID != "" {
+		if err := m.rpc.removeResult(item.removeGID); err != nil && !isGIDNotFound(err) {
+			log.Printf("remove stale aria2 result %s: %v", item.removeGID, err)
+		}
+	}
+	preparedProxy := ""
+	preparedLink := ""
+	var preparedHeaders map[string]string
+	if module := m.modules.module(snapshot.ModuleID); module != nil {
+		prepared, err := module.prepare(context.Background(), m, snapshot)
+		if err != nil {
+			m.failTask(snapshot.ID, err)
+			return false
+		}
+		snapshot, err = m.applyRemoteMetadata(snapshot.ID, prepared.Metadata, !item.recheck, module.info().Name)
+		if err != nil {
+			m.failTask(snapshot.ID, err)
+			return false
+		}
+		preparedLink = prepared.Link
+		preparedHeaders = prepared.Headers
+		preparedProxy = prepared.ProxyURL
+	}
 	if !item.recheck && snapshot.OutputName != "" {
 		var err error
 		snapshot, err = m.refreshOutputName(snapshot.ID)
@@ -1392,42 +1435,15 @@ func (m *Manager) submit(item submission) bool {
 			return false
 		}
 	}
-	if item.removeGID != "" {
-		if err := m.rpc.removeResult(item.removeGID); err != nil && !isGIDNotFound(err) {
-			log.Printf("remove stale aria2 result %s: %v", item.removeGID, err)
-		}
+	if preparedLink != "" {
+		snapshot.Link = preparedLink
 	}
-	if snapshot.DropboxDirect {
-		metadata, err := resolveDropboxDirectURL(snapshot, m.dropboxClient)
-		if err != nil {
-			m.failTask(snapshot.ID, err)
-			return false
-		}
-		snapshot, err = m.applyDropboxMetadata(snapshot.ID, metadata, !item.recheck)
-		if err != nil {
-			m.failTask(snapshot.ID, err)
-			return false
-		}
-		// Resolved content URLs can be single-use. Keep the stable shared link
-		// for aria2 so it follows a fresh redirect, and strip credentials that
-		// must not cross that redirect to dropboxusercontent.com.
-		snapshot.Headers = dropboxContentHeaders(snapshot.Headers)
+	if preparedHeaders != nil {
+		snapshot.Headers = preparedHeaders
 	}
 	options := ariaOptions(snapshot, item.recheck)
-	if snapshot.DropboxDirect && m.dropboxProxy != nil {
-		proxyRequest, err := http.NewRequest(http.MethodGet, snapshot.Link, nil)
-		if err != nil {
-			m.failTask(snapshot.ID, fmt.Errorf("prepare Dropbox proxy request: %w", err))
-			return false
-		}
-		proxyURL, err := m.dropboxProxy(proxyRequest)
-		if err != nil {
-			m.failTask(snapshot.ID, fmt.Errorf("resolve Dropbox proxy: %w", err))
-			return false
-		}
-		if proxyURL != nil {
-			options["https-proxy"] = proxyURL.String()
-		}
+	if preparedProxy != "" {
+		options["https-proxy"] = preparedProxy
 	}
 	if err := m.rpc.addURI(snapshot, options); err != nil {
 		m.failTask(snapshot.ID, err)
@@ -2101,6 +2117,13 @@ func expectedDropboxRemoteName(task *Task) string {
 }
 
 func (m *Manager) applyDropboxMetadata(id int64, metadata dropboxMetadata, enforceIdentity bool) (*Task, error) {
+	return m.applyRemoteMetadata(id, remoteMetadata{
+		URL: metadata.URL, Name: metadata.Name, Digest: metadata.Digest,
+		Length: metadata.Length, LengthKnown: metadata.LengthKnown,
+	}, enforceIdentity, "Dropbox")
+}
+
+func (m *Manager) applyRemoteMetadata(id int64, metadata remoteMetadata, enforceIdentity bool, moduleName string) (*Task, error) {
 	m.mu.Lock()
 	task := m.tasks[id]
 	if task == nil {
@@ -2108,7 +2131,7 @@ func (m *Manager) applyDropboxMetadata(id int64, metadata dropboxMetadata, enfor
 		return nil, fmt.Errorf("task %d not found", id)
 	}
 	if enforceIdentity {
-		if err := validateDropboxMetadata(task, metadata); err != nil {
+		if err := validateRemoteMetadata(task, metadata, moduleName); err != nil {
 			m.mu.Unlock()
 			return nil, err
 		}
@@ -2129,6 +2152,10 @@ func (m *Manager) applyDropboxMetadata(id int64, metadata dropboxMetadata, enfor
 	if task.OutputName == "" && metadata.Name != "" {
 		task.OutputName = m.resolveOutputNameLocked(task.Folder, metadata.Name, task.ID)
 		m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID
+		var identity requestIdentity
+		if task.RequestJSON != "" && json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.Name == "" {
+			task.Name = metadata.Name
+		}
 		changed = true
 	}
 	if changed {
@@ -2138,10 +2165,24 @@ func (m *Manager) applyDropboxMetadata(id int64, metadata dropboxMetadata, enfor
 	m.mu.Unlock()
 	if changed {
 		if err := m.store.Update(snapshot); err != nil {
-			return nil, fmt.Errorf("persist Dropbox metadata: %w", err)
+			return nil, fmt.Errorf("persist %s metadata: %w", moduleName, err)
 		}
 	}
 	return snapshot, nil
+}
+
+func validateRemoteMetadata(task *Task, metadata remoteMetadata, moduleName string) error {
+	expectedName := expectedDropboxRemoteName(task)
+	if expectedName != "" && metadata.Name != "" && !samePathName(expectedName, metadata.Name) {
+		return fmt.Errorf("%s file name changed from %q to %q", moduleName, expectedName, metadata.Name)
+	}
+	if task.TotalLength > 0 && metadata.LengthKnown && task.TotalLength != metadata.Length {
+		return fmt.Errorf("%s file size changed from %d to %d bytes", moduleName, task.TotalLength, metadata.Length)
+	}
+	if task.RemoteDigest != "" && metadata.Digest != "" && task.RemoteDigest != metadata.Digest {
+		return fmt.Errorf("%s file Digest changed", moduleName)
+	}
+	return nil
 }
 
 func validAriaOptionName(value string) bool {
@@ -2230,9 +2271,9 @@ func ariaOptions(task *Task, recheck bool) map[string]any {
 		}
 		options[optionName] = optionValue
 	}
-	if task.DropboxDirect {
-		// Digest metadata is not guaranteed, but when aria2 has it in the
-		// control file it must be checked before a Dropbox resume is accepted.
+	if task.ModuleID != "" {
+		// Digest metadata is not guaranteed, but an existing aria2 control file
+		// must be checked before a resolver task resumes from a refreshed URL.
 		options["check-integrity"] = "true"
 	}
 	if recheck {

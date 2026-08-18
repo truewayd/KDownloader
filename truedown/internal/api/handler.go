@@ -30,12 +30,13 @@ type downloadSourceReq struct {
 }
 
 type startReq struct {
-	DownloadSource downloadSourceReq    `json:"downloadSource"`
-	Folder         string               `json:"folder"`
-	Name           string               `json:"name"`
-	QueueID        int                  `json:"queueId"`
-	Opts           downloader.Aria2Opts `json:"opts"`
-	Dropbox        dropboxStartReq      `json:"dropbox"`
+	DownloadSource downloadSourceReq          `json:"downloadSource"`
+	Folder         string                     `json:"folder"`
+	Name           string                     `json:"name"`
+	QueueID        int                        `json:"queueId"`
+	Opts           downloader.Aria2Opts       `json:"opts"`
+	Dropbox        dropboxStartReq            `json:"dropbox"`
+	ModuleOptions  map[string]json.RawMessage `json:"moduleOptions"`
 }
 
 type dropboxStartReq struct {
@@ -107,15 +108,17 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 			}
 		}
 		for index, item := range req.Items {
-			_, _, err := dm.AddTask(
-				item.Link,
-				item.SuggestedName,
-				"",
-				item.Headers,
-				item.DownloadPage,
-				0,
-				downloader.Aria2Opts{},
+			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(6 * time.Minute))
+			_, handled, err := dm.AddWithModules(
+				r.Context(), item.Link, item.SuggestedName, "", item.Headers,
+				item.DownloadPage, 0, downloader.Aria2Opts{}, nil,
 			)
+			if err == nil && !handled {
+				_, _, err = dm.AddTask(
+					item.Link, item.SuggestedName, "", item.Headers,
+					item.DownloadPage, 0, downloader.Aria2Opts{},
+				)
+			}
 			if err != nil {
 				if downloader.IsValidationError(err) {
 					http.Error(w, fmt.Sprintf("invalid item %d: %v", index, err), http.StatusBadRequest)
@@ -233,6 +236,36 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 		}
 	})
 
+	mux.HandleFunc("/modules", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, map[string]any{"modules": dm.Modules()})
+		case http.MethodPost:
+			var req downloader.ModuleInstallRequest
+			if !decodeJSONRequest(w, r, 4096, &req) {
+				return
+			}
+			if req.Installed == nil {
+				http.Error(w, "installed is required", http.StatusBadRequest)
+				return
+			}
+			module, err := dm.SetModuleInstalled(req.ID, *req.Installed)
+			if err != nil {
+				if downloader.IsValidationError(err) {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				http.Error(w, "failed to persist resolver module settings", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, module)
+		default:
+			w.Header().Set("Allow", "GET, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	mux.HandleFunc("/start-headless-download", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
@@ -247,58 +280,37 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 			http.Error(w, "downloadSource.link is required", http.StatusBadRequest)
 			return
 		}
-		mode := strings.TrimSpace(req.Dropbox.Mode)
-		if mode == "" {
-			mode = "direct"
+		moduleOptions := req.ModuleOptions
+		if moduleOptions == nil {
+			moduleOptions = make(map[string]json.RawMessage)
 		}
-		if mode != "direct" && mode != "expand" {
-			http.Error(w, "dropbox.mode must be direct or expand", http.StatusBadRequest)
-			return
+		if _, exists := moduleOptions[downloader.DropboxModuleID]; !exists {
+			legacyMode := strings.TrimSpace(req.Dropbox.Mode)
+			if legacyMode == "" {
+				legacyMode = "direct"
+			}
+			legacy, _ := json.Marshal(map[string]any{"mode": legacyMode, "applyFilter": req.Dropbox.ApplyFilter})
+			moduleOptions[downloader.DropboxModuleID] = legacy
 		}
-		if mode == "direct" && req.Dropbox.ApplyFilter {
-			http.Error(w, "Dropbox filtering requires expand mode", http.StatusBadRequest)
-			return
-		}
-		if mode == "expand" {
-			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(6 * time.Minute))
-			expanded, handled, expandErr := dm.AddDropboxFolder(
-				r.Context(),
-				req.DownloadSource.Link,
-				req.Folder,
-				req.DownloadSource.Headers,
-				req.DownloadSource.DownloadPage,
-				req.QueueID,
-				req.Opts,
-				req.Dropbox.ApplyFilter,
-			)
-			if expandErr != nil {
-				if downloader.IsValidationError(expandErr) {
-					http.Error(w, expandErr.Error(), http.StatusBadRequest)
-					return
-				}
-				http.Error(w, expandErr.Error(), http.StatusBadGateway)
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(6 * time.Minute))
+		resolved, handled, resolveErr := dm.AddWithModules(
+			r.Context(), req.DownloadSource.Link, req.Name, req.Folder,
+			req.DownloadSource.Headers, req.DownloadSource.DownloadPage,
+			req.QueueID, req.Opts, moduleOptions,
+		)
+		if resolveErr != nil {
+			if downloader.IsValidationError(resolveErr) {
+				http.Error(w, resolveErr.Error(), http.StatusBadRequest)
 				return
 			}
-			if handled {
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				w.Header().Set("X-TrueDown-Dropbox-Expanded", "true")
-				w.Header().Set("X-TrueDown-Created", strconv.Itoa(len(expanded.Tasks)))
-				w.Header().Set("X-TrueDown-Filtered", strconv.Itoa(expanded.Filtered))
-				response := fmt.Sprintf("OK %d FILES", len(expanded.Tasks))
-				if expanded.Filtered > 0 {
-					response += fmt.Sprintf(" %d FILTERED", expanded.Filtered)
-				}
-				if expanded.Duplicates > 0 {
-					response += fmt.Sprintf(" %d DUPLICATE", expanded.Duplicates)
-				}
-				w.Write([]byte(response))
-				return
-			}
+			http.Error(w, resolveErr.Error(), http.StatusBadGateway)
+			return
+		}
+		if handled {
+			writeModuleAddResponse(w, resolved)
+			return
 		}
 		link := req.DownloadSource.Link
-		if directLink, ok := downloader.DropboxFolderDownloadLink(link); ok {
-			link = directLink
-		}
 		t, duplicate, err := dm.AddTask(
 			link,
 			req.Name,
@@ -567,6 +579,39 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write([]byte("OK " + strconv.Itoa(n)))
 	})
+}
+
+func writeModuleAddResponse(w http.ResponseWriter, result downloader.ModuleAddResult) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-TrueDown-Module", result.ModuleID)
+	if result.Collection {
+		w.Header().Set("X-TrueDown-Collection", "true")
+		w.Header().Set("X-TrueDown-Created", strconv.Itoa(len(result.Tasks)))
+		w.Header().Set("X-TrueDown-Filtered", strconv.Itoa(result.Filtered))
+		if result.ModuleID == downloader.DropboxModuleID {
+			w.Header().Set("X-TrueDown-Dropbox-Expanded", "true")
+		}
+		response := fmt.Sprintf("OK %d FILES", len(result.Tasks))
+		if result.Filtered > 0 {
+			response += fmt.Sprintf(" %d FILTERED", result.Filtered)
+		}
+		if result.Duplicates > 0 {
+			response += fmt.Sprintf(" %d DUPLICATE", result.Duplicates)
+		}
+		w.Write([]byte(response))
+		return
+	}
+	if len(result.Tasks) == 0 || result.Tasks[0] == nil {
+		http.Error(w, "resolver module created no task", http.StatusBadGateway)
+		return
+	}
+	task := result.Tasks[0]
+	if result.Duplicates > 0 {
+		w.Header().Set("X-TrueDown-Duplicate", "true")
+		w.Write([]byte("OK " + strconv.FormatInt(task.ID, 10) + " DUPLICATE"))
+		return
+	}
+	w.Write([]byte("OK " + strconv.FormatInt(task.ID, 10)))
 }
 
 func setAuthSessionCookie(w http.ResponseWriter, r *http.Request, enabled bool, token string) {
