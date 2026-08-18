@@ -173,6 +173,13 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownHtml, /id="batch-pause-btn"/);
   assert.match(trueDownHtml, /id="batch-resume-btn"/);
   assert.match(trueDownHtml, /id="batch-remove-btn"/);
+  assert.match(trueDownHtml, /id="pause-queue-btn"/);
+  assert.match(trueDownHtml, /id="resume-queue-btn"/);
+  assert.match(trueDownHtml, /id="open-downloads-btn"/);
+  assert.match(trueDownHtml, /id="cfg-task-concurrency"[^>]+placeholder="3"/);
+  assert.match(trueDownHtml, /id="m-dropbox-mode"/);
+  assert.match(trueDownHtml, /id="m-dropbox-filter"/);
+  assert.match(trueDownHtml, /href="\/icons\.svg#icon-/);
   assert.match(trueDownHtml, /id="token-auth-enabled"/);
   assert.match(trueDownApp, /const PAGE_SIZE = 100/);
   assert.match(trueDownApp, /If-None-Match/);
@@ -181,6 +188,8 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownApp, /result\.remaining/);
   assert.match(trueDownApp, /sessionStorage/);
   assert.match(trueDownApp, /params\.set\("search", currentSearch\)/);
+  assert.match(trueDownApp, /data-sort-field/);
+  assert.match(trueDownApp, /aria-sort/);
   assert.match(trueDownHtml, /id="dialog-overlay"[^>]+aria-hidden="true"[^>]+inert/);
   assert.doesNotMatch(trueDownApp, /window\.(?:alert|confirm|prompt)\s*\(/);
   assert.match(trueDownApp, /current page connection remains valid|当前页面连接保持有效/);

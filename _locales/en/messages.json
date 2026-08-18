@@ -180,16 +180,16 @@
     "message": "Per-post file limit"
   },
   "downloadRulesTitle": {
-    "message": "Download rules"
+    "message": "Dropbox parsing filter"
   },
   "downloadFilterEnable": {
-    "message": "Skip selected project file types"
+    "message": "Apply this filter by default when expanding Dropbox folders"
   },
   "downloadFilterExtensions": {
     "message": "Excluded file extensions"
   },
   "downloadFilterSyncTrueDown": {
-    "message": "Sync this filter to TrueDown when settings are saved"
+    "message": "Sync Dropbox filter choices to TrueDown when settings are saved"
   },
   "externalLinkFilterMode": {
     "message": "External link filter"

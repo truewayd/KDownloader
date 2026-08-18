@@ -103,6 +103,33 @@ func TestTaskPageIsBoundedAndSupportsConditionalRequests(t *testing.T) {
 	if searchPage.Total != 1 || len(searchPage.Tasks) != 1 || searchPage.Tasks[0].Name != "two.bin" {
 		t.Fatalf("unexpected search page: %+v", searchPage)
 	}
+
+	sorted := httptest.NewRequest(http.MethodGet, "/tasks?limit=3&sort=file&order=asc", nil)
+	sortedResponse := httptest.NewRecorder()
+	mux.ServeHTTP(sortedResponse, sorted)
+	if sortedResponse.Code != http.StatusOK {
+		t.Fatalf("sorted page status=%d body=%s", sortedResponse.Code, sortedResponse.Body.String())
+	}
+	var sortedPage downloader.TaskPage
+	if err := json.Unmarshal(sortedResponse.Body.Bytes(), &sortedPage); err != nil {
+		t.Fatal(err)
+	}
+	if len(sortedPage.Tasks) != 3 || sortedPage.Tasks[0].Name != "one.bin" ||
+		sortedPage.Tasks[1].Name != "three.bin" || sortedPage.Tasks[2].Name != "two.bin" {
+		t.Fatalf("unexpected sorted page: %+v", sortedPage)
+	}
+	for _, target := range []string{
+		"/tasks?sort=unknown&order=asc",
+		"/tasks?sort=file&order=sideways",
+		"/tasks?order=desc",
+	} {
+		invalidSort := httptest.NewRequest(http.MethodGet, target, nil)
+		invalidSortResponse := httptest.NewRecorder()
+		mux.ServeHTTP(invalidSortResponse, invalidSort)
+		if invalidSortResponse.Code != http.StatusBadRequest {
+			t.Fatalf("invalid sort %s status=%d", target, invalidSortResponse.Code)
+		}
+	}
 }
 
 func TestBatchEndpointRejectsMalformedOperations(t *testing.T) {
@@ -196,6 +223,8 @@ func TestStartDownloadValidatesContentTypeAndURL(t *testing.T) {
 		{"application/json", `{"downloadSource":{"link":"file:///etc/passwd"}}`, http.StatusBadRequest},
 		{"application/json", `{"downloadSource":{"link":"https://example.test/file"},"unknown":true}`, http.StatusBadRequest},
 		{"application/json", `{"downloadSource":{"link":"https://example.test/file"},"downloadRules":{"enabled":true}}`, http.StatusBadRequest},
+		{"application/json", `{"downloadSource":{"link":"https://example.test/file"},"dropbox":{"mode":"invalid","applyFilter":false}}`, http.StatusBadRequest},
+		{"application/json", `{"downloadSource":{"link":"https://example.test/file"},"dropbox":{"mode":"direct","applyFilter":true}}`, http.StatusBadRequest},
 	} {
 		request := httptest.NewRequest(http.MethodPost, "/start-headless-download", strings.NewReader(testCase.body))
 		request.Header.Set("Content-Type", testCase.contentType)
@@ -204,6 +233,41 @@ func TestStartDownloadValidatesContentTypeAndURL(t *testing.T) {
 		if response.Code != testCase.status {
 			t.Fatalf("status=%d, want %d; body=%s", response.Code, testCase.status, response.Body.String())
 		}
+	}
+}
+
+func TestDropboxFolderDefaultsToDirectArchiveDownload(t *testing.T) {
+	mux, manager := testHandler(t)
+	defer manager.Stop()
+	body := `{"downloadSource":{"link":"https://www.dropbox.com/scl/fo/key/hash?rlkey=read&dl=0"}}`
+	request := httptest.NewRequest(http.MethodPost, "/start-headless-download", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("direct Dropbox status=%d body=%s", response.Code, response.Body.String())
+	}
+	tasks := manager.ListTasks()
+	if len(tasks) != 1 || !strings.Contains(tasks[0].Link, "dl=1") || strings.Contains(tasks[0].Link, "dl=0") {
+		t.Fatalf("direct Dropbox task=%+v", tasks)
+	}
+}
+
+func TestRuntimeSettingsEndpointPersistsConcurrency(t *testing.T) {
+	mux, manager := testHandler(t)
+	defer manager.Stop()
+	get := httptest.NewRequest(http.MethodGet, "/settings/runtime", nil)
+	getResponse := httptest.NewRecorder()
+	mux.ServeHTTP(getResponse, get)
+	if getResponse.Code != http.StatusOK || getResponse.Body.String() != "{\"concurrentDownloads\":3}\n" {
+		t.Fatalf("default runtime settings status=%d body=%s", getResponse.Code, getResponse.Body.String())
+	}
+	post := httptest.NewRequest(http.MethodPost, "/settings/runtime", strings.NewReader(`{"concurrentDownloads":6}`))
+	post.Header.Set("Content-Type", "application/json")
+	postResponse := httptest.NewRecorder()
+	mux.ServeHTTP(postResponse, post)
+	if postResponse.Code != http.StatusOK || manager.RuntimeSettings().ConcurrentDownloads != 6 {
+		t.Fatalf("saved runtime settings status=%d body=%s settings=%+v", postResponse.Code, postResponse.Body.String(), manager.RuntimeSettings())
 	}
 }
 

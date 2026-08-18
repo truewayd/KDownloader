@@ -32,7 +32,7 @@ KDownloader is a dependency-free Chrome Manifest V3 extension for discovering, c
 - Tracks download history in IndexedDB with paged export and chunked, duplicate-safe import.
 - Watches Pawchive creators for updates and supports manual or scheduled checks.
 - Dispatches to loopback-only AB-compatible or Gopeed backends, with an explicit Chrome-download fallback after total failure.
-- Includes configurable file-type exclusions, external-link filtering, creator search caches, and optional GitHub Gist sync.
+- Includes a Dropbox-expansion filter synchronized to TrueDown, external-link filtering, creator search caches, and optional GitHub Gist sync.
 - Keeps backend and Gist secrets in local-only extension storage.
 
 ### Build and load
@@ -70,7 +70,9 @@ TrueDown is a standalone Windows download manager written in Go. It embeds an ar
 ### Highlights
 
 - Listens on `127.0.0.1:15151` by default.
-- Provides an embedded dashboard for creating, filtering, paging, pausing, resuming, retrying, and removing tasks.
+- Provides an embedded dashboard for creating, filtering, paging, column sorting, pausing, resuming, retrying, opening, and removing tasks, including whole-queue controls.
+- Lets each Dropbox shared-folder submission choose direct archive download or bounded parallel expansion, with an independent per-submission filter choice and bulk task import.
+- Persists the aria2 simultaneous-download limit, defaults it to 3, and applies changes immediately.
 - Bounds queue admission, request sizes, batch operations, filenames, folders, headers, and aria2 options.
 - Supports optional API Key authentication and requires authentication plus TLS for non-loopback listeners.
 - Implements AB Download Manager's HTTP browser-integration fallback endpoints on the same listener.

@@ -429,16 +429,19 @@ func TestTaskPageIsBoundedSummarizedAndVersioned(t *testing.T) {
 }
 
 type fakeAriaRPC struct {
-	mu           sync.Mutex
-	paused       []string
-	resumed      []string
-	removed      []string
-	statusValue  string
-	statusErr    error
-	forceRemoved bool
-	stopped      bool
-	added        []*Task
-	addedOptions []map[string]any
+	mu              sync.Mutex
+	paused          []string
+	resumed         []string
+	removed         []string
+	statusValue     string
+	statusErr       error
+	forceRemoved    bool
+	stopped         bool
+	added           []*Task
+	addedOptions    []map[string]any
+	globalOptions   []map[string]string
+	pauseAllCalls   int
+	unpauseAllCalls int
 }
 
 func (f *fakeAriaRPC) ready() error { return nil }
@@ -469,6 +472,28 @@ func (f *fakeAriaRPC) purgeResults() error             { return nil }
 func (f *fakeAriaRPC) statuses() ([]ariaStatus, error) { return nil, nil }
 func (f *fakeAriaRPC) pause(gid string) error          { f.record(&f.paused, gid); return nil }
 func (f *fakeAriaRPC) unpause(gid string) error        { f.record(&f.resumed, gid); return nil }
+func (f *fakeAriaRPC) pauseAll() error {
+	f.mu.Lock()
+	f.pauseAllCalls++
+	f.mu.Unlock()
+	return nil
+}
+func (f *fakeAriaRPC) unpauseAll() error {
+	f.mu.Lock()
+	f.unpauseAllCalls++
+	f.mu.Unlock()
+	return nil
+}
+func (f *fakeAriaRPC) changeGlobalOptions(options map[string]string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	copy := make(map[string]string, len(options))
+	for name, value := range options {
+		copy[name] = value
+	}
+	f.globalOptions = append(f.globalOptions, copy)
+	return nil
+}
 func (f *fakeAriaRPC) forceRemove(gid string) error {
 	f.record(&f.removed, gid)
 	f.mu.Lock()
@@ -524,6 +549,40 @@ func TestBatchPauseResumeAndRemovePersistAtomically(t *testing.T) {
 	}
 	if len(fake.paused) != 1 || len(fake.resumed) != 1 || len(fake.removed) != 1 {
 		t.Fatalf("unexpected aria calls: pause=%v resume=%v remove=%v", fake.paused, fake.resumed, fake.removed)
+	}
+}
+
+func TestPauseAndResumeQueueUseAriaWideOperations(t *testing.T) {
+	stateDir := t.TempDir()
+	m, err := NewManager("unused", filepath.Join(stateDir, "downloads"), filepath.Join(stateDir, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	fake := &fakeAriaRPC{}
+	m.rpc = fake
+	for index := 0; index < 3; index++ {
+		if _, _, err := m.AddTask(fmt.Sprintf("https://example.test/queue-%d", index), fmt.Sprintf("queue-%d.bin", index), "", nil, "", 0, Aria2Opts{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.flushAdmissions(false)
+	if result := m.PauseQueue(); len(result.Succeeded) != 3 || len(result.Failed) != 0 {
+		t.Fatalf("pause queue result=%+v", result)
+	}
+	if result := m.ResumeQueue(); len(result.Succeeded) != 3 || len(result.Failed) != 0 {
+		t.Fatalf("resume queue result=%+v", result)
+	}
+	if fake.pauseAllCalls != 1 || fake.unpauseAllCalls != 1 || len(fake.paused) != 0 || len(fake.resumed) != 0 {
+		t.Fatalf("queue RPC calls: pauseAll=%d unpauseAll=%d pause=%v resume=%v", fake.pauseAllCalls, fake.unpauseAllCalls, fake.paused, fake.resumed)
+	}
+}
+
+func TestProgressSortUsesNumericPercentage(t *testing.T) {
+	nine := &Task{ID: 1, Progress: "9.5% (1 B / 10 B), 1 B/s"}
+	eighty := &Task{ID: 2, Progress: "80.0% (8 B / 10 B), 1 B/s"}
+	if comparison := compareTasksForPage(nine, eighty, "progress"); comparison >= 0 {
+		t.Fatalf("numeric progress comparison=%d", comparison)
 	}
 }
 

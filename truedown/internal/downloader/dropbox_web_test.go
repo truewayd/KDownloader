@@ -10,7 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestParseDropboxWebShareUsesCurrentSecureHash(t *testing.T) {
@@ -33,6 +35,80 @@ func TestParseDropboxWebShareUsesCurrentSecureHash(t *testing.T) {
 		if _, ok := parseDropboxWebShare(invalid); ok {
 			t.Fatalf("invalid Dropbox folder link was accepted: %s", invalid)
 		}
+	}
+}
+
+func TestDropboxFilterApplicationIsChosenPerExpansion(t *testing.T) {
+	rules := DownloadRules{Enabled: false, ExcludedExtensions: []string{".PSD"}}
+	excluded, err := normalizeDropboxExcludedExtensions(rules, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := excluded[".psd"]; !ok {
+		t.Fatalf("explicit filter choice did not use persisted suffixes: %v", excluded)
+	}
+	excluded, err = normalizeDropboxExcludedExtensions(DownloadRules{
+		Enabled: true, ExcludedExtensions: []string{".psd"},
+	}, false)
+	if err != nil || len(excluded) != 0 {
+		t.Fatalf("disabled per-expansion filter=%v err=%v", excluded, err)
+	}
+}
+
+func TestDropboxFolderCrawlsSiblingDirectoriesConcurrently(t *testing.T) {
+	root := t.TempDir()
+	manager, err := NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Stop()
+	jar, _ := cookiejar.New(nil)
+	var active atomic.Int64
+	var maximum atomic.Int64
+	manager.dropboxClient = &http.Client{
+		Jar: jar,
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			if request.Method == http.MethodGet {
+				return dropboxTestResponse(request, http.StatusOK, "page", http.Header{
+					"Set-Cookie": []string{"__Host-js_csrf=test-csrf; Path=/; Secure"},
+				}), nil
+			}
+			if err := request.ParseForm(); err != nil {
+				return nil, err
+			}
+			form := request.PostForm
+			if form.Get("secure_hash") == "root-hash" {
+				return dropboxTestJSON(request, `{
+					"folder":{"filename":"root","is_dir":true},
+					"entries":[
+						{"filename":"a","href":"https://www.dropbox.com/scl/fo/root-key/a-hash/a?dl=0","is_dir":true},
+						{"filename":"b","href":"https://www.dropbox.com/scl/fo/root-key/b-hash/b?dl=0","is_dir":true}
+					]
+				}`), nil
+			}
+			current := active.Add(1)
+			for {
+				previous := maximum.Load()
+				if current <= previous || maximum.CompareAndSwap(previous, current) {
+					break
+				}
+			}
+			time.Sleep(40 * time.Millisecond)
+			active.Add(-1)
+			name := strings.TrimPrefix(form.Get("sub_path"), "/")
+			return dropboxTestJSON(request, fmt.Sprintf(`{
+				"folder":{"filename":%q,"is_dir":true},
+				"entries":[{"filename":%q,"href":"https://www.dropbox.com/scl/fo/root-key/%s-file-hash/%s/file.bin?dl=0","is_dir":false}]
+			}`, name, name+".bin", name, name)), nil
+		}),
+	}
+	result, handled, err := manager.AddDropboxFolder(
+		context.Background(),
+		"https://www.dropbox.com/scl/fo/root-key/root-hash?dl=0",
+		"", nil, "", 0, Aria2Opts{}, false,
+	)
+	if err != nil || !handled || len(result.Tasks) != 2 || maximum.Load() < 2 {
+		t.Fatalf("parallel crawl handled=%v tasks=%d max=%d err=%v", handled, len(result.Tasks), maximum.Load(), err)
 	}
 }
 
@@ -109,6 +185,7 @@ func TestAddDropboxFolderRecursesPaginatesFiltersAndCreatesResumableFiles(t *tes
 		"",
 		0,
 		Aria2Opts{},
+		true,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -179,7 +256,7 @@ func TestAddDropboxFolderFallsBackForIndividualFolderViewFile(t *testing.T) {
 	result, handled, err := manager.AddDropboxFolder(
 		context.Background(),
 		"https://www.dropbox.com/scl/fo/root-key/file-hash/file.png?dl=1",
-		"", nil, "", 0, Aria2Opts{},
+		"", nil, "", 0, Aria2Opts{}, false,
 	)
 	if err != nil || handled || len(result.Tasks) != 0 {
 		t.Fatalf("individual file fallback: handled=%v result=%+v err=%v", handled, result, err)
@@ -203,7 +280,7 @@ func TestDropboxFolderLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, handled, err := manager.AddDropboxFolder(
-		context.Background(), link, "", nil, "", 0, Aria2Opts{},
+		context.Background(), link, "", nil, "", 0, Aria2Opts{}, true,
 	)
 	if err != nil {
 		t.Fatal(err)

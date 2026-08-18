@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"truedown/internal/downloader"
 )
 
@@ -34,6 +35,12 @@ type startReq struct {
 	Name           string               `json:"name"`
 	QueueID        int                  `json:"queueId"`
 	Opts           downloader.Aria2Opts `json:"opts"`
+	Dropbox        dropboxStartReq      `json:"dropbox"`
+}
+
+type dropboxStartReq struct {
+	Mode        string `json:"mode"`
+	ApplyFilter bool   `json:"applyFilter"`
 }
 
 type browserIntegrationItem struct {
@@ -200,6 +207,32 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 		}
 	})
 
+	mux.HandleFunc("/settings/runtime", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, dm.RuntimeSettings())
+		case http.MethodPost:
+			var req downloader.RuntimeSettings
+			if !decodeJSONRequest(w, r, 4096, &req) {
+				return
+			}
+			settings, err := dm.SetRuntimeSettings(req)
+			if err != nil {
+				if downloader.IsValidationError(err) {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				http.Error(w, "failed to apply runtime settings", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, settings)
+		default:
+			w.Header().Set("Allow", "GET, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	mux.HandleFunc("/start-headless-download", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
@@ -214,40 +247,60 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 			http.Error(w, "downloadSource.link is required", http.StatusBadRequest)
 			return
 		}
-		expanded, handled, expandErr := dm.AddDropboxFolder(
-			r.Context(),
-			req.DownloadSource.Link,
-			req.Folder,
-			req.DownloadSource.Headers,
-			req.DownloadSource.DownloadPage,
-			req.QueueID,
-			req.Opts,
-		)
-		if expandErr != nil {
-			if downloader.IsValidationError(expandErr) {
-				http.Error(w, expandErr.Error(), http.StatusBadRequest)
+		mode := strings.TrimSpace(req.Dropbox.Mode)
+		if mode == "" {
+			mode = "direct"
+		}
+		if mode != "direct" && mode != "expand" {
+			http.Error(w, "dropbox.mode must be direct or expand", http.StatusBadRequest)
+			return
+		}
+		if mode == "direct" && req.Dropbox.ApplyFilter {
+			http.Error(w, "Dropbox filtering requires expand mode", http.StatusBadRequest)
+			return
+		}
+		if mode == "expand" {
+			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(6 * time.Minute))
+			expanded, handled, expandErr := dm.AddDropboxFolder(
+				r.Context(),
+				req.DownloadSource.Link,
+				req.Folder,
+				req.DownloadSource.Headers,
+				req.DownloadSource.DownloadPage,
+				req.QueueID,
+				req.Opts,
+				req.Dropbox.ApplyFilter,
+			)
+			if expandErr != nil {
+				if downloader.IsValidationError(expandErr) {
+					http.Error(w, expandErr.Error(), http.StatusBadRequest)
+					return
+				}
+				http.Error(w, expandErr.Error(), http.StatusBadGateway)
 				return
 			}
-			http.Error(w, expandErr.Error(), http.StatusBadGateway)
-			return
+			if handled {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.Header().Set("X-TrueDown-Dropbox-Expanded", "true")
+				w.Header().Set("X-TrueDown-Created", strconv.Itoa(len(expanded.Tasks)))
+				w.Header().Set("X-TrueDown-Filtered", strconv.Itoa(expanded.Filtered))
+				response := fmt.Sprintf("OK %d FILES", len(expanded.Tasks))
+				if expanded.Filtered > 0 {
+					response += fmt.Sprintf(" %d FILTERED", expanded.Filtered)
+				}
+				if expanded.Duplicates > 0 {
+					response += fmt.Sprintf(" %d DUPLICATE", expanded.Duplicates)
+				}
+				w.Write([]byte(response))
+				return
+			}
 		}
-		if handled {
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.Header().Set("X-TrueDown-Dropbox-Expanded", "true")
-			w.Header().Set("X-TrueDown-Created", strconv.Itoa(len(expanded.Tasks)))
-			w.Header().Set("X-TrueDown-Filtered", strconv.Itoa(expanded.Filtered))
-			response := fmt.Sprintf("OK %d FILES", len(expanded.Tasks))
-			if expanded.Filtered > 0 {
-				response += fmt.Sprintf(" %d FILTERED", expanded.Filtered)
-			}
-			if expanded.Duplicates > 0 {
-				response += fmt.Sprintf(" %d DUPLICATE", expanded.Duplicates)
-			}
-			w.Write([]byte(response))
-			return
+		link := req.DownloadSource.Link
+		if directLink, ok := downloader.DropboxFolderDownloadLink(link); ok {
+			link = directLink
 		}
 		t, duplicate, err := dm.AddTask(
-			req.DownloadSource.Link,
+			link,
 			req.Name,
 			req.Folder,
 			req.DownloadSource.Headers,
@@ -270,6 +323,81 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 			return
 		}
 		w.Write([]byte("OK " + strconv.FormatInt(t.ID, 10)))
+	})
+
+	mux.HandleFunc("/queue/pause", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeJSON(w, http.StatusOK, dm.PauseQueue())
+	})
+
+	mux.HandleFunc("/queue/resume", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeJSON(w, http.StatusOK, dm.ResumeQueue())
+	})
+
+	mux.HandleFunc("/system/open-downloads", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := dm.OpenDownloadDirectory(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Write([]byte("OK"))
+	})
+
+	mux.HandleFunc("/tasks/open-file", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id, err := taskID(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := dm.OpenTaskFile(id); err != nil {
+			if downloader.IsValidationError(err) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Write([]byte("OK"))
+	})
+
+	mux.HandleFunc("/tasks/open-folder", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id, err := taskID(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := dm.OpenTaskDirectory(id); err != nil {
+			if downloader.IsValidationError(err) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Write([]byte("OK"))
 	})
 
 	mux.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
@@ -299,7 +427,12 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 			http.Error(w, "search is too long", http.StatusBadRequest)
 			return
 		}
-		page := dm.PageTaskSnapshots(offset, limit, status, search)
+		sortField, sortOrder, err := taskSort(r.URL.Query().Get("sort"), r.URL.Query().Get("order"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		page := dm.PageTaskSnapshotsSorted(offset, limit, status, search, sortField, sortOrder)
 		w.Header().Set("ETag", page.Version)
 		if r.Header.Get("If-None-Match") == page.Version {
 			w.WriteHeader(http.StatusNotModified)
@@ -524,6 +657,29 @@ func taskStatusFilter(raw string) (downloader.Status, error) {
 	default:
 		return "", fmt.Errorf("invalid task status")
 	}
+}
+
+func taskSort(rawField, rawOrder string) (string, string, error) {
+	field := strings.ToLower(strings.TrimSpace(rawField))
+	order := strings.ToLower(strings.TrimSpace(rawOrder))
+	if field == "" {
+		if order != "" {
+			return "", "", fmt.Errorf("order requires a sort field")
+		}
+		return "", "", nil
+	}
+	switch field {
+	case "id", "file", "status", "link", "progress":
+	default:
+		return "", "", fmt.Errorf("invalid task sort field")
+	}
+	if order == "" {
+		order = "asc"
+	}
+	if order != "asc" && order != "desc" {
+		return "", "", fmt.Errorf("task sort order must be asc or desc")
+	}
+	return field, order, nil
 }
 
 func taskID(r *http.Request) (int64, error) {

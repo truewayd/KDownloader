@@ -140,6 +140,21 @@ func (c *ariaClient) unpause(gid string) error {
 	return c.call("aria2.unpause", []any{gid}, &result)
 }
 
+func (c *ariaClient) pauseAll() error {
+	var result string
+	return c.call("aria2.pauseAll", nil, &result)
+}
+
+func (c *ariaClient) unpauseAll() error {
+	var result string
+	return c.call("aria2.unpauseAll", nil, &result)
+}
+
+func (c *ariaClient) changeGlobalOptions(options map[string]string) error {
+	var result string
+	return c.call("aria2.changeGlobalOption", []any{options}, &result)
+}
+
 func (c *ariaClient) forceRemove(gid string) error {
 	var result string
 	return c.call("aria2.forceRemove", []any{gid}, &result)

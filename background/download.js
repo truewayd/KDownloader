@@ -1,7 +1,7 @@
 // background/download.js - download orchestration (local chrome.downloads and backend forwarding)
 import { CONFIG, API, PAW } from './constants.js';
 import UTIL from './util.js';
-import { loadBackendConfig, loadDownloadRulesConfig, loadExternalLinkFilterConfig } from './config.js';
+import { loadBackendConfig, loadExternalLinkFilterConfig } from './config.js';
 import { handleAPIRequest, getCookies, readLimitedResponseText } from './network.js';
 import {
   buildPawchiveDownloadTasks,
@@ -369,7 +369,7 @@ function backendFailureResult(tasks, externalLinks) {
   };
 }
 
-async function applyDownloadRules(tasks, externalLinks) {
+function validateDownloadTasks(tasks) {
   const trustedTasks = tasks.filter((task) => task && trustedMediaUrl(task.url));
   if (tasks.length > 0 && trustedTasks.length === 0) {
     throw new Error('The post contains no trusted HTTPS media URLs');
@@ -377,22 +377,7 @@ async function applyDownloadRules(tasks, externalLinks) {
   if (trustedTasks.length < tasks.length) {
     console.warn(`[Background] ignored ${tasks.length - trustedTasks.length} untrusted media URLs`);
   }
-  const filteredTasks = UTIL.filterDownloadTasks(trustedTasks, await loadDownloadRulesConfig());
-  if (trustedTasks.length > 0 && filteredTasks.length === 0) {
-    return {
-      tasks: filteredTasks,
-      result: {
-        success: true,
-        successCount: 0,
-        results: [],
-        externalLinks,
-        skippedByFilter: true,
-        filteredCount: trustedTasks.length,
-        message: 'All files were excluded by download rules',
-      },
-    };
-  }
-  return { tasks: filteredTasks, result: null };
+  return trustedTasks;
 }
 
 function absoluteCoomerFansUrl(rawUrl) {
@@ -509,9 +494,7 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
   }
 
-  const filtered = await applyDownloadRules(tasks, externalLinks);
-  if (filtered.result) return filtered.result;
-  tasks = filtered.tasks;
+  tasks = validateDownloadTasks(tasks);
 
   const domain = API.COOMERFANS_HOST;
   const cookieString = await getCookies(domain);
@@ -592,9 +575,7 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
   }
 
-  const filtered = await applyDownloadRules(tasks, externalLinks);
-  if (filtered.result) return filtered.result;
-  tasks = filtered.tasks;
+  tasks = validateDownloadTasks(tasks);
 
   const backendCfg = await loadBackendConfig();
 
@@ -747,9 +728,7 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
   }
 
-  const filtered = await applyDownloadRules(tasks, externalLinks);
-  if (filtered.result) return filtered.result;
-  tasks = filtered.tasks;
+  tasks = validateDownloadTasks(tasks);
 
   const cookieString = cookies;
   const backendCfg = await loadBackendConfig();

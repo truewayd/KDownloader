@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -21,6 +23,7 @@ const (
 	dropboxFolderMaxDirectories  = 1000
 	dropboxFolderMaxPages        = 2000
 	dropboxFolderMaxDepth        = 64
+	dropboxFolderWorkers         = 4
 )
 
 type DropboxExpansionResult struct {
@@ -72,6 +75,7 @@ func (m *Manager) AddDropboxFolder(
 	downloadPage string,
 	queueID int,
 	opts Aria2Opts,
+	applyFilter bool,
 ) (DropboxExpansionResult, bool, error) {
 	share, ok := parseDropboxWebShare(link)
 	if !ok {
@@ -81,7 +85,7 @@ func (m *Manager) AddDropboxFolder(
 	if err := validateRequest(identity); err != nil {
 		return DropboxExpansionResult{}, true, err
 	}
-	excluded, err := normalizeDropboxExcludedExtensions(m.DownloadRules())
+	excluded, err := normalizeDropboxExcludedExtensions(m.DownloadRules(), applyFilter)
 	if err != nil {
 		return DropboxExpansionResult{}, true, err
 	}
@@ -108,10 +112,7 @@ func (m *Manager) AddDropboxFolder(
 		rootName = "Dropbox"
 	}
 
-	result := DropboxExpansionResult{
-		Tasks:    make([]*Task, 0, len(files)),
-		Filtered: filtered,
-	}
+	requests := make([]taskAddRequest, 0, len(files))
 	for _, file := range files {
 		targetFolder := filepath.Join(baseFolder, rootName)
 		if len(file.Relative) > 0 {
@@ -121,22 +122,25 @@ func (m *Manager) AddDropboxFolder(
 		if fileName == "" {
 			fileName = "file"
 		}
-		task, duplicate, addErr := m.AddTask(
-			file.Link,
-			fileName,
-			targetFolder,
-			identity.Headers,
-			identity.DownloadPage,
-			identity.QueueID,
-			identity.Opts,
-		)
-		if addErr != nil {
-			return result, true, fmt.Errorf("add Dropbox file %q: %w", file.Name, addErr)
-		}
-		if duplicate {
+		requests = append(requests, taskAddRequest{
+			Link: file.Link, Name: fileName, Folder: targetFolder,
+			Headers: identity.Headers, DownloadPage: identity.DownloadPage,
+			QueueID: identity.QueueID, Opts: identity.Opts,
+		})
+	}
+	added, err := m.addTasksBatch(requests)
+	if err != nil {
+		return DropboxExpansionResult{Filtered: filtered}, true, fmt.Errorf("batch add Dropbox files: %w", err)
+	}
+	result := DropboxExpansionResult{
+		Tasks:    make([]*Task, 0, len(added)),
+		Filtered: filtered,
+	}
+	for _, item := range added {
+		result.Tasks = append(result.Tasks, item.Task)
+		if item.Duplicate {
 			result.Duplicates++
 		}
-		result.Tasks = append(result.Tasks, task)
 	}
 	return result, true, nil
 }
@@ -165,33 +169,44 @@ func crawlDropboxFolder(
 	rootName := ""
 	filtered := 0
 	directoryCount := 1
-	pageCount := 0
+	var pageCount atomic.Int64
 
 	for len(pending) > 0 {
-		work := pending[0]
-		pending = pending[1:]
-		voucher := ""
-		firstPage := true
-		for {
-			pageCount++
-			if pageCount > dropboxFolderMaxPages {
-				return nil, "", true, filtered, fmt.Errorf("Dropbox folder exceeds the %d-page safety limit", dropboxFolderMaxPages)
+		batchSize := min(len(pending), dropboxFolderWorkers)
+		batch := append([]dropboxFolderWork(nil), pending[:batchSize]...)
+		pending = pending[batchSize:]
+		results := make([]dropboxFolderFetchResult, len(batch))
+		batchCtx, cancel := context.WithCancel(ctx)
+		var workers sync.WaitGroup
+		for index, work := range batch {
+			workers.Add(1)
+			go func(index int, work dropboxFolderWork) {
+				defer workers.Done()
+				results[index] = fetchDropboxFolderPages(batchCtx, client, csrf, work, &pageCount)
+				if results[index].Err != nil {
+					cancel()
+				}
+			}(index, work)
+		}
+		workers.Wait()
+		cancel()
+
+		for index, fetched := range results {
+			work := batch[index]
+			if fetched.Err != nil {
+				return nil, "", true, filtered, fetched.Err
 			}
-			page, err := requestDropboxFolderPage(ctx, client, csrf, work.Share, voucher)
-			if err != nil {
-				return nil, "", true, filtered, err
-			}
-			if firstPage && (page.Folder == nil || !page.Folder.IsDir) {
+			if !fetched.Handled {
 				if len(work.Relative) == 0 {
 					return nil, "", false, 0, nil
 				}
 				return nil, "", true, filtered, fmt.Errorf("Dropbox returned no folder metadata for %q", work.Share.SubPath)
 			}
-			if firstPage && len(work.Relative) == 0 && page.Folder != nil {
-				rootName = page.Folder.Filename
+			if len(work.Relative) == 0 && fetched.Folder != nil {
+				rootName = fetched.Folder.Filename
 			}
 
-			for _, entry := range page.Entries {
+			for _, entry := range fetched.Entries {
 				if entry.IsDir {
 					child, ok := parseDropboxWebShare(entry.Href)
 					if !ok || child.LinkKey != root.LinkKey {
@@ -235,18 +250,57 @@ func crawlDropboxFolder(
 					Relative: append([]string(nil), work.Relative...),
 				})
 			}
-
-			firstPage = false
-			if !page.HasMoreEntries {
-				break
-			}
-			voucher = strings.TrimSpace(page.NextRequestVoucher)
-			if voucher == "" || len(voucher) > 64*1024 {
-				return nil, "", true, filtered, fmt.Errorf("Dropbox returned an invalid continuation voucher")
-			}
 		}
 	}
 	return files, rootName, true, filtered, nil
+}
+
+type dropboxFolderFetchResult struct {
+	Entries []dropboxWebEntry
+	Folder  *dropboxWebEntry
+	Handled bool
+	Err     error
+}
+
+func fetchDropboxFolderPages(
+	ctx context.Context,
+	client *http.Client,
+	csrf string,
+	work dropboxFolderWork,
+	pageCount *atomic.Int64,
+) dropboxFolderFetchResult {
+	result := dropboxFolderFetchResult{Handled: true}
+	voucher := ""
+	firstPage := true
+	for {
+		if pageCount.Add(1) > dropboxFolderMaxPages {
+			result.Err = fmt.Errorf("Dropbox folder exceeds the %d-page safety limit", dropboxFolderMaxPages)
+			return result
+		}
+		page, err := requestDropboxFolderPage(ctx, client, csrf, work.Share, voucher)
+		if err != nil {
+			result.Err = err
+			return result
+		}
+		if firstPage {
+			if page.Folder == nil || !page.Folder.IsDir {
+				result.Handled = false
+				return result
+			}
+			folder := *page.Folder
+			result.Folder = &folder
+		}
+		result.Entries = append(result.Entries, page.Entries...)
+		firstPage = false
+		if !page.HasMoreEntries {
+			return result
+		}
+		voucher = strings.TrimSpace(page.NextRequestVoucher)
+		if voucher == "" || len(voucher) > 64*1024 {
+			result.Err = fmt.Errorf("Dropbox returned an invalid continuation voucher")
+			return result
+		}
+	}
 }
 
 func requestDropboxFolderPage(
@@ -390,11 +444,29 @@ func dropboxFileDownloadLink(value, rootLinkKey string) (string, bool) {
 	return parsed.String(), true
 }
 
-func normalizeDropboxExcludedExtensions(rules DownloadRules) (map[string]struct{}, error) {
+// DropboxFolderDownloadLink turns a supported shared-folder URL into Dropbox's
+// direct archive form. It leaves non-folder URLs untouched.
+func DropboxFolderDownloadLink(value string) (string, bool) {
+	if _, ok := parseDropboxWebShare(value); !ok {
+		return value, false
+	}
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return value, false
+	}
+	query := parsed.Query()
+	query.Set("dl", "1")
+	parsed.RawQuery = query.Encode()
+	parsed.Fragment = ""
+	return parsed.String(), true
+}
+
+func normalizeDropboxExcludedExtensions(rules DownloadRules, enabled bool) (map[string]struct{}, error) {
 	result := make(map[string]struct{})
-	if !rules.Enabled {
+	if !enabled {
 		return result, nil
 	}
+	rules.Enabled = true
 	normalized, err := normalizeDownloadRules(rules)
 	if err != nil {
 		return nil, err

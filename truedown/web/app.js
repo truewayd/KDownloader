@@ -13,6 +13,7 @@ const DEFAULT_DOWNLOAD_RULES = Object.freeze({
   enabled: false,
   excludedExtensions: DEFAULT_EXCLUDED_EXTENSIONS,
 });
+const DEFAULT_RUNTIME_SETTINGS = Object.freeze({ concurrentDownloads: 3 });
 const DEFAULT_DOWNLOAD_SETTINGS = Object.freeze({
   folder: "",
   connections: 16,
@@ -31,11 +32,11 @@ const DEFAULT_DOWNLOAD_SETTINGS = Object.freeze({
 });
 
 const statusMeta = {
-  downloading: { label: "下载中", rank: 0 },
-  queued: { label: "排队中", rank: 1 },
-  paused: { label: "已暂停", rank: 2 },
-  error: { label: "出错", rank: 3 },
-  done: { label: "已完成", rank: 4 },
+  downloading: { label: "下载中" },
+  queued: { label: "排队中" },
+  paused: { label: "已暂停" },
+  error: { label: "出错" },
+  done: { label: "已完成" },
 };
 
 const els = {};
@@ -52,6 +53,8 @@ let currentOffset = 0;
 let currentTotal = 0;
 let currentFilter = "all";
 let currentSearch = "";
+let currentSort = "status";
+let currentSortOrder = "asc";
 let loadTasksPromise = null;
 let lastTaskRenderSignature = "";
 let modalReturnFocus = null;
@@ -64,6 +67,7 @@ let downloadRules = {
   enabled: DEFAULT_DOWNLOAD_RULES.enabled,
   excludedExtensions: [...DEFAULT_DOWNLOAD_RULES.excludedExtensions],
 };
+let runtimeSettings = { ...DEFAULT_RUNTIME_SETTINGS };
 let settingsReturnFocus = null;
 let dialogReturnFocus = null;
 let dialogResolver = null;
@@ -82,9 +86,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     showToast(`读取认证设置失败：${error.message}`, "error");
   }
   try {
-    await loadServerDownloadRules();
+    await Promise.all([loadServerDownloadRules(), loadServerRuntimeSettings()]);
   } catch (error) {
-    showToast(`读取目录过滤器失败：${error.message}`, "error");
+    showToast(`读取服务端设置失败：${error.message}`, "error");
   }
   refreshAndSchedule();
 });
@@ -110,6 +114,7 @@ function cacheElements() {
     "cfg-remote-time",
     "cfg-speed",
     "cfg-speed-unit",
+    "cfg-task-concurrency",
     "cfg-tries",
     "cfg-user-agent",
     "cfg-wait",
@@ -130,6 +135,8 @@ function cacheElements() {
     "dialog-title",
     "error-count",
     "m-conns",
+    "m-dropbox-filter",
+    "m-dropbox-mode",
     "m-extra",
     "m-folder",
     "m-headers",
@@ -147,11 +154,14 @@ function cacheElements() {
     "modal-title",
     "new-task-btn",
     "next-page-btn",
+    "open-downloads-btn",
     "overlay",
     "page-info",
     "prev-page-btn",
+    "pause-queue-btn",
     "refresh-tasks-btn",
     "retry-all-btn",
+    "resume-queue-btn",
     "settings-btn",
     "settings-cancel-btn",
     "settings-close-btn",
@@ -199,14 +209,19 @@ function bindEvents() {
   window.addEventListener("pagehide", () => window.clearTimeout(pollTimer), { once: true });
 
   els.downloadForm.addEventListener("submit", submitTask);
+  els.mDropboxMode.addEventListener("change", updateDropboxOptions);
   els.refreshTasksBtn.addEventListener("click", async () => {
     await loadTasks({ force: true });
     showToast("任务列表已刷新。");
     schedulePoll();
   });
   els.retryAllBtn.addEventListener("click", requeueAllErrorTasks);
+  els.pauseQueueBtn.addEventListener("click", () => runQueueAction("pause"));
+  els.resumeQueueBtn.addEventListener("click", () => runQueueAction("resume"));
+  els.openDownloadsBtn.addEventListener("click", openDownloadsDirectory);
   els.clearDoneBtn.addEventListener("click", clearDone);
   els.tasksContainer.addEventListener("click", onTaskAction);
+  els.tasksContainer.addEventListener("click", onTaskSort);
   els.tasksContainer.addEventListener("change", onTaskSelection);
   els.taskSearch.addEventListener("input", () => {
     window.clearTimeout(searchTimer);
@@ -291,11 +306,19 @@ function openModal(mode = "single") {
   els.mName.disabled = isBatch;
   els.mName.placeholder = isBatch ? "批量时自动命名" : "留空自动命名";
   if (isBatch) els.mName.value = "";
+  els.mDropboxMode.value = "direct";
+  els.mDropboxFilter.checked = downloadRules.enabled;
+  updateDropboxOptions();
   els.overlay.classList.add("open");
   els.overlay.setAttribute("aria-hidden", "false");
   els.overlay.removeAttribute("inert");
   document.body.classList.add("modal-open");
   window.setTimeout(() => els.mLink.focus(), 80);
+}
+
+function updateDropboxOptions() {
+  const expanded = els.mDropboxMode.value === "expand";
+  els.mDropboxFilter.disabled = !expanded;
 }
 
 function closeModal() {
@@ -413,6 +436,10 @@ async function submitTask(event) {
     name: links.length === 1 ? emptyToUndefined(els.mName.value) : undefined,
     queueId: optionalInt("mQueueid") || undefined,
     opts: buildOpts("m"),
+    dropbox: {
+      mode: els.mDropboxMode.value,
+      applyFilter: els.mDropboxMode.value === "expand" && els.mDropboxFilter.checked,
+    },
   };
 
   setSubmitting(true);
@@ -475,6 +502,7 @@ function buildStartBody(link, sharedBody) {
     name: sharedBody.name,
     queueId: sharedBody.queueId,
     opts: sharedBody.opts,
+    dropbox: sharedBody.dropbox,
   };
 }
 
@@ -505,6 +533,14 @@ async function onTaskAction(event) {
     if (action === "requeue") await runTaskAction("requeue", id, "任务已重新排队。");
     if (action === "pause") await runTaskAction("pause", id, "任务已暂停。");
     if (action === "resume") await runTaskAction("resume", id, "任务已继续。");
+    if (action === "open-file") {
+      await requestText(`/tasks/open-file?id=${encodeURIComponent(id)}`, { method: "POST" });
+      showToast("已打开下载文件。");
+    }
+    if (action === "open-folder") {
+      await requestText(`/tasks/open-folder?id=${encodeURIComponent(id)}`, { method: "POST" });
+      showToast("已打开任务下载目录。");
+    }
     if (action === "remove") {
       if (taskStatusByID.get(id) !== "done" && !await confirmAction({
         title: "移除下载任务",
@@ -612,6 +648,41 @@ function setBatchBusy(busy) {
   });
 }
 
+async function runQueueAction(action) {
+  const pause = action === "pause";
+  const button = pause ? els.pauseQueueBtn : els.resumeQueueBtn;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  try {
+    const result = await requestJSON(`/queue/${action}`, { method: "POST" });
+    const succeeded = result.succeeded?.length || 0;
+    const failed = result.failed?.length || 0;
+    const verb = pause ? "暂停" : "恢复";
+    showToast(`${verb}队列：成功 ${succeeded} 项${failed ? `，失败 ${failed} 项` : ""}`, failed ? "error" : "success");
+    await loadTasks({ force: true });
+  } catch (error) {
+    showToast(`队列操作失败：${error.message}`, "error");
+  } finally {
+    button.removeAttribute("aria-busy");
+    updateMetrics(currentSummary);
+    schedulePoll();
+  }
+}
+
+async function openDownloadsDirectory() {
+  els.openDownloadsBtn.disabled = true;
+  els.openDownloadsBtn.setAttribute("aria-busy", "true");
+  try {
+    await requestText("/system/open-downloads", { method: "POST" });
+    showToast("已打开 TrueDown 下载目录。");
+  } catch (error) {
+    showToast(`无法打开下载目录：${error.message}`, "error");
+  } finally {
+    els.openDownloadsBtn.disabled = false;
+    els.openDownloadsBtn.removeAttribute("aria-busy");
+  }
+}
+
 async function requeueAllErrorTasks() {
   if (!currentSummary.error) {
     showToast("没有需要重试的任务。");
@@ -691,6 +762,8 @@ async function loadTasks({ force = false } = {}) {
           limit: String(PAGE_SIZE),
           offset: String(currentOffset),
           status: currentFilter,
+          sort: currentSort,
+          order: currentSortOrder,
         });
         if (currentSearch) params.set("search", currentSearch);
         const url = `/tasks?${params}`;
@@ -727,14 +800,13 @@ async function loadTasks({ force = false } = {}) {
 
 function renderTasks(tasks) {
   tasks.forEach((task) => taskStatusByID.set(task.id, task.status));
-  currentTasks = [...tasks].sort((a, b) => {
-    const statusDiff = (statusMeta[a.status]?.rank ?? 9) - (statusMeta[b.status]?.rank ?? 9);
-    return statusDiff || b.id - a.id;
-  });
+  currentTasks = [...tasks];
   const signature = JSON.stringify([
     currentOffset,
     currentFilter,
     currentSearch,
+    currentSort,
+    currentSortOrder,
     currentTasks.map((task) => [
       task.id, task.status, task.outputName, task.name, task.folder, task.link, task.progress, task.error,
     ]),
@@ -759,12 +831,35 @@ function renderTasks(tasks) {
       </colgroup>
       <thead><tr>
         <th scope="col" class="select-cell"><input type="checkbox" data-select-page aria-label="选择本页全部任务"></th>
-        <th scope="col">#</th><th scope="col">文件</th><th scope="col">状态</th><th scope="col">链接</th>
-        <th scope="col">进度 / 日志</th><th scope="col" class="align-right">操作</th>
+        ${sortableHeading("id", "#")}${sortableHeading("file", "文件")}${sortableHeading("status", "状态")}${sortableHeading("link", "链接")}
+        ${sortableHeading("progress", "进度 / 日志")}<th scope="col" class="align-right">操作</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   syncSelectionControls();
+}
+
+function sortableHeading(field, label) {
+  const active = currentSort === field;
+  const ariaSort = active ? ` aria-sort="${currentSortOrder === "desc" ? "descending" : "ascending"}"` : "";
+  const order = active ? currentSortOrder : "none";
+  return `<th scope="col"${ariaSort}><button class="sort-button" type="button" data-sort-field="${field}" data-sort-order="${order}" aria-label="按${label}${active && currentSortOrder === "asc" ? "降序" : "升序"}排列">${label}<span class="sort-indicator" aria-hidden="true"></span></button></th>`;
+}
+
+function onTaskSort(event) {
+  const button = event.target.closest("button[data-sort-field]");
+  if (!button) return;
+  const field = button.dataset.sortField;
+  if (!["id", "file", "status", "link", "progress"].includes(field)) return;
+  if (currentSort === field) {
+    currentSortOrder = currentSortOrder === "asc" ? "desc" : "asc";
+  } else {
+    currentSort = field;
+    currentSortOrder = "asc";
+  }
+  currentOffset = 0;
+  lastTaskRenderSignature = "";
+  refreshAndSchedule(true);
 }
 
 function taskRow(task, index) {
@@ -773,10 +868,12 @@ function taskRow(task, index) {
   const progress = task.error ? `! ${task.error}` : task.progress || "-";
   const fileName = task.outputName || task.name || `任务 #${task.id}`;
   const actions = [];
-  if (status === "error") actions.push(actionButton("requeue", task.id, "重试"));
-  if (status === "queued" || status === "downloading") actions.push(actionButton("pause", task.id, "暂停"));
-  if (status === "paused") actions.push(actionButton("resume", task.id, "继续"));
-  actions.push(actionButton("remove", task.id, "移除", true));
+  actions.push(actionButton("open-folder", task.id, "打开下载目录", false, "folder-open"));
+  if (status === "done") actions.push(actionButton("open-file", task.id, "打开文件", false, "file"));
+  if (status === "error") actions.push(actionButton("requeue", task.id, "重试", false, "retry"));
+  if (status === "queued" || status === "downloading") actions.push(actionButton("pause", task.id, "暂停", false, "pause"));
+  if (status === "paused") actions.push(actionButton("resume", task.id, "继续", false, "play"));
+  actions.push(actionButton("remove", task.id, "移除", true, "trash"));
   return `
     <tr data-task-id="${task.id}">
       <td class="select-cell"><input type="checkbox" data-select-task value="${task.id}" aria-label="选择任务 ${esc(fileName)}"${selectedTaskIDs.has(task.id) ? " checked" : ""}></td>
@@ -789,8 +886,12 @@ function taskRow(task, index) {
     </tr>`;
 }
 
-function actionButton(action, id, label, danger = false) {
-  return `<button class="text-button${danger ? " text-button-danger" : ""}" type="button" data-action="${action}" data-id="${id}">${label}</button>`;
+function actionButton(action, id, label, danger = false, icon = "file") {
+  return `<button class="text-button icon-only${danger ? " text-button-danger" : ""}" type="button" data-action="${action}" data-id="${id}" aria-label="${label}" title="${label}">${iconMarkup(icon)}</button>`;
+}
+
+function iconMarkup(name) {
+  return `<svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-${name}"></use></svg>`;
 }
 
 function syncSelectionControls() {
@@ -811,6 +912,8 @@ function updateMetrics(summary) {
   els.errorCount.textContent = summary.error;
   els.retryAllBtn.disabled = summary.error === 0;
   els.clearDoneBtn.disabled = summary.done === 0;
+  els.pauseQueueBtn.disabled = summary.queued + summary.downloading === 0;
+  els.resumeQueueBtn.disabled = summary.paused === 0;
 }
 
 function updatePagination() {
@@ -841,9 +944,9 @@ function emptyMarkup() {
 async function openSettingsModal() {
   settingsReturnFocus = document.activeElement;
   try {
-    await loadServerDownloadRules();
+    await Promise.all([loadServerDownloadRules(), loadServerRuntimeSettings()]);
   } catch (error) {
-    showToast(`刷新目录过滤器失败：${error.message}`, "error");
+    showToast(`刷新服务端设置失败：${error.message}`, "error");
   }
   renderDownloadSettings();
   els.settingsOverlay.classList.add("open");
@@ -896,6 +999,7 @@ function loadDownloadSettings() {
 function renderDownloadSettings(settings = downloadSettings) {
   els.cfgFolder.value = settings.folder;
   els.cfgConns.value = settings.connections;
+  els.cfgTaskConcurrency.value = runtimeSettings.concurrentDownloads;
   els.cfgSpeed.value = settings.speed || "";
   els.cfgSpeedUnit.value = String(settings.speedUnit);
   els.cfgTries.value = settings.maxTries;
@@ -948,14 +1052,25 @@ async function saveDownloadSettings(event) {
         (input) => input.value,
       ),
     };
-    const savedRules = await requestJSON("/settings/download-rules", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(nextRules),
-    });
+    const nextRuntimeSettings = {
+      concurrentDownloads: optionalInt("cfgTaskConcurrency") || DEFAULT_RUNTIME_SETTINGS.concurrentDownloads,
+    };
+    const [savedRules, savedRuntimeSettings] = await Promise.all([
+      requestJSON("/settings/download-rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nextRules),
+      }),
+      requestJSON("/settings/runtime", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nextRuntimeSettings),
+      }),
+    ]);
     localStorage.setItem(DOWNLOAD_DEFAULTS_KEY, JSON.stringify(nextSettings));
     downloadSettings = nextSettings;
     downloadRules = normalizeServerDownloadRules(savedRules);
+    runtimeSettings = normalizeServerRuntimeSettings(savedRuntimeSettings);
     closeSettingsModal();
     showToast("下载器默认设置已保存。");
   } catch (error) {
@@ -968,6 +1083,7 @@ function resetDownloadSettings() {
     enabled: DEFAULT_DOWNLOAD_RULES.enabled,
     excludedExtensions: [...DEFAULT_DOWNLOAD_RULES.excludedExtensions],
   };
+  runtimeSettings = { ...DEFAULT_RUNTIME_SETTINGS };
   renderDownloadSettings(DEFAULT_DOWNLOAD_SETTINGS);
   showToast("已恢复默认值，点击「保存设置」后生效。");
 }
@@ -1030,6 +1146,22 @@ function normalizeServerDownloadRules(value) {
 
 async function loadServerDownloadRules() {
   downloadRules = normalizeServerDownloadRules(await requestJSON("/settings/download-rules"));
+}
+
+function normalizeServerRuntimeSettings(value) {
+  const settings = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    concurrentDownloads: boundedInt(
+      settings.concurrentDownloads,
+      1,
+      64,
+      DEFAULT_RUNTIME_SETTINGS.concurrentDownloads,
+    ),
+  };
+}
+
+async function loadServerRuntimeSettings() {
+  runtimeSettings = normalizeServerRuntimeSettings(await requestJSON("/settings/runtime"));
 }
 
 function hasHeader(headers, name) {

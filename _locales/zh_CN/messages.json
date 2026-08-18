@@ -180,16 +180,16 @@
     "message": "单帖文件上限"
   },
   "downloadRulesTitle": {
-    "message": "下载规则"
+    "message": "Dropbox 解析过滤器"
   },
   "downloadFilterEnable": {
-    "message": "跳过选中的工程文件类型"
+    "message": "展开 Dropbox 目录时默认应用此过滤器"
   },
   "downloadFilterExtensions": {
     "message": "排除的文件后缀"
   },
   "downloadFilterSyncTrueDown": {
-    "message": "保存设置时将此过滤器同步到 TrueDown"
+    "message": "保存设置时将 Dropbox 过滤选项同步到 TrueDown"
   },
   "externalLinkFilterMode": {
     "message": "外链提取过滤"

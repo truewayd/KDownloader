@@ -159,6 +159,9 @@ type ariaRPC interface {
 	addURI(*Task, map[string]any) error
 	pause(string) error
 	unpause(string) error
+	pauseAll() error
+	unpauseAll() error
+	changeGlobalOptions(map[string]string) error
 	forceRemove(string) error
 	status(string) (ariaStatus, error)
 	removeResult(string) error
@@ -168,10 +171,11 @@ type ariaRPC interface {
 }
 
 type Manager struct {
-	aria2Path     string
-	defaultDir    string
-	store         *recordStore
-	downloadRules *downloadRulesStore
+	aria2Path       string
+	defaultDir      string
+	store           *recordStore
+	downloadRules   *downloadRulesStore
+	runtimeSettings *runtimeSettingsStore
 
 	mu           sync.RWMutex
 	tasks        map[int64]*Task
@@ -205,6 +209,7 @@ type Manager struct {
 
 	dropboxClient *http.Client
 	dropboxProxy  func(*http.Request) (*url.URL, error)
+	openPath      func(string) error
 }
 
 func NewManager(aria2Path, defaultDir, databasePath string) (*Manager, error) {
@@ -222,25 +227,32 @@ func NewManager(aria2Path, defaultDir, databasePath string) (*Manager, error) {
 		store.Close()
 		return nil, err
 	}
+	runtimeSettings, err := newRuntimeSettingsStore(databasePath)
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
 	dropboxProxy := systemProxyFunc()
 	m := &Manager{
-		aria2Path:     aria2Path,
-		defaultDir:    defaultDir,
-		store:         store,
-		downloadRules: downloadRules,
-		tasks:         make(map[int64]*Task, len(tasks)),
-		fingerprints:  make(map[string]int64, len(tasks)),
-		gids:          make(map[string]int64, len(tasks)),
-		outputNames:   make(map[string]int64, len(tasks)),
-		orderedIDs:    make([]int64, 0, len(tasks)),
-		statusCounts:  make(map[Status]int, 5),
-		ariaAdmitted:  make(map[int64]bool, ariaBacklogLimit),
-		ariaSlots:     make(chan struct{}, ariaBacklogLimit),
-		dropboxClient: newDropboxHTTPClient(dropboxProxy),
-		dropboxProxy:  dropboxProxy,
-		wake:          make(chan struct{}, 1),
-		dbWake:        make(chan struct{}, 1),
-		done:          make(chan struct{}),
+		aria2Path:       aria2Path,
+		defaultDir:      defaultDir,
+		store:           store,
+		downloadRules:   downloadRules,
+		runtimeSettings: runtimeSettings,
+		tasks:           make(map[int64]*Task, len(tasks)),
+		fingerprints:    make(map[string]int64, len(tasks)),
+		gids:            make(map[string]int64, len(tasks)),
+		outputNames:     make(map[string]int64, len(tasks)),
+		orderedIDs:      make([]int64, 0, len(tasks)),
+		statusCounts:    make(map[Status]int, 5),
+		ariaAdmitted:    make(map[int64]bool, ariaBacklogLimit),
+		ariaSlots:       make(chan struct{}, ariaBacklogLimit),
+		dropboxClient:   newDropboxHTTPClient(dropboxProxy),
+		dropboxProxy:    dropboxProxy,
+		openPath:        systemOpenPath,
+		wake:            make(chan struct{}, 1),
+		dbWake:          make(chan struct{}, 1),
+		done:            make(chan struct{}),
 	}
 	var maxID int64
 	for _, task := range tasks {
@@ -510,6 +522,13 @@ func (m *Manager) ListTasks() []*Task {
 // cloning the full task map. A status filter of "" includes every task. Search
 // matches the requested file name or download link case-insensitively.
 func (m *Manager) PageTaskSnapshots(offset, limit int, status Status, search string) TaskPage {
+	return m.PageTaskSnapshotsSorted(offset, limit, status, search, "", "")
+}
+
+// PageTaskSnapshotsSorted returns a globally sorted page when sortField is set.
+// The response remains bounded even though an explicit sort must inspect all
+// matching in-memory task identities to stay correct across pages.
+func (m *Manager) PageTaskSnapshotsSorted(offset, limit int, status Status, search, sortField, sortOrder string) TaskPage {
 	if offset < 0 {
 		offset = 0
 	}
@@ -520,6 +539,8 @@ func (m *Manager) PageTaskSnapshots(offset, limit int, status Status, search str
 	defer m.mu.RUnlock()
 
 	search = strings.ToLower(strings.TrimSpace(search))
+	sortField = strings.ToLower(strings.TrimSpace(sortField))
+	sortOrder = strings.ToLower(strings.TrimSpace(sortOrder))
 	total := len(m.tasks)
 	if status != "" {
 		total = m.statusCounts[status]
@@ -544,10 +565,41 @@ func (m *Manager) PageTaskSnapshots(offset, limit int, status Status, search str
 	for _, char := range search {
 		version ^= uint64(char) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
 	}
-	if search != "" {
+	for _, char := range sortField + ":" + sortOrder {
+		version ^= uint64(char) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
+	}
+	if search != "" || sortField != "" {
 		// A file name update can move a task into or out of a search page without
 		// changing the task collection structure.
 		version ^= uint64(m.revision) * 1099511628211
+	}
+	if sortField != "" {
+		ids := make([]int64, 0, total)
+		for _, id := range m.orderedIDs {
+			if task := m.tasks[id]; taskMatchesPage(task, status, search) {
+				ids = append(ids, id)
+			}
+		}
+		sort.SliceStable(ids, func(left, right int) bool {
+			first := m.tasks[ids[left]]
+			second := m.tasks[ids[right]]
+			comparison := compareTasksForPage(first, second, sortField)
+			if comparison == 0 {
+				comparison = compareInt64(first.ID, second.ID)
+			}
+			if sortOrder == "desc" {
+				return comparison > 0
+			}
+			return comparison < 0
+		})
+		for index := offset; index < len(ids) && len(page.Tasks) < limit; index++ {
+			task := m.tasks[ids[index]]
+			page.Tasks = append(page.Tasks, snapshotTask(task))
+			version ^= uint64(task.ID) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
+			version ^= uint64(task.Revision) * 1099511628211
+		}
+		page.Version = fmt.Sprintf(`"td-%x"`, version)
+		return page
 	}
 	skipped := 0
 	for index := len(m.orderedIDs) - 1; index >= 0 && len(page.Tasks) < limit; index-- {
@@ -565,6 +617,92 @@ func (m *Manager) PageTaskSnapshots(offset, limit int, status Status, search str
 	}
 	page.Version = fmt.Sprintf(`"td-%x"`, version)
 	return page
+}
+
+func compareTasksForPage(first, second *Task, field string) int {
+	switch field {
+	case "id":
+		return compareInt64(first.ID, second.ID)
+	case "file":
+		firstName := first.OutputName
+		if firstName == "" {
+			firstName = first.Name
+		}
+		secondName := second.OutputName
+		if secondName == "" {
+			secondName = second.Name
+		}
+		return strings.Compare(strings.ToLower(firstName), strings.ToLower(secondName))
+	case "status":
+		return taskStatusSortRank(first.Status) - taskStatusSortRank(second.Status)
+	case "link":
+		return strings.Compare(strings.ToLower(first.Link), strings.ToLower(second.Link))
+	case "progress":
+		firstProgress := first.Progress
+		if first.Error != "" {
+			firstProgress = first.Error
+		}
+		secondProgress := second.Progress
+		if second.Error != "" {
+			secondProgress = second.Error
+		}
+		firstPercent, firstHasPercent := progressPercent(firstProgress)
+		secondPercent, secondHasPercent := progressPercent(secondProgress)
+		if firstHasPercent && secondHasPercent {
+			if firstPercent < secondPercent {
+				return -1
+			}
+			if firstPercent > secondPercent {
+				return 1
+			}
+		}
+		if firstHasPercent != secondHasPercent {
+			if firstHasPercent {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(strings.ToLower(firstProgress), strings.ToLower(secondProgress))
+	default:
+		return compareInt64(first.ID, second.ID)
+	}
+}
+
+func progressPercent(value string) (float64, bool) {
+	value = strings.TrimSpace(value)
+	separator := strings.IndexByte(value, '%')
+	if separator <= 0 {
+		return 0, false
+	}
+	percent, err := strconv.ParseFloat(strings.TrimSpace(value[:separator]), 64)
+	return percent, err == nil
+}
+
+func compareInt64(first, second int64) int {
+	if first < second {
+		return -1
+	}
+	if first > second {
+		return 1
+	}
+	return 0
+}
+
+func taskStatusSortRank(status Status) int {
+	switch status {
+	case StatusDownloading:
+		return 0
+	case StatusQueued:
+		return 1
+	case StatusPaused:
+		return 2
+	case StatusError:
+		return 3
+	case StatusDone:
+		return 4
+	default:
+		return 5
+	}
 }
 
 func taskMatchesPage(task *Task, status Status, search string) bool {
@@ -697,6 +835,100 @@ func (m *Manager) ResumeTask(id int64) error {
 
 func (m *Manager) ResumeTasks(ids []int64) TaskOperationResult {
 	return m.changePauseState(ids, false)
+}
+
+// PauseQueue pauses every queued or active task with one aria2-wide RPC call.
+func (m *Manager) PauseQueue() TaskOperationResult {
+	return m.changeQueuePauseState(true)
+}
+
+// ResumeQueue resumes every paused task with one aria2-wide RPC call.
+func (m *Manager) ResumeQueue() TaskOperationResult {
+	return m.changeQueuePauseState(false)
+}
+
+func (m *Manager) changeQueuePauseState(pause bool) TaskOperationResult {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	result := newOperationResult()
+	m.mu.RLock()
+	ids := make([]int64, 0)
+	for _, id := range m.orderedIDs {
+		task := m.tasks[id]
+		if task == nil {
+			continue
+		}
+		eligible := task.Status == StatusPaused
+		if pause {
+			eligible = task.Status == StatusQueued || task.Status == StatusDownloading
+		}
+		if eligible {
+			ids = append(ids, id)
+		}
+	}
+	m.mu.RUnlock()
+	if len(ids) == 0 {
+		return result
+	}
+	if m.rpc == nil {
+		for _, id := range ids {
+			result.fail(id, fmt.Errorf("aria2 is not running"))
+		}
+		return result
+	}
+	var err error
+	if pause {
+		err = m.rpc.pauseAll()
+	} else {
+		err = m.rpc.unpauseAll()
+	}
+	if err != nil {
+		for _, id := range ids {
+			result.fail(id, err)
+		}
+		return result
+	}
+	updates := make([]*Task, 0, len(ids))
+	resubmit := make([]int64, 0)
+	m.mu.Lock()
+	for _, id := range ids {
+		task := m.tasks[id]
+		if task == nil {
+			continue
+		}
+		if pause {
+			if task.Status != StatusQueued && task.Status != StatusDownloading {
+				continue
+			}
+			m.setStatusLocked(task, StatusPaused)
+			task.Progress = "Paused with the TrueDown queue"
+		} else {
+			if task.Status != StatusPaused {
+				continue
+			}
+			m.setStatusLocked(task, StatusQueued)
+			task.Progress = "Waiting for aria2 to resume"
+			if !m.ariaAdmitted[id] {
+				resubmit = append(resubmit, id)
+			}
+		}
+		task.Error = ""
+		m.touchTaskLocked(task)
+		updates = append(updates, cloneTask(task))
+		result.Succeeded = append(result.Succeeded, id)
+	}
+	m.mu.Unlock()
+	if err := m.store.UpdateBatch(updates); err != nil {
+		log.Printf("persist %d queue pause state changes: %v", len(updates), err)
+		result.failSucceeded(nil, fmt.Errorf("persist queue pause state: %w", err))
+		return result
+	}
+	if !pause {
+		for _, id := range resubmit {
+			m.enqueue(submission{id: id})
+		}
+	}
+	return result
 }
 
 type rpcTarget struct {
@@ -1503,7 +1735,7 @@ func (m *Manager) startAria2() error {
 		"--rpc-secret=" + secret,
 		"--dir=" + filepath.ToSlash(m.defaultDir),
 		"--continue=true",
-		"--max-concurrent-downloads=3",
+		fmt.Sprintf("--max-concurrent-downloads=%d", m.RuntimeSettings().ConcurrentDownloads),
 		"--console-log-level=warn",
 		"--summary-interval=0",
 		"--download-result=full",

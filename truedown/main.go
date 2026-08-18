@@ -279,8 +279,9 @@ func isDashboardNavigation(r *http.Request) bool {
 
 func isAPIPath(path string) bool {
 	return path == "/ping" || path == "/add" || path == "/start-headless-download" ||
-		path == "/settings/download-rules" || path == "/tasks" ||
-		strings.HasPrefix(path, "/auth/") || strings.HasPrefix(path, "/tasks/")
+		path == "/tasks" || strings.HasPrefix(path, "/settings/") ||
+		strings.HasPrefix(path, "/auth/") || strings.HasPrefix(path, "/tasks/") ||
+		strings.HasPrefix(path, "/queue/") || strings.HasPrefix(path, "/system/")
 }
 
 func authorizedAPIRequest(r *http.Request, expected string) bool {

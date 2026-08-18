@@ -16,7 +16,8 @@ var defaultExcludedExtensions = []string{
 	".psd", ".clip", ".sai", ".sai2", ".kra", ".xcf", ".procreate", ".afphoto", ".afdesign", ".blend",
 }
 
-// DownloadRules controls server-side filtering while a folder is expanded.
+// DownloadRules stores the suffix list and dashboard default used only while a
+// Dropbox shared folder is expanded.
 type DownloadRules struct {
 	Enabled            bool     `json:"enabled"`
 	ExcludedExtensions []string `json:"excludedExtensions"`
@@ -116,12 +117,12 @@ func (store *downloadRulesStore) snapshotUnlocked() DownloadRules {
 	}
 }
 
-// DownloadRules returns the current server-side folder filter.
+// DownloadRules returns the current Dropbox expansion filter.
 func (m *Manager) DownloadRules() DownloadRules {
 	return m.downloadRules.snapshot()
 }
 
-// SetDownloadRules persists the server-side folder filter.
+// SetDownloadRules persists the Dropbox expansion filter.
 func (m *Manager) SetDownloadRules(rules DownloadRules) (DownloadRules, error) {
 	return m.downloadRules.update(rules)
 }

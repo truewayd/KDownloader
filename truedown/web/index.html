@@ -23,15 +23,15 @@
       </div>
       <div class="topbar-actions">
         <button class="kd-button secondary" id="settings-btn" type="button">
-          <span aria-hidden="true">⚙</span>
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-settings"></use></svg>
           设置
         </button>
         <button class="kd-button secondary" id="batch-task-btn" type="button">
-          <span aria-hidden="true">☷</span>
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-list"></use></svg>
           批量下载
         </button>
         <button class="kd-button primary" id="new-task-btn" type="button">
-          <span aria-hidden="true">＋</span>
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-plus"></use></svg>
           新建下载
         </button>
       </div>
@@ -46,9 +46,12 @@
             <p class="panel-subtitle">通过本地 aria2 RPC 队列跟踪下载状态、暂停恢复和失败重试。</p>
           </div>
           <div class="panel-actions">
-            <button class="kd-button secondary" id="retry-all-btn" type="button" disabled>全部重试</button>
-            <button class="kd-button secondary" id="clear-done-btn" type="button">清理已完成</button>
-            <button class="kd-button secondary" id="refresh-tasks-btn" type="button">刷新任务</button>
+            <button class="kd-button secondary" id="open-downloads-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-folder-open"></use></svg>打开下载目录</button>
+            <button class="kd-button secondary" id="pause-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-pause"></use></svg>暂停队列</button>
+            <button class="kd-button secondary" id="resume-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-play"></use></svg>恢复队列</button>
+            <button class="kd-button secondary" id="retry-all-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-retry"></use></svg>全部重试</button>
+            <button class="kd-button secondary" id="clear-done-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-trash"></use></svg>清理已完成</button>
+            <button class="kd-button secondary" id="refresh-tasks-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-refresh"></use></svg>刷新任务</button>
           </div>
         </div>
 
@@ -124,7 +127,7 @@
             <h2 id="settings-title">下载器设置</h2>
             <p class="panel-subtitle">作为新任务的默认值，可在创建任务时单独覆盖。</p>
           </div>
-          <button class="kd-icon-button" id="settings-close-btn" type="button" aria-label="关闭设置">✕</button>
+          <button class="kd-icon-button" id="settings-close-btn" type="button" aria-label="关闭设置"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-close"></use></svg></button>
         </div>
 
         <div class="modal-body settings-body">
@@ -141,6 +144,11 @@
               <div class="field">
                 <label for="cfg-conns">单任务连接数</label>
                 <input class="kd-input" id="cfg-conns" type="number" min="1" max="64" placeholder="16">
+              </div>
+              <div class="field">
+                <label for="cfg-task-concurrency">同时下载任务数</label>
+                <input class="kd-input" id="cfg-task-concurrency" type="number" min="1" max="64" placeholder="3">
+                <p class="hint">控制 aria2 同时运行的下载任务，保存后立即生效。</p>
               </div>
               <div class="field">
                 <label for="cfg-speed">单任务限速</label>
@@ -217,7 +225,7 @@
               </label>
               <label class="setting-toggle" for="cfg-filter-enabled">
                 <input id="cfg-filter-enabled" type="checkbox">
-                <span><strong>启用目录文件过滤</strong><small>解析 Dropbox 目录时跳过指定后缀。</small></span>
+                <span><strong>Dropbox 解析默认使用过滤</strong><small>新建任务时仍可逐次关闭；不会过滤普通下载。</small></span>
               </label>
             </div>
             <div class="field">
@@ -234,7 +242,7 @@
                 <label><input type="checkbox" value=".afdesign" data-download-extension><span>.afdesign</span></label>
                 <label><input type="checkbox" value=".blend" data-download-extension><span>.blend</span></label>
               </div>
-              <p class="hint">不区分大小写，仅在上方过滤开关启用时生效。</p>
+              <p class="hint">不区分大小写，仅在 Dropbox 目录展开且该次选择过滤时生效。</p>
             </div>
           </section>
 
@@ -282,7 +290,7 @@
             <p class="kd-eyebrow" id="modal-eyebrow">New download</p>
             <h2 id="modal-title">新建下载任务</h2>
           </div>
-          <button class="kd-icon-button" id="modal-close-btn" type="button" aria-label="关闭">✕</button>
+          <button class="kd-icon-button" id="modal-close-btn" type="button" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-close"></use></svg></button>
         </div>
 
         <div class="modal-body">
@@ -315,6 +323,24 @@
             <label for="m-headers">自定义 Headers（JSON）</label>
             <textarea class="kd-input" id="m-headers" rows="3" placeholder='{"Cookie": "...", "User-Agent": "Mozilla/5.0"}'></textarea>
           </div>
+
+          <fieldset class="dropbox-options">
+            <legend>Dropbox 共享目录</legend>
+            <div class="form-grid">
+              <div class="field">
+                <label for="m-dropbox-mode">处理方式</label>
+                <select class="kd-select" id="m-dropbox-mode">
+                  <option value="direct">直接下载目录压缩包</option>
+                  <option value="expand">展开为独立文件任务</option>
+                </select>
+              </div>
+              <label class="setting-toggle" for="m-dropbox-filter">
+                <input id="m-dropbox-filter" type="checkbox" disabled>
+                <span><strong>应用后缀过滤</strong><small>只在展开 Dropbox 目录时可用。</small></span>
+              </label>
+            </div>
+            <p class="hint">此选项仅影响 Dropbox `/scl/fo/` 共享目录；普通链接会照常下载。</p>
+          </fieldset>
 
           <details class="advanced-options">
             <summary>覆盖 aria2 参数</summary>
@@ -366,7 +392,7 @@
             <p class="kd-eyebrow" id="dialog-eyebrow">Confirm action</p>
             <h2 id="dialog-title">确认操作</h2>
           </div>
-          <button class="kd-icon-button" id="dialog-close-btn" type="button" aria-label="关闭对话框">✕</button>
+          <button class="kd-icon-button" id="dialog-close-btn" type="button" aria-label="关闭对话框"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-close"></use></svg></button>
         </div>
         <div class="modal-body dialog-body">
           <p id="dialog-message"></p>

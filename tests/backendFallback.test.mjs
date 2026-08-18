@@ -238,6 +238,26 @@ test('keeps Dropbox parsing and filter configuration out of per-file task reques
   assert.equal(Object.hasOwn(backendPayload, 'downloadRules'), false);
 });
 
+test('Dropbox filter settings do not remove ordinary site media tasks', async () => {
+  globalThis.__downloadRulesConfig = { enabled: true, excludedExtensions: ['.psd'] };
+  globalThis.__apiResponse = {
+    post: { title: 'ordinary project file' },
+    videos: [{ url: 'https://kemono.cr/data/source.psd' }],
+  };
+  let backendPayload;
+  globalThis.__fetchImplementation = async (_url, options) => {
+    backendPayload = JSON.parse(options.body);
+    return { ok: true, status: 200, async text() { return ''; } };
+  };
+
+  const result = await download.startFullDownload(
+    'patreon', 'creator-1', 'post-1', '', 'https://kemono.cr/post-1'
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(backendPayload.downloadSource.link, 'https://kemono.cr/data/source.psd');
+});
+
 test('backend progress preserves the originating request id', async () => {
   globalThis.__apiResponse = {
     post: { title: 'progress' },
