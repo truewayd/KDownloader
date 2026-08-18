@@ -5,6 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,6 +74,249 @@ func TestNormalizeRequestTreatsNilAndEmptyCollectionsEqually(t *testing.T) {
 	}
 	if a != b {
 		t.Fatalf("normalized fingerprints differ: %q != %q", a, b)
+	}
+}
+
+func TestDropboxDirectDownloadDetection(t *testing.T) {
+	accepted := []string{
+		"https://www.dropbox.com/s/example/archive.zip?dl=1",
+		"https://dropbox.com/scl/fi/token/archive.zip?rlkey=secret&dl=1",
+		"https://team.dropbox.com/scl/fi/token/archive.zip?dl=1&st=renewed",
+	}
+	for _, link := range accepted {
+		if !isDropboxDirectDownload(link) {
+			t.Fatalf("Dropbox direct link %q was not detected", link)
+		}
+	}
+	for _, link := range []string{
+		"http://www.dropbox.com/s/example/archive.zip?dl=1",
+		"https://www.dropbox.com/s/example/archive.zip?dl=0",
+		"https://notdropbox.com/s/example/archive.zip?dl=1",
+		"https://dropbox.com.example.test/s/example/archive.zip?dl=1",
+	} {
+		if isDropboxDirectDownload(link) {
+			t.Fatalf("non-eligible link %q was detected as Dropbox direct", link)
+		}
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
+
+func TestResolveDropboxDirectURLRefreshesContentAddress(t *testing.T) {
+	requests := 0
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		if request.URL.Hostname() == "www.dropbox.com" {
+			return &http.Response{
+				StatusCode: http.StatusFound,
+				Header:     http.Header{"Location": []string{"https://uc123.dl.dropboxusercontent.com/content/archive.zip"}},
+				Body:       io.NopCloser(strings.NewReader("")),
+				Request:    request,
+			}, nil
+		}
+		if request.Method != http.MethodHead || request.Header.Get("Accept-Encoding") != "identity" || request.Header.Get("Range") != "" {
+			t.Fatalf("unexpected metadata request: method=%s headers=%v", request.Method, request.Header)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Disposition": []string{`attachment; filename="archive.zip"`},
+				"Content-Length":      []string{"2587341388"},
+				"Digest":              []string{"sha-256=stored"},
+			},
+			Body:    io.NopCloser(strings.NewReader("")),
+			Request: request,
+		}, nil
+	})}
+	task := &Task{
+		Link:          "https://www.dropbox.com/scl/fi/token/archive.zip?rlkey=key&dl=1",
+		Name:          "archive.zip",
+		DropboxDirect: true,
+		Headers:       map[string]string{"Accept-Encoding": "gzip"},
+	}
+	metadata, err := resolveDropboxDirectURL(task, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || metadata.URL != "https://uc123.dl.dropboxusercontent.com/content/archive.zip" ||
+		metadata.Name != "archive.zip" || !metadata.LengthKnown || metadata.Length != 2587341388 ||
+		metadata.Digest != "sha-256=stored" {
+		t.Fatalf("unexpected Dropbox metadata: requests=%d metadata=%+v", requests, metadata)
+	}
+}
+
+func TestResolveDropboxFolderUsesOneLongRunningGET(t *testing.T) {
+	requests := 0
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		if request.Method != http.MethodGet || request.Header.Get("Range") != "bytes=0-0" {
+			t.Fatalf("unexpected folder archive request: method=%s headers=%v", request.Method, request.Header)
+		}
+		return &http.Response{
+			StatusCode: http.StatusPartialContent,
+			Header: http.Header{
+				"Content-Disposition": []string{`attachment; filename="Shared Folder.zip"`},
+				"Content-Range":       []string{"bytes 0-0/2587341388"},
+			},
+			Body:    io.NopCloser(strings.NewReader("x")),
+			Request: &http.Request{URL: mustURL(t, "https://uc123.dl.dropboxusercontent.com/content/folder.zip")},
+		}, nil
+	})}
+	task := &Task{Link: "https://www.dropbox.com/scl/fo/token/share?rlkey=key&dl=1", Headers: map[string]string{}}
+	metadata, err := resolveDropboxDirectURL(task, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 || metadata.Name != "Shared Folder.zip" || metadata.Length != 2587341388 || !metadata.LengthKnown {
+		t.Fatalf("unexpected folder metadata: requests=%d metadata=%+v", requests, metadata)
+	}
+}
+
+func mustURL(t *testing.T, value string) *url.URL {
+	t.Helper()
+	parsed, err := url.Parse(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed
+}
+
+func TestValidateDropboxMetadataUsesNameSizeAndDigest(t *testing.T) {
+	task := &Task{Name: "archive.zip", TotalLength: 2587341388, RemoteDigest: "sha-256=stored"}
+	valid := dropboxMetadata{Name: "archive.zip", Length: 2587341388, LengthKnown: true, Digest: "sha-256=stored"}
+	if err := validateDropboxMetadata(task, valid); err != nil {
+		t.Fatalf("valid metadata was rejected: %v", err)
+	}
+	for _, changed := range []dropboxMetadata{
+		{Name: "other.zip", Length: 2587341388, LengthKnown: true, Digest: "sha-256=stored"},
+		{Name: "archive.zip", Length: 2587341389, LengthKnown: true, Digest: "sha-256=stored"},
+		{Name: "archive.zip", Length: 2587341388, LengthKnown: true, Digest: "sha-256=changed"},
+	} {
+		if err := validateDropboxMetadata(task, changed); err == nil {
+			t.Fatalf("changed Dropbox metadata was accepted: %+v", changed)
+		}
+	}
+}
+
+func TestSubmitDropboxTaskUsesResolvedURLWithoutPersistingIt(t *testing.T) {
+	stateDir := t.TempDir()
+	m, err := NewManager("unused", filepath.Join(stateDir, "downloads"), filepath.Join(stateDir, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	original := "https://www.dropbox.com/scl/fi/token/archive.zip?rlkey=key&dl=1"
+	task, _, err := m.AddTask(original, "archive.zip", "", map[string]string{
+		"Cookie":     "dropbox=secret",
+		"User-Agent": "Test Client",
+	}, "", 0, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.flushAdmissions(false)
+	m.dropboxClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if isDropboxHost(request.URL.Hostname()) {
+			return &http.Response{
+				StatusCode: http.StatusFound,
+				Header:     http.Header{"Location": []string{"https://uc123.dl.dropboxusercontent.com/content/archive.zip"}},
+				Body:       io.NopCloser(strings.NewReader("")),
+				Request:    request,
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Disposition": []string{`attachment; filename="archive.zip"`},
+				"Content-Length":      []string{"1024"},
+			},
+			Body:    io.NopCloser(strings.NewReader("")),
+			Request: request,
+		}, nil
+	})}
+	fake := &fakeAriaRPC{}
+	m.rpc = fake
+	m.dropboxProxy = func(*http.Request) (*url.URL, error) {
+		return url.Parse("http://127.0.0.1:10808")
+	}
+	if !m.submit(submission{id: task.ID}) {
+		t.Fatal("Dropbox task was not admitted")
+	}
+	if len(fake.added) != 1 || fake.added[0].Link != "https://uc123.dl.dropboxusercontent.com/content/archive.zip" {
+		t.Fatalf("aria2 received unexpected task: %+v", fake.added)
+	}
+	if _, leaked := fake.added[0].Headers["Cookie"]; leaked {
+		t.Fatalf("Dropbox cookie was forwarded to the content host: %+v", fake.added[0].Headers)
+	}
+	if len(fake.addedOptions) != 1 || fake.addedOptions[0]["https-proxy"] != "http://127.0.0.1:10808" {
+		t.Fatalf("aria2 did not receive the Dropbox system proxy: %+v", fake.addedOptions)
+	}
+	persisted, ok := m.GetTask(task.ID)
+	if !ok || persisted.Link != original || persisted.TotalLength != 1024 || persisted.RemoteName != "archive.zip" {
+		t.Fatalf("task did not retain shared link and metadata: %+v", persisted)
+	}
+}
+
+func TestAddTaskRenewsDropboxURLForPartialResume(t *testing.T) {
+	stateDir := t.TempDir()
+	downloadDir := filepath.Join(stateDir, "downloads")
+	databasePath := filepath.Join(stateDir, "records.db")
+	m, err := NewManager("unused", downloadDir, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldLink := "https://www.dropbox.com/scl/fi/token/archive.zip?rlkey=key&st=old&dl=1"
+	task, duplicate, err := m.AddTask(oldLink, "archive.zip", "", nil, "", 0, Aria2Opts{})
+	if err != nil || duplicate {
+		t.Fatalf("initial AddTask: task=%v duplicate=%v err=%v", task, duplicate, err)
+	}
+	m.flushAdmissions(false)
+	if err := os.MkdirAll(downloadDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"", ".aria2"} {
+		if err := os.WriteFile(filepath.Join(downloadDir, task.OutputName+suffix), []byte("partial"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.failTask(task.ID, fmt.Errorf("expired Dropbox redirect"))
+
+	newLink := "https://www.dropbox.com/scl/fi/token/archive.zip?rlkey=key&st=renewed&dl=1"
+	renewed, duplicate, err := m.AddTask(
+		newLink,
+		"archive.zip",
+		"",
+		map[string]string{"User-Agent": "Renewed Client"},
+		"https://www.dropbox.com/home",
+		0,
+		Aria2Opts{Connections: 4},
+	)
+	if err != nil || !duplicate {
+		t.Fatalf("renewed AddTask: task=%v duplicate=%v err=%v", renewed, duplicate, err)
+	}
+	if renewed.ID != task.ID || renewed.Link != newLink || renewed.GID == task.GID {
+		t.Fatalf("Dropbox task was not renewed in place: old=%+v renewed=%+v", task, renewed)
+	}
+	if renewed.Status != StatusQueued || renewed.Headers["User-Agent"] != "Renewed Client" || renewed.Opts.Connections != 4 {
+		t.Fatalf("renewed request metadata was not applied: %+v", renewed)
+	}
+	if got := ariaOptions(renewed, false)["check-integrity"]; got != "true" {
+		t.Fatalf("Dropbox resume check-integrity=%v, want true", got)
+	}
+	m.Stop()
+
+	reopened, err := NewManager("unused", downloadDir, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Stop()
+	persisted, ok := reopened.GetTask(task.ID)
+	if !ok || persisted.Link != newLink || !persisted.DropboxDirect || persisted.Status != StatusQueued {
+		t.Fatalf("renewed Dropbox task was not persisted: %+v", persisted)
 	}
 }
 
@@ -191,10 +437,18 @@ type fakeAriaRPC struct {
 	statusErr    error
 	forceRemoved bool
 	stopped      bool
+	added        []*Task
+	addedOptions []map[string]any
 }
 
-func (f *fakeAriaRPC) ready() error                       { return nil }
-func (f *fakeAriaRPC) addURI(*Task, map[string]any) error { return nil }
+func (f *fakeAriaRPC) ready() error { return nil }
+func (f *fakeAriaRPC) addURI(task *Task, options map[string]any) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.added = append(f.added, cloneTask(task))
+	f.addedOptions = append(f.addedOptions, options)
+	return nil
+}
 func (f *fakeAriaRPC) status(gid string) (ariaStatus, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

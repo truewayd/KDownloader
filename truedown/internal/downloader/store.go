@@ -44,7 +44,12 @@ func openRecordStore(path string) (*recordStore, error) {
 			progress TEXT NOT NULL,
 			error TEXT NOT NULL,
 			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
+			updated_at TEXT NOT NULL,
+			revision INTEGER NOT NULL DEFAULT 0,
+			dropbox_direct INTEGER NOT NULL DEFAULT 0,
+			total_length INTEGER NOT NULL DEFAULT 0,
+			remote_digest TEXT NOT NULL DEFAULT '',
+			remote_name TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_download_records_status ON download_records(status)`,
 	}
@@ -67,6 +72,10 @@ func migrateRecordStore(db *sqliteConn) error {
 		return fmt.Errorf("inspect download database: %w", err)
 	}
 	hasRevision := false
+	hasDropboxDirect := false
+	hasTotalLength := false
+	hasRemoteDigest := false
+	hasRemoteName := false
 	for {
 		hasRow, nextErr := rows.Next()
 		if nextErr != nil {
@@ -76,8 +85,17 @@ func migrateRecordStore(db *sqliteConn) error {
 		if !hasRow {
 			break
 		}
-		if rows.Text(1) == "revision" {
+		switch rows.Text(1) {
+		case "revision":
 			hasRevision = true
+		case "dropbox_direct":
+			hasDropboxDirect = true
+		case "total_length":
+			hasTotalLength = true
+		case "remote_digest":
+			hasRemoteDigest = true
+		case "remote_name":
+			hasRemoteName = true
 		}
 	}
 	rows.Close()
@@ -86,7 +104,27 @@ func migrateRecordStore(db *sqliteConn) error {
 			return fmt.Errorf("upgrade download database: %w", err)
 		}
 	}
-	if _, err := db.Exec(`PRAGMA user_version=2`); err != nil {
+	if !hasDropboxDirect {
+		if _, err := db.Exec(`ALTER TABLE download_records ADD COLUMN dropbox_direct INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("upgrade download database for Dropbox resume: %w", err)
+		}
+	}
+	if !hasTotalLength {
+		if _, err := db.Exec(`ALTER TABLE download_records ADD COLUMN total_length INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("upgrade download database for remote file lengths: %w", err)
+		}
+	}
+	if !hasRemoteDigest {
+		if _, err := db.Exec(`ALTER TABLE download_records ADD COLUMN remote_digest TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("upgrade download database for remote file digests: %w", err)
+		}
+	}
+	if !hasRemoteName {
+		if _, err := db.Exec(`ALTER TABLE download_records ADD COLUMN remote_name TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("upgrade download database for remote file names: %w", err)
+		}
+	}
+	if _, err := db.Exec(`PRAGMA user_version=5`); err != nil {
 		return fmt.Errorf("record download database version: %w", err)
 	}
 	return nil
@@ -128,11 +166,36 @@ func (s *recordStore) insert(t *Task) error {
 	_, err = s.db.Exec(`INSERT INTO download_records (
 		id, fingerprint, request_json, name, link, folder, queue_id, headers_json,
 		download_page, opts_json, output_name, gid, status, progress, error,
-		created_at, updated_at, revision
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		created_at, updated_at, revision, dropbox_direct, total_length, remote_digest, remote_name
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.Fingerprint, t.RequestJSON, t.Name, t.Link, t.Folder, t.QueueID,
 		string(headers), t.DownloadPage, string(opts), t.OutputName, t.GID,
 		string(t.Status), t.Progress, t.Error, formatDBTime(t.CreatedAt), formatDBTime(t.UpdatedAt), t.Revision,
+		boolInt(t.DropboxDirect),
+		t.TotalLength, t.RemoteDigest, t.RemoteName,
+	)
+	return err
+}
+
+func (s *recordStore) UpdateRequest(t *Task) error {
+	headers, err := json.Marshal(t.Headers)
+	if err != nil {
+		return err
+	}
+	opts, err := json.Marshal(t.Opts)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err = s.db.Exec(`UPDATE download_records SET
+		fingerprint=?, request_json=?, name=?, link=?, folder=?, queue_id=?, headers_json=?,
+		download_page=?, opts_json=?, output_name=?, gid=?, status=?, progress=?, error=?,
+		updated_at=?, revision=?, dropbox_direct=?, total_length=?, remote_digest=?, remote_name=?
+		WHERE id=? AND revision<=?`,
+		t.Fingerprint, t.RequestJSON, t.Name, t.Link, t.Folder, t.QueueID, string(headers),
+		t.DownloadPage, string(opts), t.OutputName, t.GID, string(t.Status), t.Progress, t.Error,
+		formatDBTime(t.UpdatedAt), t.Revision, boolInt(t.DropboxDirect), t.TotalLength, t.RemoteDigest, t.RemoteName, t.ID, t.Revision,
 	)
 	return err
 }
@@ -152,10 +215,10 @@ func (s *recordStore) UpdateBatch(tasks []*Task) error {
 	}
 	for _, t := range tasks {
 		if _, err := s.db.Exec(`UPDATE download_records SET
-			name=?, output_name=?, gid=?, status=?, progress=?, error=?, updated_at=?, revision=?
+			name=?, output_name=?, gid=?, status=?, progress=?, error=?, updated_at=?, revision=?, total_length=?, remote_digest=?, remote_name=?
 			WHERE id=? AND revision<=?`,
 			t.Name, t.OutputName, t.GID, string(t.Status), t.Progress, t.Error,
-			formatDBTime(t.UpdatedAt), t.Revision, t.ID, t.Revision,
+			formatDBTime(t.UpdatedAt), t.Revision, t.TotalLength, t.RemoteDigest, t.RemoteName, t.ID, t.Revision,
 		); err != nil {
 			_, _ = s.db.Exec(`ROLLBACK`)
 			return err
@@ -207,7 +270,7 @@ func (s *recordStore) LoadAll() ([]*Task, error) {
 	rows, err := s.db.Query(`SELECT
 		id, fingerprint, request_json, name, link, folder, queue_id, headers_json,
 		download_page, opts_json, output_name, gid, status, progress, error,
-		created_at, updated_at, revision
+		created_at, updated_at, revision, dropbox_direct, total_length, remote_digest, remote_name
 		FROM download_records ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -223,22 +286,29 @@ func (s *recordStore) LoadAll() ([]*Task, error) {
 			break
 		}
 		t := &Task{
-			ID:           rows.Int64(0),
-			Fingerprint:  rows.Text(1),
-			RequestJSON:  rows.Text(2),
-			Name:         rows.Text(3),
-			Link:         rows.Text(4),
-			Folder:       rows.Text(5),
-			QueueID:      int(rows.Int64(6)),
-			DownloadPage: rows.Text(8),
-			OutputName:   rows.Text(10),
-			GID:          rows.Text(11),
-			Status:       Status(rows.Text(12)),
-			Progress:     rows.Text(13),
-			Error:        rows.Text(14),
-			CreatedAt:    parseDBTime(rows.Text(15)),
-			UpdatedAt:    parseDBTime(rows.Text(16)),
-			Revision:     rows.Int64(17),
+			ID:            rows.Int64(0),
+			Fingerprint:   rows.Text(1),
+			RequestJSON:   rows.Text(2),
+			Name:          rows.Text(3),
+			Link:          rows.Text(4),
+			Folder:        rows.Text(5),
+			QueueID:       int(rows.Int64(6)),
+			DownloadPage:  rows.Text(8),
+			OutputName:    rows.Text(10),
+			GID:           rows.Text(11),
+			Status:        Status(rows.Text(12)),
+			Progress:      rows.Text(13),
+			Error:         rows.Text(14),
+			CreatedAt:     parseDBTime(rows.Text(15)),
+			UpdatedAt:     parseDBTime(rows.Text(16)),
+			Revision:      rows.Int64(17),
+			DropboxDirect: rows.Int64(18) != 0,
+			TotalLength:   rows.Int64(19),
+			RemoteDigest:  rows.Text(20),
+			RemoteName:    rows.Text(21),
+		}
+		if !t.DropboxDirect {
+			t.DropboxDirect = isDropboxDirectDownload(t.Link)
 		}
 		if err := json.Unmarshal([]byte(rows.Text(7)), &t.Headers); err != nil {
 			return nil, fmt.Errorf("decode headers for task %d: %w", t.ID, err)
@@ -259,4 +329,11 @@ func parseDBTime(value string) time.Time {
 		return time.Now()
 	}
 	return t
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
