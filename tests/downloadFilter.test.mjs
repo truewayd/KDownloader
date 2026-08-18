@@ -35,6 +35,7 @@ beforeEach(() => {
 test('download extension filtering is disabled by default', async () => {
   const value = await config.loadDownloadRulesConfig();
   assert.equal(value.enabled, false);
+  assert.equal(value.syncToTrueDown, true);
   assert.ok(value.excludedExtensions.includes('.psd'));
   assert.ok(value.excludedExtensions.includes('.clip'));
 });
@@ -47,8 +48,16 @@ test('download rules normalize suffixes and reject invalid values', async () => 
   assert.deepEqual(value, {
     enabled: true,
     excludedExtensions: ['.psd', '.clip', '.procreate'],
+    syncToTrueDown: true,
   });
   assert.deepEqual(stored.downloadRulesConfig, value);
+
+  const syncDisabled = await config.saveDownloadRulesConfig({
+    enabled: false,
+    excludedExtensions: [],
+    syncToTrueDown: false,
+  });
+  assert.equal(syncDisabled.syncToTrueDown, false);
 });
 
 test('external link filtering defaults to a user-editable Patreon domain blacklist', async () => {

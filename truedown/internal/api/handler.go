@@ -174,6 +174,32 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 		}
 	})
 
+	mux.HandleFunc("/settings/download-rules", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, dm.DownloadRules())
+		case http.MethodPost:
+			var req downloader.DownloadRules
+			if !decodeJSONRequest(w, r, 16*1024, &req) {
+				return
+			}
+			rules, err := dm.SetDownloadRules(req)
+			if err != nil {
+				if downloader.IsValidationError(err) {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				http.Error(w, "failed to persist download rules", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, rules)
+		default:
+			w.Header().Set("Allow", "GET, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	mux.HandleFunc("/start-headless-download", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
@@ -186,6 +212,38 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 		}
 		if req.DownloadSource.Link == "" {
 			http.Error(w, "downloadSource.link is required", http.StatusBadRequest)
+			return
+		}
+		expanded, handled, expandErr := dm.AddDropboxFolder(
+			r.Context(),
+			req.DownloadSource.Link,
+			req.Folder,
+			req.DownloadSource.Headers,
+			req.DownloadSource.DownloadPage,
+			req.QueueID,
+			req.Opts,
+		)
+		if expandErr != nil {
+			if downloader.IsValidationError(expandErr) {
+				http.Error(w, expandErr.Error(), http.StatusBadRequest)
+				return
+			}
+			http.Error(w, expandErr.Error(), http.StatusBadGateway)
+			return
+		}
+		if handled {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Header().Set("X-TrueDown-Dropbox-Expanded", "true")
+			w.Header().Set("X-TrueDown-Created", strconv.Itoa(len(expanded.Tasks)))
+			w.Header().Set("X-TrueDown-Filtered", strconv.Itoa(expanded.Filtered))
+			response := fmt.Sprintf("OK %d FILES", len(expanded.Tasks))
+			if expanded.Filtered > 0 {
+				response += fmt.Sprintf(" %d FILTERED", expanded.Filtered)
+			}
+			if expanded.Duplicates > 0 {
+				response += fmt.Sprintf(" %d DUPLICATE", expanded.Duplicates)
+			}
+			w.Write([]byte(response))
 			return
 		}
 		t, duplicate, err := dm.AddTask(

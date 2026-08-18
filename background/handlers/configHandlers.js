@@ -15,6 +15,7 @@ import { gistUpload, gistDownload } from "../gist.js";
 import { getGlobalProgress } from "../progress.js";
 import { configureWatchAlarm } from "../watch.js";
 import { respondWith } from "../messageHelpers.js";
+import { syncDownloadRulesToTrueDown } from "../truedown.js";
 
 async function restoreSettingsDefaults() {
   const configs = await restoreDefaultConfigs();
@@ -23,6 +24,21 @@ async function restoreSettingsDefaults() {
     configureWatchAlarm(configs.watch),
   ]);
   return configs;
+}
+
+async function saveAndSyncDownloadRules(value) {
+  const config = await saveDownloadRulesConfig(value);
+  try {
+    return { config, sync: await syncDownloadRulesToTrueDown(config) };
+  } catch (error) {
+    return {
+      config,
+      sync: {
+        state: "failed",
+        error: error && error.message ? error.message : String(error),
+      },
+    };
+  }
 }
 
 function isExtensionPageSender(sender) {
@@ -60,7 +76,7 @@ export function createConfigHandlers() {
 
     "downloadRules.setConfig": ({ message, sender, sendResponse }) => {
       requireExtensionPage(sender, "Download-rule configuration");
-      return respondWith(sendResponse, saveDownloadRulesConfig(message.config || {}), (config) => ({ config }));
+      return respondWith(sendResponse, saveAndSyncDownloadRules(message.config || {}), (result) => result);
     },
 
     "externalLinkFilter.getConfig": ({ sendResponse }) =>

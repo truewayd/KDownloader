@@ -193,7 +193,7 @@
           <section class="settings-section" aria-labelledby="settings-file-title">
             <div class="settings-section-heading">
               <h3 id="settings-file-title">文件处理</h3>
-              <p>控制文件预分配、完整性校验与远程时间。</p>
+              <p>控制文件预分配、完整性校验、远程时间与目录过滤。</p>
             </div>
             <div class="form-grid">
               <div class="field field-span-2">
@@ -215,6 +215,26 @@
                 <input id="cfg-remote-time" type="checkbox">
                 <span><strong>保留远程时间</strong><small>使用服务器的文件修改时间。</small></span>
               </label>
+              <label class="setting-toggle" for="cfg-filter-enabled">
+                <input id="cfg-filter-enabled" type="checkbox">
+                <span><strong>启用目录文件过滤</strong><small>解析 Dropbox 目录时跳过指定后缀。</small></span>
+              </label>
+            </div>
+            <div class="field">
+              <span class="field-label">排除的文件后缀</span>
+              <div class="extension-grid" role="group" aria-label="排除的文件后缀">
+                <label><input type="checkbox" value=".psd" data-download-extension><span>.psd</span></label>
+                <label><input type="checkbox" value=".clip" data-download-extension><span>.clip</span></label>
+                <label><input type="checkbox" value=".sai" data-download-extension><span>.sai</span></label>
+                <label><input type="checkbox" value=".sai2" data-download-extension><span>.sai2</span></label>
+                <label><input type="checkbox" value=".kra" data-download-extension><span>.kra</span></label>
+                <label><input type="checkbox" value=".xcf" data-download-extension><span>.xcf</span></label>
+                <label><input type="checkbox" value=".procreate" data-download-extension><span>.procreate</span></label>
+                <label><input type="checkbox" value=".afphoto" data-download-extension><span>.afphoto</span></label>
+                <label><input type="checkbox" value=".afdesign" data-download-extension><span>.afdesign</span></label>
+                <label><input type="checkbox" value=".blend" data-download-extension><span>.blend</span></label>
+              </div>
+              <p class="hint">不区分大小写，仅在上方过滤开关启用时生效。</p>
             </div>
           </section>
 

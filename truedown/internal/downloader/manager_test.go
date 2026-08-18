@@ -202,7 +202,7 @@ func TestValidateDropboxMetadataUsesNameSizeAndDigest(t *testing.T) {
 	}
 }
 
-func TestSubmitDropboxTaskUsesResolvedURLWithoutPersistingIt(t *testing.T) {
+func TestSubmitDropboxTaskUsesStableURLAfterMetadataValidation(t *testing.T) {
 	stateDir := t.TempDir()
 	m, err := NewManager("unused", filepath.Join(stateDir, "downloads"), filepath.Join(stateDir, "records.db"))
 	if err != nil {
@@ -245,7 +245,7 @@ func TestSubmitDropboxTaskUsesResolvedURLWithoutPersistingIt(t *testing.T) {
 	if !m.submit(submission{id: task.ID}) {
 		t.Fatal("Dropbox task was not admitted")
 	}
-	if len(fake.added) != 1 || fake.added[0].Link != "https://uc123.dl.dropboxusercontent.com/content/archive.zip" {
+	if len(fake.added) != 1 || fake.added[0].Link != original {
 		t.Fatalf("aria2 received unexpected task: %+v", fake.added)
 	}
 	if _, leaked := fake.added[0].Headers["Cookie"]; leaked {

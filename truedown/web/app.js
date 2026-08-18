@@ -6,6 +6,13 @@ const LEGACY_THEME_KEY = "truedown-theme";
 const API_TOKEN_SESSION_KEY = "truedown-api-token";
 const DOWNLOAD_DEFAULTS_KEY = "truedown-download-defaults-v1";
 const MAX_SPEED_BPS = 2 ** 50;
+const DEFAULT_EXCLUDED_EXTENSIONS = Object.freeze([
+  ".psd", ".clip", ".sai", ".sai2", ".kra", ".xcf", ".procreate", ".afphoto", ".afdesign", ".blend",
+]);
+const DEFAULT_DOWNLOAD_RULES = Object.freeze({
+  enabled: false,
+  excludedExtensions: DEFAULT_EXCLUDED_EXTENSIONS,
+});
 const DEFAULT_DOWNLOAD_SETTINGS = Object.freeze({
   folder: "",
   connections: 16,
@@ -53,6 +60,10 @@ let apiTokenPromptDismissed = false;
 let tokenAuthEnabled = false;
 let tokenAuthManaged = false;
 let downloadSettings = loadDownloadSettings();
+let downloadRules = {
+  enabled: DEFAULT_DOWNLOAD_RULES.enabled,
+  excludedExtensions: [...DEFAULT_DOWNLOAD_RULES.excludedExtensions],
+};
 let settingsReturnFocus = null;
 let dialogReturnFocus = null;
 let dialogResolver = null;
@@ -70,6 +81,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   } catch (error) {
     showToast(`读取认证设置失败：${error.message}`, "error");
   }
+  try {
+    await loadServerDownloadRules();
+  } catch (error) {
+    showToast(`读取目录过滤器失败：${error.message}`, "error");
+  }
   refreshAndSchedule();
 });
 
@@ -86,6 +102,7 @@ function cacheElements() {
     "cfg-allocation",
     "cfg-check-integrity",
     "cfg-extra",
+    "cfg-filter-enabled",
     "cfg-folder",
     "cfg-headers",
     "cfg-proxy",
@@ -422,7 +439,9 @@ async function submitTask(event) {
     const summary = duplicateCount
       ? `已接收 ${created.length} 项，其中 ${duplicateCount} 项复用原记录并检查更新`
       : `已创建 ${created.length} 个任务`;
-    showModalMsg(links.length === 1 ? (duplicateCount ? "已复用原记录并检查更新" : `已创建：${created[0]}`) : summary);
+    showModalMsg(links.length === 1
+      ? formatStartOutcome(created[0], duplicateCount > 0)
+      : summary);
     els.mLink.value = "";
     window.setTimeout(closeModal, 700);
   } catch (error) {
@@ -437,6 +456,16 @@ function setSubmitting(isSubmitting) {
   els.submitTaskBtn.disabled = isSubmitting;
   els.submitTaskBtn.toggleAttribute("aria-busy", isSubmitting);
   els.submitTaskBtn.textContent = isSubmitting ? "提交中..." : (modalMode === "batch" ? "批量开始" : "开始下载");
+}
+
+function formatStartOutcome(value, duplicate) {
+  const folder = /^OK\s+(\d+)\s+FILES(?:\s+(\d+)\s+FILTERED)?(?:\s+(\d+)\s+DUPLICATE)?$/.exec(value);
+  if (folder) {
+    const filtered = Number(folder[2] || 0);
+    const duplicates = Number(folder[3] || 0);
+    return `目录解析完成：加入 ${folder[1]} 个文件${filtered ? `，过滤 ${filtered} 个` : ""}${duplicates ? `，复用 ${duplicates} 个续传任务` : ""}`;
+  }
+  return duplicate ? "已复用原记录并检查更新" : `已创建：${value}`;
 }
 
 function buildStartBody(link, sharedBody) {
@@ -809,8 +838,13 @@ function emptyMarkup() {
   return `<div class="empty-state"><div class="empty-icon" aria-hidden="true">↓</div><h2>${title}</h2><p>${detail}</p></div>`;
 }
 
-function openSettingsModal() {
+async function openSettingsModal() {
   settingsReturnFocus = document.activeElement;
+  try {
+    await loadServerDownloadRules();
+  } catch (error) {
+    showToast(`刷新目录过滤器失败：${error.message}`, "error");
+  }
   renderDownloadSettings();
   els.settingsOverlay.classList.add("open");
   els.settingsOverlay.setAttribute("aria-hidden", "false");
@@ -873,10 +907,15 @@ function renderDownloadSettings(settings = downloadSettings) {
   els.cfgAllocation.value = settings.allocation;
   els.cfgCheckIntegrity.checked = settings.checkIntegrity;
   els.cfgRemoteTime.checked = settings.remoteTime;
+  els.cfgFilterEnabled.checked = downloadRules.enabled;
+  const selected = new Set(downloadRules.excludedExtensions);
+  document.querySelectorAll("[data-download-extension]").forEach((input) => {
+    input.checked = selected.has(input.value);
+  });
   els.cfgExtra.value = settings.extra;
 }
 
-function saveDownloadSettings(event) {
+async function saveDownloadSettings(event) {
   event.preventDefault();
   try {
     parseHeaders(els.cfgHeaders.value);
@@ -902,8 +941,21 @@ function saveDownloadSettings(event) {
       remoteTime: els.cfgRemoteTime.checked,
       extra: els.cfgExtra.value.trim(),
     };
+    const nextRules = {
+      enabled: els.cfgFilterEnabled.checked,
+      excludedExtensions: Array.from(
+        document.querySelectorAll("[data-download-extension]:checked"),
+        (input) => input.value,
+      ),
+    };
+    const savedRules = await requestJSON("/settings/download-rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(nextRules),
+    });
     localStorage.setItem(DOWNLOAD_DEFAULTS_KEY, JSON.stringify(nextSettings));
     downloadSettings = nextSettings;
+    downloadRules = normalizeServerDownloadRules(savedRules);
     closeSettingsModal();
     showToast("下载器默认设置已保存。");
   } catch (error) {
@@ -912,6 +964,10 @@ function saveDownloadSettings(event) {
 }
 
 function resetDownloadSettings() {
+  downloadRules = {
+    enabled: DEFAULT_DOWNLOAD_RULES.enabled,
+    excludedExtensions: [...DEFAULT_DOWNLOAD_RULES.excludedExtensions],
+  };
   renderDownloadSettings(DEFAULT_DOWNLOAD_SETTINGS);
   showToast("已恢复默认值，点击「保存设置」后生效。");
 }
@@ -938,6 +994,42 @@ function parseHeaders(value) {
     throw new Error("Headers 必须是字符串键值的 JSON 对象");
   }
   return parsed;
+}
+
+function normalizeExcludedExtensions(value, fallback) {
+  const items = Array.isArray(value) ? value : String(value || "").split(/[\s,;]+/);
+  const result = [];
+  const seen = new Set();
+  for (const item of items) {
+    let extension = String(item || "").trim().toLowerCase();
+    if (!extension) continue;
+    if (!extension.startsWith(".")) extension = `.${extension}`;
+    if (!/^\.[a-z0-9]{1,16}$/.test(extension)) {
+      if (fallback) return [...fallback];
+      throw new Error(`无效的排除后缀：${item}`);
+    }
+    if (!seen.has(extension)) {
+      seen.add(extension);
+      result.push(extension);
+    }
+  }
+  if (result.length > 64) {
+    if (fallback) return [...fallback];
+    throw new Error("排除后缀不能超过 64 项");
+  }
+  return result;
+}
+
+function normalizeServerDownloadRules(value) {
+  const rules = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    enabled: rules.enabled === true,
+    excludedExtensions: normalizeExcludedExtensions(rules.excludedExtensions, DEFAULT_EXCLUDED_EXTENSIONS),
+  };
+}
+
+async function loadServerDownloadRules() {
+  downloadRules = normalizeServerDownloadRules(await requestJSON("/settings/download-rules"));
 }
 
 function hasHeader(headers, name) {

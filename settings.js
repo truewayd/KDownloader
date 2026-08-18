@@ -128,6 +128,7 @@ async function saveBackend() {
 async function loadDownloadRules() {
   const { config } = await sendMessage({ action: "downloadRules.getConfig" });
   setValue("download-filter-enabled", config.enabled);
+  setValue("download-filter-sync-truedown", config.syncToTrueDown);
   const selected = new Set(config.excludedExtensions || []);
   document.querySelectorAll("[data-download-extension]").forEach((input) => {
     input.checked = selected.has(input.value);
@@ -140,13 +141,14 @@ async function saveDownloadRules() {
     document.querySelectorAll("[data-download-extension]:checked"),
     (input) => input.value
   );
-  await sendMessage({
+  return sendMessage({
     action: "downloadRules.setConfig",
     config: {
       enabled: !!$("download-filter-enabled")?.checked,
       excludedExtensions,
+      syncToTrueDown: !!$("download-filter-sync-truedown")?.checked,
     },
-  });
+  }, 20000);
 }
 
 async function loadExternalLinkFilter() {
@@ -265,15 +267,19 @@ async function saveAll() {
   await withBusyButton(saveBtn, async () => {
     try {
       $("save-status").textContent = t("statusSaving");
-      await Promise.all([
-        saveBackend(),
+      await saveBackend();
+      const [downloadRulesResult] = await Promise.all([
         saveDownloadRules(),
         saveExternalLinkFilter(),
         saveWatch(),
         saveGist(),
         saveCreators(),
       ]);
-      showToast(t("settingsSaved"));
+      if (downloadRulesResult?.sync?.state === "failed") {
+        showToast(`${t("settingsSavedTrueDownSyncFailed")} ${downloadRulesResult.sync.error}`, "error");
+      } else {
+        showToast(t("settingsSaved"));
+      }
     } catch (err) {
       console.error("[Settings] save failed", err);
       showToast(err.message || "Save failed", "error");

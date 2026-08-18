@@ -78,6 +78,7 @@ beforeEach(() => {
   runtimeMessages = [];
   globalThis.__apiResponse = null;
   globalThis.__cookieString = '';
+  globalThis.__downloadRulesConfig = { enabled: false, excludedExtensions: [] };
   globalThis.__fetchImplementation = async () => ({
     ok: false,
     status: 503,
@@ -212,6 +213,29 @@ test('forwards a site cookie through TrueDown for same-family media', async () =
   assert.equal(backendPayload.downloadSource.link, 'https://n1.kemono.cr/data/protected.jpg');
   assert.equal(backendPayload.downloadSource.headers.Cookie, 'session=secret; clearance=allowed');
   assert.equal('X-Api-Key' in backendOptions.headers, false);
+});
+
+test('keeps Dropbox parsing and filter configuration out of per-file task requests', async () => {
+  assert.doesNotMatch(
+    downloadSource,
+    /list_shared_link_folder_entries|fetch_user_content_link|secure_hash|next_request_voucher/
+  );
+  globalThis.__apiResponse = {
+    post: { title: 'filter sync' },
+    videos: [{ url: 'https://kemono.cr/data/media.jpg' }],
+  };
+  let backendPayload;
+  globalThis.__fetchImplementation = async (_url, options) => {
+    backendPayload = JSON.parse(options.body);
+    return { ok: true, status: 200, async text() { return ''; } };
+  };
+
+  const result = await download.startFullDownload(
+    'patreon', 'creator-1', 'post-1', '', 'https://kemono.cr/post-1'
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(Object.hasOwn(backendPayload, 'downloadRules'), false);
 });
 
 test('backend progress preserves the originating request id', async () => {

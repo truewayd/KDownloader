@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"os/exec"
@@ -167,9 +168,10 @@ type ariaRPC interface {
 }
 
 type Manager struct {
-	aria2Path  string
-	defaultDir string
-	store      *recordStore
+	aria2Path     string
+	defaultDir    string
+	store         *recordStore
+	downloadRules *downloadRulesStore
 
 	mu           sync.RWMutex
 	tasks        map[int64]*Task
@@ -215,11 +217,17 @@ func NewManager(aria2Path, defaultDir, databasePath string) (*Manager, error) {
 		store.Close()
 		return nil, fmt.Errorf("load download records: %w", err)
 	}
+	downloadRules, err := newDownloadRulesStore(databasePath)
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
 	dropboxProxy := systemProxyFunc()
 	m := &Manager{
 		aria2Path:     aria2Path,
 		defaultDir:    defaultDir,
 		store:         store,
+		downloadRules: downloadRules,
 		tasks:         make(map[int64]*Task, len(tasks)),
 		fingerprints:  make(map[string]int64, len(tasks)),
 		gids:          make(map[string]int64, len(tasks)),
@@ -1168,12 +1176,10 @@ func (m *Manager) submit(item submission) bool {
 			m.failTask(snapshot.ID, err)
 			return false
 		}
-		// Keep the user-provided shared link in the task record. The resolved
-		// content URL is short-lived and is used only for this aria2 admission.
-		snapshot.Link = metadata.URL
-		if parsed, parseErr := url.Parse(metadata.URL); parseErr == nil && isDropboxContentHost(parsed.Hostname()) {
-			snapshot.Headers = dropboxContentHeaders(snapshot.Headers)
-		}
+		// Resolved content URLs can be single-use. Keep the stable shared link
+		// for aria2 so it follows a fresh redirect, and strip credentials that
+		// must not cross that redirect to dropboxusercontent.com.
+		snapshot.Headers = dropboxContentHeaders(snapshot.Headers)
 	}
 	options := ariaOptions(snapshot, item.recheck)
 	if snapshot.DropboxDirect && m.dropboxProxy != nil {
@@ -1664,8 +1670,11 @@ func isDropboxFolderDownload(value string) bool {
 	if err != nil || !isDropboxDirectDownload(value) {
 		return false
 	}
-	path := strings.ToLower(parsed.EscapedPath())
-	return strings.HasPrefix(path, "/scl/fo/") || strings.HasPrefix(path, "/sh/")
+	segments := strings.Split(strings.Trim(strings.ToLower(parsed.EscapedPath()), "/"), "/")
+	if len(segments) == 4 && segments[0] == "scl" && segments[1] == "fo" {
+		return true
+	}
+	return len(segments) == 2 && segments[0] == "sh"
 }
 
 func isDropboxHost(host string) bool {
@@ -1682,8 +1691,10 @@ func newDropboxHTTPClient(proxy func(*http.Request) (*url.URL, error)) *http.Cli
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = proxy
 	transport.DisableCompression = true
+	jar, _ := cookiejar.New(nil)
 	return &http.Client{
 		Transport: transport,
+		Jar:       jar,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
 				return fmt.Errorf("too many Dropbox redirects")

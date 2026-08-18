@@ -904,6 +904,41 @@ h2 {
   line-height: 1.4;
 }
 
+.field-label {
+  color: var(--kd-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.extension-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.extension-grid label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid var(--kd-border);
+  border-radius: var(--kd-radius);
+  padding: 8px;
+  background: var(--kd-input);
+  color: var(--kd-text);
+  cursor: pointer;
+  font-family: var(--kd-mono);
+  font-size: 11px;
+}
+
+.extension-grid input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--kd-accent);
+}
+
 .token-card {
   display: grid;
   gap: 10px;
@@ -1188,6 +1223,10 @@ label {
   .form-grid,
   .toggle-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .extension-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .field-span-2 {

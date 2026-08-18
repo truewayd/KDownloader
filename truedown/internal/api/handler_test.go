@@ -195,6 +195,7 @@ func TestStartDownloadValidatesContentTypeAndURL(t *testing.T) {
 		{"text/plain", `{"downloadSource":{"link":"https://example.test/file"}}`, http.StatusUnsupportedMediaType},
 		{"application/json", `{"downloadSource":{"link":"file:///etc/passwd"}}`, http.StatusBadRequest},
 		{"application/json", `{"downloadSource":{"link":"https://example.test/file"},"unknown":true}`, http.StatusBadRequest},
+		{"application/json", `{"downloadSource":{"link":"https://example.test/file"},"downloadRules":{"enabled":true}}`, http.StatusBadRequest},
 	} {
 		request := httptest.NewRequest(http.MethodPost, "/start-headless-download", strings.NewReader(testCase.body))
 		request.Header.Set("Content-Type", testCase.contentType)
@@ -203,6 +204,59 @@ func TestStartDownloadValidatesContentTypeAndURL(t *testing.T) {
 		if response.Code != testCase.status {
 			t.Fatalf("status=%d, want %d; body=%s", response.Code, testCase.status, response.Body.String())
 		}
+	}
+}
+
+func TestDownloadRulesEndpointPersistsAndValidatesConfig(t *testing.T) {
+	root := t.TempDir()
+	databasePath := filepath.Join(root, "records.db")
+	manager, err := downloader.NewManager("unused", filepath.Join(root, "downloads"), databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, manager, &testTokenAuth{})
+
+	get := httptest.NewRequest(http.MethodGet, "/settings/download-rules", nil)
+	getResponse := httptest.NewRecorder()
+	mux.ServeHTTP(getResponse, get)
+	if getResponse.Code != http.StatusOK || !strings.Contains(getResponse.Body.String(), `"enabled":false`) ||
+		!strings.Contains(getResponse.Body.String(), `".psd"`) {
+		t.Fatalf("default rules status=%d body=%s", getResponse.Code, getResponse.Body.String())
+	}
+
+	post := httptest.NewRequest(http.MethodPost, "/settings/download-rules", strings.NewReader(
+		`{"enabled":true,"excludedExtensions":[".PSD",".clip",".psd"]}`,
+	))
+	post.Header.Set("Content-Type", "application/json")
+	postResponse := httptest.NewRecorder()
+	mux.ServeHTTP(postResponse, post)
+	if postResponse.Code != http.StatusOK || postResponse.Body.String() !=
+		"{\"enabled\":true,\"excludedExtensions\":[\".psd\",\".clip\"]}\n" {
+		t.Fatalf("save rules status=%d body=%s", postResponse.Code, postResponse.Body.String())
+	}
+	for _, body := range []string{
+		`{"enabled":true,"excludedExtensions":["../psd"]}`,
+		`{"enabled":true,"excludedExtensions":[],"unknown":true}`,
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/settings/download-rules", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("body=%s status=%d response=%s", body, response.Code, response.Body.String())
+		}
+	}
+	manager.Stop()
+
+	reloaded, err := downloader.NewManager("unused", filepath.Join(root, "downloads"), databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reloaded.Stop()
+	if rules := reloaded.DownloadRules(); !rules.Enabled || len(rules.ExcludedExtensions) != 2 ||
+		rules.ExcludedExtensions[0] != ".psd" || rules.ExcludedExtensions[1] != ".clip" {
+		t.Fatalf("reloaded rules=%+v", rules)
 	}
 }
 

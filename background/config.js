@@ -181,6 +181,7 @@ export function getDefaultDownloadRulesConfig() {
   return {
     enabled: false,
     excludedExtensions: [...DEFAULT_EXCLUDED_EXTENSIONS],
+    syncToTrueDown: true,
   };
 }
 
@@ -231,6 +232,7 @@ export async function loadDownloadRulesConfig() {
   return {
     enabled: typeof cfg.enabled === 'boolean' ? cfg.enabled : def.enabled,
     excludedExtensions: normalizeExcludedExtensions(cfg.excludedExtensions),
+    syncToTrueDown: typeof cfg.syncToTrueDown === 'boolean' ? cfg.syncToTrueDown : def.syncToTrueDown,
   };
 }
 
@@ -238,6 +240,7 @@ export async function saveDownloadRulesConfig(cfg) {
   const next = {
     enabled: !!(cfg && cfg.enabled),
     excludedExtensions: normalizeExcludedExtensions(cfg && cfg.excludedExtensions),
+    syncToTrueDown: !cfg || cfg.syncToTrueDown !== false,
   };
   await chrome.storage.sync.set({ [DOWNLOAD_RULES_CONFIG_KEY]: next });
   return next;

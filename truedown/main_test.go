@@ -212,6 +212,30 @@ func TestSecureHandlerAcceptsABBrowserIntegrationAPIKey(t *testing.T) {
 	}
 }
 
+func TestSecureHandlerProtectsDownloadRuleSyncWithAPIKey(t *testing.T) {
+	token := strings.Repeat("f", 32)
+	handler := secureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}), testAuthState(token), "127.0.0.1:15151")
+
+	unauthorized := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:15151/settings/download-rules", strings.NewReader(`{"enabled":true}`))
+	unauthorized.Header.Set("Origin", "chrome-extension://abcdefghijklmnop")
+	unauthorizedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(unauthorizedResponse, unauthorized)
+	if unauthorizedResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized rule sync status=%d", unauthorizedResponse.Code)
+	}
+
+	authorized := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:15151/settings/download-rules", strings.NewReader(`{"enabled":true}`))
+	authorized.Header.Set("Origin", "chrome-extension://abcdefghijklmnop")
+	authorized.Header.Set("X-Api-Key", token)
+	authorizedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(authorizedResponse, authorized)
+	if authorizedResponse.Code != http.StatusNoContent {
+		t.Fatalf("authorized rule sync status=%d", authorizedResponse.Code)
+	}
+}
+
 func TestAuthControllerIsOptionalAndPersistsDashboardSetting(t *testing.T) {
 	dataDir := t.TempDir()
 	controller, err := newAuthController(dataDir, false, "")

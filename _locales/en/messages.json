@@ -188,6 +188,9 @@
   "downloadFilterExtensions": {
     "message": "Excluded file extensions"
   },
+  "downloadFilterSyncTrueDown": {
+    "message": "Sync this filter to TrueDown when settings are saved"
+  },
   "externalLinkFilterMode": {
     "message": "External link filter"
   },
@@ -300,6 +303,9 @@
   },
   "settingsSaved": {
     "message": "Settings saved"
+  },
+  "settingsSavedTrueDownSyncFailed": {
+    "message": "Settings saved, but TrueDown filter sync failed:"
   },
   "defaultsRestored": {
     "message": "Defaults restored"

@@ -188,6 +188,9 @@
   "downloadFilterExtensions": {
     "message": "排除的文件后缀"
   },
+  "downloadFilterSyncTrueDown": {
+    "message": "保存设置时将此过滤器同步到 TrueDown"
+  },
   "externalLinkFilterMode": {
     "message": "外链提取过滤"
   },
@@ -300,6 +303,9 @@
   },
   "settingsSaved": {
     "message": "设置已保存"
+  },
+  "settingsSavedTrueDownSyncFailed": {
+    "message": "设置已保存，但 TrueDown 过滤器同步失败："
   },
   "defaultsRestored": {
     "message": "已恢复默认值"

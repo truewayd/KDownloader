@@ -153,7 +153,10 @@ class TaskQueue {
       if (!item) continue;
 
       const { meta, task, options } = item;
-      const { endpoint, cookieString, origin, service, userId, postId, headers, referer, perFileRetry = 0, sendProgress } = options;
+      const {
+        endpoint, cookieString, origin, service, userId, postId, headers, referer,
+        perFileRetry = 0, sendProgress,
+      } = options;
       const requestReferer = referer || `${origin}/${encodeURIComponent(service)}/user/${encodeURIComponent(userId)}/post/${encodeURIComponent(postId)}`;
 
       // Wait the adaptive delay before sending to avoid spikes
