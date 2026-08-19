@@ -8,5 +8,6 @@ dist/
 *.md
 !README.zh-CN.md
 !truedown/THIRD_PARTY_NOTICES.md
+!truedown/COMPONENTS.md
 !changelog/
 !changelog/*.md

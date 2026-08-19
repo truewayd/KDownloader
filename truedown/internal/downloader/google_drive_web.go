@@ -18,13 +18,14 @@ import (
 )
 
 const (
-	googleDriveHTMLLimit       = 2 * 1024 * 1024
-	googleDriveFolderHTMLLimit = 16 * 1024 * 1024
-	googleDriveMaxFiles        = 5000
-	googleDriveMaxDirectories  = 1000
-	googleDriveMaxDepth        = 64
-	googleDriveFolderWorkers   = 4
-	googleDriveUserAgent       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+	googleDriveHTMLLimit        = 2 * 1024 * 1024
+	googleDriveFolderHTMLLimit  = 16 * 1024 * 1024
+	googleDriveMaxFiles         = 5000
+	googleDriveMaxDirectories   = 1000
+	googleDriveMaxFolderEntries = googleDriveMaxFiles + googleDriveMaxDirectories
+	googleDriveMaxDepth         = 64
+	googleDriveFolderWorkers    = 4
+	googleDriveUserAgent        = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 )
 
 var (
@@ -111,6 +112,15 @@ func newGoogleDriveSessionClient(base *http.Client) *http.Client {
 // the large-file confirmation form. The implementation is original Go code;
 // protocol behavior was studied from wkentaro/gdown (MIT), main@7132dabe.
 func resolveGoogleDriveDownload(ctx context.Context, task *Task, base *http.Client) (remoteMetadata, map[string]string, error) {
+	return resolveGoogleDriveDownloadWithProfile(ctx, task, base, googleDriveBaselineProfile)
+}
+
+func resolveGoogleDriveDownloadWithProfile(
+	ctx context.Context,
+	task *Task,
+	base *http.Client,
+	profile googleDriveComponentConfig,
+) (remoteMetadata, map[string]string, error) {
 	if task == nil {
 		return remoteMetadata{}, nil, fmt.Errorf("Google Drive task is missing")
 	}
@@ -125,7 +135,7 @@ func resolveGoogleDriveDownload(ctx context.Context, task *Task, base *http.Clie
 	seedGoogleDriveCookies(client.Jar, task.Headers)
 	format := strings.ToLower(strings.TrimSpace(mustParseURLQuery(task.Link).Get("format")))
 	nativeType := strings.ToLower(strings.TrimSpace(mustParseURLQuery(task.Link).Get("type")))
-	current := googleDriveStableLink(reference.ID, nativeType, format)
+	current := profile.stableLink(reference.ID, nativeType, format)
 	seen := make(map[string]struct{})
 	usedOpenFallback := false
 	for attempt := 0; attempt < 10; attempt++ {
@@ -133,7 +143,7 @@ func resolveGoogleDriveDownload(ctx context.Context, task *Task, base *http.Clie
 			return remoteMetadata{}, nil, fmt.Errorf("Google Drive resolver entered a redirect loop")
 		}
 		seen[current] = struct{}{}
-		response, err := requestGoogleDrivePage(ctx, client, current, task.Headers)
+		response, err := requestGoogleDrivePage(ctx, client, current, task.Headers, profile)
 		if err != nil {
 			return remoteMetadata{}, nil, fmt.Errorf("request Google Drive file: %w", err)
 		}
@@ -144,20 +154,20 @@ func resolveGoogleDriveDownload(ctx context.Context, task *Task, base *http.Clie
 		if response.StatusCode == http.StatusInternalServerError && !usedOpenFallback {
 			response.Body.Close()
 			usedOpenFallback = true
-			current = "https://drive.google.com/open?id=" + url.QueryEscape(reference.ID)
+			current = profile.openLink(reference.ID)
 			continue
 		}
 		if name := contentDispositionName(response.Header.Get("Content-Disposition")); name != "" && response.StatusCode >= 200 && response.StatusCode < 300 {
 			if nativeType != "" && format != "" && !strings.Contains(strings.ToLower(mustParseURLPath(resolvedURL)), "/export") &&
 				!strings.EqualFold(filepath.Ext(name), "."+format) {
 				response.Body.Close()
-				current = googleDriveExportURL(nativeType, reference.ID, format)
+				current = profile.exportLink(nativeType, reference.ID, format)
 				continue
 			}
 			metadata := remoteMetadata{URL: resolvedURL, Name: sanitizeModulePathComponent(name)}
 			metadata.Length, metadata.LengthKnown = responseTotalLength(response, responseRequestMethod(response))
 			metadata.Digest = strings.TrimSpace(response.Header.Get("X-Goog-Hash"))
-			headers := googleDriveDownloadHeaders(task.Headers, client.Jar, responseRequestURL(response))
+			headers := googleDriveDownloadHeaders(task.Headers, client.Jar, responseRequestURL(response), profile)
 			response.Body.Close()
 			return metadata, headers, nil
 		}
@@ -180,7 +190,7 @@ func resolveGoogleDriveDownload(ctx context.Context, task *Task, base *http.Clie
 			resolvedNativeType = nativeType
 		}
 		if resolvedNativeType != "" && !strings.Contains(strings.ToLower(mustParseURLPath(resolvedURL)), "/export") {
-			current = googleDriveExportURL(resolvedNativeType, reference.ID, format)
+			current = profile.exportLink(resolvedNativeType, reference.ID, format)
 			continue
 		}
 		next, confirmErr := googleDriveConfirmationURL(string(body), resolvedURL)
@@ -192,7 +202,13 @@ func resolveGoogleDriveDownload(ctx context.Context, task *Task, base *http.Clie
 	return remoteMetadata{}, nil, fmt.Errorf("Google Drive confirmation flow exceeded its redirect limit")
 }
 
-func requestGoogleDrivePage(ctx context.Context, client *http.Client, value string, headers map[string]string) (*http.Response, error) {
+func requestGoogleDrivePage(
+	ctx context.Context,
+	client *http.Client,
+	value string,
+	headers map[string]string,
+	profile googleDriveComponentConfig,
+) (*http.Response, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, value, nil)
 	if err != nil {
 		return nil, err
@@ -205,7 +221,7 @@ func requestGoogleDrivePage(ctx context.Context, client *http.Client, value stri
 		request.Header.Set(name, headerValue)
 	}
 	if request.Header.Get("User-Agent") == "" {
-		request.Header.Set("User-Agent", googleDriveUserAgent)
+		request.Header.Set("User-Agent", profile.UserAgent)
 	}
 	request.Header.Set("Accept-Encoding", "identity")
 	return client.Do(request)
@@ -233,7 +249,12 @@ func seedGoogleDriveCookies(jar http.CookieJar, headers map[string]string) {
 	}
 }
 
-func googleDriveDownloadHeaders(input map[string]string, jar http.CookieJar, target *url.URL) map[string]string {
+func googleDriveDownloadHeaders(
+	input map[string]string,
+	jar http.CookieJar,
+	target *url.URL,
+	profile googleDriveComponentConfig,
+) map[string]string {
 	headers := make(map[string]string, len(input)+2)
 	for name, value := range input {
 		switch strings.ToLower(strings.TrimSpace(name)) {
@@ -243,7 +264,7 @@ func googleDriveDownloadHeaders(input map[string]string, jar http.CookieJar, tar
 		headers[name] = value
 	}
 	if !hasCaseInsensitiveHeader(headers, "User-Agent") {
-		headers["User-Agent"] = googleDriveUserAgent
+		headers["User-Agent"] = profile.UserAgent
 	}
 	if jar != nil && target != nil {
 		parts := make([]string, 0)
@@ -362,7 +383,7 @@ func googleDriveExportURL(nativeType, id, format string) string {
 			format = "pptx"
 		}
 	}
-	return fmt.Sprintf("https://docs.google.com/%s/d/%s/export?format=%s", nativeType, url.PathEscape(id), url.QueryEscape(format))
+	return googleDriveBaselineProfile.exportLink(nativeType, id, format)
 }
 
 func mustParseURLQuery(value string) url.Values {
@@ -394,6 +415,15 @@ func readLimitedBody(body io.Reader, limit int64) ([]byte, error) {
 }
 
 func crawlGoogleDriveFolder(ctx context.Context, client *http.Client, rootID string) ([]googleDriveFolderFile, string, error) {
+	return crawlGoogleDriveFolderWithProfile(ctx, client, rootID, googleDriveBaselineProfile)
+}
+
+func crawlGoogleDriveFolderWithProfile(
+	ctx context.Context,
+	client *http.Client,
+	rootID string,
+	profile googleDriveComponentConfig,
+) ([]googleDriveFolderFile, string, error) {
 	if client == nil {
 		return nil, "", fmt.Errorf("Google Drive resolver is unavailable")
 	}
@@ -407,16 +437,21 @@ func crawlGoogleDriveFolder(ctx context.Context, client *http.Client, rootID str
 		batch := append([]googleDriveFolderWork(nil), pending[:batchSize]...)
 		pending = pending[batchSize:]
 		results := make([]googleDriveFolderFetch, len(batch))
+		batchCtx, cancel := context.WithCancel(ctx)
 		var workers sync.WaitGroup
 		for index, work := range batch {
 			workers.Add(1)
 			go func(index int, work googleDriveFolderWork) {
 				defer workers.Done()
-				name, entries, err := fetchGoogleDriveFolder(ctx, client, work.ID)
+				name, entries, err := fetchGoogleDriveFolder(batchCtx, client, work.ID, profile)
 				results[index] = googleDriveFolderFetch{Name: name, Entries: entries, Err: err}
+				if err != nil {
+					cancel()
+				}
 			}(index, work)
 		}
 		workers.Wait()
+		cancel()
 		for index, result := range results {
 			work := batch[index]
 			if result.Err != nil {
@@ -463,13 +498,18 @@ func crawlGoogleDriveFolder(ctx context.Context, client *http.Client, rootID str
 	return files, rootName, nil
 }
 
-func fetchGoogleDriveFolder(ctx context.Context, client *http.Client, id string) (string, []googleDriveFolderEntry, error) {
-	endpoint := "https://drive.google.com/embeddedfolderview?id=" + url.QueryEscape(id)
+func fetchGoogleDriveFolder(
+	ctx context.Context,
+	client *http.Client,
+	id string,
+	profile googleDriveComponentConfig,
+) (string, []googleDriveFolderEntry, error) {
+	endpoint := profile.folderViewLink(id)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", nil, err
 	}
-	request.Header.Set("User-Agent", googleDriveUserAgent)
+	request.Header.Set("User-Agent", profile.UserAgent)
 	request.Header.Set("Accept-Encoding", "identity")
 	response, err := client.Do(request)
 	if err != nil {
@@ -483,7 +523,8 @@ func fetchGoogleDriveFolder(ctx context.Context, client *http.Client, id string)
 	if err != nil {
 		return "", nil, fmt.Errorf("read Google Drive folder %s: %w", id, err)
 	}
-	titleMatch := googleHTMLTitlePattern.FindStringSubmatch(string(body))
+	contents := string(body)
+	titleMatch := googleHTMLTitlePattern.FindStringSubmatch(contents)
 	if len(titleMatch) != 2 {
 		return "", nil, fmt.Errorf("Google Drive folder %s page structure has changed", id)
 	}
@@ -493,9 +534,15 @@ func fetchGoogleDriveFolder(ctx context.Context, client *http.Client, id string)
 	}
 	entries := make([]googleDriveFolderEntry, 0)
 	seen := make(map[string]struct{})
-	for _, match := range googleHTMLAnchorPattern.FindAllStringSubmatch(string(body), -1) {
-		attributes := parseHTMLAttributes(match[1])
-		href := strings.TrimSpace(attributes["href"])
+	for offset := 0; offset < len(contents); {
+		match := googleHTMLAnchorPattern.FindStringSubmatchIndex(contents[offset:])
+		if match == nil {
+			break
+		}
+		attributes := contents[offset+match[2] : offset+match[3]]
+		entryContents := contents[offset+match[4] : offset+match[5]]
+		offset += match[1]
+		href := strings.TrimSpace(findHTMLAttribute(attributes, "href"))
 		if href == "" {
 			continue
 		}
@@ -515,14 +562,36 @@ func fetchGoogleDriveFolder(ctx context.Context, client *http.Client, id string)
 		if _, exists := seen[key]; exists {
 			continue
 		}
-		entryName := strings.TrimSpace(stripHTMLText(match[2]))
+		entryName := strings.TrimSpace(stripHTMLText(entryContents))
 		if entryName == "" {
 			continue
+		}
+		if len(entries) >= googleDriveMaxFolderEntries {
+			return "", nil, fmt.Errorf("Google Drive folder %s exceeds %d entries", id, googleDriveMaxFolderEntries)
 		}
 		seen[key] = struct{}{}
 		entries = append(entries, googleDriveFolderEntry{Reference: reference, Name: entryName})
 	}
 	return name, entries, nil
+}
+
+func findHTMLAttribute(value, target string) string {
+	for offset := 0; offset < len(value); {
+		match := googleHTMLAttributePattern.FindStringSubmatchIndex(value[offset:])
+		if match == nil {
+			return ""
+		}
+		if match[2] >= 0 && strings.EqualFold(value[offset+match[2]:offset+match[3]], target) {
+			for index := 4; index+1 < len(match); index += 2 {
+				if match[index] >= 0 {
+					return html.UnescapeString(value[offset+match[index] : offset+match[index+1]])
+				}
+			}
+			return ""
+		}
+		offset += match[1]
+	}
+	return ""
 }
 
 func stripHTMLText(value string) string {

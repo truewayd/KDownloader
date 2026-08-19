@@ -19,7 +19,7 @@ test("release workflow publishes the newest dated changelog", async () => {
     .reverse();
 
   assert.ok(datedFiles.length > 0, "At least one dated release note is required");
-  assert.equal(datedFiles[0], "2026-08-19-004-truedown-google-drive-modules.md");
+  assert.equal(datedFiles[0], "2026-08-19-007-runtime-quality-and-gc-audit.md");
   assert.match(workflow, /read-latest-changelog\.ps1 -OutputFile release-notes\.md/);
   assert.match(workflow, /body_path:\s*release-notes\.md/);
   assert.match(workflow, /generate_release_notes:\s*false/);

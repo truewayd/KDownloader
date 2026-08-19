@@ -16,11 +16,25 @@ var defaultExcludedExtensions = []string{
 	".psd", ".clip", ".sai", ".sai2", ".kra", ".xcf", ".procreate", ".afphoto", ".afdesign", ".blend",
 }
 
-// DownloadRules stores the suffix list and dashboard default used only while a
-// Dropbox shared folder is expanded.
+const (
+	DropboxModeDirect = "direct"
+	DropboxModeExpand = "expand"
+)
+
+// DownloadRules stores the default Dropbox folder behavior and the optional
+// suffix filter used only while a shared folder is expanded.
 type DownloadRules struct {
 	Enabled            bool     `json:"enabled"`
 	ExcludedExtensions []string `json:"excludedExtensions"`
+	DropboxMode        string   `json:"dropboxMode"`
+}
+
+// DownloadRulesUpdate preserves the current Dropbox mode when older clients
+// post only filter fields to the shared settings endpoint.
+type DownloadRulesUpdate struct {
+	Enabled            bool     `json:"enabled"`
+	ExcludedExtensions []string `json:"excludedExtensions"`
+	DropboxMode        *string  `json:"dropboxMode"`
 }
 
 type downloadRulesStore struct {
@@ -54,7 +68,10 @@ func newDownloadRulesStore(databasePath string) (*downloadRulesStore, error) {
 }
 
 func defaultDownloadRules() DownloadRules {
-	return DownloadRules{ExcludedExtensions: append([]string(nil), defaultExcludedExtensions...)}
+	return DownloadRules{
+		ExcludedExtensions: append([]string(nil), defaultExcludedExtensions...),
+		DropboxMode:        DropboxModeDirect,
+	}
 }
 
 func normalizeDownloadRules(rules DownloadRules) (DownloadRules, error) {
@@ -64,6 +81,13 @@ func normalizeDownloadRules(rules DownloadRules) (DownloadRules, error) {
 	normalized := DownloadRules{
 		Enabled:            rules.Enabled,
 		ExcludedExtensions: make([]string, 0, len(rules.ExcludedExtensions)),
+		DropboxMode:        strings.ToLower(strings.TrimSpace(rules.DropboxMode)),
+	}
+	if normalized.DropboxMode == "" {
+		normalized.DropboxMode = DropboxModeDirect
+	}
+	if normalized.DropboxMode != DropboxModeDirect && normalized.DropboxMode != DropboxModeExpand {
+		return DownloadRules{}, &ValidationError{Message: "Dropbox mode must be direct or expand"}
 	}
 	seen := make(map[string]struct{}, len(rules.ExcludedExtensions))
 	for _, raw := range rules.ExcludedExtensions {
@@ -86,6 +110,7 @@ func (store *downloadRulesStore) snapshot() DownloadRules {
 	return DownloadRules{
 		Enabled:            store.rules.Enabled,
 		ExcludedExtensions: append([]string(nil), store.rules.ExcludedExtensions...),
+		DropboxMode:        store.rules.DropboxMode,
 	}
 }
 
@@ -110,19 +135,55 @@ func (store *downloadRulesStore) update(rules DownloadRules) (DownloadRules, err
 	return store.snapshotUnlocked(), nil
 }
 
+func (store *downloadRulesStore) updateRequest(request DownloadRulesUpdate) (DownloadRules, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	mode := store.rules.DropboxMode
+	if request.DropboxMode != nil {
+		mode = *request.DropboxMode
+	}
+	normalized, err := normalizeDownloadRules(DownloadRules{
+		Enabled:            request.Enabled,
+		ExcludedExtensions: request.ExcludedExtensions,
+		DropboxMode:        mode,
+	})
+	if err != nil {
+		return DownloadRules{}, err
+	}
+	data, err := json.MarshalIndent(normalized, "", "  ")
+	if err != nil {
+		return DownloadRules{}, fmt.Errorf("encode download rules: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(store.path), 0700); err != nil {
+		return DownloadRules{}, fmt.Errorf("create download-rules directory: %w", err)
+	}
+	if err := os.WriteFile(store.path, append(data, '\n'), 0600); err != nil {
+		return DownloadRules{}, fmt.Errorf("persist download rules: %w", err)
+	}
+	store.rules = normalized
+	return store.snapshotUnlocked(), nil
+}
+
 func (store *downloadRulesStore) snapshotUnlocked() DownloadRules {
 	return DownloadRules{
 		Enabled:            store.rules.Enabled,
 		ExcludedExtensions: append([]string(nil), store.rules.ExcludedExtensions...),
+		DropboxMode:        store.rules.DropboxMode,
 	}
 }
 
-// DownloadRules returns the current Dropbox expansion filter.
+// DownloadRules returns the current Dropbox mode and expansion filter defaults.
 func (m *Manager) DownloadRules() DownloadRules {
 	return m.downloadRules.snapshot()
 }
 
-// SetDownloadRules persists the Dropbox expansion filter.
+// SetDownloadRules persists the complete Dropbox mode and filter defaults.
 func (m *Manager) SetDownloadRules(rules DownloadRules) (DownloadRules, error) {
 	return m.downloadRules.update(rules)
+}
+
+// UpdateDownloadRules applies dashboard/API fields while allowing older
+// filter-only clients to leave the independently configured Dropbox mode alone.
+func (m *Manager) UpdateDownloadRules(update DownloadRulesUpdate) (DownloadRules, error) {
+	return m.downloadRules.updateRequest(update)
 }

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "google-drive",
+  "engine": "google-drive-v1",
+  "version": "1.0.0",
+  "releasedAt": "2026-08-19",
+  "config": {
+    "stableDownloadPath": "/uc",
+    "openPath": "/open",
+    "folderViewPath": "/embeddedfolderview",
+    "nativeExportPath": "/{type}/d/{id}/export",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+  }
+}

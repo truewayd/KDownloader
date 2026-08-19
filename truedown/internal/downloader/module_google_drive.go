@@ -14,11 +14,28 @@ import (
 	"time"
 )
 
-const googleDriveModuleVersion = "1.0.0"
-
 var googleDriveIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{10,256}$`)
 
-type googleDriveResolverModule struct{}
+type googleDriveResolverModule struct {
+	version string
+	profile googleDriveComponentConfig
+}
+
+type googleDriveComponentConfig struct {
+	StableDownloadPath string `json:"stableDownloadPath"`
+	OpenPath           string `json:"openPath"`
+	FolderViewPath     string `json:"folderViewPath"`
+	NativeExportPath   string `json:"nativeExportPath"`
+	UserAgent          string `json:"userAgent"`
+}
+
+var googleDriveBaselineProfile = googleDriveComponentConfig{
+	StableDownloadPath: "/uc",
+	OpenPath:           "/open",
+	FolderViewPath:     "/embeddedfolderview",
+	NativeExportPath:   "/{type}/d/{id}/export",
+	UserAgent:          googleDriveUserAgent,
+}
 
 type googleDriveModuleOptions struct {
 	DocumentFormat     string `json:"documentFormat"`
@@ -32,9 +49,44 @@ type googleDriveReference struct {
 	NativeType string
 }
 
-func (*googleDriveResolverModule) info() ModuleInfo {
+func newGoogleDriveResolverModule(pkg componentPackage) (resolverModule, error) {
+	decoder := json.NewDecoder(bytes.NewReader(pkg.Config))
+	decoder.DisallowUnknownFields()
+	var profile googleDriveComponentConfig
+	if err := decoder.Decode(&profile); err != nil {
+		return nil, &ValidationError{Message: fmt.Sprintf("invalid Google Drive component config: %v", err)}
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, &ValidationError{Message: "Google Drive component config must contain one JSON object"}
+	}
+	profile.StableDownloadPath = strings.TrimSpace(profile.StableDownloadPath)
+	profile.OpenPath = strings.TrimSpace(profile.OpenPath)
+	profile.FolderViewPath = strings.TrimSpace(profile.FolderViewPath)
+	profile.NativeExportPath = strings.TrimSpace(profile.NativeExportPath)
+	profile.UserAgent = strings.TrimSpace(profile.UserAgent)
+	for name, value := range map[string]string{
+		"stableDownloadPath": profile.StableDownloadPath,
+		"openPath":           profile.OpenPath,
+		"folderViewPath":     profile.FolderViewPath,
+	} {
+		if !validComponentPath(value) {
+			return nil, &ValidationError{Message: fmt.Sprintf("Google Drive component %s is invalid", name)}
+		}
+	}
+	if strings.Count(profile.NativeExportPath, "{type}") != 1 ||
+		strings.Count(profile.NativeExportPath, "{id}") != 1 ||
+		!validComponentPath(strings.ReplaceAll(strings.ReplaceAll(profile.NativeExportPath, "{type}", "document"), "{id}", "file")) {
+		return nil, &ValidationError{Message: "Google Drive component nativeExportPath is invalid"}
+	}
+	if !validComponentHeaderValue(profile.UserAgent, 512) {
+		return nil, &ValidationError{Message: "Google Drive component userAgent is invalid"}
+	}
+	return &googleDriveResolverModule{version: pkg.Version, profile: profile}, nil
+}
+
+func (module *googleDriveResolverModule) info() ModuleInfo {
 	return ModuleInfo{
-		ID: GoogleDriveModuleID, Name: "Google Drive", Version: googleDriveModuleVersion, BuiltIn: true,
+		ID: GoogleDriveModuleID, Name: "Google Drive", Version: module.version, BuiltIn: true,
 		Description:  "解析公开文件、确认页、Google 文档导出和递归共享目录。",
 		Capabilities: []string{"file", "folder", "native-export", "resume"},
 	}
@@ -50,7 +102,7 @@ func (*googleDriveResolverModule) validateOptions(raw json.RawMessage) error {
 	return err
 }
 
-func (*googleDriveResolverModule) resolve(
+func (module *googleDriveResolverModule) resolve(
 	ctx context.Context,
 	m *Manager,
 	request moduleResolveRequest,
@@ -72,15 +124,15 @@ func (*googleDriveResolverModule) resolve(
 		return ModuleAddResult{}, true, err
 	}
 	if reference.Folder {
-		return resolveGoogleDriveFolder(ctx, m, identity, reference, options)
+		return resolveGoogleDriveFolder(ctx, m, identity, reference, options, module.profile)
 	}
 
 	format := googleNativeFormat(reference.NativeType, options)
-	stableLink := googleDriveStableLink(reference.ID, reference.NativeType, format)
+	stableLink := module.profile.stableLink(reference.ID, reference.NativeType, format)
 	probeTask := &Task{Link: stableLink, Headers: identity.Headers, Name: identity.Name}
 	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	metadata, _, err := resolveGoogleDriveDownload(probeCtx, probeTask, m.googleDriveClient)
+	metadata, _, err := resolveGoogleDriveDownloadWithProfile(probeCtx, probeTask, m.googleDriveClient, module.profile)
 	if err != nil {
 		return ModuleAddResult{}, true, err
 	}
@@ -105,10 +157,10 @@ func (*googleDriveResolverModule) resolve(
 	return result, true, nil
 }
 
-func (*googleDriveResolverModule) prepare(ctx context.Context, m *Manager, task *Task) (modulePreparation, error) {
+func (module *googleDriveResolverModule) prepare(ctx context.Context, m *Manager, task *Task) (modulePreparation, error) {
 	resolveCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	metadata, headers, err := resolveGoogleDriveDownload(resolveCtx, task, m.googleDriveClient)
+	metadata, headers, err := resolveGoogleDriveDownloadWithProfile(resolveCtx, task, m.googleDriveClient, module.profile)
 	if err != nil {
 		return modulePreparation{}, err
 	}
@@ -229,6 +281,10 @@ func splitURLPath(value string) []string {
 }
 
 func googleDriveStableLink(id, nativeType, format string) string {
+	return googleDriveBaselineProfile.stableLink(id, nativeType, format)
+}
+
+func (profile googleDriveComponentConfig) stableLink(id, nativeType, format string) string {
 	query := url.Values{"id": []string{id}, "export": []string{"download"}}
 	if nativeType != "" {
 		query.Set("type", nativeType)
@@ -236,7 +292,21 @@ func googleDriveStableLink(id, nativeType, format string) string {
 	if format != "" {
 		query.Set("format", format)
 	}
-	return "https://drive.google.com/uc?" + query.Encode()
+	return "https://drive.google.com" + profile.StableDownloadPath + "?" + query.Encode()
+}
+
+func (profile googleDriveComponentConfig) openLink(id string) string {
+	return "https://drive.google.com" + profile.OpenPath + "?id=" + url.QueryEscape(id)
+}
+
+func (profile googleDriveComponentConfig) folderViewLink(id string) string {
+	return "https://drive.google.com" + profile.FolderViewPath + "?id=" + url.QueryEscape(id)
+}
+
+func (profile googleDriveComponentConfig) exportLink(nativeType, id, format string) string {
+	path := strings.ReplaceAll(profile.NativeExportPath, "{type}", url.PathEscape(nativeType))
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(id))
+	return "https://docs.google.com" + path + "?format=" + url.QueryEscape(format)
 }
 
 func googleNativeFormat(nativeType string, options googleDriveModuleOptions) string {
@@ -270,10 +340,11 @@ func resolveGoogleDriveFolder(
 	identity requestIdentity,
 	reference googleDriveReference,
 	options googleDriveModuleOptions,
+	profile googleDriveComponentConfig,
 ) (ModuleAddResult, bool, error) {
 	crawlCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	files, rootName, err := crawlGoogleDriveFolder(crawlCtx, m.googleDriveClient, reference.ID)
+	files, rootName, err := crawlGoogleDriveFolderWithProfile(crawlCtx, m.googleDriveClient, reference.ID, profile)
 	if err != nil {
 		return ModuleAddResult{}, true, err
 	}
@@ -296,7 +367,7 @@ func resolveGoogleDriveFolder(
 			targetFolder = filepath.Join(append([]string{targetFolder}, file.Relative...)...)
 		}
 		requests = append(requests, taskAddRequest{
-			Link: googleDriveStableLink(file.ID, file.NativeType, googleNativeFormat(file.NativeType, options)),
+			Link: profile.stableLink(file.ID, file.NativeType, googleNativeFormat(file.NativeType, options)),
 			Name: name, Folder: targetFolder, Headers: identity.Headers,
 			DownloadPage: identity.DownloadPage, QueueID: identity.QueueID,
 			Opts: identity.Opts, ModuleID: GoogleDriveModuleID,

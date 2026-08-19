@@ -977,6 +977,18 @@ h2 {
 	line-height: 1.5;
 }
 
+.module-card-copy .module-card-error {
+	color: var(--kd-error-text);
+}
+
+.module-card-actions {
+	display: flex;
+	flex: 0 0 auto;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 6px;
+}
+
 .setting-toggle {
   display: flex;
   align-items: flex-start;
@@ -1447,6 +1459,10 @@ label {
 	.module-card {
 		align-items: stretch;
 		flex-direction: column;
+	}
+
+	.module-card-actions {
+		justify-content: flex-start;
 	}
 }
 

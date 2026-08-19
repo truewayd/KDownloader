@@ -237,7 +237,7 @@ func NewManager(aria2Path, defaultDir, databasePath string) (*Manager, error) {
 		store.Close()
 		return nil, err
 	}
-	modules, err := newModuleRegistry(databasePath, &dropboxResolverModule{}, &googleDriveResolverModule{})
+	modules, err := newModuleRegistry(databasePath)
 	if err != nil {
 		store.Close()
 		return nil, err
@@ -316,7 +316,7 @@ func (m *Manager) Start() error {
 			m.setStatusLocked(task, StatusQueued)
 			task.Progress = "Waiting for aria2 to restore download progress"
 			m.touchTaskLocked(task)
-			restored = append(restored, cloneTask(task))
+			restored = append(restored, snapshotTaskUpdate(task))
 			submissions = append(submissions, submission{id: task.ID})
 		case StatusPaused:
 			submissions = append(submissions, submission{id: task.ID})
@@ -549,18 +549,45 @@ func (m *Manager) PageTaskSnapshots(offset, limit int, status Status, search str
 // The response remains bounded even though an explicit sort must inspect all
 // matching in-memory task identities to stay correct across pages.
 func (m *Manager) PageTaskSnapshotsSorted(offset, limit int, status Status, search, sortField, sortOrder string) TaskPage {
+	page, _ := m.PageTaskSnapshotsSortedIfChanged(offset, limit, status, search, sortField, sortOrder, "")
+	return page
+}
+
+// PageTaskSnapshotsSortedIfChanged avoids rebuilding a globally sorted or
+// searched page when its revision-based validator still matches.
+func (m *Manager) PageTaskSnapshotsSortedIfChanged(
+	offset, limit int,
+	status Status,
+	search, sortField, sortOrder, ifNoneMatch string,
+) (TaskPage, bool) {
 	if offset < 0 {
 		offset = 0
 	}
 	if limit < 1 {
 		limit = 100
 	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	search = strings.ToLower(strings.TrimSpace(search))
 	sortField = strings.ToLower(strings.TrimSpace(sortField))
 	sortOrder = strings.ToLower(strings.TrimSpace(sortOrder))
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	version := uint64(m.structureRev) ^ uint64(offset+1)*1099511628211 ^ uint64(limit)
+	for _, value := range []string{string(status), search, sortField, sortOrder} {
+		for _, char := range value {
+			version ^= uint64(char) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
+		}
+		version ^= uint64(':') + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
+	}
+	usesGlobalRevision := search != "" || sortField != ""
+	if usesGlobalRevision {
+		version ^= uint64(m.revision) * 1099511628211
+		validator := fmt.Sprintf(`"td-%x"`, version)
+		if ifNoneMatch != "" && ifNoneMatch == validator {
+			return TaskPage{Version: validator}, true
+		}
+	}
+
 	total := len(m.tasks)
 	if status != "" {
 		total = m.statusCounts[status]
@@ -581,19 +608,17 @@ func (m *Manager) PageTaskSnapshotsSorted(offset, limit int, status Status, sear
 		Total:    total,
 		Revision: m.revision,
 	}
-	version := uint64(m.structureRev) ^ uint64(offset+1)*1099511628211 ^ uint64(limit)
-	for _, char := range search {
-		version ^= uint64(char) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
-	}
-	for _, char := range sortField + ":" + sortOrder {
-		version ^= uint64(char) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
-	}
-	if search != "" || sortField != "" {
-		// A file name update can move a task into or out of a search page without
-		// changing the task collection structure.
-		version ^= uint64(m.revision) * 1099511628211
-	}
 	if sortField != "" {
+		if sortField == "id" {
+			m.appendTaskPageByID(&page, status, search, sortOrder == "desc")
+			page.Version = fmt.Sprintf(`"td-%x"`, version)
+			return page, ifNoneMatch != "" && ifNoneMatch == page.Version
+		}
+		if sortField == "status" {
+			m.appendTaskPageByStatus(&page, status, search, sortOrder == "desc")
+			page.Version = fmt.Sprintf(`"td-%x"`, version)
+			return page, ifNoneMatch != "" && ifNoneMatch == page.Version
+		}
 		ids := make([]int64, 0, total)
 		for _, id := range m.orderedIDs {
 			if task := m.tasks[id]; taskMatchesPage(task, status, search) {
@@ -615,11 +640,9 @@ func (m *Manager) PageTaskSnapshotsSorted(offset, limit int, status Status, sear
 		for index := offset; index < len(ids) && len(page.Tasks) < limit; index++ {
 			task := m.tasks[ids[index]]
 			page.Tasks = append(page.Tasks, snapshotTask(task))
-			version ^= uint64(task.ID) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
-			version ^= uint64(task.Revision) * 1099511628211
 		}
 		page.Version = fmt.Sprintf(`"td-%x"`, version)
-		return page
+		return page, ifNoneMatch != "" && ifNoneMatch == page.Version
 	}
 	skipped := 0
 	for index := len(m.orderedIDs) - 1; index >= 0 && len(page.Tasks) < limit; index-- {
@@ -632,11 +655,84 @@ func (m *Manager) PageTaskSnapshotsSorted(offset, limit int, status Status, sear
 			continue
 		}
 		page.Tasks = append(page.Tasks, snapshotTask(task))
-		version ^= uint64(task.ID) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
-		version ^= uint64(task.Revision) * 1099511628211
+		if !usesGlobalRevision {
+			version ^= uint64(task.ID) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
+			version ^= uint64(task.Revision) * 1099511628211
+		}
 	}
 	page.Version = fmt.Sprintf(`"td-%x"`, version)
-	return page
+	return page, ifNoneMatch != "" && ifNoneMatch == page.Version
+}
+
+func (m *Manager) appendTaskPageByID(page *TaskPage, status Status, search string, descending bool) {
+	skipped := 0
+	if descending {
+		for index := len(m.orderedIDs) - 1; index >= 0 && len(page.Tasks) < page.Limit; index-- {
+			appendTaskToPage(page, m.tasks[m.orderedIDs[index]], status, search, &skipped)
+		}
+		return
+	}
+	for _, id := range m.orderedIDs {
+		if len(page.Tasks) >= page.Limit {
+			return
+		}
+		appendTaskToPage(page, m.tasks[id], status, search, &skipped)
+	}
+}
+
+func (m *Manager) appendTaskPageByStatus(page *TaskPage, status Status, search string, descending bool) {
+	skipped := 0
+	ranks := [6]int{0, 1, 2, 3, 4, 5}
+	rankCount := len(ranks)
+	if status != "" {
+		ranks[0] = taskStatusSortRank(status)
+		rankCount = 1
+	} else if descending {
+		ranks = [6]int{5, 4, 3, 2, 1, 0}
+	}
+	for _, rank := range ranks[:rankCount] {
+		if status == "" && search == "" {
+			if rankedStatus, known := taskStatusForSortRank(rank); known {
+				count := m.statusCounts[rankedStatus]
+				if count == 0 {
+					continue
+				}
+				if skipped+count <= page.Offset {
+					skipped += count
+					continue
+				}
+			}
+		}
+		if descending {
+			for index := len(m.orderedIDs) - 1; index >= 0 && len(page.Tasks) < page.Limit; index-- {
+				task := m.tasks[m.orderedIDs[index]]
+				if task != nil && taskStatusSortRank(task.Status) == rank {
+					appendTaskToPage(page, task, status, search, &skipped)
+				}
+			}
+			continue
+		}
+		for _, id := range m.orderedIDs {
+			if len(page.Tasks) >= page.Limit {
+				return
+			}
+			task := m.tasks[id]
+			if task != nil && taskStatusSortRank(task.Status) == rank {
+				appendTaskToPage(page, task, status, search, &skipped)
+			}
+		}
+	}
+}
+
+func appendTaskToPage(page *TaskPage, task *Task, status Status, search string, skipped *int) {
+	if !taskMatchesPage(task, status, search) {
+		return
+	}
+	if *skipped < page.Offset {
+		*skipped++
+		return
+	}
+	page.Tasks = append(page.Tasks, snapshotTask(task))
 }
 
 func compareTasksForPage(first, second *Task, field string) int {
@@ -652,11 +748,11 @@ func compareTasksForPage(first, second *Task, field string) int {
 		if secondName == "" {
 			secondName = second.Name
 		}
-		return strings.Compare(strings.ToLower(firstName), strings.ToLower(secondName))
+		return compareFold(firstName, secondName)
 	case "status":
 		return taskStatusSortRank(first.Status) - taskStatusSortRank(second.Status)
 	case "link":
-		return strings.Compare(strings.ToLower(first.Link), strings.ToLower(second.Link))
+		return compareFold(first.Link, second.Link)
 	case "progress":
 		firstProgress := first.Progress
 		if first.Error != "" {
@@ -682,7 +778,7 @@ func compareTasksForPage(first, second *Task, field string) int {
 			}
 			return 1
 		}
-		return strings.Compare(strings.ToLower(firstProgress), strings.ToLower(secondProgress))
+		return compareFold(firstProgress, secondProgress)
 	default:
 		return compareInt64(first.ID, second.ID)
 	}
@@ -725,6 +821,23 @@ func taskStatusSortRank(status Status) int {
 	}
 }
 
+func taskStatusForSortRank(rank int) (Status, bool) {
+	switch rank {
+	case 0:
+		return StatusDownloading, true
+	case 1:
+		return StatusQueued, true
+	case 2:
+		return StatusPaused, true
+	case 3:
+		return StatusError, true
+	case 4:
+		return StatusDone, true
+	default:
+		return "", false
+	}
+}
+
 func taskMatchesPage(task *Task, status Status, search string) bool {
 	if task == nil || (status != "" && task.Status != status) {
 		return false
@@ -732,9 +845,73 @@ func taskMatchesPage(task *Task, status Status, search string) bool {
 	if search == "" {
 		return true
 	}
-	return strings.Contains(strings.ToLower(task.OutputName), search) ||
-		strings.Contains(strings.ToLower(task.Name), search) ||
-		strings.Contains(strings.ToLower(task.Link), search)
+	return containsFold(task.OutputName, search) ||
+		containsFold(task.Name, search) ||
+		containsFold(task.Link, search)
+}
+
+func compareFold(left, right string) int {
+	if isASCII(left) && isASCII(right) {
+		limit := min(len(left), len(right))
+		for index := 0; index < limit; index++ {
+			leftByte := lowerASCII(left[index])
+			rightByte := lowerASCII(right[index])
+			if leftByte < rightByte {
+				return -1
+			}
+			if leftByte > rightByte {
+				return 1
+			}
+		}
+		return len(left) - len(right)
+	}
+	return strings.Compare(strings.ToLower(left), strings.ToLower(right))
+}
+
+func containsFold(value, lowerNeedle string) bool {
+	if isASCII(value) && isASCII(lowerNeedle) {
+		if len(lowerNeedle) > len(value) {
+			return false
+		}
+		if strings.Contains(value, lowerNeedle) {
+			return true
+		}
+		// Keep adversarial long searches on the standard linear-time matcher.
+		// Short dashboard searches use the allocation-free folded loop below.
+		if len(lowerNeedle) > 32 {
+			return strings.Contains(strings.ToLower(value), lowerNeedle)
+		}
+		for start := 0; start <= len(value)-len(lowerNeedle); start++ {
+			matched := true
+			for index := 0; index < len(lowerNeedle); index++ {
+				if lowerASCII(value[start+index]) != lowerNeedle[index] {
+					matched = false
+					break
+				}
+			}
+			if matched {
+				return true
+			}
+		}
+		return false
+	}
+	return strings.Contains(strings.ToLower(value), lowerNeedle)
+}
+
+func isASCII(value string) bool {
+	for index := 0; index < len(value); index++ {
+		if value[index] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
+}
+
+func lowerASCII(value byte) byte {
+	if value >= 'A' && value <= 'Z' {
+		return value + ('a' - 'A')
+	}
+	return value
 }
 
 func (m *Manager) TaskIDsByStatus(status Status, limit int) []int64 {
@@ -811,7 +988,7 @@ func (m *Manager) RequeueTasks(ids []int64) TaskOperationResult {
 		task.Error = ""
 		task.Progress = "Waiting for aria2 to resume partial data"
 		m.touchTaskLocked(task)
-		updates = append(updates, cloneTask(task))
+		updates = append(updates, snapshotTaskUpdate(task))
 		result.Succeeded = append(result.Succeeded, id)
 	}
 	m.mu.Unlock()
@@ -934,7 +1111,7 @@ func (m *Manager) changeQueuePauseState(pause bool) TaskOperationResult {
 		}
 		task.Error = ""
 		m.touchTaskLocked(task)
-		updates = append(updates, cloneTask(task))
+		updates = append(updates, snapshotTaskUpdate(task))
 		result.Succeeded = append(result.Succeeded, id)
 	}
 	m.mu.Unlock()
@@ -1041,7 +1218,7 @@ func (m *Manager) changePauseState(ids []int64, pause bool) TaskOperationResult 
 		}
 		task.Error = ""
 		m.touchTaskLocked(task)
-		updates = append(updates, cloneTask(task))
+		updates = append(updates, snapshotTaskUpdate(task))
 		persistedIDs[target.id] = struct{}{}
 		result.Succeeded = append(result.Succeeded, target.id)
 	}
@@ -1463,7 +1640,7 @@ func (m *Manager) submit(item submission) bool {
 	}
 	task.Error = ""
 	m.touchTaskLocked(task)
-	persisted := cloneTask(task)
+	persisted := snapshotTaskUpdate(task)
 	m.mu.Unlock()
 	if err := m.store.Update(persisted); err != nil {
 		log.Printf("persist admitted task %d: %v", persisted.ID, err)
@@ -1523,7 +1700,7 @@ func (m *Manager) applyStatuses(statuses []ariaStatus) {
 		}
 		if oldStatus != task.Status || oldProgress != task.Progress || oldError != task.Error || oldOutput != task.OutputName || oldTotalLength != task.TotalLength {
 			m.touchTaskLocked(task)
-			updates = append(updates, cloneTask(task))
+			updates = append(updates, snapshotTaskUpdate(task))
 		}
 	}
 	m.mu.Unlock()
@@ -1547,7 +1724,7 @@ func (m *Manager) setTask(id int64, update func(*Task)) error {
 		m.structureRev++
 	}
 	m.touchTaskLocked(task)
-	snapshot := cloneTask(task)
+	snapshot := snapshotTaskUpdate(task)
 	m.mu.Unlock()
 	return m.store.Update(snapshot)
 }
@@ -2377,6 +2554,15 @@ func cloneTask(task *Task) *Task {
 	}
 	clone.Opts.ExtraArgs = append([]string(nil), task.Opts.ExtraArgs...)
 	return &clone
+}
+
+func snapshotTaskUpdate(task *Task) *Task {
+	return &Task{
+		ID: task.ID, Name: task.Name, OutputName: task.OutputName, GID: task.GID,
+		Status: task.Status, Progress: task.Progress, Error: task.Error,
+		UpdatedAt: task.UpdatedAt, Revision: task.Revision, TotalLength: task.TotalLength,
+		RemoteDigest: task.RemoteDigest, RemoteName: task.RemoteName,
+	}
 }
 
 func resolveAvailableOutputName(name string, available func(string) bool) string {

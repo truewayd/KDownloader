@@ -190,11 +190,11 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 		case http.MethodGet:
 			writeJSON(w, http.StatusOK, dm.DownloadRules())
 		case http.MethodPost:
-			var req downloader.DownloadRules
+			var req downloader.DownloadRulesUpdate
 			if !decodeJSONRequest(w, r, 16*1024, &req) {
 				return
 			}
-			rules, err := dm.SetDownloadRules(req)
+			rules, err := dm.UpdateDownloadRules(req)
 			if err != nil {
 				if downloader.IsValidationError(err) {
 					http.Error(w, err.Error(), http.StatusBadRequest)
@@ -266,6 +266,41 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 		}
 	})
 
+	mux.HandleFunc("/modules/package", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		switch r.Method {
+		case http.MethodPost:
+			var req downloader.ModulePackageInstallRequest
+			if !decodeJSONRequest(w, r, 70*1024, &req) {
+				return
+			}
+			module, err := dm.InstallModulePackage(req.Package)
+			if err != nil {
+				if downloader.IsValidationError(err) {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				http.Error(w, "failed to persist resolver component update", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, module)
+		case http.MethodDelete:
+			module, err := dm.ResetModulePackage(r.URL.Query().Get("id"))
+			if err != nil {
+				if downloader.IsValidationError(err) {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				http.Error(w, "failed to reset resolver component", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, module)
+		default:
+			w.Header().Set("Allow", "POST, DELETE")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	mux.HandleFunc("/start-headless-download", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
@@ -286,11 +321,13 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 		}
 		if _, exists := moduleOptions[downloader.DropboxModuleID]; !exists {
 			legacyMode := strings.TrimSpace(req.Dropbox.Mode)
-			if legacyMode == "" {
-				legacyMode = "direct"
+			if legacyMode != "" || req.Dropbox.ApplyFilter {
+				if legacyMode == "" {
+					legacyMode = downloader.DropboxModeDirect
+				}
+				legacy, _ := json.Marshal(map[string]any{"mode": legacyMode, "applyFilter": req.Dropbox.ApplyFilter})
+				moduleOptions[downloader.DropboxModuleID] = legacy
 			}
-			legacy, _ := json.Marshal(map[string]any{"mode": legacyMode, "applyFilter": req.Dropbox.ApplyFilter})
-			moduleOptions[downloader.DropboxModuleID] = legacy
 		}
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(6 * time.Minute))
 		resolved, handled, resolveErr := dm.AddWithModules(
@@ -444,9 +481,11 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		page := dm.PageTaskSnapshotsSorted(offset, limit, status, search, sortField, sortOrder)
+		page, notModified := dm.PageTaskSnapshotsSortedIfChanged(
+			offset, limit, status, search, sortField, sortOrder, r.Header.Get("If-None-Match"),
+		)
 		w.Header().Set("ETag", page.Version)
-		if r.Header.Get("If-None-Match") == page.Version {
+		if notModified {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}

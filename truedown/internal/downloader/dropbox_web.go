@@ -21,6 +21,7 @@ const (
 	dropboxFolderResponseLimit   = 16 * 1024 * 1024
 	dropboxFolderMaxFiles        = 5000
 	dropboxFolderMaxDirectories  = 1000
+	dropboxFolderMaxEntries      = dropboxFolderMaxFiles + dropboxFolderMaxDirectories
 	dropboxFolderMaxPages        = 2000
 	dropboxFolderMaxDepth        = 64
 	dropboxFolderWorkers         = 4
@@ -77,6 +78,21 @@ func (m *Manager) AddDropboxFolder(
 	opts Aria2Opts,
 	applyFilter bool,
 ) (DropboxExpansionResult, bool, error) {
+	return m.addDropboxFolderWithProfile(
+		ctx, link, folder, headers, downloadPage, queueID, opts, applyFilter, dropboxBaselineProfile,
+	)
+}
+
+func (m *Manager) addDropboxFolderWithProfile(
+	ctx context.Context,
+	link, folder string,
+	headers map[string]string,
+	downloadPage string,
+	queueID int,
+	opts Aria2Opts,
+	applyFilter bool,
+	profile dropboxComponentConfig,
+) (DropboxExpansionResult, bool, error) {
 	share, ok := parseDropboxWebShare(link)
 	if !ok {
 		return DropboxExpansionResult{}, false, nil
@@ -96,12 +112,12 @@ func (m *Manager) AddDropboxFolder(
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	csrf, err := primeDropboxWebSession(ctx, webClient, share.PageURL)
+	csrf, err := primeDropboxWebSession(ctx, webClient, share.PageURL, profile)
 	if err != nil {
 		return DropboxExpansionResult{}, true, fmt.Errorf("open Dropbox shared folder: %w", err)
 	}
 
-	files, rootName, handled, filtered, err := crawlDropboxFolder(ctx, webClient, csrf, share, excluded)
+	files, rootName, handled, filtered, err := crawlDropboxFolder(ctx, webClient, csrf, share, excluded, profile)
 	if err != nil || !handled {
 		return DropboxExpansionResult{Filtered: filtered}, handled, err
 	}
@@ -161,6 +177,7 @@ func crawlDropboxFolder(
 	csrf string,
 	root dropboxWebShare,
 	excluded map[string]struct{},
+	profile dropboxComponentConfig,
 ) ([]dropboxFileWork, string, bool, int, error) {
 	pending := []dropboxFolderWork{{Share: root}}
 	seenFolders := map[string]struct{}{dropboxShareKey(root): {}}
@@ -182,7 +199,7 @@ func crawlDropboxFolder(
 			workers.Add(1)
 			go func(index int, work dropboxFolderWork) {
 				defer workers.Done()
-				results[index] = fetchDropboxFolderPages(batchCtx, client, csrf, work, &pageCount)
+				results[index] = fetchDropboxFolderPages(batchCtx, client, csrf, work, &pageCount, profile)
 				if results[index].Err != nil {
 					cancel()
 				}
@@ -268,6 +285,7 @@ func fetchDropboxFolderPages(
 	csrf string,
 	work dropboxFolderWork,
 	pageCount *atomic.Int64,
+	profile dropboxComponentConfig,
 ) dropboxFolderFetchResult {
 	result := dropboxFolderFetchResult{Handled: true}
 	voucher := ""
@@ -277,7 +295,7 @@ func fetchDropboxFolderPages(
 			result.Err = fmt.Errorf("Dropbox folder exceeds the %d-page safety limit", dropboxFolderMaxPages)
 			return result
 		}
-		page, err := requestDropboxFolderPage(ctx, client, csrf, work.Share, voucher)
+		page, err := requestDropboxFolderPage(ctx, client, csrf, work.Share, voucher, profile)
 		if err != nil {
 			result.Err = err
 			return result
@@ -289,6 +307,10 @@ func fetchDropboxFolderPages(
 			}
 			folder := *page.Folder
 			result.Folder = &folder
+		}
+		if len(page.Entries) > dropboxFolderMaxEntries-len(result.Entries) {
+			result.Err = fmt.Errorf("Dropbox folder exceeds the %d-entry safety limit", dropboxFolderMaxEntries)
+			return result
 		}
 		result.Entries = append(result.Entries, page.Entries...)
 		firstPage = false
@@ -309,6 +331,7 @@ func requestDropboxFolderPage(
 	csrf string,
 	share dropboxWebShare,
 	voucher string,
+	profile dropboxComponentConfig,
 ) (dropboxFolderPage, error) {
 	form := url.Values{
 		"is_xhr":      {"true"},
@@ -324,7 +347,8 @@ func requestDropboxFolderPage(
 	if voucher != "" {
 		form.Set("voucher", voucher)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, dropboxFolderEntriesEndpoint, strings.NewReader(form.Encode()))
+	endpoint := dropboxFolderEntriesURL(profile)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return dropboxFolderPage{}, err
 	}
@@ -333,7 +357,7 @@ func requestDropboxFolderPage(
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 	request.Header.Set("Origin", "https://www.dropbox.com")
 	request.Header.Set("Referer", share.PageURL)
-	request.Header.Set("User-Agent", "Mozilla/5.0")
+	request.Header.Set("User-Agent", profile.UserAgent)
 	request.Header.Set("X-Requested-With", "XMLHttpRequest")
 	response, err := client.Do(request)
 	if err != nil {
@@ -343,21 +367,108 @@ func requestDropboxFolderPage(
 	if response.StatusCode != http.StatusOK {
 		return dropboxFolderPage{}, fmt.Errorf("list Dropbox folder %q returned HTTP %d", share.SubPath, response.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, dropboxFolderResponseLimit+1))
+	limited := &io.LimitedReader{R: response.Body, N: dropboxFolderResponseLimit + 1}
+	decoder := json.NewDecoder(limited)
+	page, err := decodeDropboxFolderPage(decoder)
 	if err != nil {
-		return dropboxFolderPage{}, fmt.Errorf("read Dropbox folder %q: %w", share.SubPath, err)
+		if limited.N <= 0 {
+			return dropboxFolderPage{}, fmt.Errorf("Dropbox folder page is too large")
+		}
+		return dropboxFolderPage{}, fmt.Errorf("decode Dropbox folder %q: %w", share.SubPath, err)
 	}
-	if len(body) > dropboxFolderResponseLimit {
+	if limited.N <= 0 {
 		return dropboxFolderPage{}, fmt.Errorf("Dropbox folder page is too large")
 	}
-	var page dropboxFolderPage
-	if err := json.Unmarshal(body, &page); err != nil {
-		return dropboxFolderPage{}, fmt.Errorf("decode Dropbox folder %q: %w", share.SubPath, err)
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return dropboxFolderPage{}, fmt.Errorf("Dropbox folder %q returned trailing JSON data", share.SubPath)
 	}
 	return page, nil
 }
 
-func primeDropboxWebSession(ctx context.Context, client *http.Client, value string) (string, error) {
+func decodeDropboxFolderPage(decoder *json.Decoder) (dropboxFolderPage, error) {
+	start, err := decoder.Token()
+	if err != nil {
+		return dropboxFolderPage{}, err
+	}
+	if start != json.Delim('{') {
+		return dropboxFolderPage{}, fmt.Errorf("Dropbox folder page must be a JSON object")
+	}
+	var page dropboxFolderPage
+	for decoder.More() {
+		name, err := decoder.Token()
+		if err != nil {
+			return dropboxFolderPage{}, err
+		}
+		switch name {
+		case "entries":
+			start, err := decoder.Token()
+			if err != nil {
+				return dropboxFolderPage{}, err
+			}
+			if start != json.Delim('[') {
+				return dropboxFolderPage{}, fmt.Errorf("Dropbox folder entries must be an array")
+			}
+			for decoder.More() {
+				if len(page.Entries) >= dropboxFolderMaxEntries {
+					return dropboxFolderPage{}, fmt.Errorf("Dropbox folder exceeds the %d-entry safety limit", dropboxFolderMaxEntries)
+				}
+				var entry dropboxWebEntry
+				if err := decoder.Decode(&entry); err != nil {
+					return dropboxFolderPage{}, err
+				}
+				page.Entries = append(page.Entries, entry)
+			}
+			if _, err := decoder.Token(); err != nil {
+				return dropboxFolderPage{}, err
+			}
+		case "folder":
+			if err := decoder.Decode(&page.Folder); err != nil {
+				return dropboxFolderPage{}, err
+			}
+		case "has_more_entries":
+			if err := decoder.Decode(&page.HasMoreEntries); err != nil {
+				return dropboxFolderPage{}, err
+			}
+		case "next_request_voucher":
+			if err := decoder.Decode(&page.NextRequestVoucher); err != nil {
+				return dropboxFolderPage{}, err
+			}
+		default:
+			if err := skipJSONValue(decoder); err != nil {
+				return dropboxFolderPage{}, err
+			}
+		}
+	}
+	if _, err := decoder.Token(); err != nil {
+		return dropboxFolderPage{}, err
+	}
+	return page, nil
+}
+
+func skipJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, nested := token.(json.Delim)
+	if !nested || (delimiter != '{' && delimiter != '[') {
+		return nil
+	}
+	for decoder.More() {
+		if delimiter == '{' {
+			if _, err := decoder.Token(); err != nil {
+				return err
+			}
+		}
+		if err := skipJSONValue(decoder); err != nil {
+			return err
+		}
+	}
+	_, err = decoder.Token()
+	return err
+}
+
+func primeDropboxWebSession(ctx context.Context, client *http.Client, value string, profile dropboxComponentConfig) (string, error) {
 	pageURL, err := url.Parse(value)
 	if err != nil {
 		return "", err
@@ -371,7 +482,7 @@ func primeDropboxWebSession(ctx context.Context, client *http.Client, value stri
 	}
 	request.Header.Set("Accept", "text/html,application/xhtml+xml")
 	request.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	request.Header.Set("User-Agent", "Mozilla/5.0")
+	request.Header.Set("User-Agent", profile.UserAgent)
 	response, err := client.Do(request)
 	if err != nil {
 		return "", err
@@ -380,15 +491,19 @@ func primeDropboxWebSession(ctx context.Context, client *http.Client, value stri
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return "", fmt.Errorf("Dropbox page returned HTTP %d", response.StatusCode)
 	}
-	endpoint, _ := url.Parse(dropboxFolderEntriesEndpoint)
+	endpoint, _ := url.Parse(dropboxFolderEntriesURL(profile))
 	for _, cookie := range client.Jar.Cookies(endpoint) {
-		if cookie.Name == "__Host-js_csrf" || cookie.Name == "t" {
+		if oneOf(cookie.Name, profile.CSRFCookieNames...) {
 			if value := strings.TrimSpace(cookie.Value); value != "" {
 				return value, nil
 			}
 		}
 	}
 	return "", fmt.Errorf("Dropbox did not issue a CSRF cookie")
+}
+
+func dropboxFolderEntriesURL(profile dropboxComponentConfig) string {
+	return "https://www.dropbox.com" + profile.FolderEntriesPath
 }
 
 func parseDropboxWebShare(value string) (dropboxWebShare, bool) {

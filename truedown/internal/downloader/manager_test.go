@@ -586,6 +586,100 @@ func TestProgressSortUsesNumericPercentage(t *testing.T) {
 	}
 }
 
+func TestTaskPageFastSortsPreserveGlobalOrderAndOffsets(t *testing.T) {
+	m := &Manager{
+		tasks: map[int64]*Task{
+			1: {ID: 1, Name: "one", Status: StatusDone, Revision: 1},
+			2: {ID: 2, Name: "two", Status: StatusDownloading, Revision: 2},
+			3: {ID: 3, Name: "three", Status: StatusQueued, Revision: 3},
+			4: {ID: 4, Name: "four", Status: StatusDownloading, Revision: 4},
+		},
+		orderedIDs:   []int64{1, 2, 3, 4},
+		statusCounts: map[Status]int{StatusDone: 1, StatusDownloading: 2, StatusQueued: 1},
+		revision:     4,
+		structureRev: 4,
+	}
+
+	statusAscending := m.PageTaskSnapshotsSorted(0, 10, "", "", "status", "asc")
+	if got := taskSnapshotIDs(statusAscending.Tasks); !equalInt64s(got, []int64{2, 4, 3, 1}) {
+		t.Fatalf("ascending status IDs=%v", got)
+	}
+	statusDescending := m.PageTaskSnapshotsSorted(0, 10, "", "", "status", "desc")
+	if got := taskSnapshotIDs(statusDescending.Tasks); !equalInt64s(got, []int64{1, 3, 4, 2}) {
+		t.Fatalf("descending status IDs=%v", got)
+	}
+	idPage := m.PageTaskSnapshotsSorted(1, 2, "", "", "id", "desc")
+	if got := taskSnapshotIDs(idPage.Tasks); !equalInt64s(got, []int64{3, 2}) {
+		t.Fatalf("descending ID page=%v", got)
+	}
+}
+
+func TestTaskPageConditionalSortHitSkipsPageMaterialization(t *testing.T) {
+	m := &Manager{
+		tasks: map[int64]*Task{
+			1: {ID: 1, Name: "one", Status: StatusDone, Revision: 1},
+			2: {ID: 2, Name: "two", Status: StatusQueued, Revision: 2},
+		},
+		orderedIDs:   []int64{1, 2},
+		statusCounts: map[Status]int{StatusDone: 1, StatusQueued: 1},
+		revision:     2,
+		structureRev: 2,
+	}
+	page := m.PageTaskSnapshotsSorted(0, 100, "", "", "status", "asc")
+	cached, notModified := m.PageTaskSnapshotsSortedIfChanged(0, 100, "", "", "status", "asc", page.Version)
+	if !notModified || cached.Version != page.Version || cached.Tasks != nil {
+		t.Fatalf("conditional page was materialized: notModified=%v page=%+v", notModified, cached)
+	}
+	m.revision++
+	if _, notModified = m.PageTaskSnapshotsSortedIfChanged(0, 100, "", "", "status", "asc", page.Version); notModified {
+		t.Fatal("stale sorted page validator survived a task revision")
+	}
+}
+
+func TestTaskPageCaseFoldingKeepsASCIIHotPathAndUnicodeBehavior(t *testing.T) {
+	if !containsFold("Creator-FILE.BIN", "file.bin") || containsFold("other.bin", "file") {
+		t.Fatal("ASCII case-insensitive search is incorrect")
+	}
+	if !containsFold("Ärger.txt", strings.ToLower("ÄRGER")) || compareFold("Ärger", "ärger") != 0 {
+		t.Fatal("Unicode case-insensitive behavior changed")
+	}
+}
+
+func TestTaskUpdateSnapshotDropsUnneededCredentialContainers(t *testing.T) {
+	task := &Task{
+		ID: 7, Name: "file.bin", Headers: map[string]string{"Cookie": "secret"},
+		Opts: Aria2Opts{ExtraArgs: []string{"--max-tries=2"}}, Status: StatusDownloading,
+		Progress: "50%", Revision: 9, RemoteDigest: "digest",
+	}
+	snapshot := snapshotTaskUpdate(task)
+	if snapshot.ID != task.ID || snapshot.Progress != task.Progress || snapshot.RemoteDigest != task.RemoteDigest {
+		t.Fatalf("state update snapshot lost persisted fields: %+v", snapshot)
+	}
+	if snapshot.Headers != nil || snapshot.Opts.ExtraArgs != nil {
+		t.Fatalf("state update snapshot retained credentials or options: %+v", snapshot)
+	}
+}
+
+func taskSnapshotIDs(tasks []TaskSnapshot) []int64 {
+	ids := make([]int64, len(tasks))
+	for index, task := range tasks {
+		ids[index] = task.ID
+	}
+	return ids
+}
+
+func equalInt64s(left, right []int64) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestRemoveQueuedTaskBeforeAriaAdmission(t *testing.T) {
 	stateDir := t.TempDir()
 	m, err := NewManager("unused", filepath.Join(stateDir, "downloads"), filepath.Join(stateDir, "records.db"))
@@ -875,4 +969,56 @@ func BenchmarkPageTaskSnapshots100Of10000(b *testing.B) {
 			b.Fatal(len(page.Tasks))
 		}
 	}
+}
+
+func BenchmarkPageTaskSnapshotsStatusSorted100Of10000(b *testing.B) {
+	m := benchmarkPageManager(10_000)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		page := m.PageTaskSnapshotsSorted(0, 100, "", "", "status", "asc")
+		if len(page.Tasks) != 100 {
+			b.Fatal(len(page.Tasks))
+		}
+	}
+}
+
+func BenchmarkPageTaskSnapshotsSearch100Of10000(b *testing.B) {
+	m := benchmarkPageManager(10_000)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		page := m.PageTaskSnapshots(0, 100, "", "FILE.BIN")
+		if len(page.Tasks) != 100 {
+			b.Fatal(len(page.Tasks))
+		}
+	}
+}
+
+func BenchmarkPageTaskSnapshotsConditionalStatusHit10000(b *testing.B) {
+	m := benchmarkPageManager(10_000)
+	page := m.PageTaskSnapshotsSorted(0, 100, "", "", "status", "asc")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		cached, notModified := m.PageTaskSnapshotsSortedIfChanged(0, 100, "", "", "status", "asc", page.Version)
+		if !notModified || cached.Tasks != nil {
+			b.Fatal("conditional page miss")
+		}
+	}
+}
+
+func benchmarkPageManager(count int) *Manager {
+	m := &Manager{
+		tasks:        make(map[int64]*Task, count),
+		orderedIDs:   make([]int64, 0, count),
+		statusCounts: map[Status]int{StatusDone: count},
+		structureRev: int64(count),
+		revision:     int64(count),
+	}
+	for id := int64(1); id <= int64(count); id++ {
+		m.tasks[id] = &Task{ID: id, Name: "file.bin", Link: "https://example.test/file.bin", Status: StatusDone, Revision: id}
+		m.orderedIDs = append(m.orderedIDs, id)
+	}
+	return m
 }

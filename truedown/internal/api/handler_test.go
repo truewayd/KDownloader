@@ -118,6 +118,13 @@ func TestTaskPageIsBoundedAndSupportsConditionalRequests(t *testing.T) {
 		sortedPage.Tasks[1].Name != "three.bin" || sortedPage.Tasks[2].Name != "two.bin" {
 		t.Fatalf("unexpected sorted page: %+v", sortedPage)
 	}
+	sortedConditional := httptest.NewRequest(http.MethodGet, "/tasks?limit=3&sort=file&order=asc", nil)
+	sortedConditional.Header.Set("If-None-Match", sortedResponse.Header().Get("ETag"))
+	sortedConditionalResponse := httptest.NewRecorder()
+	mux.ServeHTTP(sortedConditionalResponse, sortedConditional)
+	if sortedConditionalResponse.Code != http.StatusNotModified || sortedConditionalResponse.Body.Len() != 0 {
+		t.Fatalf("sorted conditional status=%d body=%s", sortedConditionalResponse.Code, sortedConditionalResponse.Body.String())
+	}
 	for _, target := range []string{
 		"/tasks?sort=unknown&order=asc",
 		"/tasks?sort=file&order=sideways",
@@ -265,6 +272,48 @@ func TestResolverModulesEndpointInstallsAndRemovesBuiltIns(t *testing.T) {
 	}
 }
 
+func TestResolverComponentPackageEndpointHotReloadsAndResets(t *testing.T) {
+	mux, manager := testHandler(t)
+	defer manager.Stop()
+	packageJSON := `{
+		"schemaVersion":1,
+		"id":"google-drive",
+		"engine":"google-drive-v1",
+		"version":"1.1.0",
+		"releasedAt":"2026-08-20",
+		"config":{
+			"stableDownloadPath":"/uc-v2",
+			"openPath":"/open-v2",
+			"folderViewPath":"/folder-v2",
+			"nativeExportPath":"/compat/{type}/d/{id}/export",
+			"userAgent":"TrueDown API test"
+		}
+	}`
+	install := httptest.NewRequest(http.MethodPost, "/modules/package", strings.NewReader(`{"package":`+packageJSON+`}`))
+	install.Header.Set("Content-Type", "application/json")
+	installResponse := httptest.NewRecorder()
+	mux.ServeHTTP(installResponse, install)
+	if installResponse.Code != http.StatusOK || !strings.Contains(installResponse.Body.String(), `"source":"updated"`) ||
+		!strings.Contains(installResponse.Body.String(), `"baselineVersion":"1.0.0"`) {
+		t.Fatalf("install component status=%d body=%s", installResponse.Code, installResponse.Body.String())
+	}
+
+	reset := httptest.NewRequest(http.MethodDelete, "/modules/package?id=google-drive", nil)
+	resetResponse := httptest.NewRecorder()
+	mux.ServeHTTP(resetResponse, reset)
+	if resetResponse.Code != http.StatusOK || !strings.Contains(resetResponse.Body.String(), `"source":"baseline"`) {
+		t.Fatalf("reset component status=%d body=%s", resetResponse.Code, resetResponse.Body.String())
+	}
+
+	invalid := httptest.NewRequest(http.MethodPost, "/modules/package", strings.NewReader(`{"package":{"id":"unknown"}}`))
+	invalid.Header.Set("Content-Type", "application/json")
+	invalidResponse := httptest.NewRecorder()
+	mux.ServeHTTP(invalidResponse, invalid)
+	if invalidResponse.Code != http.StatusBadRequest {
+		t.Fatalf("invalid component status=%d body=%s", invalidResponse.Code, invalidResponse.Body.String())
+	}
+}
+
 func TestDropboxFolderDefaultsToDirectArchiveDownload(t *testing.T) {
 	mux, manager := testHandler(t)
 	defer manager.Stop()
@@ -314,22 +363,33 @@ func TestDownloadRulesEndpointPersistsAndValidatesConfig(t *testing.T) {
 	getResponse := httptest.NewRecorder()
 	mux.ServeHTTP(getResponse, get)
 	if getResponse.Code != http.StatusOK || !strings.Contains(getResponse.Body.String(), `"enabled":false`) ||
+		!strings.Contains(getResponse.Body.String(), `"dropboxMode":"direct"`) ||
 		!strings.Contains(getResponse.Body.String(), `".psd"`) {
 		t.Fatalf("default rules status=%d body=%s", getResponse.Code, getResponse.Body.String())
 	}
 
 	post := httptest.NewRequest(http.MethodPost, "/settings/download-rules", strings.NewReader(
-		`{"enabled":true,"excludedExtensions":[".PSD",".clip",".psd"]}`,
+		`{"enabled":true,"excludedExtensions":[".PSD",".clip",".psd"],"dropboxMode":"expand"}`,
 	))
 	post.Header.Set("Content-Type", "application/json")
 	postResponse := httptest.NewRecorder()
 	mux.ServeHTTP(postResponse, post)
 	if postResponse.Code != http.StatusOK || postResponse.Body.String() !=
-		"{\"enabled\":true,\"excludedExtensions\":[\".psd\",\".clip\"]}\n" {
+		"{\"enabled\":true,\"excludedExtensions\":[\".psd\",\".clip\"],\"dropboxMode\":\"expand\"}\n" {
 		t.Fatalf("save rules status=%d body=%s", postResponse.Code, postResponse.Body.String())
+	}
+	legacy := httptest.NewRequest(http.MethodPost, "/settings/download-rules", strings.NewReader(
+		`{"enabled":true,"excludedExtensions":[".psd",".clip"]}`,
+	))
+	legacy.Header.Set("Content-Type", "application/json")
+	legacyResponse := httptest.NewRecorder()
+	mux.ServeHTTP(legacyResponse, legacy)
+	if legacyResponse.Code != http.StatusOK || !strings.Contains(legacyResponse.Body.String(), `"dropboxMode":"expand"`) {
+		t.Fatalf("legacy filter update reset Dropbox mode: status=%d body=%s", legacyResponse.Code, legacyResponse.Body.String())
 	}
 	for _, body := range []string{
 		`{"enabled":true,"excludedExtensions":["../psd"]}`,
+		`{"enabled":true,"excludedExtensions":[],"dropboxMode":"archive"}`,
 		`{"enabled":true,"excludedExtensions":[],"unknown":true}`,
 	} {
 		request := httptest.NewRequest(http.MethodPost, "/settings/download-rules", strings.NewReader(body))
@@ -347,7 +407,7 @@ func TestDownloadRulesEndpointPersistsAndValidatesConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reloaded.Stop()
-	if rules := reloaded.DownloadRules(); !rules.Enabled || len(rules.ExcludedExtensions) != 2 ||
+	if rules := reloaded.DownloadRules(); !rules.Enabled || rules.DropboxMode != downloader.DropboxModeExpand || len(rules.ExcludedExtensions) != 2 ||
 		rules.ExcludedExtensions[0] != ".psd" || rules.ExcludedExtensions[1] != ".clip" {
 		t.Fatalf("reloaded rules=%+v", rules)
 	}

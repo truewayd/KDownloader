@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -217,6 +218,28 @@ func TestCrawlGoogleDriveFolderRecursesAndKeepsNativeTypes(t *testing.T) {
 	}
 	if files[1].NativeType != "document" || len(files[2].Relative) != 1 || files[2].Relative[0] != "nested" {
 		t.Fatalf("folder structure was not preserved: %+v", files)
+	}
+}
+
+func TestGoogleDriveFolderBoundsParsedEntries(t *testing.T) {
+	var body strings.Builder
+	body.WriteString(`<html><head><title>Large Folder</title></head><body>`)
+	for index := 0; index <= googleDriveMaxFolderEntries; index++ {
+		fmt.Fprintf(
+			&body,
+			`<a href="https://drive.google.com/file/d/file-id-%012d/view">file-%d.bin</a>`,
+			index, index,
+		)
+	}
+	body.WriteString(`</body></html>`)
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return googleDriveTestResponse(request, http.StatusOK, body.String(), http.Header{"Content-Type": []string{"text/html"}}), nil
+	})}
+	_, _, err := fetchGoogleDriveFolder(
+		context.Background(), client, "root-folder-id-123456789012345", googleDriveBaselineProfile,
+	)
+	if err == nil || !strings.Contains(err.Error(), "exceeds 6000 entries") {
+		t.Fatalf("oversized Google Drive folder error=%v", err)
 	}
 }
 

@@ -11,16 +11,67 @@ import (
 	"strings"
 )
 
-type dropboxResolverModule struct{}
+type dropboxResolverModule struct {
+	version string
+	profile dropboxComponentConfig
+}
+
+type dropboxComponentConfig struct {
+	FolderEntriesPath string   `json:"folderEntriesPath"`
+	CSRFCookieNames   []string `json:"csrfCookieNames"`
+	UserAgent         string   `json:"userAgent"`
+}
+
+var dropboxBaselineProfile = dropboxComponentConfig{
+	FolderEntriesPath: "/list_shared_link_folder_entries",
+	CSRFCookieNames:   []string{"__Host-js_csrf", "t"},
+	UserAgent:         "Mozilla/5.0",
+}
 
 type dropboxModuleOptions struct {
 	Mode        string `json:"mode"`
 	ApplyFilter bool   `json:"applyFilter"`
 }
 
-func (*dropboxResolverModule) info() ModuleInfo {
+func newDropboxResolverModule(pkg componentPackage) (resolverModule, error) {
+	decoder := json.NewDecoder(bytes.NewReader(pkg.Config))
+	decoder.DisallowUnknownFields()
+	var profile dropboxComponentConfig
+	if err := decoder.Decode(&profile); err != nil {
+		return nil, &ValidationError{Message: fmt.Sprintf("invalid Dropbox component config: %v", err)}
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, &ValidationError{Message: "Dropbox component config must contain one JSON object"}
+	}
+	profile.FolderEntriesPath = strings.TrimSpace(profile.FolderEntriesPath)
+	profile.UserAgent = strings.TrimSpace(profile.UserAgent)
+	if !validComponentPath(profile.FolderEntriesPath) {
+		return nil, &ValidationError{Message: "Dropbox component folderEntriesPath is invalid"}
+	}
+	if !validComponentHeaderValue(profile.UserAgent, 512) {
+		return nil, &ValidationError{Message: "Dropbox component userAgent is invalid"}
+	}
+	if len(profile.CSRFCookieNames) == 0 || len(profile.CSRFCookieNames) > 8 {
+		return nil, &ValidationError{Message: "Dropbox component requires 1 to 8 CSRF cookie names"}
+	}
+	seenCookies := make(map[string]struct{}, len(profile.CSRFCookieNames))
+	for index, name := range profile.CSRFCookieNames {
+		name = strings.TrimSpace(name)
+		if !validComponentCookieName(name) {
+			return nil, &ValidationError{Message: "Dropbox component contains an invalid CSRF cookie name"}
+		}
+		if _, exists := seenCookies[name]; exists {
+			return nil, &ValidationError{Message: "Dropbox component contains duplicate CSRF cookie names"}
+		}
+		seenCookies[name] = struct{}{}
+		profile.CSRFCookieNames[index] = name
+	}
+	return &dropboxResolverModule{version: pkg.Version, profile: profile}, nil
+}
+
+func (module *dropboxResolverModule) info() ModuleInfo {
 	return ModuleInfo{
-		ID: DropboxModuleID, Name: "Dropbox", Version: "1.0.0", BuiltIn: true,
+		ID: DropboxModuleID, Name: "Dropbox", Version: module.version, BuiltIn: true,
 		Description:  "解析公开共享目录并刷新可续传的 Dropbox 下载地址。",
 		Capabilities: []string{"file", "folder", "folder-filter", "resume"},
 	}
@@ -40,7 +91,7 @@ func (*dropboxResolverModule) validateOptions(raw json.RawMessage) error {
 	return err
 }
 
-func (*dropboxResolverModule) resolve(
+func (module *dropboxResolverModule) resolve(
 	ctx context.Context,
 	m *Manager,
 	request moduleResolveRequest,
@@ -49,10 +100,15 @@ func (*dropboxResolverModule) resolve(
 	if err != nil {
 		return ModuleAddResult{}, true, err
 	}
+	if len(bytes.TrimSpace(request.Options)) == 0 {
+		defaults := m.DownloadRules()
+		options.Mode = defaults.DropboxMode
+		options.ApplyFilter = defaults.Enabled && options.Mode == DropboxModeExpand
+	}
 	if options.Mode == "expand" {
-		expanded, handled, expandErr := m.AddDropboxFolder(
+		expanded, handled, expandErr := m.addDropboxFolderWithProfile(
 			ctx, request.Link, request.Folder, request.Headers, request.DownloadPage,
-			request.QueueID, request.Opts, options.ApplyFilter,
+			request.QueueID, request.Opts, options.ApplyFilter, module.profile,
 		)
 		if expandErr != nil || handled {
 			return ModuleAddResult{

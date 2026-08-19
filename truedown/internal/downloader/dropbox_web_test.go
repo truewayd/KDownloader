@@ -263,6 +263,32 @@ func TestAddDropboxFolderFallsBackForIndividualFolderViewFile(t *testing.T) {
 	}
 }
 
+func TestDropboxFolderPagesBoundEntriesBeforeAccumulatingAResponse(t *testing.T) {
+	var body strings.Builder
+	body.WriteString(`{"folder":{"filename":"root","is_dir":true},"entries":[`)
+	for index := 0; index <= dropboxFolderMaxEntries; index++ {
+		if index > 0 {
+			body.WriteByte(',')
+		}
+		body.WriteString(`{"filename":"file","href":"https://www.dropbox.com/scl/fo/key/hash/file","is_dir":false}`)
+	}
+	body.WriteString(`]}`)
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return dropboxTestJSON(request, body.String()), nil
+	})}
+	var pages atomic.Int64
+	result := fetchDropboxFolderPages(
+		context.Background(), client, "csrf",
+		dropboxFolderWork{Share: dropboxWebShare{
+			LinkKey: "key", SecureHash: "hash", PageURL: "https://www.dropbox.com/scl/fo/key/hash",
+		}},
+		&pages, dropboxBaselineProfile,
+	)
+	if result.Err == nil || !strings.Contains(result.Err.Error(), "entry safety limit") {
+		t.Fatalf("oversized folder entries error=%v", result.Err)
+	}
+}
+
 func TestDropboxFolderLive(t *testing.T) {
 	link := strings.TrimSpace(os.Getenv("TRUEDOWN_DROPBOX_TEST_URL"))
 	if link == "" {

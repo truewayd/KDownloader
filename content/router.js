@@ -13,6 +13,7 @@
     generation: 0,
     stopped: false,
     listenerController: null,
+    targetSelector: "",
   };
 
   function stop() {
@@ -53,10 +54,7 @@
   }
 
   function mutationLooksRelevant(mutations) {
-    const selector = handlers
-      .map((handler) => handler.targetSelector)
-      .filter(Boolean)
-      .join(", ");
+    const selector = state.targetSelector;
     if (!selector) return false;
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
@@ -222,6 +220,10 @@
   function register(handler) {
     if (!handler || typeof handler.render !== "function") return;
     handlers.push({ attempts: 0, ...handler });
+    state.targetSelector = handlers
+      .map((registered) => registered.targetSelector)
+      .filter(Boolean)
+      .join(", ");
     start();
     schedule(`register:${handler.name || "handler"}`, getInitDelay());
   }

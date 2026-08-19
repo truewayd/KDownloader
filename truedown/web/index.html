@@ -204,7 +204,15 @@
               <p>控制文件预分配、完整性校验、远程时间与目录过滤。</p>
             </div>
             <div class="form-grid">
-              <div class="field field-span-2">
+              <div class="field">
+                <label for="cfg-dropbox-mode">Dropbox 目录默认行为</label>
+                <select class="kd-select" id="cfg-dropbox-mode">
+                  <option value="direct">直接下载目录压缩包</option>
+                  <option value="expand">默认展开为独立文件任务</option>
+                </select>
+                <p class="hint">应用于仪表盘、浏览器集成和未明确指定模式的 API 请求。</p>
+              </div>
+              <div class="field">
                 <label for="cfg-allocation">文件预分配</label>
                 <select class="kd-select" id="cfg-allocation">
                   <option value="none">不预分配（速度优先）</option>
@@ -249,7 +257,7 @@
 		  <section class="settings-section" aria-labelledby="settings-modules-title">
 			<div class="settings-section-heading">
 			  <h3 id="settings-modules-title">解析模块</h3>
-			  <p>内置模块彼此独立；移除后不再接管新链接，已有任务仍可继续和续传。</p>
+			  <p>每个模块都有随程序内置的安全基线；可单独导入声明式更新包并立即热重载，失败时自动保留基线。</p>
 			</div>
 			<div class="module-list" id="module-list" aria-live="polite"></div>
 		  </section>

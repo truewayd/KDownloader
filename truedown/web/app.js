@@ -2,6 +2,7 @@ const ACTIVE_POLL_INTERVAL_MS = 2500;
 const IDLE_POLL_INTERVAL_MS = 10000;
 const PAGE_SIZE = 100;
 const MAX_SELECTED_TASKS = 1000;
+const MAX_PAGE_ETAGS = 128;
 const LEGACY_THEME_KEY = "truedown-theme";
 const API_TOKEN_SESSION_KEY = "truedown-api-token";
 const DOWNLOAD_DEFAULTS_KEY = "truedown-download-defaults-v1";
@@ -12,6 +13,7 @@ const DEFAULT_EXCLUDED_EXTENSIONS = Object.freeze([
 const DEFAULT_DOWNLOAD_RULES = Object.freeze({
   enabled: false,
   excludedExtensions: DEFAULT_EXCLUDED_EXTENSIONS,
+  dropboxMode: "direct",
 });
 const DEFAULT_RUNTIME_SETTINGS = Object.freeze({ concurrentDownloads: 3 });
 const DEFAULT_DOWNLOAD_SETTINGS = Object.freeze({
@@ -66,6 +68,7 @@ let downloadSettings = loadDownloadSettings();
 let downloadRules = {
   enabled: DEFAULT_DOWNLOAD_RULES.enabled,
   excludedExtensions: [...DEFAULT_DOWNLOAD_RULES.excludedExtensions],
+  dropboxMode: DEFAULT_DOWNLOAD_RULES.dropboxMode,
 };
 let runtimeSettings = { ...DEFAULT_RUNTIME_SETTINGS };
 let resolverModules = [];
@@ -104,8 +107,9 @@ function cacheElements() {
     "batch-task-btn",
     "batch-toolbar",
     "cfg-conns",
-    "cfg-allocation",
-    "cfg-check-integrity",
+	"cfg-allocation",
+	"cfg-check-integrity",
+	"cfg-dropbox-mode",
     "cfg-extra",
     "cfg-filter-enabled",
     "cfg-folder",
@@ -312,7 +316,7 @@ function openModal(mode = "single") {
   els.mName.disabled = isBatch;
   els.mName.placeholder = isBatch ? "批量时自动命名" : "留空自动命名";
   if (isBatch) els.mName.value = "";
-  els.mDropboxMode.value = "direct";
+  els.mDropboxMode.value = downloadRules.dropboxMode;
   els.mDropboxFilter.checked = downloadRules.enabled;
   updateDropboxOptions();
 	renderModuleAvailability();
@@ -800,7 +804,7 @@ async function loadTasks({ force = false } = {}) {
         const page = await response.json();
         if (!page || !Array.isArray(page.tasks) || !page.summary) throw new Error("任务列表响应无效");
         const etag = response.headers.get("ETag");
-        if (etag) pageETags.set(url, etag);
+        if (etag) rememberPageETag(url, etag);
         currentTotal = safeCount(page.total);
         currentSummary = normalizeSummary(page.summary);
         if (currentOffset >= currentTotal && currentOffset > 0) {
@@ -824,6 +828,9 @@ async function loadTasks({ force = false } = {}) {
 }
 
 function renderTasks(tasks) {
+  for (const id of taskStatusByID.keys()) {
+    if (!selectedTaskIDs.has(id)) taskStatusByID.delete(id);
+  }
   tasks.forEach((task) => taskStatusByID.set(task.id, task.status));
   currentTasks = [...tasks];
   const signature = JSON.stringify([
@@ -862,6 +869,14 @@ function renderTasks(tasks) {
       <tbody>${rows}</tbody>
     </table>`;
   syncSelectionControls();
+}
+
+function rememberPageETag(url, etag) {
+  pageETags.delete(url);
+  pageETags.set(url, etag);
+  while (pageETags.size > MAX_PAGE_ETAGS) {
+    pageETags.delete(pageETags.keys().next().value);
+  }
 }
 
 function sortableHeading(field, label) {
@@ -1022,10 +1037,10 @@ function loadDownloadSettings() {
   }
 }
 
-function renderDownloadSettings(settings = downloadSettings) {
+function renderDownloadSettings(settings = downloadSettings, rules = downloadRules, runtime = runtimeSettings) {
   els.cfgFolder.value = settings.folder;
   els.cfgConns.value = settings.connections;
-  els.cfgTaskConcurrency.value = runtimeSettings.concurrentDownloads;
+  els.cfgTaskConcurrency.value = runtime.concurrentDownloads;
   els.cfgSpeed.value = settings.speed || "";
   els.cfgSpeedUnit.value = String(settings.speedUnit);
   els.cfgTries.value = settings.maxTries;
@@ -1037,8 +1052,9 @@ function renderDownloadSettings(settings = downloadSettings) {
   els.cfgAllocation.value = settings.allocation;
   els.cfgCheckIntegrity.checked = settings.checkIntegrity;
   els.cfgRemoteTime.checked = settings.remoteTime;
-  els.cfgFilterEnabled.checked = downloadRules.enabled;
-  const selected = new Set(downloadRules.excludedExtensions);
+  els.cfgDropboxMode.value = rules.dropboxMode;
+  els.cfgFilterEnabled.checked = rules.enabled;
+  const selected = new Set(rules.excludedExtensions);
   document.querySelectorAll("[data-download-extension]").forEach((input) => {
     input.checked = selected.has(input.value);
   });
@@ -1073,6 +1089,7 @@ async function saveDownloadSettings(event) {
     };
     const nextRules = {
       enabled: els.cfgFilterEnabled.checked,
+      dropboxMode: els.cfgDropboxMode.value,
       excludedExtensions: Array.from(
         document.querySelectorAll("[data-download-extension]:checked"),
         (input) => input.value,
@@ -1105,12 +1122,12 @@ async function saveDownloadSettings(event) {
 }
 
 function resetDownloadSettings() {
-  downloadRules = {
+  const defaultRules = {
     enabled: DEFAULT_DOWNLOAD_RULES.enabled,
     excludedExtensions: [...DEFAULT_DOWNLOAD_RULES.excludedExtensions],
+    dropboxMode: DEFAULT_DOWNLOAD_RULES.dropboxMode,
   };
-  runtimeSettings = { ...DEFAULT_RUNTIME_SETTINGS };
-  renderDownloadSettings(DEFAULT_DOWNLOAD_SETTINGS);
+  renderDownloadSettings(DEFAULT_DOWNLOAD_SETTINGS, defaultRules, DEFAULT_RUNTIME_SETTINGS);
   showToast("已恢复默认值，点击「保存设置」后生效。");
 }
 
@@ -1167,6 +1184,7 @@ function normalizeServerDownloadRules(value) {
   return {
     enabled: rules.enabled === true,
     excludedExtensions: normalizeExcludedExtensions(rules.excludedExtensions, DEFAULT_EXCLUDED_EXTENSIONS),
+    dropboxMode: rules.dropboxMode === "expand" ? "expand" : "direct",
   };
 }
 
@@ -1192,16 +1210,28 @@ async function loadServerRuntimeSettings() {
 
 function normalizeResolverModules(value) {
 	const modules = Array.isArray(value?.modules) ? value.modules : [];
-	return modules.slice(0, 32).filter((module) => module && typeof module === "object").map((module) => ({
+	return modules.slice(0, 32).map(normalizeResolverModule).filter(Boolean);
+}
+
+function normalizeResolverModule(module) {
+	if (!module || typeof module !== "object") return null;
+	const normalized = {
 		id: stringValue(module.id),
 		name: stringValue(module.name),
 		version: stringValue(module.version),
+		baselineVersion: stringValue(module.baselineVersion),
+		releasedAt: stringValue(module.releasedAt),
 		description: stringValue(module.description),
 		capabilities: Array.isArray(module.capabilities)
 			? module.capabilities.slice(0, 16).map(stringValue).filter(Boolean) : [],
 		builtIn: module.builtIn === true,
 		installed: module.installed === true,
-	})).filter((module) => module.id && module.name);
+		source: module.source === "updated" ? "updated" : "baseline",
+		digest: stringValue(module.digest),
+		hotReload: module.hotReload === true,
+		updateError: stringValue(module.updateError),
+	};
+	return normalized.id && normalized.name ? normalized : null;
 }
 
 async function loadResolverModules() {
@@ -1234,29 +1264,67 @@ function renderResolverModules() {
 		const name = document.createElement("strong");
 		name.textContent = module.name;
 		const version = document.createElement("span");
-		version.textContent = `v${module.version}${module.builtIn ? " · 内置" : ""}`;
+		version.textContent = `v${module.version} · ${module.source === "updated" ? "独立更新" : "内置基线"}`;
 		heading.append(name, version);
 		const description = document.createElement("p");
 		description.textContent = module.description;
 		const capabilities = document.createElement("small");
 		capabilities.textContent = module.capabilities.join(" · ");
-		copy.append(heading, description, capabilities);
-		const button = document.createElement("button");
-		button.type = "button";
-		button.className = `kd-button ${module.installed ? "secondary" : "primary"} compact`;
-		button.dataset.moduleToggle = module.id;
-		button.dataset.installed = String(module.installed);
-		button.setAttribute("aria-pressed", String(module.installed));
-		button.setAttribute("aria-label", `${module.installed ? "移除" : "安装"} ${module.name} 解析模块`);
-		button.textContent = module.installed ? "移除" : "安装";
-		card.append(copy, button);
+		const lifecycle = document.createElement("small");
+		const baseline = module.baselineVersion ? `内置 v${module.baselineVersion}` : "内置基线";
+		const released = module.releasedAt ? ` · 发布于 ${module.releasedAt}` : "";
+		const digest = module.digest ? ` · SHA-256 ${module.digest.slice(0, 12)}…` : "";
+		lifecycle.textContent = `${baseline}${released}${module.hotReload ? " · 支持热重载" : ""}${digest}`;
+		if (module.digest) lifecycle.title = `SHA-256: ${module.digest}`;
+		copy.append(heading, description, capabilities, lifecycle);
+		if (module.updateError) {
+			const error = document.createElement("p");
+			error.className = "module-card-error";
+			error.textContent = `更新包未启用：${module.updateError}`;
+			copy.append(error);
+		}
+		const actions = document.createElement("div");
+		actions.className = "module-card-actions";
+		const toggle = document.createElement("button");
+		toggle.type = "button";
+		toggle.className = `kd-button ${module.installed ? "secondary" : "primary"} compact`;
+		toggle.dataset.moduleToggle = module.id;
+		toggle.dataset.installed = String(module.installed);
+		toggle.setAttribute("aria-pressed", String(module.installed));
+		toggle.setAttribute("aria-label", `${module.installed ? "停用" : "启用"} ${module.name} 解析模块`);
+		toggle.textContent = module.installed ? "停用" : "启用";
+		const update = document.createElement("button");
+		update.type = "button";
+		update.className = "kd-button secondary compact";
+		update.dataset.moduleUpdate = module.id;
+		update.setAttribute("aria-label", `导入 ${module.name} 组件更新包`);
+		update.textContent = "导入更新";
+		actions.append(toggle, update);
+		if (module.source === "updated" || module.updateError) {
+			const reset = document.createElement("button");
+			reset.type = "button";
+			reset.className = "kd-button secondary compact";
+			reset.dataset.moduleReset = module.id;
+			reset.setAttribute("aria-label", `将 ${module.name} 恢复到内置基线`);
+			reset.textContent = "恢复基线";
+			actions.append(reset);
+		}
+		card.append(copy, actions);
 		els.moduleList.append(card);
 	}
 }
 
 async function onModuleAction(event) {
-	const button = event.target.closest("button[data-module-toggle]");
+	const button = event.target.closest("button[data-module-toggle], button[data-module-update], button[data-module-reset]");
 	if (!button) return;
+	if (button.dataset.moduleUpdate) {
+		await importModuleUpdate(button.dataset.moduleUpdate, button);
+		return;
+	}
+	if (button.dataset.moduleReset) {
+		await resetModuleUpdate(button.dataset.moduleReset, button);
+		return;
+	}
 	const id = button.dataset.moduleToggle;
 	const installed = button.dataset.installed !== "true";
 	button.disabled = true;
@@ -1271,12 +1339,96 @@ async function onModuleAction(event) {
 			? { ...module, installed: saved.installed === true } : module);
 		renderResolverModules();
 		renderModuleAvailability();
-		showToast(`${stringValue(saved.name) || id} 模块已${installed ? "安装" : "移除"}。`);
+		showToast(`${stringValue(saved.name) || id} 模块已${installed ? "启用" : "停用"}。`);
 	} catch (error) {
 		showToast(`模块状态更新失败：${error.message}`, "error");
 		button.disabled = false;
 		button.removeAttribute("aria-busy");
 	}
+}
+
+async function importModuleUpdate(id, button) {
+	const file = await chooseModulePackageFile();
+	if (!file) return;
+	if (file.size <= 0 || file.size > 64 * 1024) {
+		showToast("组件更新包必须小于 64 KiB。", "error");
+		return;
+	}
+	button.disabled = true;
+	button.setAttribute("aria-busy", "true");
+	try {
+		const parsed = JSON.parse(await file.text());
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || parsed.id !== id) {
+			throw new Error(`更新包 ID 必须是 ${id}`);
+		}
+		const saved = await requestJSON("/modules/package", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ package: parsed }),
+		});
+		replaceResolverModule(saved);
+		renderResolverModules();
+		renderModuleAvailability();
+		showToast(`${stringValue(saved.name) || id} v${stringValue(saved.version)} 已热重载。`);
+	} catch (error) {
+		showToast(`组件更新失败：${error.message}`, "error");
+	} finally {
+		if (button.isConnected) {
+			button.disabled = false;
+			button.removeAttribute("aria-busy");
+		}
+	}
+}
+
+function chooseModulePackageFile() {
+	return new Promise((resolve) => {
+		const input = document.createElement("input");
+		input.type = "file";
+		input.accept = ".json,.tdmodule.json,application/json";
+		const finish = (file) => {
+			input.removeEventListener("change", onChange);
+			input.removeEventListener("cancel", onCancel);
+			resolve(file);
+		};
+		const onChange = () => finish(input.files?.[0] || null);
+		const onCancel = () => finish(null);
+		input.addEventListener("change", onChange, { once: true });
+		input.addEventListener("cancel", onCancel, { once: true });
+		input.click();
+	});
+}
+
+async function resetModuleUpdate(id, button) {
+	const module = resolverModules.find((candidate) => candidate.id === id);
+	const confirmed = await confirmAction({
+		title: "恢复内置组件基线",
+		message: `将删除 ${module?.name || id} 的独立更新包，并立即切换回内置基线。已有下载记录不会被删除。`,
+		confirmLabel: "恢复基线",
+		danger: true,
+	});
+	if (!confirmed) return;
+	button.disabled = true;
+	button.setAttribute("aria-busy", "true");
+	try {
+		const saved = await requestJSON(`/modules/package?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+		replaceResolverModule(saved);
+		renderResolverModules();
+		renderModuleAvailability();
+		showToast(`${stringValue(saved.name) || id} 已恢复到内置基线。`);
+	} catch (error) {
+		showToast(`恢复组件基线失败：${error.message}`, "error");
+	} finally {
+		if (button.isConnected) {
+			button.disabled = false;
+			button.removeAttribute("aria-busy");
+		}
+	}
+}
+
+function replaceResolverModule(value) {
+	const normalized = normalizeResolverModule(value);
+	if (!normalized) return;
+	resolverModules = resolverModules.map((module) => module.id === normalized.id ? normalized : module);
 }
 
 function hasHeader(headers, name) {

@@ -177,6 +177,7 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownHtml, /id="resume-queue-btn"/);
   assert.match(trueDownHtml, /id="open-downloads-btn"/);
   assert.match(trueDownHtml, /id="cfg-task-concurrency"[^>]+placeholder="3"/);
+  assert.match(trueDownHtml, /id="cfg-dropbox-mode"/);
   assert.match(trueDownHtml, /id="m-dropbox-mode"/);
   assert.match(trueDownHtml, /id="m-dropbox-filter"/);
 	assert.match(trueDownHtml, /id="module-list"/);
@@ -184,7 +185,11 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownHtml, /href="\/icons\.svg#icon-/);
   assert.match(trueDownHtml, /id="token-auth-enabled"/);
   assert.match(trueDownApp, /const PAGE_SIZE = 100/);
+  assert.match(trueDownApp, /const MAX_PAGE_ETAGS = 128/);
   assert.match(trueDownApp, /If-None-Match/);
+  assert.match(trueDownApp, /while \(pageETags\.size > MAX_PAGE_ETAGS\)/);
+  assert.match(trueDownApp, /if \(!selectedTaskIDs\.has\(id\)\) taskStatusByID\.delete\(id\)/);
+  assert.match(trueDownApp, /function renderDownloadSettings\(settings = downloadSettings, rules = downloadRules, runtime = runtimeSettings\)/);
   assert.match(trueDownApp, /data-select-page/);
   assert.match(trueDownApp, /JSON\.stringify\(\{ action, ids \}\)/);
   assert.match(trueDownApp, /result\.remaining/);
@@ -194,6 +199,7 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownApp, /aria-sort/);
 	assert.match(trueDownApp, /requestJSON\("\/modules"/);
 	assert.match(trueDownApp, /moduleOptions: sharedBody\.moduleOptions/);
+  assert.match(trueDownApp, /els\.mDropboxMode\.value = downloadRules\.dropboxMode/);
   assert.match(trueDownHtml, /id="dialog-overlay"[^>]+aria-hidden="true"[^>]+inert/);
   assert.doesNotMatch(trueDownApp, /window\.(?:alert|confirm|prompt)\s*\(/);
   assert.match(trueDownApp, /current page connection remains valid|当前页面连接保持有效/);
