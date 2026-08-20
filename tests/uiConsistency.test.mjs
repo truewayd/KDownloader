@@ -182,6 +182,13 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownHtml, /id="m-dropbox-filter"/);
 	assert.match(trueDownHtml, /id="module-list"/);
 	assert.match(trueDownHtml, /id="m-google-drive-option"/);
+  assert.match(trueDownHtml, /id="auto-update-truedown"/);
+  assert.match(trueDownHtml, /id="install-next-engine-btn"/);
+  assert.match(trueDownHtml, /id="select-stable-engine-btn"/);
+  assert.match(trueDownHtml, /id="select-next-engine-btn"/);
+  assert.match(trueDownApp, /requestJSON\("\/system\/update\/check"/);
+  assert.match(trueDownApp, /requestJSON\("\/system\/engine\/next"/);
+  assert.match(trueDownApp, /requestJSON\("\/system\/engine\/select"/);
   assert.match(trueDownHtml, /href="\/icons\.svg#icon-/);
   assert.match(trueDownHtml, /id="token-auth-enabled"/);
   assert.match(trueDownApp, /const PAGE_SIZE = 100/);

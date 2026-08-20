@@ -1,5 +1,29 @@
 # Third-party notices
 
+## aria2
+
+The TrueDown Windows package includes the `aria2c.exe` command-line download
+utility from aria2 1.37.0. aria2 is Copyright (C) 2006, 2019 Tatsuhiro
+Tsujikawa and contributors, and is distributed under the GNU General Public
+License, version 2 or (at your option) any later version. The complete license
+text is included as `ARIA2_COPYING`. The packaged executable matches the
+official `aria2-1.37.0-win-64bit-build1.zip` asset at SHA-256
+`be2099c214f63a3cb4954b09a0becd6e2e34660b886d4c898d260febfe9d70c2`.
+Corresponding source is available from the
+[aria2 1.37.0 source release](https://github.com/aria2/aria2/releases/tag/release-1.37.0).
+
+## Aria2 Next (optional, not bundled)
+
+TrueDown can, only after an explicit dashboard action, download an optional
+Aria2 Next executable directly from the
+[AnInsomniacy/aria2-next](https://github.com/AnInsomniacy/aria2-next) GitHub
+Release assets. TrueDown verifies the asset against the SHA-256 file published
+with that release and verifies its reported version. It does not automatically
+follow Aria2 Next releases. Aria2 Next is also distributed under the GNU
+General Public License, version 2 or later; its source and copyright notices are
+provided in that upstream repository. The `ARIA2_COPYING` file contains the
+applicable GPL version 2 text.
+
 ## gdown
 
 TrueDown's Google Drive resolver is an original Go implementation informed by

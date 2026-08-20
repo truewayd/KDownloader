@@ -989,6 +989,84 @@ h2 {
 	gap: 6px;
 }
 
+.update-list {
+  display: grid;
+  gap: 8px;
+}
+
+.update-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--kd-border);
+  border-radius: var(--kd-radius);
+  padding: 11px;
+  background: var(--kd-input);
+}
+
+.update-card-copy {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.update-card-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.update-card-heading strong {
+  color: var(--kd-text);
+  font-size: 12px;
+}
+
+.update-card-heading span,
+.update-card-copy small {
+  color: var(--kd-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.update-card-copy p {
+  margin: 0;
+  color: var(--kd-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.update-card-copy .update-warning {
+  color: var(--kd-error-text);
+}
+
+.inline-update-toggle {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  gap: 7px;
+  color: var(--kd-text);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.inline-update-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--kd-accent);
+}
+
+.update-card-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 310px;
+}
+
 .setting-toggle {
   display: flex;
   align-items: flex-start;
@@ -1462,6 +1540,16 @@ label {
 	}
 
 	.module-card-actions {
+		justify-content: flex-start;
+	}
+
+	.update-card {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.update-card-actions {
+		max-width: none;
 		justify-content: flex-start;
 	}
 }

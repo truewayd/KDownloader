@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,12 +12,49 @@ import (
 	"strings"
 	"testing"
 	"truedown/internal/downloader"
+	"truedown/internal/systemupdate"
 )
 
 type testTokenAuth struct {
 	enabled bool
 	token   string
 	managed bool
+}
+
+type testUpdateService struct {
+	snapshot      systemupdate.Snapshot
+	restartCalled bool
+}
+
+func (service *testUpdateService) Snapshot() systemupdate.Snapshot {
+	return service.snapshot
+}
+
+func (service *testUpdateService) SetSettings(settings systemupdate.Settings) (systemupdate.Snapshot, error) {
+	service.snapshot.TrueDown.AutoUpdate = settings.AutoUpdateTrueDown
+	return service.snapshot, nil
+}
+
+func (service *testUpdateService) UpdateTrueDown(context.Context) (systemupdate.Snapshot, error) {
+	service.snapshot.TrueDown.PendingBuild = 12
+	service.snapshot.TrueDown.RestartRequired = true
+	return service.snapshot, nil
+}
+
+func (service *testUpdateService) InstallNext(context.Context) (systemupdate.Snapshot, error) {
+	service.snapshot.Engine.NextInstalled = true
+	service.snapshot.Engine.Preference = systemupdate.EngineNext
+	return service.snapshot, nil
+}
+
+func (service *testUpdateService) SelectEngine(engine string) (systemupdate.Snapshot, error) {
+	service.snapshot.Engine.Preference = engine
+	return service.snapshot, nil
+}
+
+func (service *testUpdateService) RequestRestart() error {
+	service.restartCalled = true
+	return nil
 }
 
 func (auth *testTokenAuth) Snapshot() (bool, string, bool) {
@@ -48,6 +86,55 @@ func testHandler(t *testing.T) (*http.ServeMux, *downloader.Manager) {
 	mux := http.NewServeMux()
 	Register(mux, manager, &testTokenAuth{enabled: true, token: strings.Repeat("t", 32)})
 	return mux, manager
+}
+
+func TestSystemUpdateEndpointsExposeSettingsAndManualNextActions(t *testing.T) {
+	root := t.TempDir()
+	manager, err := downloader.NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Stop()
+	updates := &testUpdateService{snapshot: systemupdate.Snapshot{
+		TrueDown: systemupdate.TrueDownStatus{Version: "truedown-build-10", Build: 10, AutoUpdate: true},
+		Engine:   systemupdate.EngineStatus{Active: systemupdate.EngineStable, Preference: systemupdate.EngineStable, ManualUpdatesOnly: true},
+	}}
+	mux := http.NewServeMux()
+	Register(mux, manager, &testTokenAuth{}, updates)
+
+	settingsRequest := httptest.NewRequest(http.MethodPost, "/settings/updates", strings.NewReader(`{"autoUpdateTrueDown":false}`))
+	settingsRequest.Header.Set("Content-Type", "application/json")
+	settingsResponse := httptest.NewRecorder()
+	mux.ServeHTTP(settingsResponse, settingsRequest)
+	if settingsResponse.Code != http.StatusOK || updates.snapshot.TrueDown.AutoUpdate {
+		t.Fatalf("update settings status=%d body=%s", settingsResponse.Code, settingsResponse.Body.String())
+	}
+
+	installResponse := httptest.NewRecorder()
+	mux.ServeHTTP(installResponse, httptest.NewRequest(http.MethodPost, "/system/engine/next", nil))
+	if installResponse.Code != http.StatusOK || !updates.snapshot.Engine.NextInstalled || updates.snapshot.Engine.Preference != systemupdate.EngineNext {
+		t.Fatalf("NEXT install status=%d body=%s", installResponse.Code, installResponse.Body.String())
+	}
+
+	selectRequest := httptest.NewRequest(http.MethodPost, "/system/engine/select", strings.NewReader(`{"engine":"stable"}`))
+	selectRequest.Header.Set("Content-Type", "application/json")
+	selectResponse := httptest.NewRecorder()
+	mux.ServeHTTP(selectResponse, selectRequest)
+	if selectResponse.Code != http.StatusOK || updates.snapshot.Engine.Preference != systemupdate.EngineStable {
+		t.Fatalf("engine select status=%d body=%s", selectResponse.Code, selectResponse.Body.String())
+	}
+
+	checkResponse := httptest.NewRecorder()
+	mux.ServeHTTP(checkResponse, httptest.NewRequest(http.MethodPost, "/system/update/check", nil))
+	if checkResponse.Code != http.StatusOK || !updates.snapshot.TrueDown.RestartRequired {
+		t.Fatalf("update check status=%d body=%s", checkResponse.Code, checkResponse.Body.String())
+	}
+
+	restartResponse := httptest.NewRecorder()
+	mux.ServeHTTP(restartResponse, httptest.NewRequest(http.MethodPost, "/system/update/restart", nil))
+	if restartResponse.Code != http.StatusAccepted || !updates.restartCalled {
+		t.Fatalf("update restart status=%d body=%s", restartResponse.Code, restartResponse.Body.String())
+	}
 }
 
 func TestTaskPageIsBoundedAndSupportsConditionalRequests(t *testing.T) {

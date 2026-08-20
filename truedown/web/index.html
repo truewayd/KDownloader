@@ -262,6 +262,49 @@
 			<div class="module-list" id="module-list" aria-live="polite"></div>
 		  </section>
 
+          <section class="settings-section" aria-labelledby="settings-update-title">
+            <div class="settings-section-heading">
+              <h3 id="settings-update-title">程序与下载内核</h3>
+              <p>TrueDown 可以自动更新自身；安装包始终保留内置稳定版 aria2，Aria2 Next 只在你手动操作时下载或更新。</p>
+            </div>
+            <div class="update-list">
+              <article class="update-card">
+                <div class="update-card-copy">
+                  <div class="update-card-heading">
+                    <strong>TrueDown</strong>
+                    <span id="truedown-update-version">正在读取版本…</span>
+                  </div>
+                  <p id="truedown-update-status" aria-live="polite">正在读取更新状态…</p>
+                  <label class="inline-update-toggle" for="auto-update-truedown">
+                    <input id="auto-update-truedown" type="checkbox">
+                    <span>自动检查、下载并在任务空闲时更新 TrueDown</span>
+                  </label>
+                  <small>更新包通过固定 GitHub 仓库和发布清单校验大小与 SHA-256；新版本启动失败时自动回滚。</small>
+                </div>
+                <div class="update-card-actions">
+                  <button class="kd-button secondary compact" id="check-truedown-update-btn" type="button">检查更新</button>
+                  <button class="kd-button primary compact" id="restart-truedown-update-btn" type="button" hidden>重启并更新</button>
+                </div>
+              </article>
+
+              <article class="update-card">
+                <div class="update-card-copy">
+                  <div class="update-card-heading">
+                    <strong>aria2 下载内核</strong>
+                    <span id="engine-version">正在读取版本…</span>
+                  </div>
+                  <p id="engine-update-status" aria-live="polite">正在读取内核状态…</p>
+                  <small class="update-warning">Aria2 Next 是独立上游项目且发布资产未提供代码签名。TrueDown 会核对其公开 SHA-256 和版本，但是否安装、更新或启用始终由你决定。</small>
+                </div>
+                <div class="update-card-actions">
+                  <button class="kd-button secondary compact" id="select-stable-engine-btn" type="button">使用稳定内核</button>
+                  <button class="kd-button secondary compact" id="select-next-engine-btn" type="button" disabled>使用 NEXT</button>
+                  <button class="kd-button secondary compact" id="install-next-engine-btn" type="button">手动安装 NEXT</button>
+                </div>
+              </article>
+            </div>
+          </section>
+
           <section class="settings-section" aria-labelledby="settings-advanced-title">
             <div class="settings-section-heading">
               <h3 id="settings-advanced-title">高级</h3>

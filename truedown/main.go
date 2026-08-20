@@ -18,11 +18,19 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 	"truedown/internal/api"
 	"truedown/internal/downloader"
+	"truedown/internal/systemupdate"
+)
+
+var (
+	version     = "dev"
+	buildNumber = "0"
+	commit      = "unknown"
 )
 
 //go:embed web
@@ -39,12 +47,19 @@ func exeDir() string {
 }
 
 func main() {
-	base := exeDir()
-	aria2 := filepath.Join(base, "aria2c.exe")
-	if _, err := os.Stat(aria2); os.IsNotExist(err) {
-		aria2 = filepath.Join("aria2", "aria2c.exe")
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Printf("TrueDown %s (build %s, commit %s)\n", version, buildNumber, commit)
+		return
 	}
-	aria2, err := filepath.Abs(aria2)
+	if handled, exitCode := systemupdate.RunHelperIfRequested(os.Args[1:]); handled {
+		os.Exit(exitCode)
+	}
+	base := exeDir()
+	stableAria2 := filepath.Join(base, "aria2c.exe")
+	if _, err := os.Stat(stableAria2); os.IsNotExist(err) {
+		stableAria2 = filepath.Join(base, "aria2", "aria2c.exe")
+	}
+	stableAria2, err := filepath.Abs(stableAria2)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -52,6 +67,22 @@ func main() {
 	if dataDir == "" {
 		dataDir = base
 	}
+	currentBuild, parseErr := strconv.ParseInt(strings.TrimSpace(buildNumber), 10, 64)
+	if parseErr != nil || currentBuild < 0 {
+		currentBuild = 0
+	}
+	updates, err := systemupdate.New(systemupdate.Options{
+		BaseDir:          base,
+		DataDir:          dataDir,
+		StableEnginePath: stableAria2,
+		CurrentVersion:   version,
+		CurrentBuild:     currentBuild,
+		CurrentCommit:    commit,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	aria2 := updates.EnginePath()
 	downloads := filepath.Join(dataDir, "downloads")
 	database := filepath.Join(dataDir, "truedown.db")
 	auth, err := newAuthController(
@@ -73,7 +104,7 @@ func main() {
 	defer dm.Stop()
 
 	mux := http.NewServeMux()
-	api.Register(mux, dm, auth)
+	api.Register(mux, dm, auth, updates)
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -107,7 +138,7 @@ func main() {
 	} else if !authEnabled {
 		log.Printf("API Key authentication is disabled; enable it from the dashboard when needed")
 	}
-	if os.Getenv("TRUEDOWN_NO_BROWSER") == "" {
+	if os.Getenv("TRUEDOWN_NO_BROWSER") == "" && !systemupdate.IsUpdateRelaunch() {
 		go openBrowser(browserURL)
 	}
 	server := &http.Server{
@@ -119,6 +150,23 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    32 * 1024,
 	}
+	restart := make(chan struct{}, 1)
+	updates.SetRestartCallback(func() error {
+		active := dm.TaskCountByStatus(downloader.StatusQueued) +
+			dm.TaskCountByStatus(downloader.StatusDownloading) +
+			dm.TaskCountByStatus(downloader.StatusPaused)
+		if active > 0 {
+			return fmt.Errorf("wait for queued, downloading, and paused tasks before restarting TrueDown")
+		}
+		if err := updates.LaunchPendingApply(os.Args[1:]); err != nil {
+			return err
+		}
+		select {
+		case restart <- struct{}{}:
+		default:
+		}
+		return nil
+	})
 	serverErr := make(chan error, 1)
 	go func() {
 		if tlsEnabled {
@@ -127,6 +175,24 @@ func main() {
 		}
 		serverErr <- server.ListenAndServe()
 	}()
+	updateContext, cancelUpdates := context.WithCancel(context.Background())
+	defer cancelUpdates()
+	updates.RunAutomatic(updateContext, func() bool {
+		return dm.TaskCountByStatus(downloader.StatusQueued) == 0 &&
+			dm.TaskCountByStatus(downloader.StatusDownloading) == 0 &&
+			dm.TaskCountByStatus(downloader.StatusPaused) == 0
+	})
+	select {
+	case err := <-serverErr:
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("HTTP server: %v", err)
+		}
+		return
+	case <-time.After(300 * time.Millisecond):
+		if err := systemupdate.SignalHealthyFromEnvironment(); err != nil {
+			log.Printf("update health signal: %v", err)
+		}
+	}
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	select {
@@ -135,11 +201,13 @@ func main() {
 			log.Printf("HTTP server: %v", err)
 		}
 	case <-stop:
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := server.Shutdown(ctx); err != nil {
-			log.Printf("HTTP shutdown: %v", err)
-		}
+	case <-restart:
+	}
+	cancelUpdates()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("HTTP shutdown: %v", err)
 	}
 }
 

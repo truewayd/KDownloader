@@ -93,3 +93,45 @@ response or traversal protections, introduce aria2 arguments, or run code.
 
 The endpoints use the same origin and `X-Api-Key` protection as other TrueDown
 write APIs.
+
+## Program and download-engine updates
+
+TrueDown treats its own executable and its download engine as separate update
+domains:
+
+- Every Windows package contains the reviewed stable `aria2c.exe`. A program
+  update replaces only `TrueDown.exe`; it never replaces the packaged stable
+  engine, a manually installed NEXT engine, the database, or other data files.
+- Aria2 Next is optional and manual-only. The dashboard downloads the exact
+  Windows asset and checksum list from the latest stable
+  `AnInsomniacy/aria2-next` GitHub Release, verifies SHA-256 and the executable's
+  reported NEXT version, then stores it under `<data-dir>/engines/`. Installing
+  or updating NEXT never changes the engine preference. The user separately
+  selects NEXT or the built-in stable engine; engine changes require a normal
+  restart.
+- TrueDown releases include `truedown-update-<build>.json`. The running program
+  considers only non-prerelease `truewayd/KDownloader` releases whose tag,
+  archive, and manifest names match the build number. The manifest binds the
+  archive name, byte size, and SHA-256 digest before `TrueDown.exe` is extracted
+  into `<data-dir>/updates/`.
+- Applying a staged program update uses a copy of the running executable as an
+  external helper. It waits for TrueDown and aria2 to stop, keeps
+  `TrueDown.exe.previous`, starts the replacement, and waits for a per-update
+  health token. A failed startup restores and relaunches the previous version.
+
+The durable preferences and verified installed-file metadata live in
+`<data-dir>/truedown.updates.json`. Automatic TrueDown updates default to
+enabled for numbered Windows release builds, check periodically, and apply only
+when there are no queued, downloading, or paused tasks. Development builds can
+display the controls but cannot self-update.
+
+Update endpoints use the same origin and `X-Api-Key` protection as the rest of
+the dashboard API:
+
+- `GET /system/update` returns program and engine state.
+- `GET/POST /settings/updates` reads or changes TrueDown automatic updates.
+- `POST /system/update/check` checks and stages a numbered TrueDown release.
+- `POST /system/update/restart` applies an already staged program update.
+- `POST /system/engine/next` manually installs or updates Aria2 Next.
+- `POST /system/engine/select` selects `stable` or an installed `next` engine
+  for the next launch.

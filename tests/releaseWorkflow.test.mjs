@@ -19,7 +19,7 @@ test("release workflow publishes the newest dated changelog", async () => {
     .reverse();
 
   assert.ok(datedFiles.length > 0, "At least one dated release note is required");
-  assert.equal(datedFiles[0], "2026-08-19-007-runtime-quality-and-gc-audit.md");
+  assert.equal(datedFiles[0], "2026-08-20-001-truedown-managed-updates.md");
   assert.match(workflow, /read-latest-changelog\.ps1 -OutputFile release-notes\.md/);
   assert.match(workflow, /body_path:\s*release-notes\.md/);
   assert.match(workflow, /generate_release_notes:\s*false/);
@@ -34,9 +34,10 @@ test("release workflow publishes the newest dated changelog", async () => {
 });
 
 test("monorepo release workflows are independently path scoped", async () => {
-  const [kdownloader, trueDown] = await Promise.all([
+  const [kdownloader, trueDown, trueDownBuild] = await Promise.all([
     read(".github/workflows/publish-extension.yml"),
     read(".github/workflows/publish-truedown.yml"),
+    read("truedown/build.ps1"),
   ]);
 
   assert.match(kdownloader, /paths:\s*[\s\S]*"background\/\*\*"/);
@@ -44,4 +45,10 @@ test("monorepo release workflows are independently path scoped", async () => {
   assert.match(trueDown, /paths:\s*[\s\S]*"truedown\/\*\*"/);
   assert.match(trueDown, /working-directory:\s*truedown/);
   assert.match(trueDown, /RELEASE_TAG:\s*truedown-build-/);
+  assert.match(trueDown, /UPDATE_MANIFEST:\s*truedown-update-/);
+  assert.match(trueDown, /Get-FileHash -Algorithm SHA256/);
+  assert.match(trueDown, /body_path:\s*release-notes\.md/);
+  assert.match(trueDownBuild, /OutputDirectory must be inside/);
+  assert.match(trueDownBuild, /Remove-Item -LiteralPath \$dist -Recurse -Force/);
+  assert.match(trueDownBuild, /ARIA2_COPYING/);
 });

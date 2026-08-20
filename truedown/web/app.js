@@ -72,6 +72,7 @@ let downloadRules = {
 };
 let runtimeSettings = { ...DEFAULT_RUNTIME_SETTINGS };
 let resolverModules = [];
+let systemUpdateState = null;
 let settingsReturnFocus = null;
 let dialogReturnFocus = null;
 let dialogResolver = null;
@@ -90,7 +91,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     showToast(`读取认证设置失败：${error.message}`, "error");
   }
   try {
-    await Promise.all([loadServerDownloadRules(), loadServerRuntimeSettings(), loadResolverModules()]);
+    await Promise.all([loadServerDownloadRules(), loadServerRuntimeSettings(), loadResolverModules(), loadSystemUpdateState()]);
   } catch (error) {
     showToast(`读取服务端设置失败：${error.message}`, "error");
   }
@@ -100,6 +101,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 function cacheElements() {
   [
     "active-count",
+	"auto-update-truedown",
     "batch-pause-btn",
     "batch-remove-btn",
     "batch-resume-btn",
@@ -124,6 +126,7 @@ function cacheElements() {
     "cfg-user-agent",
     "cfg-wait",
     "clear-done-btn",
+	"check-truedown-update-btn",
     "copy-api-token-btn",
     "download-form",
     "dialog-cancel-btn",
@@ -161,6 +164,9 @@ function cacheElements() {
     "modal-msg",
     "modal-title",
 	"module-list",
+	"engine-update-status",
+	"engine-version",
+	"install-next-engine-btn",
     "new-task-btn",
     "next-page-btn",
     "open-downloads-btn",
@@ -171,6 +177,9 @@ function cacheElements() {
     "refresh-tasks-btn",
     "retry-all-btn",
     "resume-queue-btn",
+	"restart-truedown-update-btn",
+	"select-next-engine-btn",
+	"select-stable-engine-btn",
     "settings-btn",
     "settings-cancel-btn",
     "settings-close-btn",
@@ -186,6 +195,8 @@ function cacheElements() {
     "token-auth-enabled",
     "token-auth-status",
     "toast",
+	"truedown-update-status",
+	"truedown-update-version",
   ].forEach((id) => {
     els[toCamel(id)] = document.getElementById(id);
   });
@@ -251,6 +262,12 @@ function bindEvents() {
   els.copyApiTokenBtn.addEventListener("click", copyAPIToken);
   els.tokenAuthEnabled.addEventListener("change", updateAuthSettings);
 	els.moduleList.addEventListener("click", onModuleAction);
+  els.autoUpdateTruedown.addEventListener("change", updateTrueDownAutoUpdate);
+  els.checkTruedownUpdateBtn.addEventListener("click", checkTrueDownUpdate);
+  els.restartTruedownUpdateBtn.addEventListener("click", restartForTrueDownUpdate);
+  els.installNextEngineBtn.addEventListener("click", installNextEngine);
+  els.selectStableEngineBtn.addEventListener("click", () => selectDownloadEngine("stable"));
+  els.selectNextEngineBtn.addEventListener("click", () => selectDownloadEngine("next"));
   els.dialogForm.addEventListener("submit", submitDialog);
   els.dialogCloseBtn.addEventListener("click", cancelDialog);
   els.dialogCancelBtn.addEventListener("click", cancelDialog);
@@ -984,7 +1001,7 @@ function emptyMarkup() {
 async function openSettingsModal() {
   settingsReturnFocus = document.activeElement;
   try {
-    await Promise.all([loadServerDownloadRules(), loadServerRuntimeSettings(), loadResolverModules()]);
+    await Promise.all([loadServerDownloadRules(), loadServerRuntimeSettings(), loadResolverModules(), loadSystemUpdateState()]);
   } catch (error) {
     showToast(`刷新服务端设置失败：${error.message}`, "error");
   }
@@ -1457,6 +1474,210 @@ function boundedInt(value, min, max, fallback) {
 function boundedNumber(value, min, max, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+}
+
+async function loadSystemUpdateState() {
+  systemUpdateState = normalizeSystemUpdateState(await requestJSON("/system/update"));
+  renderSystemUpdateState();
+}
+
+function normalizeSystemUpdateState(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const trueDown = source.trueDown && typeof source.trueDown === "object" ? source.trueDown : {};
+  const engine = source.engine && typeof source.engine === "object" ? source.engine : {};
+  return {
+    busy: stringValue(source.busy),
+    error: stringValue(source.error),
+    trueDown: {
+      version: stringValue(trueDown.version) || "unknown",
+      build: boundedInt(trueDown.build, 0, Number.MAX_SAFE_INTEGER, 0),
+      supported: trueDown.supported === true,
+      autoUpdate: trueDown.autoUpdate === true,
+      updateAvailable: trueDown.updateAvailable === true,
+      availableVersion: stringValue(trueDown.availableVersion),
+      pendingVersion: stringValue(trueDown.pendingVersion),
+      pendingBuild: boundedInt(trueDown.pendingBuild, 0, Number.MAX_SAFE_INTEGER, 0),
+      restartRequired: trueDown.restartRequired === true,
+      lastCheckedAt: stringValue(trueDown.lastCheckedAt),
+    },
+    engine: {
+      preference: engine.preference === "next" ? "next" : "stable",
+      active: engine.active === "next" ? "next" : "stable",
+      activeVersion: stringValue(engine.activeVersion),
+      stableVersion: stringValue(engine.stableVersion),
+      nextInstalled: engine.nextInstalled === true,
+      nextInstalledVersion: stringValue(engine.nextInstalledVersion),
+      nextAvailableVersion: stringValue(engine.nextAvailableVersion),
+      restartRequired: engine.restartRequired === true,
+    },
+  };
+}
+
+function renderSystemUpdateState() {
+  if (!systemUpdateState) return;
+  const { trueDown, engine, busy, error } = systemUpdateState;
+  els.truedownUpdateVersion.textContent = trueDown.build > 0
+    ? `${trueDown.version} · build ${trueDown.build}` : `${trueDown.version} · 开发构建`;
+  let trueDownStatus = trueDown.supported
+    ? "当前已是最新发布版本。"
+    : "当前构建未包含发布编号，不能使用自动更新。";
+  if (trueDown.restartRequired) {
+    trueDownStatus = `已验证并暂存 ${trueDown.pendingVersion || `build ${trueDown.pendingBuild}`}，等待任务空闲后重启更新。`;
+  } else if (trueDown.updateAvailable) {
+    trueDownStatus = `发现 ${trueDown.availableVersion || "新版本"}。`;
+  } else if (trueDown.lastCheckedAt) {
+    trueDownStatus += ` 上次检查：${formatUpdateTime(trueDown.lastCheckedAt)}。`;
+  }
+  if (busy === "truedown") trueDownStatus = "正在检查、下载并验证 TrueDown 更新…";
+  if (error) trueDownStatus += ` 最近一次更新操作：${error}`;
+  els.truedownUpdateStatus.textContent = trueDownStatus;
+  els.autoUpdateTruedown.checked = trueDown.autoUpdate;
+  els.autoUpdateTruedown.disabled = !trueDown.supported || Boolean(busy);
+  els.checkTruedownUpdateBtn.disabled = !trueDown.supported || Boolean(busy);
+  els.checkTruedownUpdateBtn.toggleAttribute("aria-busy", busy === "truedown");
+  els.restartTruedownUpdateBtn.hidden = !trueDown.restartRequired;
+  els.restartTruedownUpdateBtn.disabled = Boolean(busy);
+
+  const activeLabel = engine.active === "next" ? "Aria2 Next" : "内置稳定版 aria2";
+  els.engineVersion.textContent = `${activeLabel}${engine.activeVersion ? ` v${engine.activeVersion}` : ""}`;
+  let engineStatus = engine.active === "next"
+    ? `当前使用 NEXT v${engine.activeVersion || engine.nextInstalledVersion || "unknown"}。`
+    : `当前使用随包提供的稳定内核${engine.stableVersion ? ` v${engine.stableVersion}` : ""}。`;
+  if (engine.restartRequired) {
+    const selected = engine.preference === "next"
+      ? `NEXT v${engine.nextInstalledVersion || "unknown"}` : "内置稳定内核";
+    engineStatus += ` 已选择 ${selected}，完全退出并重新打开 TrueDown 后生效。`;
+  } else if (engine.nextInstalled) {
+    engineStatus += ` 已安装 NEXT v${engine.nextInstalledVersion}，不会自动跟随上游。`;
+  } else {
+    engineStatus += " 尚未安装 NEXT。";
+  }
+  if (busy === "next-engine") engineStatus = "正在从 aria2-next 官方 Release 下载、校验并安装 NEXT…";
+  els.engineUpdateStatus.textContent = engineStatus;
+  els.installNextEngineBtn.textContent = engine.nextInstalled ? "手动更新 NEXT" : "手动安装 NEXT";
+  els.installNextEngineBtn.disabled = Boolean(busy);
+  els.installNextEngineBtn.toggleAttribute("aria-busy", busy === "next-engine");
+  els.selectStableEngineBtn.disabled = Boolean(busy) || engine.preference === "stable";
+  els.selectStableEngineBtn.setAttribute("aria-pressed", String(engine.preference === "stable"));
+  els.selectNextEngineBtn.disabled = Boolean(busy) || !engine.nextInstalled || engine.preference === "next";
+  els.selectNextEngineBtn.setAttribute("aria-pressed", String(engine.preference === "next"));
+}
+
+async function updateTrueDownAutoUpdate() {
+  const requested = els.autoUpdateTruedown.checked;
+  els.autoUpdateTruedown.disabled = true;
+  els.autoUpdateTruedown.setAttribute("aria-busy", "true");
+  try {
+    systemUpdateState = normalizeSystemUpdateState(await requestJSON("/settings/updates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autoUpdateTrueDown: requested }),
+    }));
+    renderSystemUpdateState();
+    showToast(requested ? "TrueDown 自动更新已启用。" : "TrueDown 自动更新已关闭，仍可手动检查。");
+  } catch (error) {
+    showToast(`自动更新设置失败：${error.message}`, "error");
+    await reloadSystemUpdateStateQuietly();
+  } finally {
+    els.autoUpdateTruedown.removeAttribute("aria-busy");
+    renderSystemUpdateState();
+  }
+}
+
+async function checkTrueDownUpdate() {
+  setUpdateButtonBusy(els.checkTruedownUpdateBtn, true);
+  try {
+    systemUpdateState = normalizeSystemUpdateState(await requestJSON("/system/update/check", { method: "POST" }));
+    renderSystemUpdateState();
+    showToast(systemUpdateState.trueDown.restartRequired
+      ? "新版本已下载并验证；任务空闲时会自动重启，或现在手动重启。"
+      : "当前已是最新版本。")
+  } catch (error) {
+    showToast(`检查 TrueDown 更新失败：${error.message}`, "error");
+    await reloadSystemUpdateStateQuietly();
+  } finally {
+    setUpdateButtonBusy(els.checkTruedownUpdateBtn, false);
+    renderSystemUpdateState();
+  }
+}
+
+async function restartForTrueDownUpdate() {
+  const confirmed = await confirmAction({
+    title: "重启并更新 TrueDown",
+    message: "TrueDown 将停止内置 aria2、替换并启动新版本。存在排队、下载中或暂停任务时会拒绝本次重启；新版本启动失败会自动回滚。",
+    confirmLabel: "重启并更新",
+  });
+  if (!confirmed) return;
+  setUpdateButtonBusy(els.restartTruedownUpdateBtn, true);
+  try {
+    await requestJSON("/system/update/restart", { method: "POST" });
+    showToast("TrueDown 正在重启并应用更新。");
+  } catch (error) {
+    showToast(`无法重启更新：${error.message}`, "error");
+    setUpdateButtonBusy(els.restartTruedownUpdateBtn, false);
+  }
+}
+
+async function installNextEngine() {
+  const action = systemUpdateState?.engine.nextInstalled ? "更新" : "安装";
+  const confirmed = await confirmAction({
+    title: `手动${action} Aria2 Next`,
+    message: `这会从 AnInsomniacy/aria2-next 的官方 GitHub Release 下载 Windows 内核，核对发布的 SHA-256 和版本后保存到 TrueDown 数据目录。NEXT 不会自动更新，也不会因安装而自动切换；选择 NEXT 后需要完全退出并重新打开 TrueDown。`,
+    confirmLabel: `手动${action}`,
+  });
+  if (!confirmed) return;
+  setUpdateButtonBusy(els.installNextEngineBtn, true);
+  try {
+    systemUpdateState = normalizeSystemUpdateState(await requestJSON("/system/engine/next", { method: "POST" }));
+    renderSystemUpdateState();
+    showToast(systemUpdateState.engine.restartRequired
+      ? "Aria2 Next 已验证并更新；完全退出并重新打开 TrueDown 后生效。"
+      : "Aria2 Next 已验证并安装；需要时再选择“使用 NEXT”并重启 TrueDown。");
+  } catch (error) {
+    showToast(`Aria2 Next ${action}失败：${error.message}`, "error");
+    await reloadSystemUpdateStateQuietly();
+  } finally {
+    setUpdateButtonBusy(els.installNextEngineBtn, false);
+    renderSystemUpdateState();
+  }
+}
+
+async function selectDownloadEngine(engine) {
+  const button = engine === "next" ? els.selectNextEngineBtn : els.selectStableEngineBtn;
+  setUpdateButtonBusy(button, true);
+  try {
+    systemUpdateState = normalizeSystemUpdateState(await requestJSON("/system/engine/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ engine }),
+    }));
+    renderSystemUpdateState();
+    showToast(`已选择${engine === "next" ? " Aria2 Next" : "内置稳定内核"}；完全退出并重新打开 TrueDown 后生效。`);
+  } catch (error) {
+    showToast(`切换下载内核失败：${error.message}`, "error");
+    await reloadSystemUpdateStateQuietly();
+  } finally {
+    setUpdateButtonBusy(button, false);
+    renderSystemUpdateState();
+  }
+}
+
+async function reloadSystemUpdateStateQuietly() {
+  try {
+    await loadSystemUpdateState();
+  } catch {
+    renderSystemUpdateState();
+  }
+}
+
+function setUpdateButtonBusy(button, busy) {
+  button.disabled = busy;
+  button.toggleAttribute("aria-busy", busy);
+}
+
+function formatUpdateTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { hour12: false });
 }
 
 async function loadAuthSettings() {

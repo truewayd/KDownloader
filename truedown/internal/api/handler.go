@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"truedown/internal/downloader"
+	"truedown/internal/systemupdate"
 )
 
 const maxStartRequestBytes = 1024 * 1024
@@ -21,6 +23,15 @@ const SessionCookieName = "truedown_session"
 type TokenAuth interface {
 	Snapshot() (enabled bool, token string, managed bool)
 	SetEnabled(bool) (string, error)
+}
+
+type UpdateService interface {
+	Snapshot() systemupdate.Snapshot
+	SetSettings(systemupdate.Settings) (systemupdate.Snapshot, error)
+	UpdateTrueDown(context.Context) (systemupdate.Snapshot, error)
+	InstallNext(context.Context) (systemupdate.Snapshot, error)
+	SelectEngine(string) (systemupdate.Snapshot, error)
+	RequestRestart() error
 }
 
 type downloadSourceReq struct {
@@ -72,7 +83,14 @@ type authSettingsReq struct {
 	Enabled bool `json:"enabled"`
 }
 
-func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
+type engineSelectionReq struct {
+	Engine string `json:"engine"`
+}
+
+func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, updateServices ...UpdateService) {
+	if len(updateServices) > 0 && updateServices[0] != nil {
+		registerUpdateEndpoints(mux, updateServices[0])
+	}
 	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
@@ -617,6 +635,101 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth) {
 		n := dm.ClearDone()
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write([]byte("OK " + strconv.Itoa(n)))
+	})
+}
+
+func registerUpdateEndpoints(mux *http.ServeMux, updates UpdateService) {
+	mux.HandleFunc("/system/update", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusOK, updates.Snapshot())
+	})
+
+	mux.HandleFunc("/settings/updates", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, updates.Snapshot())
+		case http.MethodPost:
+			var req systemupdate.Settings
+			if !decodeJSONRequest(w, r, 4096, &req) {
+				return
+			}
+			snapshot, err := updates.SetSettings(req)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, snapshot)
+		default:
+			w.Header().Set("Allow", "GET, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/system/update/check", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(10 * time.Minute))
+		snapshot, err := updates.UpdateTrueDown(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusOK, snapshot)
+	})
+
+	mux.HandleFunc("/system/update/restart", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := updates.RequestRestart(); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]bool{"accepted": true})
+	})
+
+	mux.HandleFunc("/system/engine/next", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(10 * time.Minute))
+		snapshot, err := updates.InstallNext(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusOK, snapshot)
+	})
+
+	mux.HandleFunc("/system/engine/select", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req engineSelectionReq
+		if !decodeJSONRequest(w, r, 4096, &req) {
+			return
+		}
+		snapshot, err := updates.SelectEngine(req.Engine)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusOK, snapshot)
 	})
 }
 

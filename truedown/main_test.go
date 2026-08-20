@@ -1,11 +1,27 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestBundledStableAria2MatchesReviewedOfficialBuild(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("aria2", "aria2c.exe"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	const expected = "be2099c214f63a3cb4954b09a0becd6e2e34660b886d4c898d260febfe9d70c2"
+	if actual := hex.EncodeToString(digest[:]); actual != expected {
+		t.Fatalf("bundled aria2c.exe SHA-256=%s, want reviewed official build %s", actual, expected)
+	}
+}
 
 func testAuthState(token string) *authController {
 	return &authController{enabled: token != "", token: token}

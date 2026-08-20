@@ -21,6 +21,7 @@ jobs:
     runs-on: windows-latest
     env:
       ARTIFACT_NAME: TrueDown-build-${{ github.run_number }}.zip
+      UPDATE_MANIFEST: truedown-update-${{ github.run_number }}.json
       RELEASE_TAG: truedown-build-${{ github.run_number }}
 
     defaults:
@@ -42,16 +43,38 @@ jobs:
         run: go test ./...
 
       - name: Build TrueDown
-        run: ./truedown/build.ps1 -OutputDirectory dist/TrueDown
+        run: ./truedown/build.ps1 -OutputDirectory dist/TrueDown -Version $env:RELEASE_TAG -BuildNumber ${{ github.run_number }} -Commit ${{ github.sha }}
 
       - name: Create release archive
         run: Compress-Archive -Path truedown/dist/TrueDown/* -DestinationPath $env:ARTIFACT_NAME -CompressionLevel Optimal
+
+      - name: Create update manifest
+        run: |
+          $archive = Get-Item -LiteralPath $env:ARTIFACT_NAME
+          $manifest = [ordered]@{
+            schemaVersion = 1
+            product = "TrueDown"
+            repository = "truewayd/KDownloader"
+            version = $env:RELEASE_TAG
+            build = [long]${{ github.run_number }}
+            asset = [ordered]@{
+              name = $archive.Name
+              size = $archive.Length
+              sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive.FullName).Hash.ToLowerInvariant()
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $env:UPDATE_MANIFEST -Encoding utf8NoBOM
+
+      - name: Select release notes
+        run: ./tools/read-latest-changelog.ps1 -OutputFile release-notes.md
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: TrueDown-${{ env.RELEASE_TAG }}
-          path: ${{ env.ARTIFACT_NAME }}
+          path: |
+            ${{ env.ARTIFACT_NAME }}
+            ${{ env.UPDATE_MANIFEST }}
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -60,5 +83,7 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG }}
           name: TrueDown ${{ env.RELEASE_TAG }}
           generate_release_notes: false
-          body: Automated TrueDown build from `${{ github.sha }}`.
-          files: ${{ env.ARTIFACT_NAME }}
+          body_path: release-notes.md
+          files: |
+            ${{ env.ARTIFACT_NAME }}
+            ${{ env.UPDATE_MANIFEST }}
