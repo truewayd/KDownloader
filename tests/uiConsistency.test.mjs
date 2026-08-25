@@ -158,6 +158,15 @@ test("TrueDown keeps its light and dark design tokens", () => {
   assert.deepEqual(kdTokens(trueDownCss), kdTokens(sharedCss));
 });
 
+test("the shared brand palette is anchored to #487A7A", () => {
+  for (const css of [sharedCss, trueDownCss]) {
+    assert.equal((css.match(/--kd-accent:\s*#487a7a;/gi) ?? []).length, 2);
+  }
+  assert.equal((contentCss.match(/--kd-content-accent:\s*#487a7a;/gi) ?? []).length, 2);
+  assert.match(kdownloaderLogo, /stop-color="#487a7a"/i);
+  assert.match(trueDownLogo, /stop-color="#487a7a"/i);
+});
+
 test("TrueDown markup uses a consistent component vocabulary", () => {
   assert.match(trueDownHtml, /class="kd-panel task-panel"/);
   assert.match(trueDownHtml, /class="kd-button primary"/);

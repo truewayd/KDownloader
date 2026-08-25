@@ -1,14 +1,14 @@
 /* Scoped injected components. Keep every selector and keyframe in the kd namespace. */
 :where(.kd-action-button, .kd-creator-button, .kd-flag-button, .kd-modal-overlay) {
-  --kd-content-surface: #202326;
-  --kd-content-surface-raised: #2d3235;
-  --kd-content-border: rgba(235, 241, 238, 0.22);
-  --kd-content-text: #f1f4f2;
-  --kd-content-muted: #a4ada8;
-  --kd-content-accent: #45b8a7;
-  --kd-content-accent-hover: #5bc7b6;
-  --kd-content-accent-text: #0a2722;
-  --kd-content-focus: rgba(69, 184, 167, 0.58);
+  --kd-content-surface: #1e2525;
+  --kd-content-surface-raised: #2a3434;
+  --kd-content-border: rgba(224, 235, 235, 0.22);
+  --kd-content-text: #f1f5f5;
+  --kd-content-muted: #a6b2b2;
+  --kd-content-accent: #487a7a;
+  --kd-content-accent-hover: #3c6868;
+  --kd-content-accent-text: #ffffff;
+  --kd-content-focus: #79a8a8;
   --kd-content-success: #5c9452;
   --kd-content-success-hover: #6aa660;
   --kd-content-error: #ad5047;
@@ -22,19 +22,19 @@
 @media (prefers-color-scheme: light) {
   :where(.kd-action-button, .kd-creator-button, .kd-flag-button, .kd-modal-overlay) {
     --kd-content-surface: #ffffff;
-    --kd-content-surface-raised: #e8edeb;
-    --kd-content-border: rgba(42, 55, 49, 0.24);
-    --kd-content-text: #1e2723;
-    --kd-content-muted: #5f6d66;
-    --kd-content-accent: #167f72;
-    --kd-content-accent-hover: #0f6c61;
+    --kd-content-surface-raised: #e6eeee;
+    --kd-content-border: rgba(47, 69, 69, 0.24);
+    --kd-content-text: #202b2b;
+    --kd-content-muted: #5e6f6f;
+    --kd-content-accent: #487a7a;
+    --kd-content-accent-hover: #3c6868;
     --kd-content-accent-text: #ffffff;
-    --kd-content-focus: rgba(22, 127, 114, 0.4);
+    --kd-content-focus: #487a7a;
     --kd-content-success: #4e8445;
     --kd-content-success-hover: #3f7038;
     --kd-content-error: #b0453a;
     --kd-content-error-hover: #96372f;
-    --kd-content-shadow: 0 8px 24px rgba(31, 48, 40, 0.18);
+    --kd-content-shadow: 0 8px 24px rgba(35, 60, 60, 0.18);
   }
 }
 
