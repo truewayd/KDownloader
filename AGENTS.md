@@ -107,7 +107,7 @@ Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps
 
 - `tools/build-extension.ps1` creates a clean unpacked directory (normally `dist/KDownloader`) containing runtime files only. It rejects Python artifacts and underscore-prefixed reserved paths other than `_locales`.
 - `package.json` is developer-only metadata (`npm test`, `npm run test:python`, and `npm run build`) and is not copied into the extension build.
-- Release notes are required in `changelog/YYYY-MM-DD-NNN-short-slug.md`. Increment the zero-padded daily sequence; `tools/read-latest-changelog.ps1` selects the newest dated file and writes `release-notes.md`.
+- Product-specific release notes are required in `changelog/kdownloader/YYYY-MM-DD-NNN-short-slug.md` or `changelog/truedown/YYYY-MM-DD-NNN-short-slug.md`. Changes affecting both products require one note in each directory. Increment the zero-padded daily sequence; `tools/read-latest-changelog.ps1 -Product KDownloader|TrueDown` selects the newest dated note for that product and writes `release-notes.md`.
 - `.github/workflows/publish-extension.yml` builds, archives, uploads, and publishes a release whose body is read from that latest changelog file. Keep the filename date prefix sortable and do not rely on GitHub-generated notes for project changes.
 - KDownloader and TrueDown releases are path-scoped. KDownloader changes publish through `publish-extension.yml`; `truedown/**` changes publish through `publish-truedown.yml`. A commit that changes both products publishes both releases.
 - `truedown/build.ps1` accepts output only under `truedown/dist/`, cleans that target, injects the release version, monotonic GitHub run number, and commit into `TrueDown.exe`, then creates the Windows package with only `TrueDown.exe`, the stable `aria2c.exe`, `ARIA2_COPYING`, and the third-party notices. TrueDown tags use the `truedown-build-*` prefix so they cannot collide with KDownloader tags. `publish-truedown.yml` publishes the exact `TrueDown-build-<run>.zip` plus `truedown-update-<run>.json`; the strict manifest binds product, repository, version, build, archive name, size, and SHA-256, and the release body comes from the latest dated changelog.
@@ -120,7 +120,7 @@ Run the focused test first, then the full suite:
 npm test
 python -m unittest tests/migrate_history_json_test.py
 pwsh -NoProfile -ExecutionPolicy Bypass -File tools/build-extension.ps1
-pwsh -NoProfile -ExecutionPolicy Bypass -File tools/read-latest-changelog.ps1 -OutputFile release-notes.md
+pwsh -NoProfile -ExecutionPolicy Bypass -File tools/read-latest-changelog.ps1 -Product KDownloader -OutputFile release-notes.md
 cd truedown
 go test ./...
 go vet ./...

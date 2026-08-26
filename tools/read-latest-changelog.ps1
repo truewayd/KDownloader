@@ -1,4 +1,7 @@
 param(
+  [Parameter(Mandatory = $true)]
+  [ValidateSet("KDownloader", "TrueDown")]
+  [string]$Product,
   [string]$ChangelogDirectory = "changelog",
   [string]$OutputFile = "release-notes.md"
 )
@@ -15,16 +18,21 @@ if (-not (Test-Path -LiteralPath $directoryPath -PathType Container)) {
   throw "Changelog directory does not exist: $directoryPath"
 }
 
-$latest = Get-ChildItem -LiteralPath $directoryPath -File -Filter "*.md" |
+$productDirectoryName = $Product.ToLowerInvariant()
+$productDirectoryPath = Join-Path $directoryPath $productDirectoryName
+if (-not (Test-Path -LiteralPath $productDirectoryPath -PathType Container)) {
+  throw "$Product changelog directory does not exist: $productDirectoryPath"
+}
+
+$latest = Get-ChildItem -LiteralPath $productDirectoryPath -File -Filter "*.md" |
   Where-Object {
-    $_.Name -notin @("README.md", "CHANGELOG.md") -and
-    $_.BaseName -match "^\d{4}-\d{2}-\d{2}-\d{3}-"
+    $_.BaseName -match "^\d{4}-\d{2}-\d{2}-\d{3}-.+"
   } |
   Sort-Object Name -Descending |
   Select-Object -First 1
 
 if (-not $latest) {
-  throw "No dated changelog file found in $directoryPath"
+  throw "No dated $Product changelog file found in $productDirectoryPath"
 }
 
 $outputPath = if ([System.IO.Path]::IsPathRooted($OutputFile)) {

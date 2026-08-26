@@ -119,7 +119,7 @@ changelog/        按产品路径维护的发布说明
 npm test
 python -m unittest tests/migrate_history_json_test.py
 pwsh -NoProfile -ExecutionPolicy Bypass -File tools/build-extension.ps1
-pwsh -NoProfile -ExecutionPolicy Bypass -File tools/read-latest-changelog.ps1 -OutputFile release-notes.md
+pwsh -NoProfile -ExecutionPolicy Bypass -File tools/read-latest-changelog.ps1 -Product KDownloader -OutputFile release-notes.md
 
 Set-Location truedown
 go test ./...

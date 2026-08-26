@@ -11,3 +11,5 @@ dist/
 !truedown/COMPONENTS.md
 !changelog/
 !changelog/*.md
+!changelog/*/
+!changelog/*/*.md

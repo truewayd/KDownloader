@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - ".github/workflows/publish-truedown.yml"
+      - "changelog/truedown/**"
+      - "tools/read-latest-changelog.ps1"
       - "truedown/**"
   workflow_dispatch:
 
@@ -66,7 +68,7 @@ jobs:
           $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $env:UPDATE_MANIFEST -Encoding utf8NoBOM
 
       - name: Select release notes
-        run: ./tools/read-latest-changelog.ps1 -OutputFile release-notes.md
+        run: ./tools/read-latest-changelog.ps1 -Product TrueDown -OutputFile release-notes.md
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
