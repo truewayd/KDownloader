@@ -1920,6 +1920,7 @@ func (m *Manager) startAria2() error {
 	if err != nil {
 		return fmt.Errorf("open aria2 log: %w", err)
 	}
+	runtimeSettings := m.RuntimeSettings()
 	args := []string{
 		"--enable-rpc=true",
 		"--rpc-listen-all=false",
@@ -1928,7 +1929,8 @@ func (m *Manager) startAria2() error {
 		"--rpc-secret=" + secret,
 		"--dir=" + filepath.ToSlash(m.defaultDir),
 		"--continue=true",
-		fmt.Sprintf("--max-concurrent-downloads=%d", m.RuntimeSettings().ConcurrentDownloads),
+		fmt.Sprintf("--max-concurrent-downloads=%d", runtimeSettings.ConcurrentDownloads),
+		fmt.Sprintf("--max-overall-download-limit=%d", runtimeSettings.GlobalDownloadLimitBps),
 		"--console-log-level=warn",
 		"--summary-interval=0",
 		"--download-result=full",
@@ -2464,6 +2466,7 @@ func ariaOptions(task *Task, recheck bool) map[string]any {
 func isProtectedAriaOption(name string) bool {
 	switch name {
 	case "gid", "dir", "out", "pause", "continue", "conditional-get", "allow-overwrite", "auto-file-renaming",
+		"max-concurrent-downloads", "max-overall-download-limit",
 		"header", "referer", "enable-rpc", "input-file", "save-session", "log",
 		"ca-certificate", "certificate", "private-key", "load-cookies", "save-cookies", "netrc-path",
 		"server-stat-of", "server-stat-if", "dht-file-path", "dht-file-path6", "torrent-file", "metalink-file",

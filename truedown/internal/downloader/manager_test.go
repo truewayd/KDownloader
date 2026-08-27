@@ -351,6 +351,7 @@ func TestProtectedAriaOptionsBlockHooksAndLocalFileAccess(t *testing.T) {
 		"on-download-complete", "on-bt-download-complete", "rpc-secret",
 		"load-cookies", "save-cookies", "private-key", "ca-certificate", "dht-file-path",
 		"parameterized-uri", "index-out", "follow-torrent", "follow-metalink",
+		"max-concurrent-downloads", "max-overall-download-limit",
 	} {
 		if !isProtectedAriaOption(name) {
 			t.Fatalf("option %q is not protected", name)

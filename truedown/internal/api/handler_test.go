@@ -418,21 +418,33 @@ func TestDropboxFolderDefaultsToDirectArchiveDownload(t *testing.T) {
 	}
 }
 
-func TestRuntimeSettingsEndpointPersistsConcurrency(t *testing.T) {
+func TestRuntimeSettingsEndpointPersistsAria2GlobalSettings(t *testing.T) {
 	mux, manager := testHandler(t)
 	defer manager.Stop()
 	get := httptest.NewRequest(http.MethodGet, "/settings/runtime", nil)
 	getResponse := httptest.NewRecorder()
 	mux.ServeHTTP(getResponse, get)
-	if getResponse.Code != http.StatusOK || getResponse.Body.String() != "{\"concurrentDownloads\":3}\n" {
+	if getResponse.Code != http.StatusOK || getResponse.Body.String() !=
+		"{\"concurrentDownloads\":3,\"globalDownloadLimitBps\":0}\n" {
 		t.Fatalf("default runtime settings status=%d body=%s", getResponse.Code, getResponse.Body.String())
 	}
-	post := httptest.NewRequest(http.MethodPost, "/settings/runtime", strings.NewReader(`{"concurrentDownloads":6}`))
+	post := httptest.NewRequest(http.MethodPost, "/settings/runtime", strings.NewReader(
+		`{"concurrentDownloads":6,"globalDownloadLimitBps":12582912}`,
+	))
 	post.Header.Set("Content-Type", "application/json")
 	postResponse := httptest.NewRecorder()
 	mux.ServeHTTP(postResponse, post)
-	if postResponse.Code != http.StatusOK || manager.RuntimeSettings().ConcurrentDownloads != 6 {
+	if postResponse.Code != http.StatusOK || manager.RuntimeSettings().ConcurrentDownloads != 6 ||
+		manager.RuntimeSettings().GlobalDownloadLimitBps != 12*1024*1024 {
 		t.Fatalf("saved runtime settings status=%d body=%s settings=%+v", postResponse.Code, postResponse.Body.String(), manager.RuntimeSettings())
+	}
+	legacy := httptest.NewRequest(http.MethodPost, "/settings/runtime", strings.NewReader(`{"concurrentDownloads":4}`))
+	legacy.Header.Set("Content-Type", "application/json")
+	legacyResponse := httptest.NewRecorder()
+	mux.ServeHTTP(legacyResponse, legacy)
+	if legacyResponse.Code != http.StatusOK || manager.RuntimeSettings().ConcurrentDownloads != 4 ||
+		manager.RuntimeSettings().GlobalDownloadLimitBps != 12*1024*1024 {
+		t.Fatalf("legacy runtime settings status=%d body=%s settings=%+v", legacyResponse.Code, legacyResponse.Body.String(), manager.RuntimeSettings())
 	}
 }
 

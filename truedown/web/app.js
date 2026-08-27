@@ -15,7 +15,10 @@ const DEFAULT_DOWNLOAD_RULES = Object.freeze({
   excludedExtensions: DEFAULT_EXCLUDED_EXTENSIONS,
   dropboxMode: "direct",
 });
-const DEFAULT_RUNTIME_SETTINGS = Object.freeze({ concurrentDownloads: 3 });
+const DEFAULT_RUNTIME_SETTINGS = Object.freeze({
+  concurrentDownloads: 3,
+  globalDownloadLimitBps: 0,
+});
 const DEFAULT_DOWNLOAD_SETTINGS = Object.freeze({
   folder: "",
   connections: 16,
@@ -115,6 +118,8 @@ function cacheElements() {
     "cfg-extra",
     "cfg-filter-enabled",
     "cfg-folder",
+    "cfg-global-speed",
+    "cfg-global-speed-unit",
     "cfg-headers",
     "cfg-proxy",
     "cfg-referer",
@@ -1055,9 +1060,12 @@ function loadDownloadSettings() {
 }
 
 function renderDownloadSettings(settings = downloadSettings, rules = downloadRules, runtime = runtimeSettings) {
+  const globalSpeed = displaySpeed(runtime.globalDownloadLimitBps);
   els.cfgFolder.value = settings.folder;
   els.cfgConns.value = settings.connections;
   els.cfgTaskConcurrency.value = runtime.concurrentDownloads;
+  els.cfgGlobalSpeed.value = globalSpeed.value || "";
+  els.cfgGlobalSpeedUnit.value = String(globalSpeed.unit);
   els.cfgSpeed.value = settings.speed || "";
   els.cfgSpeedUnit.value = String(settings.speedUnit);
   els.cfgTries.value = settings.maxTries;
@@ -1088,6 +1096,13 @@ async function saveDownloadSettings(event) {
     if (!Number.isFinite(speed) || speed < 0 || !Number.isSafeInteger(speedBps) || speedBps > MAX_SPEED_BPS) {
       throw new Error("限速数值过大");
     }
+    const globalSpeed = Number(els.cfgGlobalSpeed.value || 0);
+    const globalSpeedUnit = Number(els.cfgGlobalSpeedUnit.value);
+    const globalDownloadLimitBps = Math.round(globalSpeed * globalSpeedUnit);
+    if (!Number.isFinite(globalSpeed) || globalSpeed < 0 || !Number.isSafeInteger(globalDownloadLimitBps) ||
+        globalDownloadLimitBps > MAX_SPEED_BPS) {
+      throw new Error("全局限速数值过大");
+    }
     const nextSettings = {
       folder: els.cfgFolder.value.trim(),
       connections: optionalInt("cfgConns") || DEFAULT_DOWNLOAD_SETTINGS.connections,
@@ -1114,6 +1129,7 @@ async function saveDownloadSettings(event) {
     };
     const nextRuntimeSettings = {
       concurrentDownloads: optionalInt("cfgTaskConcurrency") || DEFAULT_RUNTIME_SETTINGS.concurrentDownloads,
+      globalDownloadLimitBps,
     };
     const [savedRules, savedRuntimeSettings] = await Promise.all([
       requestJSON("/settings/download-rules", {
@@ -1218,7 +1234,21 @@ function normalizeServerRuntimeSettings(value) {
       64,
       DEFAULT_RUNTIME_SETTINGS.concurrentDownloads,
     ),
+    globalDownloadLimitBps: boundedInt(
+      settings.globalDownloadLimitBps,
+      0,
+      MAX_SPEED_BPS,
+      DEFAULT_RUNTIME_SETTINGS.globalDownloadLimitBps,
+    ),
   };
+}
+
+function displaySpeed(speedBps) {
+  const value = boundedInt(speedBps, 0, MAX_SPEED_BPS, 0);
+  let unit = 1048576;
+  if (value >= 1073741824) unit = 1073741824;
+  else if (value > 0 && value < 1048576) unit = 1024;
+  return { value: value / unit, unit };
 }
 
 async function loadServerRuntimeSettings() {

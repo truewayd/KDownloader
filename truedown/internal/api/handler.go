@@ -234,11 +234,11 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		case http.MethodGet:
 			writeJSON(w, http.StatusOK, dm.RuntimeSettings())
 		case http.MethodPost:
-			var req downloader.RuntimeSettings
+			var req downloader.RuntimeSettingsUpdate
 			if !decodeJSONRequest(w, r, 4096, &req) {
 				return
 			}
-			settings, err := dm.SetRuntimeSettings(req)
+			settings, err := dm.UpdateRuntimeSettings(req)
 			if err != nil {
 				if downloader.IsValidationError(err) {
 					http.Error(w, err.Error(), http.StatusBadRequest)

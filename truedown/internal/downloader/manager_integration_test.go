@@ -35,11 +35,26 @@ func TestManagerAria2Lifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := m.SetRuntimeSettings(RuntimeSettings{
+		ConcurrentDownloads:    2,
+		GlobalDownloadLimitBps: 32 * 1024,
+	}); err != nil {
+		t.Fatalf("persist aria2 global settings before startup: %v", err)
+	}
 	if err := m.Start(); err != nil {
 		m.Stop()
 		t.Fatal(err)
 	}
 	defer m.Stop()
+	requireAriaGlobalOption(t, m, "max-concurrent-downloads", "2")
+	requireAriaGlobalOption(t, m, "max-overall-download-limit", "32768")
+	if _, err := m.SetRuntimeSettings(RuntimeSettings{
+		ConcurrentDownloads:    2,
+		GlobalDownloadLimitBps: 64 * 1024,
+	}); err != nil {
+		t.Fatalf("apply aria2 global settings: %v", err)
+	}
+	requireAriaGlobalOption(t, m, "max-overall-download-limit", "65536")
 
 	link := server.URL + "/payload.bin"
 	task, duplicate, err := m.AddTask(link, "payload.bin", "", nil, "", 0, Aria2Opts{MaxSpeedBps: 32768})
@@ -86,6 +101,21 @@ func TestManagerAria2Lifecycle(t *testing.T) {
 		if _, err := os.Lstat(path); !os.IsNotExist(err) {
 			t.Fatalf("removed partial file %q remains: %v", path, err)
 		}
+	}
+}
+
+func requireAriaGlobalOption(t *testing.T, m *Manager, name, want string) {
+	t.Helper()
+	client, ok := m.rpc.(*ariaClient)
+	if !ok {
+		t.Fatalf("aria2 client has type %T", m.rpc)
+	}
+	var options map[string]string
+	if err := client.call("aria2.getGlobalOption", nil, &options); err != nil {
+		t.Fatalf("read aria2 global options: %v", err)
+	}
+	if got := options[name]; got != want {
+		t.Fatalf("aria2 global option %s=%q, want %q", name, got, want)
 	}
 }
 

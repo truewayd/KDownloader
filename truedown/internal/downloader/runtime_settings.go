@@ -8,11 +8,21 @@ import (
 	"sync"
 )
 
-const defaultConcurrentDownloads = 3
+const (
+	defaultConcurrentDownloads       = 3
+	maxGlobalDownloadLimitBps  int64 = 1 << 50
+)
 
 // RuntimeSettings controls aria2-wide behavior shared by every task.
 type RuntimeSettings struct {
-	ConcurrentDownloads int `json:"concurrentDownloads"`
+	ConcurrentDownloads    int   `json:"concurrentDownloads"`
+	GlobalDownloadLimitBps int64 `json:"globalDownloadLimitBps"`
+}
+
+// RuntimeSettingsUpdate keeps new fields optional for older dashboard clients.
+type RuntimeSettingsUpdate struct {
+	ConcurrentDownloads    int    `json:"concurrentDownloads"`
+	GlobalDownloadLimitBps *int64 `json:"globalDownloadLimitBps"`
 }
 
 type runtimeSettingsStore struct {
@@ -53,6 +63,9 @@ func normalizeRuntimeSettings(settings RuntimeSettings) (RuntimeSettings, error)
 	if settings.ConcurrentDownloads < 1 || settings.ConcurrentDownloads > 64 {
 		return RuntimeSettings{}, &ValidationError{Message: "concurrentDownloads must be between 1 and 64"}
 	}
+	if settings.GlobalDownloadLimitBps < 0 || settings.GlobalDownloadLimitBps > maxGlobalDownloadLimitBps {
+		return RuntimeSettings{}, &ValidationError{Message: "globalDownloadLimitBps must be between 0 and 1125899906842624"}
+	}
 	return settings, nil
 }
 
@@ -88,6 +101,22 @@ func (m *Manager) RuntimeSettings() RuntimeSettings {
 	return m.runtimeSettings.snapshot()
 }
 
+// UpdateRuntimeSettings preserves settings unknown to older dashboard clients.
+func (m *Manager) UpdateRuntimeSettings(update RuntimeSettingsUpdate) (RuntimeSettings, error) {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	settings := m.RuntimeSettings()
+	settings.ConcurrentDownloads = update.ConcurrentDownloads
+	if update.GlobalDownloadLimitBps != nil {
+		settings.GlobalDownloadLimitBps = *update.GlobalDownloadLimitBps
+	}
+	normalized, err := normalizeRuntimeSettings(settings)
+	if err != nil {
+		return RuntimeSettings{}, err
+	}
+	return m.setRuntimeSettingsLocked(normalized)
+}
+
 // SetRuntimeSettings applies aria2-wide settings immediately and persists them.
 func (m *Manager) SetRuntimeSettings(settings RuntimeSettings) (RuntimeSettings, error) {
 	normalized, err := normalizeRuntimeSettings(settings)
@@ -96,12 +125,14 @@ func (m *Manager) SetRuntimeSettings(settings RuntimeSettings) (RuntimeSettings,
 	}
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
+	return m.setRuntimeSettingsLocked(normalized)
+}
+
+func (m *Manager) setRuntimeSettingsLocked(normalized RuntimeSettings) (RuntimeSettings, error) {
 	previous := m.RuntimeSettings()
 	if m.rpc != nil {
-		if err := m.rpc.changeGlobalOptions(map[string]string{
-			"max-concurrent-downloads": fmt.Sprintf("%d", normalized.ConcurrentDownloads),
-		}); err != nil {
-			return RuntimeSettings{}, fmt.Errorf("apply concurrent download limit: %w", err)
+		if err := m.rpc.changeGlobalOptions(runtimeAriaOptions(normalized)); err != nil {
+			return RuntimeSettings{}, fmt.Errorf("apply aria2 runtime settings: %w", err)
 		}
 	}
 	saved, err := m.runtimeSettings.update(normalized)
@@ -109,9 +140,14 @@ func (m *Manager) SetRuntimeSettings(settings RuntimeSettings) (RuntimeSettings,
 		return saved, nil
 	}
 	if m.rpc != nil {
-		_ = m.rpc.changeGlobalOptions(map[string]string{
-			"max-concurrent-downloads": fmt.Sprintf("%d", previous.ConcurrentDownloads),
-		})
+		_ = m.rpc.changeGlobalOptions(runtimeAriaOptions(previous))
 	}
 	return RuntimeSettings{}, err
+}
+
+func runtimeAriaOptions(settings RuntimeSettings) map[string]string {
+	return map[string]string{
+		"max-concurrent-downloads":   fmt.Sprintf("%d", settings.ConcurrentDownloads),
+		"max-overall-download-limit": fmt.Sprintf("%d", settings.GlobalDownloadLimitBps),
+	}
 }

@@ -151,6 +151,18 @@
                 <p class="hint">控制 aria2 同时运行的下载任务，保存后立即生效。</p>
               </div>
               <div class="field">
+                <label for="cfg-global-speed">全局总限速</label>
+                <div class="input-group">
+                  <input class="kd-input" id="cfg-global-speed" type="number" min="0" step="any" placeholder="0">
+                  <select class="kd-select" id="cfg-global-speed-unit" aria-label="全局限速单位">
+                    <option value="1048576">MB/s</option>
+                    <option value="1024">KB/s</option>
+                    <option value="1073741824">GB/s</option>
+                  </select>
+                </div>
+                <p class="hint">限制所有任务的合计速度，由 aria2 立即应用；0 表示不限速。</p>
+              </div>
+              <div class="field">
                 <label for="cfg-speed">单任务限速</label>
                 <div class="input-group">
                   <input class="kd-input" id="cfg-speed" type="number" min="0" step="0.1" placeholder="0">
