@@ -317,6 +317,68 @@
             </div>
           </section>
 
+          <section class="settings-section tracker-research-section" aria-labelledby="settings-tracker-research-title">
+            <div class="settings-section-heading">
+              <h3 id="settings-tracker-research-title">Tracker 流量研究（实验性）</h3>
+              <p>使用 TrueDown 内置的本地 relay 和 Aria2 Next RPC 复刻 RatioGhost 上报模型，不修改 aria2-next 源码。</p>
+            </div>
+            <p class="tracker-research-warning">仅限在你控制的 tracker 或测试环境中研究流量；不得用于欺骗、滥用或违反服务条款。启用即表示你理解并自行承担全部后果。</p>
+            <label class="setting-toggle tracker-research-master" for="tracker-research-enabled">
+              <input id="tracker-research-enabled" type="checkbox">
+              <span><strong>手动启用研究模块</strong><small>默认关闭；每次从关闭切换为开启都必须再次确认。需要当前运行内核为 Aria2 Next。</small></span>
+            </label>
+            <div class="form-grid tracker-research-grid">
+              <div class="field">
+                <label for="tracker-minimum-leechers">Leecher 阈值</label>
+                <input class="kd-input" id="tracker-minimum-leechers" type="number" min="0" max="1000000" step="1">
+                <p class="hint">低于该数量时只累计真实上传增量。</p>
+              </div>
+              <div class="field">
+                <span class="field-label">真实下载倍率区间</span>
+                <div class="input-group ratio-input-group">
+                  <input class="kd-input" id="tracker-download-multiplier-min" type="number" min="0" max="1000" step="0.001" aria-label="真实下载倍率下限">
+                  <input class="kd-input" id="tracker-download-multiplier-max" type="number" min="0" max="1000" step="0.001" aria-label="真实下载倍率上限">
+                </div>
+              </div>
+              <div class="field">
+                <span class="field-label">真实上传倍率区间</span>
+                <div class="input-group ratio-input-group">
+                  <input class="kd-input" id="tracker-upload-multiplier-min" type="number" min="0" max="1000" step="0.1" aria-label="真实上传倍率下限">
+                  <input class="kd-input" id="tracker-upload-multiplier-max" type="number" min="0" max="1000" step="0.1" aria-label="真实上传倍率上限">
+                </div>
+              </div>
+              <div class="field">
+                <label for="tracker-bonus-kib-per-second">随机增量上限（KiB/s）</label>
+                <input class="kd-input" id="tracker-bonus-kib-per-second" type="number" min="0" max="1000000" step="0.1">
+              </div>
+              <div class="field">
+                <label for="tracker-bonus-chance-percent">随机增量概率（%）</label>
+                <input class="kd-input" id="tracker-bonus-chance-percent" type="number" min="0" max="100" step="0.1">
+              </div>
+            </div>
+            <p class="hint">达到 Leecher 阈值后，上报上传量按“上次上报 + 本次真实上传增量 + 随机下载倍率 × 真实下载增量 + 随机上传倍率 × 真实上传增量 + 可选随机增量”累计。</p>
+            <div class="toggle-grid tracker-research-toggles">
+              <label class="setting-toggle" for="tracker-report-download-zero">
+                <input id="tracker-report-download-zero" type="checkbox">
+                <span><strong>下载量上报为零</strong><small>保持首次 left；同时移除 completed 事件。</small></span>
+              </label>
+              <label class="setting-toggle" for="tracker-pretend-seed">
+                <input id="tracker-pretend-seed" type="checkbox">
+                <span><strong>伪装做种</strong><small>将 left 上报为零，并自动启用“下载量上报为零”。</small></span>
+              </label>
+              <label class="setting-toggle" for="tracker-only-traffic">
+                <input id="tracker-only-traffic" type="checkbox" checked disabled>
+                <span><strong>仅 tracker 流量</strong><small>内置安全边界，不开放通用代理能力。</small></span>
+              </label>
+              <label class="setting-toggle" for="tracker-local-only">
+                <input id="tracker-local-only" type="checkbox" checked disabled>
+                <span><strong>仅本机连接</strong><small>端口由 TrueDown 临时分配且只绑定回环地址。</small></span>
+              </label>
+            </div>
+            <p class="hint tracker-research-status" id="tracker-research-status" aria-live="polite">正在读取模块状态…</p>
+            <p class="hint">仅改写 HTTP/HTTPS tracker；UDP tracker 保持原样。HTTPS 由 relay 作为普通客户端连接上游，不进行中间人解密，也不安装自定义证书。模块更新跟随 TrueDown。</p>
+          </section>
+
           <section class="settings-section" aria-labelledby="settings-advanced-title">
             <div class="settings-section-heading">
               <h3 id="settings-advanced-title">高级</h3>
@@ -366,9 +428,14 @@
 
         <div class="modal-body">
           <div class="field">
-            <label for="m-link">下载链接 *</label>
-            <textarea id="m-link" class="kd-input link-list-field" rows="4" placeholder="https://example.com/file-a.zip&#10;https://example.com/file-b.zip" required></textarea>
-            <p class="hint">每行一个链接。</p>
+            <label for="m-link">下载链接或 Magnet</label>
+            <textarea id="m-link" class="kd-input link-list-field" rows="4" placeholder="https://example.com/file.zip&#10;magnet:?xt=urn:btih:..."></textarea>
+            <p class="hint">每行一个链接；Magnet 与 HTTP(S) `.torrent` 链接会进入 Aria2 Next 的 BitTorrent 流程。</p>
+          </div>
+          <div class="field torrent-import-field">
+            <label for="m-torrent-file">或导入本地 .torrent</label>
+            <input class="kd-input" id="m-torrent-file" type="file" accept=".torrent,application/x-bittorrent">
+            <p class="hint">文件与链接二选一，最大 4 MiB。目录采用智能整理：单文件直接保存，多文件自动放入 torrent 同名文件夹。</p>
           </div>
           <div class="form-grid">
             <div class="field">
@@ -376,8 +443,8 @@
               <input class="kd-input" id="m-folder" type="text" placeholder="/downloads">
             </div>
             <div class="field">
-              <label for="m-name">文件名</label>
-              <input class="kd-input" id="m-name" type="text" placeholder="留空自动命名">
+              <label for="m-name">文件名（仅普通 HTTP(S)）</label>
+              <input class="kd-input" id="m-name" type="text" placeholder="BT 任务使用 torrent 元信息名称">
             </div>
           </div>
           <div class="form-grid">

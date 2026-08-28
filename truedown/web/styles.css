@@ -1041,6 +1041,49 @@ h2 {
   color: var(--kd-error-text);
 }
 
+.tracker-research-section {
+  display: grid;
+  gap: 12px;
+}
+
+.tracker-research-section .settings-section-heading {
+  margin-bottom: 0;
+}
+
+.tracker-research-warning {
+  margin: 0;
+  border: 1px solid var(--kd-error-border);
+  border-radius: var(--kd-radius);
+  padding: 10px;
+  background: var(--kd-error-bg);
+  color: var(--kd-error-text);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.tracker-research-master {
+  border-color: var(--kd-accent);
+}
+
+.tracker-research-grid,
+.tracker-research-toggles {
+  margin-top: 0;
+}
+
+.ratio-input-group {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+}
+
+.ratio-input-group .kd-input {
+  border: 1px solid var(--kd-border);
+  border-radius: var(--kd-radius);
+}
+
+.tracker-research-status[data-error="true"] {
+  color: var(--kd-error-text);
+}
+
 .inline-update-toggle {
   display: inline-flex;
   align-items: center;

@@ -19,6 +19,27 @@ const DEFAULT_RUNTIME_SETTINGS = Object.freeze({
   concurrentDownloads: 3,
   globalDownloadLimitBps: 0,
 });
+const DEFAULT_TRACKER_RESEARCH_SETTINGS = Object.freeze({
+  enabled: false,
+  minimumLeechers: 3,
+  downloadMultiplierMin: 0,
+  downloadMultiplierMax: 0.001,
+  uploadMultiplierMin: 2,
+  uploadMultiplierMax: 8,
+  bonusKiBPerSecond: 15,
+  bonusChancePercent: 5,
+  reportDownloadAsZero: false,
+  pretendToSeed: false,
+  onlyTrackerTraffic: true,
+  onlyLocalConnections: true,
+  supportKnown: false,
+  supported: false,
+  active: false,
+  configuredTorrents: 0,
+  rewrittenTrackers: 0,
+  forwardedAnnounces: 0,
+  lastError: "",
+});
 const DEFAULT_DOWNLOAD_SETTINGS = Object.freeze({
   folder: "",
   connections: 16,
@@ -74,6 +95,7 @@ let downloadRules = {
   dropboxMode: DEFAULT_DOWNLOAD_RULES.dropboxMode,
 };
 let runtimeSettings = { ...DEFAULT_RUNTIME_SETTINGS };
+let trackerResearchSettings = { ...DEFAULT_TRACKER_RESEARCH_SETTINGS };
 let resolverModules = [];
 let systemUpdateState = null;
 let settingsReturnFocus = null;
@@ -94,7 +116,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     showToast(`读取认证设置失败：${error.message}`, "error");
   }
   try {
-    await Promise.all([loadServerDownloadRules(), loadServerRuntimeSettings(), loadResolverModules(), loadSystemUpdateState()]);
+    await Promise.all([
+      loadServerDownloadRules(),
+      loadServerRuntimeSettings(),
+      loadTrackerResearchSettings(),
+      loadResolverModules(),
+      loadSystemUpdateState(),
+    ]);
   } catch (error) {
     showToast(`读取服务端设置失败：${error.message}`, "error");
   }
@@ -161,6 +189,7 @@ function cacheElements() {
 	"m-google-drive-option",
 	"m-resolver-options",
     "m-speed",
+	"m-torrent-file",
     "m-tries",
     "m-wait",
     "modal-cancel-btn",
@@ -200,6 +229,19 @@ function cacheElements() {
     "token-auth-enabled",
     "token-auth-status",
     "toast",
+	"tracker-bonus-chance-percent",
+	"tracker-bonus-kib-per-second",
+	"tracker-download-multiplier-max",
+	"tracker-download-multiplier-min",
+	"tracker-local-only",
+	"tracker-minimum-leechers",
+	"tracker-only-traffic",
+	"tracker-pretend-seed",
+	"tracker-report-download-zero",
+	"tracker-research-enabled",
+	"tracker-research-status",
+	"tracker-upload-multiplier-max",
+	"tracker-upload-multiplier-min",
 	"truedown-update-status",
 	"truedown-update-version",
   ].forEach((id) => {
@@ -215,6 +257,7 @@ function bindEvents() {
   els.settingsCancelBtn.addEventListener("click", closeSettingsModal);
   els.settingsResetBtn.addEventListener("click", resetDownloadSettings);
   els.settingsForm.addEventListener("submit", saveDownloadSettings);
+  els.trackerPretendSeed.addEventListener("change", syncTrackerSeedControls);
   els.settingsOverlay.addEventListener("click", (event) => {
     if (event.target === els.settingsOverlay) closeSettingsModal();
   });
@@ -328,15 +371,17 @@ function openModal(mode = "single") {
   modalMode = mode;
   modalReturnFocus = document.activeElement;
   const isBatch = mode === "batch";
+	els.mTorrentFile.value = "";
+	els.mTorrentFile.disabled = isBatch;
   els.modalEyebrow.textContent = isBatch ? "Batch download" : "New download";
   els.modalTitle.textContent = isBatch ? "批量下载任务" : "新建下载任务";
   els.submitTaskBtn.textContent = isBatch ? "批量开始" : "开始下载";
   els.mLink.rows = isBatch ? 7 : 4;
   els.mLink.placeholder = isBatch
-    ? "https://example.com/file-a.zip\nhttps://example.com/file-b.zip\nhttps://example.com/file-c.zip"
-    : "https://example.com/file.zip";
+    ? "https://example.com/file-a.zip\nmagnet:?xt=urn:btih:...\nhttps://example.com/file.torrent"
+    : "https://example.com/file.zip 或 magnet:?xt=urn:btih:...";
   els.mName.disabled = isBatch;
-  els.mName.placeholder = isBatch ? "批量时自动命名" : "留空自动命名";
+  els.mName.placeholder = isBatch ? "批量时自动命名" : "普通 HTTP(S) 留空自动命名；BT 使用元信息名称";
   if (isBatch) els.mName.value = "";
   els.mDropboxMode.value = downloadRules.dropboxMode;
   els.mDropboxFilter.checked = downloadRules.enabled;
@@ -460,6 +505,7 @@ function confirmAction(options) {
 
 async function submitTask(event) {
   event.preventDefault();
+  const torrentFile = els.mTorrentFile.files?.[0] || null;
   let links;
   try {
     links = parseLinks(els.mLink.value);
@@ -467,8 +513,20 @@ async function submitTask(event) {
     showModalMsg(error.message, true);
     return;
   }
-  if (!links.length) {
-    showModalMsg("请填写下载链接", true);
+  if (!links.length && !torrentFile) {
+    showModalMsg("请填写下载链接、Magnet，或选择 .torrent 文件", true);
+    return;
+  }
+  if (links.length && torrentFile) {
+    showModalMsg("链接和 .torrent 文件只能选择一种来源", true);
+    return;
+  }
+  if (torrentFile && torrentFile.size > 4 * 1024 * 1024) {
+    showModalMsg(".torrent 文件不能超过 4 MiB", true);
+    return;
+  }
+  if (torrentFile && modalMode === "batch") {
+    showModalMsg("本地 .torrent 请使用单任务模式导入", true);
     return;
   }
 
@@ -495,11 +553,30 @@ async function submitTask(event) {
 
   setSubmitting(true);
   try {
-    const outcomes = await mapLimitSettled(links, 8, (link) =>
-      requestText("/start-headless-download", {
+    if (torrentFile) {
+      const torrentBase64 = await fileToBase64(torrentFile);
+      const result = await requestText("/start-bt-download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildStartBody(link, sharedBody)),
+        body: JSON.stringify({
+          torrentBase64,
+          folder: sharedBody.folder,
+          opts: sharedBody.opts,
+        }),
+      });
+      await loadTasks({ force: true });
+      showModalMsg(result.includes("DUPLICATE") ? "已复用现有 Torrent 任务" : "Torrent 任务已创建");
+      els.mTorrentFile.value = "";
+      window.setTimeout(closeModal, 700);
+      return;
+    }
+    const outcomes = await mapLimitSettled(links, 8, (link) =>
+      requestText(isBitTorrentLink(link) ? "/start-bt-download" : "/start-headless-download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(isBitTorrentLink(link)
+          ? buildBitTorrentStartBody(link, sharedBody)
+          : buildStartBody(link, sharedBody)),
       }),
     );
     const created = outcomes.filter((outcome) => outcome.status === "fulfilled").map((outcome) => outcome.value);
@@ -1006,7 +1083,13 @@ function emptyMarkup() {
 async function openSettingsModal() {
   settingsReturnFocus = document.activeElement;
   try {
-    await Promise.all([loadServerDownloadRules(), loadServerRuntimeSettings(), loadResolverModules(), loadSystemUpdateState()]);
+    await Promise.all([
+      loadServerDownloadRules(),
+      loadServerRuntimeSettings(),
+      loadTrackerResearchSettings(),
+      loadResolverModules(),
+      loadSystemUpdateState(),
+    ]);
   } catch (error) {
     showToast(`刷新服务端设置失败：${error.message}`, "error");
   }
@@ -1084,6 +1167,74 @@ function renderDownloadSettings(settings = downloadSettings, rules = downloadRul
     input.checked = selected.has(input.value);
   });
   els.cfgExtra.value = settings.extra;
+  renderTrackerResearchSettings();
+}
+
+function buildBitTorrentStartBody(link, sharedBody) {
+  return {
+    link,
+    headers: sharedBody.headers,
+    downloadPage: sharedBody.downloadPage,
+    folder: sharedBody.folder,
+    opts: sharedBody.opts,
+  };
+}
+
+function isBitTorrentLink(link) {
+  try {
+    const parsed = new URL(link);
+    return parsed.protocol === "magnet:" || parsed.pathname.toLowerCase().endsWith(".torrent");
+  } catch {
+    return false;
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      const result = String(reader.result || "");
+      const separator = result.indexOf(",");
+      if (separator < 0) {
+        reject(new Error("无法读取 .torrent 文件"));
+        return;
+      }
+      resolve(result.slice(separator + 1));
+    }, { once: true });
+    reader.addEventListener("error", () => reject(new Error("无法读取 .torrent 文件")), { once: true });
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderTrackerResearchSettings(settings = trackerResearchSettings) {
+  els.trackerResearchEnabled.checked = settings.enabled;
+  els.trackerMinimumLeechers.value = settings.minimumLeechers;
+  els.trackerDownloadMultiplierMin.value = settings.downloadMultiplierMin;
+  els.trackerDownloadMultiplierMax.value = settings.downloadMultiplierMax;
+  els.trackerUploadMultiplierMin.value = settings.uploadMultiplierMin;
+  els.trackerUploadMultiplierMax.value = settings.uploadMultiplierMax;
+  els.trackerBonusKibPerSecond.value = settings.bonusKiBPerSecond;
+  els.trackerBonusChancePercent.value = settings.bonusChancePercent;
+  els.trackerReportDownloadZero.checked = settings.reportDownloadAsZero;
+  els.trackerPretendSeed.checked = settings.pretendToSeed;
+  els.trackerOnlyTraffic.checked = true;
+  els.trackerLocalOnly.checked = true;
+  syncTrackerSeedControls();
+  const support = settings.supportKnown
+    ? (settings.supported ? "Aria2 Next RPC 已就绪" : "当前内核不支持，请选择 Aria2 Next 后完整重启 TrueDown")
+    : "尚未检测 Aria2 Next RPC";
+  const activity = settings.active
+    ? `relay 已运行；已配置 ${settings.configuredTorrents} 个任务、改写 ${settings.rewrittenTrackers} 个 HTTP(S) tracker、转发 ${settings.forwardedAnnounces} 次请求`
+    : (settings.enabled ? "已保存启用状态，但 relay 尚未运行" : "模块已关闭");
+  els.trackerResearchStatus.textContent = settings.lastError
+    ? `${support}；${activity}；错误：${settings.lastError}`
+    : `${support}；${activity}`;
+  els.trackerResearchStatus.dataset.error = String(Boolean(settings.lastError) || (settings.supportKnown && !settings.supported));
+}
+
+function syncTrackerSeedControls() {
+  if (els.trackerPretendSeed.checked) els.trackerReportDownloadZero.checked = true;
+  els.trackerReportDownloadZero.disabled = els.trackerPretendSeed.checked;
 }
 
 async function saveDownloadSettings(event) {
@@ -1131,7 +1282,19 @@ async function saveDownloadSettings(event) {
       concurrentDownloads: optionalInt("cfgTaskConcurrency") || DEFAULT_RUNTIME_SETTINGS.concurrentDownloads,
       globalDownloadLimitBps,
     };
-    const [savedRules, savedRuntimeSettings] = await Promise.all([
+    const nextTrackerResearchSettings = readTrackerResearchForm();
+    let acknowledgedRisk = false;
+    if (nextTrackerResearchSettings.enabled && !trackerResearchSettings.enabled) {
+      acknowledgedRisk = await confirmAction({
+        eyebrow: "Research only",
+        title: "确认启用 Tracker 流量研究",
+        message: "此功能仅限在你控制的 tracker 或测试环境中研究流量，不得用于欺骗、滥用或违反服务条款。继续即表示你理解并自行承担全部后果。",
+        confirmLabel: "我理解，启用研究模块",
+        danger: true,
+      });
+      if (!acknowledgedRisk) return;
+    }
+    const [savedRules, savedRuntimeSettings, savedTrackerResearchSettings] = await Promise.all([
       requestJSON("/settings/download-rules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1142,11 +1305,17 @@ async function saveDownloadSettings(event) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(nextRuntimeSettings),
       }),
+      requestJSON("/settings/tracker-research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...nextTrackerResearchSettings, acknowledgedRisk }),
+      }),
     ]);
     localStorage.setItem(DOWNLOAD_DEFAULTS_KEY, JSON.stringify(nextSettings));
     downloadSettings = nextSettings;
     downloadRules = normalizeServerDownloadRules(savedRules);
     runtimeSettings = normalizeServerRuntimeSettings(savedRuntimeSettings);
+    trackerResearchSettings = normalizeTrackerResearchSettings(savedTrackerResearchSettings);
     closeSettingsModal();
     showToast("下载器默认设置已保存。");
   } catch (error) {
@@ -1161,6 +1330,7 @@ function resetDownloadSettings() {
     dropboxMode: DEFAULT_DOWNLOAD_RULES.dropboxMode,
   };
   renderDownloadSettings(DEFAULT_DOWNLOAD_SETTINGS, defaultRules, DEFAULT_RUNTIME_SETTINGS);
+  renderTrackerResearchSettings(DEFAULT_TRACKER_RESEARCH_SETTINGS);
   showToast("已恢复默认值，点击「保存设置」后生效。");
 }
 
@@ -1253,6 +1423,65 @@ function displaySpeed(speedBps) {
 
 async function loadServerRuntimeSettings() {
   runtimeSettings = normalizeServerRuntimeSettings(await requestJSON("/settings/runtime"));
+}
+
+function normalizeTrackerResearchSettings(value) {
+  const settings = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const boundedFloat = (candidate, min, max, fallback) => {
+    const parsed = Number(candidate);
+    return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+  };
+  return {
+    enabled: settings.enabled === true,
+    minimumLeechers: boundedInt(settings.minimumLeechers, 0, 1000000, DEFAULT_TRACKER_RESEARCH_SETTINGS.minimumLeechers),
+    downloadMultiplierMin: boundedFloat(settings.downloadMultiplierMin, 0, 1000, DEFAULT_TRACKER_RESEARCH_SETTINGS.downloadMultiplierMin),
+    downloadMultiplierMax: boundedFloat(settings.downloadMultiplierMax, 0, 1000, DEFAULT_TRACKER_RESEARCH_SETTINGS.downloadMultiplierMax),
+    uploadMultiplierMin: boundedFloat(settings.uploadMultiplierMin, 0, 1000, DEFAULT_TRACKER_RESEARCH_SETTINGS.uploadMultiplierMin),
+    uploadMultiplierMax: boundedFloat(settings.uploadMultiplierMax, 0, 1000, DEFAULT_TRACKER_RESEARCH_SETTINGS.uploadMultiplierMax),
+    bonusKiBPerSecond: boundedFloat(settings.bonusKiBPerSecond, 0, 1000000, DEFAULT_TRACKER_RESEARCH_SETTINGS.bonusKiBPerSecond),
+    bonusChancePercent: boundedFloat(settings.bonusChancePercent, 0, 100, DEFAULT_TRACKER_RESEARCH_SETTINGS.bonusChancePercent),
+    reportDownloadAsZero: settings.reportDownloadAsZero === true,
+    pretendToSeed: settings.pretendToSeed === true,
+    onlyTrackerTraffic: true,
+    onlyLocalConnections: true,
+    supportKnown: settings.supportKnown === true,
+    supported: settings.supported === true,
+    active: settings.active === true,
+    configuredTorrents: boundedInt(settings.configuredTorrents, 0, Number.MAX_SAFE_INTEGER, 0),
+    rewrittenTrackers: boundedInt(settings.rewrittenTrackers, 0, Number.MAX_SAFE_INTEGER, 0),
+    forwardedAnnounces: boundedInt(settings.forwardedAnnounces, 0, Number.MAX_SAFE_INTEGER, 0),
+    lastError: stringValue(settings.lastError),
+  };
+}
+
+function readTrackerResearchForm() {
+  const readNumber = (element, label) => {
+    const value = Number(element.value);
+    if (!Number.isFinite(value)) throw new Error(`${label}不是有效数值`);
+    return value;
+  };
+  const settings = {
+    enabled: els.trackerResearchEnabled.checked,
+    minimumLeechers: optionalIntAllowZero("trackerMinimumLeechers", DEFAULT_TRACKER_RESEARCH_SETTINGS.minimumLeechers),
+    downloadMultiplierMin: readNumber(els.trackerDownloadMultiplierMin, "下载倍率下限"),
+    downloadMultiplierMax: readNumber(els.trackerDownloadMultiplierMax, "下载倍率上限"),
+    uploadMultiplierMin: readNumber(els.trackerUploadMultiplierMin, "上传倍率下限"),
+    uploadMultiplierMax: readNumber(els.trackerUploadMultiplierMax, "上传倍率上限"),
+    bonusKiBPerSecond: readNumber(els.trackerBonusKibPerSecond, "随机增量上限"),
+    bonusChancePercent: readNumber(els.trackerBonusChancePercent, "随机增量概率"),
+    reportDownloadAsZero: els.trackerReportDownloadZero.checked,
+    pretendToSeed: els.trackerPretendSeed.checked,
+    onlyTrackerTraffic: true,
+    onlyLocalConnections: true,
+  };
+  if (settings.downloadMultiplierMin > settings.downloadMultiplierMax) throw new Error("下载倍率下限不能大于上限");
+  if (settings.uploadMultiplierMin > settings.uploadMultiplierMax) throw new Error("上传倍率下限不能大于上限");
+  return settings;
+}
+
+async function loadTrackerResearchSettings() {
+  trackerResearchSettings = normalizeTrackerResearchSettings(await requestJSON("/settings/tracker-research"));
+  renderTrackerResearchSettings();
 }
 
 function normalizeResolverModules(value) {
@@ -1952,8 +2181,13 @@ function parseLinks(value) {
     } catch {
       throw new Error(`下载链接无效：${link}`);
     }
-    if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname || parsed.username || parsed.password) {
-      throw new Error(`仅支持不含凭据的 HTTP(S) 下载链接：${link}`);
+    const isHTTP = (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.hostname;
+    const isMagnet = parsed.protocol === "magnet:" && parsed.searchParams.getAll("xt").some((value) => {
+      const topic = value.toLowerCase();
+      return topic.startsWith("urn:btih:") || topic.startsWith("urn:btmh:");
+    });
+    if ((!isHTTP && !isMagnet) || parsed.username || parsed.password) {
+      throw new Error(`仅支持不含凭据的 HTTP(S) 或 BitTorrent Magnet 链接：${link}`);
     }
     const normalized = parsed.toString();
     if (!seen.has(normalized)) {

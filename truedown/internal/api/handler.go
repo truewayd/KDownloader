@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 )
 
 const maxStartRequestBytes = 1024 * 1024
+const maxTorrentStartRequestBytes = 6 * 1024 * 1024
 const maxBatchRequestBytes = 64 * 1024
 const maxBatchTaskIDs = 1000
 const maxBrowserIntegrationItems = 256
@@ -48,6 +50,15 @@ type startReq struct {
 	Opts           downloader.Aria2Opts       `json:"opts"`
 	Dropbox        dropboxStartReq            `json:"dropbox"`
 	ModuleOptions  map[string]json.RawMessage `json:"moduleOptions"`
+}
+
+type bitTorrentStartReq struct {
+	Link          string               `json:"link"`
+	TorrentBase64 string               `json:"torrentBase64"`
+	Folder        string               `json:"folder"`
+	Headers       map[string]string    `json:"headers"`
+	DownloadPage  string               `json:"downloadPage"`
+	Opts          downloader.Aria2Opts `json:"opts"`
 }
 
 type dropboxStartReq struct {
@@ -254,6 +265,32 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		}
 	})
 
+	mux.HandleFunc("/settings/tracker-research", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, dm.TrackerResearchSettings())
+		case http.MethodPost:
+			var req downloader.TrackerResearchSettingsUpdate
+			if !decodeJSONRequest(w, r, 16*1024, &req) {
+				return
+			}
+			settings, err := dm.UpdateTrackerResearchSettings(req)
+			if err != nil {
+				if downloader.IsValidationError(err) {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				http.Error(w, "failed to apply tracker research settings", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, settings)
+		default:
+			w.Header().Set("Allow", "GET, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	mux.HandleFunc("/modules", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		switch r.Method {
@@ -390,6 +427,52 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			return
 		}
 		w.Write([]byte("OK " + strconv.FormatInt(t.ID, 10)))
+	})
+
+	mux.HandleFunc("/start-bt-download", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req bitTorrentStartReq
+		if !decodeJSONRequest(w, r, maxTorrentStartRequestBytes, &req) {
+			return
+		}
+		hasLink := strings.TrimSpace(req.Link) != ""
+		hasFile := strings.TrimSpace(req.TorrentBase64) != ""
+		if hasLink == hasFile {
+			http.Error(w, "provide exactly one BitTorrent link or torrent file", http.StatusBadRequest)
+			return
+		}
+		var task *downloader.Task
+		var duplicate bool
+		var err error
+		if hasFile {
+			data, decodeErr := base64.StdEncoding.DecodeString(req.TorrentBase64)
+			if decodeErr != nil {
+				http.Error(w, "invalid torrent file encoding", http.StatusBadRequest)
+				return
+			}
+			task, duplicate, err = dm.AddTorrentMetainfo(data, req.Folder, req.Opts)
+		} else {
+			task, duplicate, err = dm.AddBitTorrentLink(req.Link, req.Folder, req.Headers, req.DownloadPage, req.Opts)
+		}
+		if err != nil {
+			if downloader.IsValidationError(err) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			http.Error(w, "failed to create BitTorrent task", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if duplicate {
+			w.Header().Set("X-TrueDown-Duplicate", "true")
+			w.Write([]byte("OK " + strconv.FormatInt(task.ID, 10) + " DUPLICATE"))
+			return
+		}
+		w.Write([]byte("OK " + strconv.FormatInt(task.ID, 10)))
 	})
 
 	mux.HandleFunc("/queue/pause", func(w http.ResponseWriter, r *http.Request) {

@@ -93,7 +93,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dm, err := downloader.NewManager(aria2, downloads, database)
+	dm, err := downloader.NewManagerWithConfig(aria2, downloads, database, downloader.ManagerConfig{
+		Aria2Next: updates.Snapshot().Engine.Active == systemupdate.EngineNext,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -346,7 +348,7 @@ func isDashboardNavigation(r *http.Request) bool {
 }
 
 func isAPIPath(path string) bool {
-	return path == "/ping" || path == "/add" || path == "/start-headless-download" ||
+	return path == "/ping" || path == "/add" || path == "/start-headless-download" || path == "/start-bt-download" ||
 		path == "/tasks" || strings.HasPrefix(path, "/settings/") ||
 		strings.HasPrefix(path, "/auth/") || strings.HasPrefix(path, "/tasks/") ||
 		strings.HasPrefix(path, "/queue/") || strings.HasPrefix(path, "/system/")

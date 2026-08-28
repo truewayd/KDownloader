@@ -51,3 +51,14 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+## RatioGhost
+
+TrueDown's optional tracker-traffic research module is an original Go
+implementation informed by the public announce-rewriting behavior of
+[RatioGhost](https://github.com/ratioghost/ratioghost), reviewed at commit
+`64b641b675b8c88f7c84ee812e69a5274cf49474`. No Tcl/Tk source or bundled
+certificate material is included. RatioGhost is Copyright (C) 2006-2015
+Yasmine@RatioGhost.com and is distributed under the GNU General Public License,
+version 3 or later. The repository's top-level `LICENSE` contains the applicable
+GPL version 3 text.

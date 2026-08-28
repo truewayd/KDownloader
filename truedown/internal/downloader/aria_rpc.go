@@ -28,16 +28,21 @@ func (e *ariaRPCError) Error() string {
 }
 
 type ariaStatus struct {
-	GID             string `json:"gid"`
-	Status          string `json:"status"`
-	TotalLength     string `json:"totalLength"`
-	CompletedLength string `json:"completedLength"`
-	DownloadSpeed   string `json:"downloadSpeed"`
-	ErrorCode       string `json:"errorCode"`
-	ErrorMessage    string `json:"errorMessage"`
+	GID             string   `json:"gid"`
+	Status          string   `json:"status"`
+	TotalLength     string   `json:"totalLength"`
+	CompletedLength string   `json:"completedLength"`
+	DownloadSpeed   string   `json:"downloadSpeed"`
+	ErrorCode       string   `json:"errorCode"`
+	ErrorMessage    string   `json:"errorMessage"`
+	FollowedBy      []string `json:"followedBy"`
+	Following       string   `json:"following"`
 	Files           []struct {
 		Path string `json:"path"`
 	} `json:"files"`
+	Bittorrent *struct {
+		AnnounceList [][]string `json:"announceList"`
+	} `json:"bittorrent,omitempty"`
 }
 
 func newAriaClient(port int, secret string) *ariaClient {
@@ -130,6 +135,17 @@ func (c *ariaClient) addURI(t *Task, options map[string]any) error {
 	return nil
 }
 
+func (c *ariaClient) addTorrent(t *Task, torrent string, options map[string]any) error {
+	var gid string
+	if err := c.call("aria2.addTorrent", []any{torrent, []string{}, options}, &gid); err != nil {
+		return err
+	}
+	if gid != t.GID {
+		return fmt.Errorf("aria2 returned unexpected GID %q (wanted %q)", gid, t.GID)
+	}
+	return nil
+}
+
 func (c *ariaClient) pause(gid string) error {
 	var result string
 	return c.call("aria2.pause", []any{gid}, &result)
@@ -161,7 +177,7 @@ func (c *ariaClient) forceRemove(gid string) error {
 }
 
 func (c *ariaClient) status(gid string) (ariaStatus, error) {
-	keys := []string{"gid", "status", "files"}
+	keys := []string{"gid", "status", "files", "bittorrent", "followedBy", "following"}
 	var status ariaStatus
 	err := c.call("aria2.tellStatus", []any{gid, keys}, &status)
 	return status, err
@@ -182,7 +198,7 @@ func (c *ariaClient) shutdown() error {
 }
 
 func (c *ariaClient) statuses() ([]ariaStatus, error) {
-	keys := []string{"gid", "status", "totalLength", "completedLength", "downloadSpeed", "errorCode", "errorMessage", "files"}
+	keys := []string{"gid", "status", "totalLength", "completedLength", "downloadSpeed", "errorCode", "errorMessage", "files", "bittorrent", "followedBy", "following"}
 	var active, waiting, stopped []ariaStatus
 	if err := c.call("aria2.tellActive", []any{keys}, &active); err != nil {
 		return nil, err
@@ -201,6 +217,24 @@ func (c *ariaClient) statuses() ([]ariaStatus, error) {
 	result = append(result, waiting...)
 	result = append(result, stopped...)
 	return result, nil
+}
+
+func (c *ariaClient) supportsTrackerResearch() (bool, error) {
+	var methods []string
+	if err := c.call("system.listMethods", nil, &methods); err != nil {
+		return false, err
+	}
+	for _, method := range methods {
+		if method == "aria2.replaceBtTrackers" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (c *ariaClient) replaceBtTrackers(gid string, trackers []btTrackerConfig) error {
+	var result string
+	return c.call("aria2.replaceBtTrackers", []any{gid, trackers}, &result)
 }
 
 func isGIDNotFound(err error) bool {

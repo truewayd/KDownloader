@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -445,6 +446,111 @@ func TestRuntimeSettingsEndpointPersistsAria2GlobalSettings(t *testing.T) {
 	if legacyResponse.Code != http.StatusOK || manager.RuntimeSettings().ConcurrentDownloads != 4 ||
 		manager.RuntimeSettings().GlobalDownloadLimitBps != 12*1024*1024 {
 		t.Fatalf("legacy runtime settings status=%d body=%s settings=%+v", legacyResponse.Code, legacyResponse.Body.String(), manager.RuntimeSettings())
+	}
+}
+
+func TestTrackerResearchEndpointDefaultsOffAndRequiresExplicitConsent(t *testing.T) {
+	mux, manager := testHandler(t)
+	defer manager.Stop()
+	get := httptest.NewRequest(http.MethodGet, "/settings/tracker-research", nil)
+	getResponse := httptest.NewRecorder()
+	mux.ServeHTTP(getResponse, get)
+	body := getResponse.Body.String()
+	if getResponse.Code != http.StatusOK || !strings.Contains(body, `"enabled":false`) ||
+		!strings.Contains(body, `"minimumLeechers":3`) || !strings.Contains(body, `"downloadMultiplierMax":0.001`) ||
+		!strings.Contains(body, `"onlyTrackerTraffic":true`) || !strings.Contains(body, `"onlyLocalConnections":true`) ||
+		!strings.Contains(body, `"unsupportedTransports":["udp"]`) || !strings.Contains(body, "不得用于欺骗") {
+		t.Fatalf("default tracker research status=%d body=%s", getResponse.Code, body)
+	}
+	payload := `{
+		"enabled":true,
+		"minimumLeechers":3,
+		"downloadMultiplierMin":0,
+		"downloadMultiplierMax":0.001,
+		"uploadMultiplierMin":2,
+		"uploadMultiplierMax":8,
+		"bonusKiBPerSecond":15,
+		"bonusChancePercent":5,
+		"reportDownloadAsZero":true,
+		"pretendToSeed":false,
+		"onlyTrackerTraffic":true,
+		"onlyLocalConnections":true,
+		"acknowledgedRisk":false
+	}`
+	post := httptest.NewRequest(http.MethodPost, "/settings/tracker-research", strings.NewReader(payload))
+	post.Header.Set("Content-Type", "application/json")
+	postResponse := httptest.NewRecorder()
+	mux.ServeHTTP(postResponse, post)
+	if postResponse.Code != http.StatusBadRequest || !strings.Contains(postResponse.Body.String(), "acknowledgedRisk") {
+		t.Fatalf("tracker research consent status=%d body=%s", postResponse.Code, postResponse.Body.String())
+	}
+	unknown := httptest.NewRequest(http.MethodPost, "/settings/tracker-research", strings.NewReader(
+		strings.Replace(payload, `"acknowledgedRisk":false`, `"acknowledgedRisk":false,"listenPort":3773`, 1),
+	))
+	unknown.Header.Set("Content-Type", "application/json")
+	unknownResponse := httptest.NewRecorder()
+	mux.ServeHTTP(unknownResponse, unknown)
+	if unknownResponse.Code != http.StatusBadRequest {
+		t.Fatalf("unknown tracker research field status=%d body=%s", unknownResponse.Code, unknownResponse.Body.String())
+	}
+}
+
+func TestBitTorrentStartEndpointImportsMetainfoAndUsesSelectedFolder(t *testing.T) {
+	root := t.TempDir()
+	manager, err := downloader.NewManagerWithConfig(
+		"unused",
+		filepath.Join(root, "downloads"),
+		filepath.Join(root, "records.db"),
+		downloader.ManagerConfig{Aria2Next: true},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Stop()
+	mux := http.NewServeMux()
+	Register(mux, manager, &testTokenAuth{})
+	torrent := []byte("d4:infod6:lengthi4e4:name8:test.binee")
+	folder := filepath.Join(root, "chosen")
+	payload, err := json.Marshal(map[string]any{
+		"torrentBase64": base64.StdEncoding.EncodeToString(torrent),
+		"folder":        folder,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/start-bt-download", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.HasPrefix(response.Body.String(), "OK ") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	tasks := manager.ListTasks()
+	if len(tasks) != 1 || tasks[0].Name != "test.bin" || tasks[0].Folder != filepath.Clean(folder) ||
+		!strings.HasPrefix(tasks[0].Link, "torrent://") {
+		if len(tasks) == 1 {
+			t.Fatalf("imported task=%+v", *tasks[0])
+		}
+		t.Fatalf("imported tasks=%+v", tasks)
+	}
+}
+
+func TestBitTorrentStartEndpointRejectsAmbiguousOrUnavailableSources(t *testing.T) {
+	mux, manager := testHandler(t)
+	defer manager.Stop()
+	for _, body := range []string{
+		`{}`,
+		`{"link":"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567","torrentBase64":"ZGF0YQ=="}`,
+		`{"link":"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"}`,
+		`{"torrentBase64":"not-base64"}`,
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/start-bt-download", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("body=%s status=%d response=%s", body, response.Code, response.Body.String())
+		}
 	}
 }
 

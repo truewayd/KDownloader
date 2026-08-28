@@ -46,6 +46,11 @@ type Aria2Opts struct {
 	ExtraArgs   []string `json:"extraArgs"`
 }
 
+// ManagerConfig describes capabilities of the engine selected by TrueDown.
+type ManagerConfig struct {
+	Aria2Next bool
+}
+
 type Task struct {
 	ID           int64             `json:"id"`
 	Name         string            `json:"name"`
@@ -128,14 +133,15 @@ func IsValidationError(err error) bool {
 }
 
 type requestIdentity struct {
-	Link         string            `json:"link"`
-	Name         string            `json:"name"`
-	Folder       string            `json:"folder"`
-	QueueID      int               `json:"queueId"`
-	Headers      map[string]string `json:"headers"`
-	DownloadPage string            `json:"downloadPage"`
-	Opts         Aria2Opts         `json:"opts"`
-	ModuleID     string            `json:"-"`
+	Link         string              `json:"link"`
+	Name         string              `json:"name"`
+	Folder       string              `json:"folder"`
+	QueueID      int                 `json:"queueId"`
+	Headers      map[string]string   `json:"headers"`
+	DownloadPage string              `json:"downloadPage"`
+	Opts         Aria2Opts           `json:"opts"`
+	ModuleID     string              `json:"-"`
+	BitTorrent   *bitTorrentIdentity `json:"bitTorrent,omitempty"`
 }
 
 type submission struct {
@@ -174,11 +180,14 @@ type ariaRPC interface {
 
 type Manager struct {
 	aria2Path       string
+	aria2Next       bool
+	ariaStateDir    string
 	defaultDir      string
 	store           *recordStore
 	downloadRules   *downloadRulesStore
 	runtimeSettings *runtimeSettingsStore
 	modules         *moduleRegistry
+	trackerResearch *trackerResearchModule
 
 	mu           sync.RWMutex
 	tasks        map[int64]*Task
@@ -218,6 +227,10 @@ type Manager struct {
 }
 
 func NewManager(aria2Path, defaultDir, databasePath string) (*Manager, error) {
+	return NewManagerWithConfig(aria2Path, defaultDir, databasePath, ManagerConfig{})
+}
+
+func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config ManagerConfig) (*Manager, error) {
 	store, err := openRecordStore(databasePath)
 	if err != nil {
 		return nil, err
@@ -242,15 +255,23 @@ func NewManager(aria2Path, defaultDir, databasePath string) (*Manager, error) {
 		store.Close()
 		return nil, err
 	}
+	trackerResearch, err := newTrackerResearchModule(databasePath)
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
 	dropboxProxy := systemProxyFunc()
 	googleDriveProxy := systemProxyFunc()
 	m := &Manager{
 		aria2Path:         aria2Path,
+		aria2Next:         config.Aria2Next,
+		ariaStateDir:      filepath.Join(filepath.Dir(databasePath), "aria2-next-state"),
 		defaultDir:        defaultDir,
 		store:             store,
 		downloadRules:     downloadRules,
 		runtimeSettings:   runtimeSettings,
 		modules:           modules,
+		trackerResearch:   trackerResearch,
 		tasks:             make(map[int64]*Task, len(tasks)),
 		fingerprints:      make(map[string]int64, len(tasks)),
 		gids:              make(map[string]int64, len(tasks)),
@@ -303,6 +324,13 @@ func (m *Manager) Start() error {
 	if err := m.startAria2(); err != nil {
 		return err
 	}
+	if m.trackerResearch.snapshot().Enabled {
+		if err := m.trackerResearch.prepare(m.rpc); err != nil {
+			log.Printf("tracker research remains inactive: %v", err)
+		}
+	} else {
+		_ = m.trackerResearch.inspectSupport(m.rpc)
+	}
 	m.wg.Add(2)
 	go m.dispatcher()
 	go m.poller()
@@ -337,7 +365,11 @@ func (m *Manager) Stop() {
 		close(m.done)
 		m.wg.Wait()
 		if m.rpc != nil {
+			m.trackerResearch.restoreAllIfSupported(m.rpc)
+			m.trackerResearch.close()
 			_ = m.rpc.shutdown()
+		} else {
+			m.trackerResearch.close()
 		}
 		if m.cmdDone != nil {
 			select {
@@ -372,6 +404,10 @@ func (m *Manager) addTaskWithModule(link, name, folder string, headers map[strin
 	if err := validateRequest(identity); err != nil {
 		return nil, false, err
 	}
+	return m.addIdentityLocked(identity, moduleID)
+}
+
+func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (*Task, bool, error) {
 	requestJSON, err := json.Marshal(identity)
 	if err != nil {
 		return nil, false, err
@@ -462,10 +498,14 @@ func (m *Manager) addTaskWithModule(link, name, folder string, headers map[strin
 		UpdatedAt:     now,
 	}
 	m.touchTaskLocked(task)
-	if task.Name != "" {
-		task.OutputName = m.resolveOutputNameLocked(task.Folder, task.Name, task.ID)
-	} else {
-		task.Name = displayName(task.Link)
+	if identity.BitTorrent == nil {
+		if task.Name != "" {
+			task.OutputName = m.resolveOutputNameLocked(task.Folder, task.Name, task.ID)
+		} else {
+			task.Name = displayName(task.Link)
+		}
+	} else if task.Name == "" {
+		task.Name = torrentLinkName(task.Link)
 	}
 	m.tasks[task.ID] = task
 	m.fingerprints[fingerprint] = task.ID
@@ -1619,12 +1659,36 @@ func (m *Manager) submit(item submission) bool {
 		snapshot.Headers = preparedHeaders
 	}
 	options := ariaOptions(snapshot, item.recheck)
+	var identity requestIdentity
+	isBitTorrent := snapshot.RequestJSON != "" && json.Unmarshal([]byte(snapshot.RequestJSON), &identity) == nil && identity.BitTorrent != nil
+	if isBitTorrent && m.aria2Next {
+		options["check-integrity"] = "true"
+	}
 	if preparedProxy != "" {
 		options["https-proxy"] = preparedProxy
 	}
-	if err := m.rpc.addURI(snapshot, options); err != nil {
-		m.failTask(snapshot.ID, err)
-		return false
+	attachedToNativeTorrent := false
+	if m.aria2Next {
+		if state, err := m.rpc.status(snapshot.GID); err == nil && state.Bittorrent != nil &&
+			(state.Status == "active" || state.Status == "waiting" || state.Status == "paused" || state.Status == "complete") {
+			attachedToNativeTorrent = true
+		}
+	}
+	if !attachedToNativeTorrent {
+		var addErr error
+		if isBitTorrent && identity.BitTorrent.Kind == "file" {
+			if torrentRPC, ok := m.rpc.(torrentAddRPC); ok {
+				addErr = torrentRPC.addTorrent(snapshot, identity.BitTorrent.TorrentBase64, options)
+			} else {
+				addErr = errors.New("active aria2 RPC does not support imported torrent files")
+			}
+		} else {
+			addErr = m.rpc.addURI(snapshot, options)
+		}
+		if addErr != nil {
+			m.failTask(snapshot.ID, addErr)
+			return false
+		}
 	}
 	m.mu.Lock()
 	task = m.tasks[snapshot.ID]
@@ -1636,7 +1700,11 @@ func (m *Manager) submit(item submission) bool {
 	if task.Status == StatusPaused {
 		task.Progress = "Paused by aria2"
 	} else if task.Status == StatusQueued {
-		task.Progress = "Accepted by aria2"
+		if attachedToNativeTorrent {
+			task.Progress = "Restored by Aria2 Next; checking local torrent data"
+		} else {
+			task.Progress = "Accepted by aria2"
+		}
 	}
 	task.Error = ""
 	m.touchTaskLocked(task)
@@ -1663,6 +1731,7 @@ func (m *Manager) poller() {
 				continue
 			}
 			m.applyStatuses(statuses)
+			m.trackerResearch.sync(m.rpc, statuses)
 		}
 	}
 }
@@ -1671,7 +1740,40 @@ func (m *Manager) applyStatuses(statuses []ariaStatus) {
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
 	updates := make([]*Task, 0, len(statuses))
+	statesByGID := make(map[string]ariaStatus, len(statuses))
+	for _, state := range statuses {
+		statesByGID[state.GID] = state
+	}
 	m.mu.Lock()
+	for _, parent := range statuses {
+		if len(parent.FollowedBy) == 0 {
+			continue
+		}
+		task := m.tasks[m.gids[parent.GID]]
+		if task == nil {
+			continue
+		}
+		childGID := ""
+		for _, candidate := range parent.FollowedBy {
+			child, ok := statesByGID[candidate]
+			if ok && child.Bittorrent != nil {
+				childGID = candidate
+				break
+			}
+		}
+		if childGID == "" {
+			continue
+		}
+		if owner, exists := m.gids[childGID]; exists && owner != task.ID {
+			continue
+		}
+		delete(m.gids, parent.GID)
+		task.GID = childGID
+		m.gids[childGID] = task.ID
+		task.Progress = "Torrent metadata loaded; checking local files"
+		m.touchTaskLocked(task)
+		updates = append(updates, snapshotTaskUpdate(task))
+	}
 	for _, state := range statuses {
 		task := m.tasks[m.gids[state.GID]]
 		if task == nil {
@@ -1692,7 +1794,7 @@ func (m *Manager) applyStatuses(statuses []ariaStatus) {
 			}
 		}
 		if task.OutputName == "" && len(state.Files) > 0 && state.Files[0].Path != "" {
-			task.OutputName = filepath.Base(state.Files[0].Path)
+			task.OutputName = taskOutputRootName(task.Folder, state.Files[0].Path)
 			m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID
 		}
 		if totalLength, err := strconv.ParseInt(state.TotalLength, 10, 64); err == nil && totalLength >= 0 {
@@ -1921,22 +2023,13 @@ func (m *Manager) startAria2() error {
 		return fmt.Errorf("open aria2 log: %w", err)
 	}
 	runtimeSettings := m.RuntimeSettings()
-	args := []string{
-		"--enable-rpc=true",
-		"--rpc-listen-all=false",
-		"--rpc-allow-origin-all=false",
-		fmt.Sprintf("--rpc-listen-port=%d", port),
-		"--rpc-secret=" + secret,
-		"--dir=" + filepath.ToSlash(m.defaultDir),
-		"--continue=true",
-		fmt.Sprintf("--max-concurrent-downloads=%d", runtimeSettings.ConcurrentDownloads),
-		fmt.Sprintf("--max-overall-download-limit=%d", runtimeSettings.GlobalDownloadLimitBps),
-		"--console-log-level=warn",
-		"--summary-interval=0",
-		"--download-result=full",
-		"--keep-unfinished-download-result=true",
-		"--max-download-result=256",
+	if m.aria2Next {
+		if err := os.MkdirAll(m.ariaStateDir, 0700); err != nil {
+			_ = logFile.Close()
+			return fmt.Errorf("create Aria2 Next state directory: %w", err)
+		}
 	}
+	args := m.aria2StartArgs(port, secret, runtimeSettings)
 	cmd := exec.Command(m.aria2Path, args...)
 	cmd.Dir = filepath.Dir(m.aria2Path)
 	cmd.Stdout = logFile
@@ -1966,6 +2059,33 @@ func (m *Manager) startAria2() error {
 	return fmt.Errorf("aria2 RPC service did not become ready")
 }
 
+func (m *Manager) aria2StartArgs(port int, secret string, runtimeSettings RuntimeSettings) []string {
+	args := []string{
+		"--enable-rpc=true",
+		"--rpc-listen-all=false",
+		"--rpc-allow-origin-all=false",
+		fmt.Sprintf("--rpc-listen-port=%d", port),
+		"--rpc-secret=" + secret,
+		"--dir=" + filepath.ToSlash(m.defaultDir),
+		"--continue=true",
+		fmt.Sprintf("--max-concurrent-downloads=%d", runtimeSettings.ConcurrentDownloads),
+		fmt.Sprintf("--max-overall-download-limit=%d", runtimeSettings.GlobalDownloadLimitBps),
+		"--console-log-level=warn",
+		"--summary-interval=0",
+		"--download-result=full",
+		"--keep-unfinished-download-result=true",
+		"--max-download-result=256",
+	}
+	if m.aria2Next {
+		args = append(args,
+			"--state-dir="+filepath.ToSlash(m.ariaStateDir),
+			"--check-integrity=true",
+			"--bt-resume-save-interval=1",
+		)
+	}
+	return args
+}
+
 func normalizeRequest(link, name, folder, defaultDir string, headers map[string]string, downloadPage string, queueID int, opts Aria2Opts) requestIdentity {
 	if folder == "" {
 		folder = defaultDir
@@ -1992,7 +2112,11 @@ func validateRequest(identity requestIdentity) error {
 	invalid := func(format string, args ...any) error {
 		return &ValidationError{Message: fmt.Sprintf(format, args...)}
 	}
-	if err := validateDownloadURL(identity.Link); err != nil {
+	if identity.BitTorrent != nil {
+		if err := validateBitTorrentIdentity(identity); err != nil {
+			return invalid("invalid BitTorrent source: %v", err)
+		}
+	} else if err := validateDownloadURL(identity.Link); err != nil {
 		return invalid("invalid download link: %v", err)
 	}
 	if identity.DownloadPage != "" {
@@ -2624,6 +2748,27 @@ func (m *Manager) refreshOutputName(id int64) (*Task, error) {
 
 func outputNameKey(dir, name string) string {
 	return strings.ToLower(filepath.Clean(dir)) + "\x00" + strings.ToLower(name)
+}
+
+func taskOutputRootName(folder, ariaPath string) string {
+	cleanPath := filepath.Clean(ariaPath)
+	relative := cleanPath
+	if filepath.IsAbs(cleanPath) {
+		cleanFolder, err := filepath.Abs(folder)
+		if err == nil {
+			relative, err = filepath.Rel(filepath.Clean(cleanFolder), cleanPath)
+			if err != nil {
+				relative = ""
+			}
+		}
+	}
+	if relative != "" && relative != "." && !filepath.IsAbs(relative) && relative != ".." &&
+		!strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		if root := strings.Split(relative, string(os.PathSeparator))[0]; root != "" && root != "." {
+			return root
+		}
+	}
+	return filepath.Base(cleanPath)
 }
 
 func pathExists(path string) bool {
