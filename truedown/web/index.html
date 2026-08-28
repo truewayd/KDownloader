@@ -317,6 +317,16 @@
             </div>
           </section>
 
+          <section class="settings-section" aria-labelledby="settings-bt-diagnostics-title">
+            <div class="settings-section-heading">
+              <h3 id="settings-bt-diagnostics-title">BitTorrent 身份与诊断</h3>
+              <p>显示 tracker 实际看到的内核身份，并说明零速诊断日志的位置。</p>
+            </div>
+            <p class="hint" id="bt-client-identity" aria-live="polite">正在读取当前内核身份…</p>
+            <p class="hint">Aria2 Next 2.6.5 及以上会把脱敏的 libtorrent debug 日志轮转写入数据目录下的 <code>aria2.log</code>（单文件 10 MiB、最多 4 个）；更早内核写入精简的控制台日志。任务进度会同时显示 peer、seeder、tracker、连接候选和可用性。</p>
+            <p class="hint">Motrix Next 嵌入的是同一个 Aria2 Next 内核；qBittorrent 与 Deluge 也使用 libtorrent-rasterbar，但版本、peer fingerprint 和握手身份各自独立。只改普通 HTTP User-Agent 不能把 Aria2 Next 变成这些客户端，反而会产生不一致标识。</p>
+          </section>
+
           <section class="settings-section tracker-research-section" aria-labelledby="settings-tracker-research-title">
             <div class="settings-section-heading">
               <h3 id="settings-tracker-research-title">Tracker 流量研究（实验性）</h3>
@@ -325,7 +335,7 @@
             <p class="tracker-research-warning">仅限在你控制的 tracker 或测试环境中研究流量；不得用于欺骗、滥用或违反服务条款。启用即表示你理解并自行承担全部后果。</p>
             <label class="setting-toggle tracker-research-master" for="tracker-research-enabled">
               <input id="tracker-research-enabled" type="checkbox">
-              <span><strong>手动启用研究模块</strong><small>默认关闭；每次从关闭切换为开启都必须再次确认。需要当前运行内核为 Aria2 Next。</small></span>
+              <span><strong>手动启用研究模块</strong><small>默认关闭；每次从关闭切换为开启都必须再次确认。官方 Aria2 Next 至少需要 v2.5.7，更新或切换内核后必须完整重启 TrueDown。</small></span>
             </label>
             <div class="form-grid tracker-research-grid">
               <div class="field">

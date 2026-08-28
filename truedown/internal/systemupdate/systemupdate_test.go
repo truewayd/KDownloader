@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -207,6 +208,52 @@ func TestInvalidUpdateStateFallsBackWithoutBlockingStartup(t *testing.T) {
 	matches, err := filepath.Glob(statePath + ".invalid-*")
 	if err != nil || len(matches) != 1 {
 		t.Fatalf("invalid state preservation matches=%v err=%v", matches, err)
+	}
+}
+
+func TestEngineStartupFailureFallsBackWithoutChangingPreference(t *testing.T) {
+	root := t.TempDir()
+	stablePath := filepath.Join(root, "aria2c.exe")
+	if err := os.WriteFile(stablePath, []byte("stable"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	manager := newTestManager(t, root, stablePath, Options{})
+	manager.mu.Lock()
+	manager.state.EnginePreference = EngineNext
+	manager.active = activeEngine{Kind: EngineNext, Version: "2.5.6", Path: filepath.Join(root, "engines", "next.exe")}
+	manager.mu.Unlock()
+
+	if path := manager.FallbackToStable(errors.New("exit status 28")); path != stablePath {
+		t.Fatalf("fallback path=%q, want %q", path, stablePath)
+	}
+	snapshot := manager.Snapshot()
+	if snapshot.Engine.Active != EngineStable || snapshot.Engine.Preference != EngineNext || !snapshot.Engine.RestartRequired {
+		t.Fatalf("fallback snapshot=%+v", snapshot)
+	}
+	if !strings.Contains(snapshot.Error, "exit status 28") {
+		t.Fatalf("fallback reason was not retained: %+v", snapshot)
+	}
+}
+
+func TestPersistedStateOmitsZeroLastCheckedAt(t *testing.T) {
+	root := t.TempDir()
+	stablePath := filepath.Join(root, "aria2c.exe")
+	if err := os.WriteFile(stablePath, []byte("stable"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	manager := newTestManager(t, root, stablePath, Options{})
+	manager.mu.Lock()
+	err := manager.persistLocked()
+	manager.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "truedown.updates.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "lastCheckedAt") {
+		t.Fatalf("zero lastCheckedAt was persisted: %s", data)
 	}
 }
 

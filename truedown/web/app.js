@@ -19,6 +19,9 @@ const DEFAULT_RUNTIME_SETTINGS = Object.freeze({
   concurrentDownloads: 3,
   globalDownloadLimitBps: 0,
 });
+const KNOWN_NEXT_LIBTORRENT_VERSIONS = Object.freeze({
+  "2.6.6": "2.1.1",
+});
 const DEFAULT_TRACKER_RESEARCH_SETTINGS = Object.freeze({
   enabled: false,
   minimumLeechers: 3,
@@ -32,6 +35,10 @@ const DEFAULT_TRACKER_RESEARCH_SETTINGS = Object.freeze({
   pretendToSeed: false,
   onlyTrackerTraffic: true,
   onlyLocalConnections: true,
+  engine: "stable",
+  engineVersion: "",
+  requiredRPC: "aria2.replaceBtTrackers",
+  minimumNextVersion: "2.5.7",
   supportKnown: false,
   supported: false,
   active: false,
@@ -242,6 +249,7 @@ function cacheElements() {
 	"tracker-research-status",
 	"tracker-upload-multiplier-max",
 	"tracker-upload-multiplier-min",
+	"bt-client-identity",
 	"truedown-update-status",
 	"truedown-update-version",
   ].forEach((id) => {
@@ -658,7 +666,17 @@ async function onTaskAction(event) {
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
   try {
-    if (action === "requeue") await runTaskAction("requeue", id, "任务已重新排队。");
+    if (action === "requeue") {
+      const task = currentTasks.find((candidate) => candidate.id === id);
+      const cleanRestart = requiresCleanHTTPRestart(task?.error);
+      if (cleanRestart && !await confirmAction({
+        title: "清除失效残片并重新下载",
+        message: "服务器已拒绝旧的续传位置。TrueDown 将删除这个任务的未完成文件和恢复状态，然后从 0 开始；其他文件不会被删除。此操作无法撤销。",
+        confirmLabel: "清除并重下",
+        danger: true,
+      })) return;
+      await runTaskAction("requeue", id, cleanRestart ? "已安排清除失效残片，将从 0 重新下载。" : "任务已重新排队。");
+    }
     if (action === "pause") await runTaskAction("pause", id, "任务已暂停。");
     if (action === "resume") await runTaskAction("resume", id, "任务已继续。");
     if (action === "open-file") {
@@ -816,6 +834,12 @@ async function requeueAllErrorTasks() {
     showToast("没有需要重试的任务。");
     return;
   }
+  if (!await confirmAction({
+    title: `重试 ${currentSummary.error} 个失败任务`,
+    message: "普通错误会保留断点数据；HTTP 416 续传位置失效的任务会删除其未完成文件和恢复状态，再从 0 开始。",
+    confirmLabel: "全部重试",
+    danger: currentTasks.some((task) => task.status === "error" && requiresCleanHTTPRestart(task.error)),
+  })) return;
   els.retryAllBtn.disabled = true;
   els.retryAllBtn.setAttribute("aria-busy", "true");
   try {
@@ -1004,12 +1028,13 @@ function onTaskSort(event) {
 function taskRow(task, index) {
   const status = statusMeta[task.status] ? task.status : "queued";
   const statusLabel = statusMeta[status].label;
-  const progress = task.error ? `! ${task.error}` : task.progress || "-";
+  const cleanRestart = requiresCleanHTTPRestart(task.error);
+  const progress = task.error ? `! ${formatTaskError(task)}` : task.progress || "-";
   const fileName = task.outputName || task.name || `任务 #${task.id}`;
   const actions = [];
   actions.push(actionButton("open-folder", task.id, "打开下载目录", false, "folder-open"));
   if (status === "done") actions.push(actionButton("open-file", task.id, "打开文件", false, "file"));
-  if (status === "error") actions.push(actionButton("requeue", task.id, "重试", false, "retry"));
+  if (status === "error") actions.push(actionButton("requeue", task.id, cleanRestart ? "清除残片并重下" : "重试", cleanRestart, "retry"));
   if (status === "queued" || status === "downloading") actions.push(actionButton("pause", task.id, "暂停", false, "pause"));
   if (status === "paused") actions.push(actionButton("resume", task.id, "继续", false, "play"));
   actions.push(actionButton("remove", task.id, "移除", true, "trash"));
@@ -1023,6 +1048,19 @@ function taskRow(task, index) {
       <td><div class="progress-line" title="${esc(progress)}">${esc(progress)}</div></td>
       <td><div class="row-actions">${actions.join("")}</div></td>
     </tr>`;
+}
+
+function requiresCleanHTTPRestart(message) {
+  return String(message || "").toLowerCase().includes("the requested byte range is no longer satisfiable");
+}
+
+function formatTaskError(task) {
+  if (!requiresCleanHTTPRestart(task.error)) return task.error;
+  const link = String(task.link || "");
+  if (/^https?:/i.test(link) && isBitTorrentLink(link)) {
+    return "HTTP 416：获取 .torrent 元数据时的旧续传位置已失效，BT 连接尚未开始。请使用“清除残片并重下”。";
+  }
+  return "HTTP 416：旧续传位置与当前远端文件不一致。请使用“清除残片并重下”，TrueDown 会删除该任务的临时数据并从 0 开始。";
 }
 
 function actionButton(action, id, label, danger = false, icon = "file") {
@@ -1220,9 +1258,21 @@ function renderTrackerResearchSettings(settings = trackerResearchSettings) {
   els.trackerOnlyTraffic.checked = true;
   els.trackerLocalOnly.checked = true;
   syncTrackerSeedControls();
-  const support = settings.supportKnown
-    ? (settings.supported ? "Aria2 Next RPC 已就绪" : "当前内核不支持，请选择 Aria2 Next 后完整重启 TrueDown")
-    : "尚未检测 Aria2 Next RPC";
+  const engineLabel = settings.engine === "next"
+    ? `Aria2 Next${settings.engineVersion ? ` v${settings.engineVersion}` : ""}`
+    : "内置稳定版 aria2";
+  els.btClientIdentity.textContent = bitTorrentIdentityDescription(settings);
+  let support = "尚未检测 Aria2 Next RPC";
+  if (settings.supportKnown && settings.supported) {
+    support = `${engineLabel} 的 ${settings.requiredRPC} RPC 已就绪`;
+  } else if (settings.supportKnown && settings.engine === "next") {
+    support = `${engineLabel} 缺少 ${settings.requiredRPC}；官方 NEXT 至少需要 v${settings.minimumNextVersion}，请手动更新 NEXT 后完整重启 TrueDown`;
+  } else if (settings.supportKnown) {
+    support = `研究模块需要 Aria2 Next v${settings.minimumNextVersion} 或更高版本及 ${settings.requiredRPC}；请安装、选择 NEXT 后完整重启 TrueDown`;
+  }
+  const enableBlocked = !settings.enabled && settings.supportKnown && !settings.supported;
+  els.trackerResearchEnabled.disabled = enableBlocked;
+  els.trackerResearchEnabled.title = enableBlocked ? support : "";
   const activity = settings.active
     ? `relay 已运行；已配置 ${settings.configuredTorrents} 个任务、改写 ${settings.rewrittenTrackers} 个 HTTP(S) tracker、转发 ${settings.forwardedAnnounces} 次请求`
     : (settings.enabled ? "已保存启用状态，但 relay 尚未运行" : "模块已关闭");
@@ -1230,6 +1280,25 @@ function renderTrackerResearchSettings(settings = trackerResearchSettings) {
     ? `${support}；${activity}；错误：${settings.lastError}`
     : `${support}；${activity}`;
   els.trackerResearchStatus.dataset.error = String(Boolean(settings.lastError) || (settings.supportKnown && !settings.supported));
+}
+
+function bitTorrentIdentityDescription(settings) {
+  if (settings.engine !== "next") {
+    return "当前内置稳定版 aria2 不开放 TrueDown 的 BitTorrent 创建接口；选择 Aria2 Next 并完整重启后才会启用 BT。";
+  }
+  const version = settings.engineVersion || "当前版本";
+  const libraryVersion = KNOWN_NEXT_LIBTORRENT_VERSIONS[settings.engineVersion];
+  const libraryIdentity = libraryVersion ? `libtorrent/${libraryVersion}` : "libtorrent/<官方构建版本>";
+  const fingerprint = aria2NextPeerFingerprint(settings.engineVersion);
+  const fingerprintText = fingerprint ? `，peer_id 前缀 ${fingerprint}` : "，peer_id 使用 A2 版本指纹";
+  return `当前 tracker/扩展握手身份由官方内核固定为 aria2-next/${version} ${libraryIdentity}${fingerprintText}；普通 HTTP User-Agent 设置不会覆盖它。`;
+}
+
+function aria2NextPeerFingerprint(version) {
+  const parts = String(version || "").split(".").map(Number);
+  if (parts.length !== 3 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 35)) return "";
+  const encode = (part) => part < 10 ? String(part) : String.fromCharCode("A".charCodeAt(0) + part - 10);
+  return `-A2${parts.map(encode).join("")}0-`;
 }
 
 function syncTrackerSeedControls() {
@@ -1330,7 +1399,16 @@ function resetDownloadSettings() {
     dropboxMode: DEFAULT_DOWNLOAD_RULES.dropboxMode,
   };
   renderDownloadSettings(DEFAULT_DOWNLOAD_SETTINGS, defaultRules, DEFAULT_RUNTIME_SETTINGS);
-  renderTrackerResearchSettings(DEFAULT_TRACKER_RESEARCH_SETTINGS);
+  renderTrackerResearchSettings({
+    ...DEFAULT_TRACKER_RESEARCH_SETTINGS,
+    engine: trackerResearchSettings.engine,
+    engineVersion: trackerResearchSettings.engineVersion,
+    requiredRPC: trackerResearchSettings.requiredRPC,
+    minimumNextVersion: trackerResearchSettings.minimumNextVersion,
+    supportKnown: trackerResearchSettings.supportKnown,
+    supported: trackerResearchSettings.supported,
+    lastError: trackerResearchSettings.lastError,
+  });
   showToast("已恢复默认值，点击「保存设置」后生效。");
 }
 
@@ -1444,6 +1522,10 @@ function normalizeTrackerResearchSettings(value) {
     pretendToSeed: settings.pretendToSeed === true,
     onlyTrackerTraffic: true,
     onlyLocalConnections: true,
+    engine: settings.engine === "next" ? "next" : "stable",
+    engineVersion: stringValue(settings.engineVersion),
+    requiredRPC: stringValue(settings.requiredRPC) || DEFAULT_TRACKER_RESEARCH_SETTINGS.requiredRPC,
+    minimumNextVersion: stringValue(settings.minimumNextVersion) || DEFAULT_TRACKER_RESEARCH_SETTINGS.minimumNextVersion,
     supportKnown: settings.supportKnown === true,
     supported: settings.supported === true,
     active: settings.active === true,

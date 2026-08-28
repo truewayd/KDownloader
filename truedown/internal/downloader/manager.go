@@ -48,7 +48,8 @@ type Aria2Opts struct {
 
 // ManagerConfig describes capabilities of the engine selected by TrueDown.
 type ManagerConfig struct {
-	Aria2Next bool
+	Aria2Next        bool
+	Aria2NextVersion string
 }
 
 type Task struct {
@@ -132,6 +133,16 @@ func IsValidationError(err error) bool {
 	return ok
 }
 
+type EngineStartError struct{ Err error }
+
+func (e *EngineStartError) Error() string { return e.Err.Error() }
+func (e *EngineStartError) Unwrap() error { return e.Err }
+
+func IsEngineStartError(err error) bool {
+	_, ok := err.(*EngineStartError)
+	return ok
+}
+
 type requestIdentity struct {
 	Link         string              `json:"link"`
 	Name         string              `json:"name"`
@@ -145,9 +156,10 @@ type requestIdentity struct {
 }
 
 type submission struct {
-	id        int64
-	recheck   bool
-	removeGID string
+	id             int64
+	recheck        bool
+	removeGID      string
+	discardPartial bool
 }
 
 type admission struct {
@@ -179,15 +191,16 @@ type ariaRPC interface {
 }
 
 type Manager struct {
-	aria2Path       string
-	aria2Next       bool
-	ariaStateDir    string
-	defaultDir      string
-	store           *recordStore
-	downloadRules   *downloadRulesStore
-	runtimeSettings *runtimeSettingsStore
-	modules         *moduleRegistry
-	trackerResearch *trackerResearchModule
+	aria2Path        string
+	aria2Next        bool
+	aria2NextVersion string
+	ariaStateDir     string
+	defaultDir       string
+	store            *recordStore
+	downloadRules    *downloadRulesStore
+	runtimeSettings  *runtimeSettingsStore
+	modules          *moduleRegistry
+	trackerResearch  *trackerResearchModule
 
 	mu           sync.RWMutex
 	tasks        map[int64]*Task
@@ -265,6 +278,7 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 	m := &Manager{
 		aria2Path:         aria2Path,
 		aria2Next:         config.Aria2Next,
+		aria2NextVersion:  strings.TrimSpace(config.Aria2NextVersion),
 		ariaStateDir:      filepath.Join(filepath.Dir(databasePath), "aria2-next-state"),
 		defaultDir:        defaultDir,
 		store:             store,
@@ -322,7 +336,7 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("create default download directory: %w", err)
 	}
 	if err := m.startAria2(); err != nil {
-		return err
+		return &EngineStartError{Err: err}
 	}
 	if m.trackerResearch.snapshot().Enabled {
 		if err := m.trackerResearch.prepare(m.rpc); err != nil {
@@ -998,8 +1012,9 @@ func snapshotTask(task *Task) TaskSnapshot {
 	}
 }
 
-// RequeueTask keeps aria2's partial file and .aria2 control file so the retry
-// resumes verified pieces instead of deleting progress.
+// RequeueTask normally keeps aria2's partial data. Aria2 Next HTTP range
+// mismatches are restarted cleanly because those bytes cannot be safely joined
+// to the current remote object.
 func (m *Manager) RequeueTask(id int64) error {
 	return singleOperationError(m.RequeueTasks([]int64{id}), id)
 }
@@ -1011,6 +1026,7 @@ func (m *Manager) RequeueTasks(ids []int64) TaskOperationResult {
 	var updates []*Task
 	originals := make(map[int64]*Task)
 	removeGIDs := make(map[int64]string)
+	discardPartials := make(map[int64]bool)
 	m.mu.Lock()
 	for _, id := range uniqueTaskIDs(ids) {
 		task, ok := m.tasks[id]
@@ -1023,10 +1039,15 @@ func (m *Manager) RequeueTasks(ids []int64) TaskOperationResult {
 			continue
 		}
 		originals[id] = cloneTask(task)
+		discardPartials[id] = m.aria2Next && requiresCleanHTTPRestart(task.Error)
 		removeGIDs[id] = m.rotateGIDLocked(task)
 		m.setStatusLocked(task, StatusQueued)
 		task.Error = ""
-		task.Progress = "Waiting for aria2 to resume partial data"
+		if discardPartials[id] {
+			task.Progress = "HTTP resume state is stale; clearing partial data before restarting from zero"
+		} else {
+			task.Progress = "Waiting for aria2 to resume partial data"
+		}
 		m.touchTaskLocked(task)
 		updates = append(updates, snapshotTaskUpdate(task))
 		result.Succeeded = append(result.Succeeded, id)
@@ -1053,7 +1074,7 @@ func (m *Manager) RequeueTasks(ids []int64) TaskOperationResult {
 		return result
 	}
 	for _, id := range result.Succeeded {
-		m.enqueue(submission{id: id, removeGID: removeGIDs[id]})
+		m.enqueue(submission{id: id, removeGID: removeGIDs[id], discardPartial: discardPartials[id]})
 	}
 	return result
 }
@@ -1621,10 +1642,23 @@ func (m *Manager) submit(item submission) bool {
 		m.failTask(snapshot.ID, fmt.Errorf("create download directory: %w", err))
 		return false
 	}
+	stalePartialPath := ""
+	if item.discardPartial && item.removeGID != "" {
+		if state, err := m.rpc.status(item.removeGID); err == nil && len(state.Files) > 0 {
+			stalePartialPath = state.Files[0].Path
+		}
+	}
 	if item.removeGID != "" {
 		if err := m.rpc.removeResult(item.removeGID); err != nil && !isGIDNotFound(err) {
 			log.Printf("remove stale aria2 result %s: %v", item.removeGID, err)
 		}
+	}
+	if item.discardPartial {
+		if err := removePartialFiles(snapshot, stalePartialPath); err != nil {
+			m.failTask(snapshot.ID, fmt.Errorf("discard stale HTTP partial data: %w", err))
+			return false
+		}
+		log.Printf("task %d discarded stale HTTP partial data after a byte-range mismatch; restarting from zero", snapshot.ID)
 	}
 	preparedProxy := ""
 	preparedLink := ""
@@ -1740,6 +1774,7 @@ func (m *Manager) applyStatuses(statuses []ariaStatus) {
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
 	updates := make([]*Task, 0, len(statuses))
+	diagnosticLogs := make([]string, 0)
 	statesByGID := make(map[string]ariaStatus, len(statuses))
 	for _, state := range statuses {
 		statesByGID[state.GID] = state
@@ -1785,12 +1820,24 @@ func (m *Manager) applyStatuses(statuses []ariaStatus) {
 		if task.Status == StatusDone || task.Status == StatusError {
 			m.releaseAriaSlotLocked(task.ID)
 		}
-		task.Progress = formatProgress(state)
+		nextProgress := formatProgress(state)
+		if state.Bittorrent != nil && oldProgress != nextProgress {
+			speed, _ := strconv.ParseInt(state.DownloadSpeed, 10, 64)
+			if speed <= 0 {
+				diagnosticLogs = append(diagnosticLogs, fmt.Sprintf("BT task %d zero-speed diagnostics: %s", task.ID, bitTorrentProgressDetails(state)))
+			} else if bitTorrentProgressWasIdle(oldProgress) {
+				diagnosticLogs = append(diagnosticLogs, fmt.Sprintf("BT task %d transfer resumed at %s/s", task.ID, formatBytes(speed)))
+			}
+		}
+		task.Progress = nextProgress
 		task.Error = ""
 		if task.Status == StatusError {
 			task.Error = truncateText(state.ErrorMessage, 2048)
 			if task.Error == "" {
 				task.Error = "aria2 error code " + state.ErrorCode
+			}
+			if requiresCleanHTTPRestart(task.Error) && oldError != task.Error {
+				diagnosticLogs = append(diagnosticLogs, fmt.Sprintf("task %d HTTP byte-range resume state no longer matches the remote object; retry will discard only this task's partial file and restart from zero", task.ID))
 			}
 		}
 		if task.OutputName == "" && len(state.Files) > 0 && state.Files[0].Path != "" {
@@ -1806,6 +1853,9 @@ func (m *Manager) applyStatuses(statuses []ariaStatus) {
 		}
 	}
 	m.mu.Unlock()
+	for _, entry := range diagnosticLogs {
+		log.Print(entry)
+	}
 	if err := m.store.UpdateBatch(updates); err != nil {
 		log.Printf("persist %d task statuses: %v", len(updates), err)
 	}
@@ -2017,13 +2067,26 @@ func (m *Manager) startAria2() error {
 		return err
 	}
 	secret := hex.EncodeToString(secretBytes)
-	logPath := filepath.Join(filepath.Dir(m.defaultDir), "aria2.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	dataDir := filepath.Dir(m.defaultDir)
+	logPath := filepath.Join(dataDir, "aria2.log")
+	consoleLogPath := logPath
+	if m.aria2Next && aria2NextSupportsNativeDiagnostics(m.aria2NextVersion) {
+		// Aria2 Next 2.6.5+ owns a bounded rotating file log with native
+		// libtorrent diagnostics. Keep its console stream separate so the
+		// two writers never race on the same file.
+		consoleLogPath = filepath.Join(dataDir, "aria2-console.log")
+		prepared, prepareErr := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		if prepareErr != nil {
+			return fmt.Errorf("prepare aria2 log: %w", prepareErr)
+		}
+		_ = prepared.Close()
+	}
+	logFile, err := os.OpenFile(consoleLogPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
-		return fmt.Errorf("open aria2 log: %w", err)
+		return fmt.Errorf("open aria2 console log: %w", err)
 	}
 	runtimeSettings := m.RuntimeSettings()
-	if m.aria2Next {
+	if m.aria2Next && aria2NextSupportsBTResumeSave(m.aria2NextVersion) {
 		if err := os.MkdirAll(m.ariaStateDir, 0700); err != nil {
 			_ = logFile.Close()
 			return fmt.Errorf("create Aria2 Next state directory: %w", err)
@@ -2038,28 +2101,47 @@ func (m *Manager) startAria2() error {
 		_ = logFile.Close()
 		return fmt.Errorf("start aria2 RPC service: %w", err)
 	}
-	m.cmd, m.logFile = cmd, logFile
-	m.cmdDone = make(chan error, 1)
-	go func() { m.cmdDone <- cmd.Wait() }()
-	m.rpc = newAriaClient(port, secret)
+	cmdDone := make(chan error, 1)
+	go func() { cmdDone <- cmd.Wait() }()
+	rpc := newAriaClient(port, secret)
 	deadline := time.Now().Add(6 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := m.rpc.ready(); err == nil {
+		if err := rpc.ready(); err == nil {
+			m.cmd, m.logFile, m.cmdDone, m.rpc = cmd, logFile, cmdDone, rpc
+			if m.aria2Next && aria2NextSupportsNativeDiagnostics(m.aria2NextVersion) {
+				log.Printf("Aria2 Next %s native diagnostics: debug log=%s, rotation=4x10MiB, console log=%s", m.aria2NextVersion, logPath, consoleLogPath)
+				log.Printf("BitTorrent identity is owned by Aria2 Next/libtorrent: versioned A2 peer fingerprint; retired peer-agent and peer-id-prefix inputs are not effective")
+			} else {
+				log.Printf("aria2 summarized diagnostics: log=%s, console-level=info, summary-interval=5s", consoleLogPath)
+			}
 			return nil
 		}
 		select {
-		case err := <-m.cmdDone:
+		case err := <-cmdDone:
 			_ = logFile.Close()
+			if err == nil {
+				return fmt.Errorf("aria2 exited before its RPC service became ready")
+			}
 			return fmt.Errorf("aria2 exited during startup: %w", err)
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
 	_ = cmd.Process.Kill()
+	select {
+	case <-cmdDone:
+	case <-time.After(2 * time.Second):
+	}
 	_ = logFile.Close()
 	return fmt.Errorf("aria2 RPC service did not become ready")
 }
 
 func (m *Manager) aria2StartArgs(port int, secret string, runtimeSettings RuntimeSettings) []string {
+	consoleLogLevel := "info"
+	summaryInterval := 5
+	if m.aria2Next && aria2NextSupportsNativeDiagnostics(m.aria2NextVersion) {
+		consoleLogLevel = "warn"
+		summaryInterval = 0
+	}
 	args := []string{
 		"--enable-rpc=true",
 		"--rpc-listen-all=false",
@@ -2070,20 +2152,66 @@ func (m *Manager) aria2StartArgs(port int, secret string, runtimeSettings Runtim
 		"--continue=true",
 		fmt.Sprintf("--max-concurrent-downloads=%d", runtimeSettings.ConcurrentDownloads),
 		fmt.Sprintf("--max-overall-download-limit=%d", runtimeSettings.GlobalDownloadLimitBps),
-		"--console-log-level=warn",
-		"--summary-interval=0",
+		"--console-log-level=" + consoleLogLevel,
+		fmt.Sprintf("--summary-interval=%d", summaryInterval),
 		"--download-result=full",
 		"--keep-unfinished-download-result=true",
 		"--max-download-result=256",
 	}
 	if m.aria2Next {
-		args = append(args,
-			"--state-dir="+filepath.ToSlash(m.ariaStateDir),
-			"--check-integrity=true",
-			"--bt-resume-save-interval=1",
-		)
+		args = append(args, "--check-integrity=true")
+		if aria2NextSupportsNativeDiagnostics(m.aria2NextVersion) {
+			args = append(args,
+				"--log="+filepath.ToSlash(filepath.Join(filepath.Dir(m.defaultDir), "aria2.log")),
+				"--log-level=debug",
+				"--log-max-size=10M",
+				"--log-max-files=4",
+			)
+		}
+		if aria2NextSupportsNativeState(m.aria2NextVersion) {
+			args = append(args, "--state-dir="+filepath.ToSlash(m.ariaStateDir))
+		} else if aria2NextSupportsBTResumeSave(m.aria2NextVersion) {
+			args = append(args, "--bt-session-state-file="+filepath.ToSlash(filepath.Join(m.ariaStateDir, "bittorrent.session")))
+		}
+		if aria2NextSupportsBTResumeSave(m.aria2NextVersion) {
+			args = append(args, "--bt-resume-save-interval=1")
+		}
 	}
 	return args
+}
+
+func aria2NextSupportsNativeState(version string) bool {
+	return aria2NextVersionAtLeast(version, 2, 6, 0)
+}
+
+func aria2NextSupportsBTResumeSave(version string) bool {
+	return aria2NextVersionAtLeast(version, 2, 5, 7)
+}
+
+func aria2NextSupportsNativeDiagnostics(version string) bool {
+	return aria2NextVersionAtLeast(version, 2, 6, 5)
+}
+
+func aria2NextVersionAtLeast(version string, requiredMajor, requiredMinor, requiredPatch int) bool {
+	parts := strings.Split(strings.TrimSpace(version), ".")
+	if len(parts) != 3 {
+		return false
+	}
+	values := [3]int{}
+	for index, part := range parts {
+		value, err := strconv.Atoi(part)
+		if err != nil || value < 0 {
+			return false
+		}
+		values[index] = value
+	}
+	required := [3]int{requiredMajor, requiredMinor, requiredPatch}
+	for index, value := range values {
+		if value != required[index] {
+			return value > required[index]
+		}
+	}
+	return true
 }
 
 func normalizeRequest(link, name, folder, defaultDir string, headers map[string]string, downloadPage string, queueID int, opts Aria2Opts) requestIdentity {
@@ -2512,6 +2640,10 @@ func validHeaderName(value string) bool {
 	return true
 }
 
+func requiresCleanHTTPRestart(message string) bool {
+	return strings.Contains(strings.ToLower(message), "the requested byte range is no longer satisfiable")
+}
+
 func ariaOptions(task *Task, recheck bool) map[string]any {
 	connections := task.Opts.Connections
 	if connections <= 0 {
@@ -2621,12 +2753,85 @@ func formatProgress(state ariaStatus) string {
 	total, _ := strconv.ParseInt(state.TotalLength, 10, 64)
 	speed, _ := strconv.ParseInt(state.DownloadSpeed, 10, 64)
 	if state.Status == "paused" {
-		return fmt.Sprintf("Paused at %s / %s", formatBytes(completed), formatBytes(total))
+		return appendBitTorrentProgress(fmt.Sprintf("Paused at %s / %s", formatBytes(completed), formatBytes(total)), state)
 	}
+	progress := ""
 	if total <= 0 {
-		return fmt.Sprintf("%s downloaded, %s/s", formatBytes(completed), formatBytes(speed))
+		progress = fmt.Sprintf("%s downloaded, %s/s", formatBytes(completed), formatBytes(speed))
+	} else {
+		progress = fmt.Sprintf("%.1f%% (%s / %s), %s/s", float64(completed)*100/float64(total), formatBytes(completed), formatBytes(total), formatBytes(speed))
 	}
-	return fmt.Sprintf("%.1f%% (%s / %s), %s/s", float64(completed)*100/float64(total), formatBytes(completed), formatBytes(total), formatBytes(speed))
+	return appendBitTorrentProgress(progress, state)
+}
+
+func appendBitTorrentProgress(progress string, state ariaStatus) string {
+	details := bitTorrentProgressDetails(state)
+	if details == "" {
+		return progress
+	}
+	return progress + " | " + details
+}
+
+func bitTorrentProgressDetails(state ariaStatus) string {
+	bt := state.Bittorrent
+	if bt == nil {
+		return ""
+	}
+	peers := firstParsedInt(bt.NumPeers, state.Connections)
+	seeds := firstParsedInt(bt.NumSeeds, state.NumSeeders)
+	connecting := parsedInt(bt.ConnectingPeers)
+	handshaking := parsedInt(bt.HandshakingPeers)
+	candidates := parsedInt(bt.ConnectCandidates)
+	trackers := 0
+	for _, tier := range bt.AnnounceList {
+		trackers += len(tier)
+	}
+	details := fmt.Sprintf("BT %s: %d peers, %d seeds, %d trackers", firstNonEmptyString(bt.State, "active"), peers, seeds, trackers)
+	if connecting > 0 || handshaking > 0 || candidates > 0 {
+		details += fmt.Sprintf(" (%d connecting, %d handshaking, %d candidates)", connecting, handshaking, candidates)
+	}
+	if availability, err := strconv.ParseFloat(bt.Availability, 64); err == nil && availability >= 0 {
+		details += fmt.Sprintf(", availability %.1f%%", availability*100)
+	}
+	if bt.Error != nil {
+		category := firstNonEmptyString(bt.Error.Category, bt.Error.Kind, "engine")
+		details += ", " + category + " error"
+		if bt.Error.Recoverable == "true" {
+			details += " (recoverable)"
+		}
+	}
+	return details
+}
+
+func bitTorrentProgressWasIdle(progress string) bool {
+	return strings.Contains(progress, ", 0 B/s") || strings.Contains(progress, "downloaded, 0 B/s")
+}
+
+func parsedInt(value string) int {
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return 0
+	}
+	return parsed
+}
+
+func firstParsedInt(values ...string) int {
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		return parsedInt(value)
+	}
+	return 0
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func truncateText(value string, maxBytes int) string {

@@ -112,7 +112,7 @@ type persistedState struct {
 	EnginePreference   string            `json:"enginePreference"`
 	NextEngine         *installedEngine  `json:"nextEngine,omitempty"`
 	PendingUpdate      *pendingAppUpdate `json:"pendingUpdate,omitempty"`
-	LastCheckedAt      time.Time         `json:"lastCheckedAt,omitempty"`
+	LastCheckedAt      time.Time         `json:"lastCheckedAt,omitzero"`
 	LastUpdateError    string            `json:"lastUpdateError,omitempty"`
 }
 
@@ -260,6 +260,25 @@ func New(options Options) (*Manager, error) {
 func (m *Manager) EnginePath() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	return m.active.Path
+}
+
+// FallbackToStable keeps the saved NEXT preference but records that the
+// selected engine could not start in this process. A later restart may retry
+// NEXT after it has been updated or repaired.
+func (m *Manager) FallbackToStable(reason error) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.active = activeEngine{
+		Kind:    EngineStable,
+		Version: m.stableVersion,
+		Path:    m.stableEnginePath,
+		File:    filepath.Base(m.stableEnginePath),
+	}
+	m.lastError = "Aria2 Next could not start; using the built-in stable engine"
+	if reason != nil {
+		m.lastError += ": " + truncate(reason.Error(), 1024)
+	}
 	return m.active.Path
 }
 

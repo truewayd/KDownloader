@@ -23,6 +23,27 @@ type ariaRPCError struct {
 	Message string `json:"message"`
 }
 
+type ariaBitTorrentError struct {
+	Code        string `json:"code"`
+	Kind        string `json:"kind"`
+	Category    string `json:"category"`
+	Message     string `json:"message"`
+	Operation   string `json:"operation"`
+	Recoverable string `json:"recoverable"`
+}
+
+type ariaBitTorrentStatus struct {
+	AnnounceList      [][]string           `json:"announceList"`
+	State             string               `json:"state"`
+	NumPeers          string               `json:"numPeers"`
+	ConnectingPeers   string               `json:"connectingPeers"`
+	HandshakingPeers  string               `json:"handshakingPeers"`
+	NumSeeds          string               `json:"numSeeds"`
+	ConnectCandidates string               `json:"connectCandidates"`
+	Availability      string               `json:"availability"`
+	Error             *ariaBitTorrentError `json:"error,omitempty"`
+}
+
 func (e *ariaRPCError) Error() string {
 	return fmt.Sprintf("aria2 RPC %d: %s", e.Code, e.Message)
 }
@@ -33,6 +54,9 @@ type ariaStatus struct {
 	TotalLength     string   `json:"totalLength"`
 	CompletedLength string   `json:"completedLength"`
 	DownloadSpeed   string   `json:"downloadSpeed"`
+	UploadSpeed     string   `json:"uploadSpeed"`
+	Connections     string   `json:"connections"`
+	NumSeeders      string   `json:"numSeeders"`
 	ErrorCode       string   `json:"errorCode"`
 	ErrorMessage    string   `json:"errorMessage"`
 	FollowedBy      []string `json:"followedBy"`
@@ -40,9 +64,7 @@ type ariaStatus struct {
 	Files           []struct {
 		Path string `json:"path"`
 	} `json:"files"`
-	Bittorrent *struct {
-		AnnounceList [][]string `json:"announceList"`
-	} `json:"bittorrent,omitempty"`
+	Bittorrent *ariaBitTorrentStatus `json:"bittorrent,omitempty"`
 }
 
 func newAriaClient(port int, secret string) *ariaClient {
@@ -198,7 +220,7 @@ func (c *ariaClient) shutdown() error {
 }
 
 func (c *ariaClient) statuses() ([]ariaStatus, error) {
-	keys := []string{"gid", "status", "totalLength", "completedLength", "downloadSpeed", "errorCode", "errorMessage", "files", "bittorrent", "followedBy", "following"}
+	keys := []string{"gid", "status", "totalLength", "completedLength", "downloadSpeed", "uploadSpeed", "connections", "numSeeders", "errorCode", "errorMessage", "files", "bittorrent", "followedBy", "following"}
 	var active, waiting, stopped []ariaStatus
 	if err := c.call("aria2.tellActive", []any{keys}, &active); err != nil {
 		return nil, err

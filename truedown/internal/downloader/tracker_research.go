@@ -21,8 +21,10 @@ import (
 )
 
 const (
-	trackerResearchWarning = "仅限在你控制的 tracker 或测试环境中研究流量；不得用于欺骗、滥用或违反服务条款。启用即表示你理解并自行承担全部后果。"
-	trackerRelayBodyLimit  = 4 * 1024 * 1024
+	trackerResearchWarning            = "仅限在你控制的 tracker 或测试环境中研究流量；不得用于欺骗、滥用或违反服务条款。启用即表示你理解并自行承担全部后果。"
+	trackerResearchRequiredRPC        = "aria2.replaceBtTrackers"
+	trackerResearchMinimumNextVersion = "2.5.7"
+	trackerRelayBodyLimit             = 4 * 1024 * 1024
 )
 
 // TrackerResearchSettings controls the opt-in RatioGhost-compatible announce model.
@@ -64,6 +66,10 @@ type TrackerResearchSettingsUpdate struct {
 type TrackerResearchSnapshot struct {
 	TrackerResearchSettings
 	Warning               string   `json:"warning"`
+	Engine                string   `json:"engine"`
+	EngineVersion         string   `json:"engineVersion,omitempty"`
+	RequiredRPC           string   `json:"requiredRPC"`
+	MinimumNextVersion    string   `json:"minimumNextVersion"`
 	SupportedTransports   []string `json:"supportedTransports"`
 	UnsupportedTransports []string `json:"unsupportedTransports"`
 	UpdatePolicy          string   `json:"updatePolicy"`
@@ -295,6 +301,8 @@ func (module *trackerResearchModule) snapshot() TrackerResearchSnapshot {
 	return TrackerResearchSnapshot{
 		TrackerResearchSettings: module.settings,
 		Warning:                 trackerResearchWarning,
+		RequiredRPC:             trackerResearchRequiredRPC,
+		MinimumNextVersion:      trackerResearchMinimumNextVersion,
 		SupportedTransports:     []string{"http", "https"},
 		UnsupportedTransports:   []string{"udp"},
 		UpdatePolicy:            "follows-truedown",
@@ -927,7 +935,17 @@ func skipBencodeValue(data []byte, position *int, depth int) bool {
 
 // TrackerResearchSettings returns both saved model values and safe runtime state.
 func (m *Manager) TrackerResearchSettings() TrackerResearchSnapshot {
-	return m.trackerResearch.snapshot()
+	return m.trackerResearchSnapshot()
+}
+
+func (m *Manager) trackerResearchSnapshot() TrackerResearchSnapshot {
+	snapshot := m.trackerResearch.snapshot()
+	snapshot.Engine = "stable"
+	if m.aria2Next {
+		snapshot.Engine = "next"
+		snapshot.EngineVersion = m.aria2NextVersion
+	}
+	return snapshot
 }
 
 // UpdateTrackerResearchSettings validates explicit consent before first enable.
@@ -965,5 +983,5 @@ func (m *Manager) UpdateTrackerResearchSettings(update TrackerResearchSettingsUp
 			m.trackerResearch.setLastError(fmt.Errorf("refresh tracker research state: %w", statusErr))
 		}
 	}
-	return m.trackerResearch.snapshot(), nil
+	return m.trackerResearchSnapshot(), nil
 }

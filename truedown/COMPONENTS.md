@@ -156,6 +156,29 @@ filename is complete. HTTP(S) torrent URLs initially create a metadata download
 whose `followedBy` BT child has a different GID; TrueDown detects that child,
 rebinds the task, and persists the child GID for later control and resume.
 
+The official Aria2 Next binary owns its complete BitTorrent identity. Current
+NEXT uses libtorrent-rasterbar and reports an `aria2-next/<version>
+libtorrent/<version>` tracker/extended-handshake User-Agent with an `A2`
+versioned peer fingerprint. Its compatibility adapter intentionally ignores the
+retired aria2 `peer-agent` and `peer-id-prefix` options, so TrueDown does not
+offer misleading controls that would change only part of the identity.
+
+TrueDown requests native peer, seeder, connection-candidate, tracker-count, and
+availability fields in its bounded status poll and includes them in BT task
+progress, making a zero transfer rate distinguishable from missing metadata or
+peer discovery. Aria2 Next v2.6.5 and newer also writes its redacted native
+libtorrent diagnostics to rotating `<data-dir>/aria2.log` files at debug level
+(10 MiB each, four files); its warning console stream is kept separately in
+`aria2-console.log`. Older engines retain the summarized console log.
+
+When Aria2 Next reports `The requested byte range is no longer satisfiable`,
+the remote HTTP object no longer matches the saved resume position. This exact
+retry path is marked as destructive in the dashboard: after confirmation it
+removes only the task's validated direct-child partial file and recovery
+sidecar, then submits the task from byte zero. Deleting the file also causes
+Aria2 Next to drop its path-keyed native stream state during fresh admission.
+Other failures keep their resumable data.
+
 - `POST /start-bt-download` accepts exactly one of `link` or `torrentBase64`,
   plus the selected folder and bounded aria2 options.
 - Stable aria2 remains available for ordinary HTTP(S) downloads but rejects

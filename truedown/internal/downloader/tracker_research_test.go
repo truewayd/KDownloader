@@ -24,6 +24,25 @@ func TestTrackerResearchDefaultsMatchMVPModel(t *testing.T) {
 	}
 }
 
+func TestTrackerResearchSnapshotDescribesEngineRequirement(t *testing.T) {
+	root := t.TempDir()
+	manager, err := NewManagerWithConfig(
+		"unused",
+		filepath.Join(root, "downloads"),
+		filepath.Join(root, "records.db"),
+		ManagerConfig{Aria2Next: true, Aria2NextVersion: "2.5.6"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Stop()
+	snapshot := manager.TrackerResearchSettings()
+	if snapshot.Engine != "next" || snapshot.EngineVersion != "2.5.6" ||
+		snapshot.RequiredRPC != "aria2.replaceBtTrackers" || snapshot.MinimumNextVersion != "2.5.7" {
+		t.Fatalf("tracker research requirement snapshot=%+v", snapshot)
+	}
+}
+
 func TestTrackerResearchRatioRewriteUsesPreviousLeecherCount(t *testing.T) {
 	module := &trackerResearchModule{
 		settings: TrackerResearchSettings{
@@ -236,9 +255,7 @@ func TestTrackerResearchManagerRewritesAndRestoresTieredTrackers(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := ariaStatus{GID: "0123456789abcdef", Status: "active"}
-	status.Bittorrent = &struct {
-		AnnounceList [][]string `json:"announceList"`
-	}{AnnounceList: [][]string{
+	status.Bittorrent = &ariaBitTorrentStatus{AnnounceList: [][]string{
 		{"https://tracker.example/announce?passkey=private", "udp://tracker.example:80/announce"},
 		{"http://backup.example/announce"},
 	}}

@@ -459,6 +459,7 @@ func TestTrackerResearchEndpointDefaultsOffAndRequiresExplicitConsent(t *testing
 	if getResponse.Code != http.StatusOK || !strings.Contains(body, `"enabled":false`) ||
 		!strings.Contains(body, `"minimumLeechers":3`) || !strings.Contains(body, `"downloadMultiplierMax":0.001`) ||
 		!strings.Contains(body, `"onlyTrackerTraffic":true`) || !strings.Contains(body, `"onlyLocalConnections":true`) ||
+		!strings.Contains(body, `"requiredRPC":"aria2.replaceBtTrackers"`) || !strings.Contains(body, `"minimumNextVersion":"2.5.7"`) ||
 		!strings.Contains(body, `"unsupportedTransports":["udp"]`) || !strings.Contains(body, "不得用于欺骗") {
 		t.Fatalf("default tracker research status=%d body=%s", getResponse.Code, body)
 	}

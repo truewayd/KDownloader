@@ -16,6 +16,23 @@ import (
 	"time"
 )
 
+func TestManagerStartClassifiesMissingEngine(t *testing.T) {
+	root := t.TempDir()
+	manager, err := NewManager(
+		filepath.Join(root, "missing-aria2.exe"),
+		filepath.Join(root, "downloads"),
+		filepath.Join(root, "records.db"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = manager.Start()
+	manager.Stop()
+	if !IsEngineStartError(err) {
+		t.Fatalf("Start() error=%v, want EngineStartError", err)
+	}
+}
+
 func TestAddTaskBeyondFormerQueueCapacityReturns(t *testing.T) {
 	stateDir := t.TempDir()
 	databasePath := filepath.Join(stateDir, "records.db")
@@ -939,6 +956,87 @@ func TestRefreshOutputNameKeepsPartialDownloadWithControlFile(t *testing.T) {
 	}
 	if refreshed.OutputName != "Live Stream.png" {
 		t.Fatalf("partial download was renamed to %q", refreshed.OutputName)
+	}
+}
+
+func TestRequeueMarksUnsatisfiedHTTPRangeForCleanRestart(t *testing.T) {
+	stateDir := t.TempDir()
+	m, err := NewManagerWithConfig(
+		"unused",
+		filepath.Join(stateDir, "downloads"),
+		filepath.Join(stateDir, "records.db"),
+		ManagerConfig{Aria2Next: true, Aria2NextVersion: "2.6.6"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+
+	task, _, err := m.AddTask("https://example.test/file.bin", "file.bin", "", nil, "", 0, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.flushAdmissions(false)
+	m.pendingMu.Lock()
+	m.pending = nil
+	m.pendingMu.Unlock()
+	if err := os.MkdirAll(task.Folder, 0755); err != nil {
+		t.Fatal(err)
+	}
+	partialPath := filepath.Join(task.Folder, task.OutputName)
+	for _, path := range []string{partialPath, partialPath + ".aria2"} {
+		if err := os.WriteFile(path, []byte("stale partial"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m.mu.Lock()
+	stored := m.tasks[task.ID]
+	m.setStatusLocked(stored, StatusError)
+	stored.Error = "The requested byte range is no longer satisfiable"
+	m.touchTaskLocked(stored)
+	failed := snapshotTaskUpdate(stored)
+	m.mu.Unlock()
+	if err := m.store.Update(failed); err != nil {
+		t.Fatal(err)
+	}
+
+	result := m.RequeueTasks([]int64{task.ID})
+	if len(result.Succeeded) != 1 || len(result.Failed) != 0 {
+		t.Fatalf("requeue result=%+v", result)
+	}
+	m.pendingMu.Lock()
+	if len(m.pending) != 1 || !m.pending[0].discardPartial {
+		m.pendingMu.Unlock()
+		t.Fatalf("pending submissions=%+v, want one clean restart", m.pending)
+	}
+	queued := m.pending[0]
+	m.pending = nil
+	m.pendingMu.Unlock()
+	if got := m.tasks[task.ID].Progress; !strings.Contains(got, "restarting from zero") {
+		t.Fatalf("progress=%q", got)
+	}
+	fake := &fakeAriaRPC{}
+	m.rpc = fake
+	if !m.submit(queued) {
+		t.Fatal("clean restart was not admitted")
+	}
+	for _, path := range []string{partialPath, partialPath + ".aria2"} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("stale partial %q still exists: %v", path, err)
+		}
+	}
+	if len(fake.added) != 1 {
+		t.Fatalf("fresh aria2 submissions=%d, want 1", len(fake.added))
+	}
+}
+
+func TestRequiresCleanHTTPRestartIsSpecific(t *testing.T) {
+	if !requiresCleanHTTPRestart("The requested byte range is no longer satisfiable") {
+		t.Fatal("expected Aria2 Next range mismatch to require a clean restart")
+	}
+	if requiresCleanHTTPRestart("timeout while connecting") {
+		t.Fatal("ordinary network errors must retain partial data")
 	}
 }
 

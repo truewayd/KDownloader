@@ -98,9 +98,7 @@ func TestApplyStatusesFollowsTorrentChildGID(t *testing.T) {
 	childGID := "fedcba9876543210"
 	parent := ariaStatus{GID: task.GID, Status: "complete", FollowedBy: []string{childGID}}
 	child := ariaStatus{GID: childGID, Status: "active", TotalLength: "100", CompletedLength: "25"}
-	child.Bittorrent = &struct {
-		AnnounceList [][]string `json:"announceList"`
-	}{AnnounceList: [][]string{{"udp://tracker.example:80/announce"}}}
+	child.Bittorrent = &ariaBitTorrentStatus{AnnounceList: [][]string{{"udp://tracker.example:80/announce"}}}
 	manager.applyStatuses([]ariaStatus{parent, child})
 	updated, ok := manager.GetTask(task.ID)
 	if !ok || updated.GID != childGID || updated.Status != StatusDownloading || !strings.Contains(updated.Progress, "25.0%") {
@@ -141,9 +139,10 @@ func TestAria2NextStartArgsEnableDurableTorrentVerification(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "aria2-next-state")
 	manager := &Manager{
-		aria2Next:    true,
-		ariaStateDir: stateDir,
-		defaultDir:   filepath.Join(root, "downloads"),
+		aria2Next:        true,
+		aria2NextVersion: "2.6.0",
+		ariaStateDir:     stateDir,
+		defaultDir:       filepath.Join(root, "downloads"),
 	}
 	args := manager.aria2StartArgs(15152, "secret", RuntimeSettings{ConcurrentDownloads: 3})
 	joined := strings.Join(args, "\n")
@@ -156,9 +155,84 @@ func TestAria2NextStartArgsEnableDurableTorrentVerification(t *testing.T) {
 			t.Fatalf("missing %q in args=%v", expected, args)
 		}
 	}
+	if strings.Contains(joined, "--bt-session-state-file=") {
+		t.Fatalf("Aria2 Next 2.6 received the legacy session-state arg: %s", joined)
+	}
+	legacy := &Manager{
+		aria2Next:        true,
+		aria2NextVersion: "2.5.6",
+		ariaStateDir:     stateDir,
+		defaultDir:       manager.defaultDir,
+	}
+	legacyArgs := strings.Join(legacy.aria2StartArgs(15152, "secret", RuntimeSettings{ConcurrentDownloads: 3}), "\n")
+	if !strings.Contains(legacyArgs, "--check-integrity=true") || strings.Contains(legacyArgs, "--state-dir=") ||
+		strings.Contains(legacyArgs, "--bt-session-state-file=") || strings.Contains(legacyArgs, "--bt-resume-save-interval=") {
+		t.Fatalf("Aria2 Next 2.5.6 received incompatible native-state args: %s", legacyArgs)
+	}
+	researchCapable := &Manager{
+		aria2Next:        true,
+		aria2NextVersion: "2.5.7",
+		ariaStateDir:     stateDir,
+		defaultDir:       manager.defaultDir,
+	}
+	researchArgs := strings.Join(researchCapable.aria2StartArgs(15152, "secret", RuntimeSettings{ConcurrentDownloads: 3}), "\n")
+	if strings.Contains(researchArgs, "--state-dir=") ||
+		!strings.Contains(researchArgs, "--bt-session-state-file="+filepath.ToSlash(filepath.Join(stateDir, "bittorrent.session"))) ||
+		!strings.Contains(researchArgs, "--bt-resume-save-interval=1") {
+		t.Fatalf("Aria2 Next 2.5.7 received incorrect native-state args: %s", researchArgs)
+	}
 	stable := &Manager{defaultDir: manager.defaultDir}
-	if stableArgs := strings.Join(stable.aria2StartArgs(15152, "secret", RuntimeSettings{ConcurrentDownloads: 3}), "\n"); strings.Contains(stableArgs, "--state-dir=") || strings.Contains(stableArgs, "--bt-resume-save-interval=") {
+	if stableArgs := strings.Join(stable.aria2StartArgs(15152, "secret", RuntimeSettings{ConcurrentDownloads: 3}), "\n"); strings.Contains(stableArgs, "--state-dir=") || strings.Contains(stableArgs, "--bt-session-state-file=") || strings.Contains(stableArgs, "--bt-resume-save-interval=") {
 		t.Fatalf("stable engine received NEXT-only args: %s", stableArgs)
+	}
+	diagnostic := &Manager{
+		aria2Next:        true,
+		aria2NextVersion: "2.6.5",
+		ariaStateDir:     stateDir,
+		defaultDir:       manager.defaultDir,
+	}
+	diagnosticArgs := strings.Join(diagnostic.aria2StartArgs(15152, "secret", RuntimeSettings{ConcurrentDownloads: 3}), "\n")
+	for _, expected := range []string{
+		"--log=" + filepath.ToSlash(filepath.Join(root, "aria2.log")),
+		"--log-level=debug",
+		"--log-max-size=10M",
+		"--log-max-files=4",
+		"--console-log-level=warn",
+		"--summary-interval=0",
+	} {
+		if !strings.Contains(diagnosticArgs, expected) {
+			t.Fatalf("missing diagnostic option %q in args=%v", expected, diagnostic.aria2StartArgs(15152, "secret", RuntimeSettings{ConcurrentDownloads: 3}))
+		}
+	}
+	if strings.Contains(joined, "--log-level=debug") || !strings.Contains(joined, "--console-log-level=info") || !strings.Contains(joined, "--summary-interval=5") {
+		t.Fatalf("Aria2 Next 2.6.0 logging args are incorrect: %s", joined)
+	}
+}
+
+func TestBitTorrentProgressIncludesZeroSpeedDiscoveryDiagnostics(t *testing.T) {
+	state := ariaStatus{
+		Status:          "active",
+		TotalLength:     "1048576",
+		CompletedLength: "0",
+		DownloadSpeed:   "0",
+		Connections:     "2",
+		NumSeeders:      "1",
+	}
+	state.Bittorrent = &ariaBitTorrentStatus{
+		AnnounceList:      [][]string{{"udp://tracker.example/announce"}, {"https://tracker.example/announce"}},
+		State:             "downloading",
+		NumPeers:          "2",
+		ConnectingPeers:   "1",
+		HandshakingPeers:  "1",
+		NumSeeds:          "1",
+		ConnectCandidates: "4",
+		Availability:      "0.75",
+	}
+	progress := formatProgress(state)
+	for _, expected := range []string{"0 B/s", "BT downloading: 2 peers, 1 seeds, 2 trackers", "1 connecting", "1 handshaking", "4 candidates", "availability 75.0%"} {
+		if !strings.Contains(progress, expected) {
+			t.Fatalf("progress %q is missing %q", progress, expected)
+		}
 	}
 }
 

@@ -83,6 +83,7 @@ func main() {
 		log.Fatal(err)
 	}
 	aria2 := updates.EnginePath()
+	engineStatus := updates.Snapshot().Engine
 	downloads := filepath.Join(dataDir, "downloads")
 	database := filepath.Join(dataDir, "truedown.db")
 	auth, err := newAuthController(
@@ -94,14 +95,26 @@ func main() {
 		log.Fatal(err)
 	}
 	dm, err := downloader.NewManagerWithConfig(aria2, downloads, database, downloader.ManagerConfig{
-		Aria2Next: updates.Snapshot().Engine.Active == systemupdate.EngineNext,
+		Aria2Next:        engineStatus.Active == systemupdate.EngineNext,
+		Aria2NextVersion: engineStatus.ActiveVersion,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := dm.Start(); err != nil {
+	startErr := dm.Start()
+	if startErr != nil && engineStatus.Active == systemupdate.EngineNext && downloader.IsEngineStartError(startErr) {
 		dm.Stop()
-		log.Fatal(err)
+		aria2 = updates.FallbackToStable(startErr)
+		log.Printf("Aria2 Next startup failed; retrying with the built-in stable engine: %v", startErr)
+		dm, err = downloader.NewManager(aria2, downloads, database)
+		if err != nil {
+			log.Fatal(err)
+		}
+		startErr = dm.Start()
+	}
+	if startErr != nil {
+		dm.Stop()
+		log.Fatal(startErr)
 	}
 	defer dm.Stop()
 
