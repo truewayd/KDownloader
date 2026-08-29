@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -453,6 +454,8 @@ type fakeAriaRPC struct {
 	removed         []string
 	statusValue     string
 	statusErr       error
+	statusPath      string
+	statusesValue   []ariaStatus
 	forceRemoved    bool
 	stopped         bool
 	added           []*Task
@@ -483,13 +486,23 @@ func (f *fakeAriaRPC) status(gid string) (ariaStatus, error) {
 			status = "removed"
 		}
 	}
-	return ariaStatus{GID: gid, Status: status}, nil
+	state := ariaStatus{GID: gid, Status: status}
+	if f.statusPath != "" {
+		state.Files = append(state.Files, struct {
+			Path string `json:"path"`
+		}{Path: f.statusPath})
+	}
+	return state, nil
 }
-func (f *fakeAriaRPC) removeResult(string) error       { return nil }
-func (f *fakeAriaRPC) purgeResults() error             { return nil }
-func (f *fakeAriaRPC) statuses() ([]ariaStatus, error) { return nil, nil }
-func (f *fakeAriaRPC) pause(gid string) error          { f.record(&f.paused, gid); return nil }
-func (f *fakeAriaRPC) unpause(gid string) error        { f.record(&f.resumed, gid); return nil }
+func (f *fakeAriaRPC) removeResult(string) error { return nil }
+func (f *fakeAriaRPC) purgeResults() error       { return nil }
+func (f *fakeAriaRPC) statuses() ([]ariaStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]ariaStatus(nil), f.statusesValue...), f.statusErr
+}
+func (f *fakeAriaRPC) pause(gid string) error   { f.record(&f.paused, gid); return nil }
+func (f *fakeAriaRPC) unpause(gid string) error { f.record(&f.resumed, gid); return nil }
 func (f *fakeAriaRPC) pauseAll() error {
 	f.mu.Lock()
 	f.pauseAllCalls++
@@ -1028,6 +1041,107 @@ func TestRequeueMarksUnsatisfiedHTTPRangeForCleanRestart(t *testing.T) {
 	}
 	if len(fake.added) != 1 {
 		t.Fatalf("fresh aria2 submissions=%d, want 1", len(fake.added))
+	}
+}
+
+func TestCleanRestartKeepsAriaPathCapturedBeforeOldResultDisappears(t *testing.T) {
+	stateDir := t.TempDir()
+	m, err := NewManagerWithConfig(
+		"unused",
+		filepath.Join(stateDir, "downloads"),
+		filepath.Join(stateDir, "records.db"),
+		ManagerConfig{Aria2Next: true, Aria2NextVersion: "2.6.6"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+
+	task, _, err := m.AddTask("https://example.test/file.bin", "file.bin", "", nil, "", 0, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.flushAdmissions(false)
+	m.pendingMu.Lock()
+	m.pending = nil
+	m.pendingMu.Unlock()
+	if err := os.MkdirAll(task.Folder, 0755); err != nil {
+		t.Fatal(err)
+	}
+	partialPath := filepath.Join(task.Folder, task.OutputName)
+	for _, path := range []string{partialPath, partialPath + ".aria2"} {
+		if err := os.WriteFile(path, []byte("stale partial"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	oldGID := task.GID
+	state := ariaStatus{GID: oldGID, Status: "error"}
+	state.Files = append(state.Files, struct {
+		Path string `json:"path"`
+	}{Path: partialPath})
+	fake := &fakeAriaRPC{statusesValue: []ariaStatus{state}}
+	m.rpc = fake
+	m.mu.Lock()
+	stored := m.tasks[task.ID]
+	m.setStatusLocked(stored, StatusError)
+	stored.Error = "The requested byte range is no longer satisfiable"
+	m.touchTaskLocked(stored)
+	failed := snapshotTaskUpdate(stored)
+	m.mu.Unlock()
+	if err := m.store.Update(failed); err != nil {
+		t.Fatal(err)
+	}
+
+	result := m.RequeueTasks([]int64{task.ID})
+	if len(result.Succeeded) != 1 || len(result.Failed) != 0 {
+		t.Fatalf("requeue result=%+v", result)
+	}
+	m.pendingMu.Lock()
+	queued := m.pending[0]
+	m.pending = nil
+	m.pendingMu.Unlock()
+	if queued.partialPath != partialPath {
+		t.Fatalf("captured partial path=%q, want %q", queued.partialPath, partialPath)
+	}
+
+	// Simulate aria2 evicting the old stopped result while the retry waited
+	// for an admission slot. The captured direct-child path remains usable.
+	fake.statusErr = errors.New("connection refused")
+	m.mu.Lock()
+	m.tasks[task.ID].OutputName = ""
+	m.mu.Unlock()
+	if !m.submit(queued) {
+		t.Fatal("clean restart was not admitted after the old result disappeared")
+	}
+	for _, path := range []string{partialPath, partialPath + ".aria2"} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("stale partial %q still exists: %v", path, err)
+		}
+	}
+}
+
+func TestUnexpectedEngineExitFailsActiveTasksAndBlocksRetry(t *testing.T) {
+	stateDir := t.TempDir()
+	m, err := NewManager("unused", filepath.Join(stateDir, "downloads"), filepath.Join(stateDir, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	task, _, err := m.AddTask("https://example.test/file.bin", "file.bin", "", nil, "", 0, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.flushAdmissions(false)
+
+	m.handleUnexpectedEngineExit(errors.New("exit status 1"))
+	failed, ok := m.GetTask(task.ID)
+	if !ok || failed.Status != StatusError || !strings.Contains(failed.Error, "restart TrueDown") {
+		t.Fatalf("task after engine exit=%+v", failed)
+	}
+	result := m.RequeueTasks([]int64{task.ID})
+	if len(result.Succeeded) != 0 || len(result.Failed) != 1 || !strings.Contains(result.Failed[0].Error, "not running") {
+		t.Fatalf("requeue after engine exit=%+v", result)
 	}
 }
 

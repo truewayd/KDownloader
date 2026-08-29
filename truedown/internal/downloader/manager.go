@@ -160,6 +160,7 @@ type submission struct {
 	recheck        bool
 	removeGID      string
 	discardPartial bool
+	partialPath    string
 }
 
 type admission struct {
@@ -220,12 +221,13 @@ type Manager struct {
 	admissions  []admission
 	dbWake      chan struct{}
 
-	pendingMu sync.Mutex
-	pending   []submission
-	wake      chan struct{}
-	done      chan struct{}
-	wg        sync.WaitGroup
-	stopOnce  sync.Once
+	pendingMu    sync.Mutex
+	pending      []submission
+	wake         chan struct{}
+	done         chan struct{}
+	wg           sync.WaitGroup
+	stopOnce     sync.Once
+	engineExited atomic.Bool
 
 	rpc     ariaRPC
 	cmd     *exec.Cmd
@@ -1023,6 +1025,12 @@ func (m *Manager) RequeueTasks(ids []int64) TaskOperationResult {
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
 	result := newOperationResult()
+	if m.engineExited.Load() {
+		for _, id := range uniqueTaskIDs(ids) {
+			result.fail(id, fmt.Errorf("download engine is not running; restart TrueDown before retrying task %d", id))
+		}
+		return result
+	}
 	var updates []*Task
 	originals := make(map[int64]*Task)
 	removeGIDs := make(map[int64]string)
@@ -1073,8 +1081,24 @@ func (m *Manager) RequeueTasks(ids []int64) TaskOperationResult {
 		result.failSucceeded(nil, fmt.Errorf("persist requeued tasks: %w", err))
 		return result
 	}
+	partialPaths := make(map[string]string)
+	needsPartialPath := false
+	for _, discard := range discardPartials {
+		needsPartialPath = needsPartialPath || discard
+	}
+	if needsPartialPath && m.rpc != nil {
+		if statuses, statusErr := m.rpc.statuses(); statusErr == nil {
+			for _, state := range statuses {
+				if len(state.Files) > 0 && state.Files[0].Path != "" {
+					partialPaths[state.GID] = state.Files[0].Path
+				}
+			}
+		}
+	}
 	for _, id := range result.Succeeded {
-		m.enqueue(submission{id: id, removeGID: removeGIDs[id], discardPartial: discardPartials[id]})
+		m.enqueue(submission{
+			id: id, removeGID: removeGIDs[id], discardPartial: discardPartials[id], partialPath: partialPaths[removeGIDs[id]],
+		})
 	}
 	return result
 }
@@ -1638,14 +1662,21 @@ func (m *Manager) submit(item submission) bool {
 	if snapshot.Status != StatusQueued && snapshot.Status != StatusPaused {
 		return false
 	}
+	if m.engineExited.Load() {
+		m.failTask(snapshot.ID, fmt.Errorf("download engine stopped unexpectedly; restart TrueDown before retrying"))
+		return false
+	}
 	if err := os.MkdirAll(snapshot.Folder, 0755); err != nil {
 		m.failTask(snapshot.ID, fmt.Errorf("create download directory: %w", err))
 		return false
 	}
-	stalePartialPath := ""
+	stalePartialPath := strings.TrimSpace(item.partialPath)
+	var stalePathErr error
 	if item.discardPartial && item.removeGID != "" {
-		if state, err := m.rpc.status(item.removeGID); err == nil && len(state.Files) > 0 {
+		if state, err := m.rpc.status(item.removeGID); err == nil && len(state.Files) > 0 && stalePartialPath == "" {
 			stalePartialPath = state.Files[0].Path
+		} else if err != nil {
+			stalePathErr = err
 		}
 	}
 	if item.removeGID != "" {
@@ -1654,6 +1685,10 @@ func (m *Manager) submit(item submission) bool {
 		}
 	}
 	if item.discardPartial {
+		if stalePartialPath == "" && snapshot.OutputName == "" && stalePathErr != nil {
+			m.failTask(snapshot.ID, fmt.Errorf("download engine became unavailable while locating stale partial data; restart TrueDown: %w", stalePathErr))
+			return false
+		}
 		if err := removePartialFiles(snapshot, stalePartialPath); err != nil {
 			m.failTask(snapshot.ID, fmt.Errorf("discard stale HTTP partial data: %w", err))
 			return false
@@ -1758,6 +1793,12 @@ func (m *Manager) poller() {
 		select {
 		case <-m.done:
 			return
+		case err, ok := <-m.cmdDone:
+			if !ok {
+				err = nil
+			}
+			m.handleUnexpectedEngineExit(err)
+			return
 		case <-ticker.C:
 			statuses, err := m.rpc.statuses()
 			if err != nil {
@@ -1767,6 +1808,38 @@ func (m *Manager) poller() {
 			m.applyStatuses(statuses)
 			m.trackerResearch.sync(m.rpc, statuses)
 		}
+	}
+}
+
+func (m *Manager) handleUnexpectedEngineExit(err error) {
+	if !m.engineExited.CompareAndSwap(false, true) {
+		return
+	}
+	reason := "the process exited without an error status"
+	if err != nil {
+		reason = err.Error()
+	}
+	message := "Download engine stopped unexpectedly; restart TrueDown"
+	log.Printf("aria2 process exited unexpectedly (%s); queued and active tasks require a TrueDown restart", reason)
+
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	updates := make([]*Task, 0)
+	m.mu.Lock()
+	for _, task := range m.tasks {
+		switch task.Status {
+		case StatusQueued, StatusDownloading, StatusPaused:
+			m.releaseAriaSlotLocked(task.ID)
+			m.setStatusLocked(task, StatusError)
+			task.Progress = ""
+			task.Error = message
+			m.touchTaskLocked(task)
+			updates = append(updates, snapshotTaskUpdate(task))
+		}
+	}
+	m.mu.Unlock()
+	if err := m.store.UpdateBatch(updates); err != nil {
+		log.Printf("persist %d tasks after aria2 exited: %v", len(updates), err)
 	}
 }
 
@@ -2102,7 +2175,10 @@ func (m *Manager) startAria2() error {
 		return fmt.Errorf("start aria2 RPC service: %w", err)
 	}
 	cmdDone := make(chan error, 1)
-	go func() { cmdDone <- cmd.Wait() }()
+	go func() {
+		cmdDone <- cmd.Wait()
+		close(cmdDone)
+	}()
 	rpc := newAriaClient(port, secret)
 	deadline := time.Now().Add(6 * time.Second)
 	for time.Now().Before(deadline) {
