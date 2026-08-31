@@ -1,19 +1,9 @@
 // content/ui.js - shared injected components and state rendering
 
-const KD_CREATOR_BUTTON_SELECTOR = [
-  '.kd-creator-button[data-batch-download="true"]',
-  '.kemono-creator-btn[data-batch-download="true"]',
-].join(', ');
-
-const KD_POST_BUTTON_SELECTOR = [
-  '[data-kd-role="post-download"]',
-  '.batch-download-btn[data-batch-download="true"]',
-].join(', ');
-
-const KD_PAGE_FETCH_BUTTON_SELECTOR = [
-  '[data-kd-role="page-fetch"]',
-  '.kemono-download-all[data-batch-download="true"]',
-].join(', ');
+const KD_ACTION_TAG = KDComponents.ACTION_TAG;
+const KD_CREATOR_BUTTON_SELECTOR = `${KD_ACTION_TAG}[variant="creator"][data-batch-download="true"]`;
+const KD_POST_BUTTON_SELECTOR = `${KD_ACTION_TAG}[data-kd-role="post-download"]`;
+const KD_PAGE_FETCH_BUTTON_SELECTOR = `${KD_ACTION_TAG}[data-kd-role="page-fetch"]`;
 
 const BTN_STATUS = Object.freeze({
   IDLE: { text: KDI18n.get('downloadActionDecorated'), icon: '↓', disabled: false },
@@ -25,7 +15,6 @@ const BTN_STATUS = Object.freeze({
 });
 
 let kdButtonResetSequence = 0;
-let kdModalSequence = 0;
 let closeActiveExternalLinksModal = null;
 const MAX_BUTTON_TEXT_LENGTH = 240;
 const MAX_EXTERNAL_LINKS = 500;
@@ -47,7 +36,11 @@ function updateButtonStatus(btn, statusKey, customText = null, isCreatorPage = f
   btn.dataset.status = statusKey;
   btn.disabled = status.disabled;
   btn.setAttribute('aria-disabled', String(status.disabled));
-  btn.setAttribute('aria-busy', String(statusKey === 'SCANNING' || statusKey === 'SENDING'));
+  KDComponents.setBusyState(
+    btn,
+    statusKey === 'SCANNING' || statusKey === 'SENDING',
+    { manageDisabled: false }
+  );
 
   if (isCreatorPage) {
     btn.textContent = status.icon;
@@ -88,15 +81,11 @@ function ensureKdButton(container, selector, options = {}) {
   let button = container.querySelector(selector);
   let isNew = !button;
 
-  if (button && button.tagName !== 'BUTTON') {
-    const replacement = document.createElement('button');
-    button.replaceWith(replacement);
-    button = replacement;
-  }
-  if (!button) button = document.createElement('button');
+  if (!button) button = document.createElement(KD_ACTION_TAG);
 
   button.type = 'button';
-  button.className = ['kd-action-button', ...classNames].filter(Boolean).join(' ');
+  button.setAttribute('variant', options.variant || 'action');
+  button.className = classNames.filter(Boolean).join(' ');
   button.setAttribute('aria-live', 'polite');
   for (const [name, value] of Object.entries(attributes)) {
     button.setAttribute(name, String(value));
@@ -110,18 +99,14 @@ function ensureCreatorDownloadButton(container, path, extraClassNames = []) {
   const existing = findDownloadButtonByPath(container, KD_CREATOR_BUTTON_SELECTOR, path);
   let button = existing;
 
-  if (button && button.tagName !== 'BUTTON') {
-    const replacement = document.createElement('button');
-    button.replaceWith(replacement);
-    button = replacement;
-  }
   if (!button) {
-    button = document.createElement('button');
+    button = document.createElement(KD_ACTION_TAG);
     container.appendChild(button);
   }
 
   button.type = 'button';
-  button.className = ['kd-creator-button', ...extraClassNames].filter(Boolean).join(' ');
+  button.setAttribute('variant', 'creator');
+  button.className = extraClassNames.filter(Boolean).join(' ');
   button.setAttribute('aria-live', 'polite');
   button.setAttribute('data-batch-download', 'true');
   button.setAttribute('data-path', path);
@@ -284,92 +269,19 @@ function showExternalLinksModal(links) {
   if (normalizedLinks.length === 0) return;
 
   closeActiveExternalLinksModal?.();
-  const modalId = ++kdModalSequence;
   const previousFocus = document.activeElement;
-  const overlay = document.createElement('div');
-  overlay.id = 'kd-external-links-modal';
-  overlay.className = 'kd-modal-overlay';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-labelledby', `kd-external-links-title-${modalId}`);
-  overlay.setAttribute('aria-describedby', `kd-external-links-description-${modalId}`);
-
-  const modal = document.createElement('div');
-  modal.className = 'kd-modal';
-
-  const title = document.createElement('h3');
-  title.id = `kd-external-links-title-${modalId}`;
-  title.className = 'kd-modal-title';
-  title.textContent = KDI18n.get('externalLinksTitle');
-
-  const description = document.createElement('p');
-  description.id = `kd-external-links-description-${modalId}`;
-  description.className = 'kd-modal-description';
-  description.textContent = KDI18n.get('externalLinksDescription');
-
-  const list = document.createElement('ul');
-  list.className = 'kd-modal-list';
-  for (const link of normalizedLinks) {
-    const item = document.createElement('li');
-    item.className = 'kd-modal-list-item';
-    const anchor = document.createElement('a');
-    anchor.className = 'kd-modal-link';
-    anchor.href = link;
-    anchor.target = '_blank';
-    anchor.rel = 'noopener noreferrer';
-    anchor.textContent = link;
-    item.appendChild(anchor);
-    list.appendChild(item);
-  }
-
-  const closeButton = document.createElement('button');
-  closeButton.className = 'kd-action-button kd-modal-close';
-  closeButton.type = 'button';
-  closeButton.textContent = KDI18n.get('closeAction');
-
-  let closed = false;
+  const dialog = document.createElement(KDComponents.LINKS_DIALOG_TAG);
+  dialog.id = 'kd-external-links-modal';
   let removalObserver = null;
   const lifecycleController = typeof AbortController === 'function' ? new AbortController() : null;
-  const close = () => {
-    if (closed) return;
-    closed = true;
-    document.removeEventListener('keydown', handleKeydown);
+  const finish = () => {
     lifecycleController?.abort();
     removalObserver?.disconnect();
     removalObserver = null;
-    overlay.remove();
     if (closeActiveExternalLinksModal === close) closeActiveExternalLinksModal = null;
-    if (previousFocus?.isConnected && typeof previousFocus.focus === 'function') {
-      previousFocus.focus({ preventScroll: true });
-    }
   };
-  const handleKeydown = (event) => {
-    if (event.key === 'Escape') {
-      close();
-      return;
-    }
-    if (event.key !== 'Tab') return;
-    const focusable = Array.from(modal.querySelectorAll('a[href], button:not(:disabled)'));
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (!modal.contains(document.activeElement)) {
-      event.preventDefault();
-      (event.shiftKey ? last : first).focus();
-    } else if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  };
-
-  closeButton.addEventListener('click', close);
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) close();
-  });
-  document.addEventListener('keydown', handleKeydown);
+  const close = () => dialog.close();
+  dialog.addEventListener('kd-close', finish, { once: true });
   const lifecycleSignal = lifecycleController?.signal;
   window.addEventListener('pagehide', close, { once: true, signal: lifecycleSignal });
   window.addEventListener(EXTENSION_CONTEXT_INVALIDATED_EVENT, close, {
@@ -378,14 +290,18 @@ function showExternalLinksModal(links) {
   });
   closeActiveExternalLinksModal = close;
 
-  modal.append(title, description, list, closeButton);
-  overlay.appendChild(modal);
-  document.body.appendChild(overlay);
+  document.body.appendChild(dialog);
   if (typeof MutationObserver === 'function') {
     removalObserver = new MutationObserver(() => {
-      if (!overlay.isConnected) close();
+      if (!dialog.isConnected) finish();
     });
     removalObserver.observe(document.body, { childList: true });
   }
-  closeButton.focus({ preventScroll: true });
+  dialog.show({
+    title: KDI18n.get('externalLinksTitle'),
+    description: KDI18n.get('externalLinksDescription'),
+    links: normalizedLinks,
+    closeLabel: KDI18n.get('closeAction'),
+    returnFocus: previousFocus,
+  });
 }

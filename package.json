@@ -6,6 +6,8 @@
     "build": "pwsh -NoProfile -ExecutionPolicy Bypass -File tools/build-extension.ps1",
     "test": "node --test \"tests/*.test.mjs\"",
     "test:python": "python -m unittest tests/migrate_history_json_test.py",
+    "ui:check": "pwsh -NoProfile -ExecutionPolicy Bypass -File tools/sync-ui-components.ps1 -Check",
+    "ui:sync": "pwsh -NoProfile -ExecutionPolicy Bypass -File tools/sync-ui-components.ps1",
     "version:check": "pwsh -NoProfile -ExecutionPolicy Bypass -File tools/read-extension-version.ps1"
   }
 }

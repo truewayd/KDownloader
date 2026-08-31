@@ -76,7 +76,7 @@ const els = {};
 const selectedTaskIDs = new Set();
 const taskStatusByID = new Map();
 const pageETags = new Map();
-let toastTimer = 0;
+let trueDownToast = null;
 let pollTimer = 0;
 let searchTimer = 0;
 let modalMode = "single";
@@ -114,6 +114,8 @@ let apiTokenRequestPromise = null;
 
 document.addEventListener("DOMContentLoaded", async () => {
   cacheElements();
+  KDComponents.prepareDecorativeIcons();
+  trueDownToast = KDComponents.createToast(els.toast, { duration: 3200 });
   initTheme();
   renderDownloadSettings();
   bindEvents();
@@ -616,8 +618,7 @@ async function submitTask(event) {
 }
 
 function setSubmitting(isSubmitting) {
-  els.submitTaskBtn.disabled = isSubmitting;
-  els.submitTaskBtn.toggleAttribute("aria-busy", isSubmitting);
+  KDComponents.setBusyState(els.submitTaskBtn, isSubmitting);
   els.submitTaskBtn.textContent = isSubmitting ? "提交中..." : (modalMode === "batch" ? "批量开始" : "开始下载");
 }
 
@@ -663,8 +664,7 @@ async function onTaskAction(event) {
     return;
   }
   if (!Number.isSafeInteger(id) || id <= 0) return;
-  button.disabled = true;
-  button.setAttribute("aria-busy", "true");
+  KDComponents.setBusyState(button, true);
   try {
     if (action === "requeue") {
       const task = currentTasks.find((candidate) => candidate.id === id);
@@ -699,8 +699,7 @@ async function onTaskAction(event) {
       taskStatusByID.delete(id);
     }
   } finally {
-    button.disabled = false;
-    button.removeAttribute("aria-busy");
+    KDComponents.setBusyState(button, false);
   }
 }
 
@@ -789,16 +788,14 @@ async function runSelectedAction(action, label, requiresConfirmation = false) {
 
 function setBatchBusy(busy) {
   [els.batchPauseBtn, els.batchResumeBtn, els.batchRemoveBtn].forEach((button) => {
-    button.disabled = busy;
-    button.toggleAttribute("aria-busy", busy);
+    KDComponents.setBusyState(button, busy);
   });
 }
 
 async function runQueueAction(action) {
   const pause = action === "pause";
   const button = pause ? els.pauseQueueBtn : els.resumeQueueBtn;
-  button.disabled = true;
-  button.setAttribute("aria-busy", "true");
+  KDComponents.setBusyState(button, true);
   try {
     const result = await requestJSON(`/queue/${action}`, { method: "POST" });
     const succeeded = result.succeeded?.length || 0;
@@ -809,23 +806,21 @@ async function runQueueAction(action) {
   } catch (error) {
     showToast(`队列操作失败：${error.message}`, "error");
   } finally {
-    button.removeAttribute("aria-busy");
+    KDComponents.setBusyState(button, false, { manageDisabled: false });
     updateMetrics(currentSummary);
     schedulePoll();
   }
 }
 
 async function openDownloadsDirectory() {
-  els.openDownloadsBtn.disabled = true;
-  els.openDownloadsBtn.setAttribute("aria-busy", "true");
+  KDComponents.setBusyState(els.openDownloadsBtn, true);
   try {
     await requestText("/system/open-downloads", { method: "POST" });
     showToast("已打开 TrueDown 下载目录。");
   } catch (error) {
     showToast(`无法打开下载目录：${error.message}`, "error");
   } finally {
-    els.openDownloadsBtn.disabled = false;
-    els.openDownloadsBtn.removeAttribute("aria-busy");
+    KDComponents.setBusyState(els.openDownloadsBtn, false);
   }
 }
 
@@ -840,8 +835,7 @@ async function requeueAllErrorTasks() {
     confirmLabel: "全部重试",
     danger: currentTasks.some((task) => task.status === "error" && requiresCleanHTTPRestart(task.error)),
   })) return;
-  els.retryAllBtn.disabled = true;
-  els.retryAllBtn.setAttribute("aria-busy", "true");
+  KDComponents.setBusyState(els.retryAllBtn, true);
   try {
     let succeeded = 0;
     let failed = 0;
@@ -865,7 +859,7 @@ async function requeueAllErrorTasks() {
   } catch (error) {
     showToast(`重试失败：${error.message}`, "error");
   } finally {
-    els.retryAllBtn.removeAttribute("aria-busy");
+    KDComponents.setBusyState(els.retryAllBtn, false, { manageDisabled: false });
     updateMetrics(currentSummary);
     schedulePoll();
   }
@@ -1685,8 +1679,7 @@ async function onModuleAction(event) {
 	}
 	const id = button.dataset.moduleToggle;
 	const installed = button.dataset.installed !== "true";
-	button.disabled = true;
-	button.setAttribute("aria-busy", "true");
+	KDComponents.setBusyState(button, true);
 	try {
 		const saved = await requestJSON("/modules", {
 			method: "POST",
@@ -1700,8 +1693,7 @@ async function onModuleAction(event) {
 		showToast(`${stringValue(saved.name) || id} 模块已${installed ? "启用" : "停用"}。`);
 	} catch (error) {
 		showToast(`模块状态更新失败：${error.message}`, "error");
-		button.disabled = false;
-		button.removeAttribute("aria-busy");
+		KDComponents.setBusyState(button, false);
 	}
 }
 
@@ -1712,8 +1704,7 @@ async function importModuleUpdate(id, button) {
 		showToast("组件更新包必须小于 64 KiB。", "error");
 		return;
 	}
-	button.disabled = true;
-	button.setAttribute("aria-busy", "true");
+	KDComponents.setBusyState(button, true);
 	try {
 		const parsed = JSON.parse(await file.text());
 		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || parsed.id !== id) {
@@ -1732,8 +1723,7 @@ async function importModuleUpdate(id, button) {
 		showToast(`组件更新失败：${error.message}`, "error");
 	} finally {
 		if (button.isConnected) {
-			button.disabled = false;
-			button.removeAttribute("aria-busy");
+			KDComponents.setBusyState(button, false);
 		}
 	}
 }
@@ -1765,8 +1755,7 @@ async function resetModuleUpdate(id, button) {
 		danger: true,
 	});
 	if (!confirmed) return;
-	button.disabled = true;
-	button.setAttribute("aria-busy", "true");
+	KDComponents.setBusyState(button, true);
 	try {
 		const saved = await requestJSON(`/modules/package?id=${encodeURIComponent(id)}`, { method: "DELETE" });
 		replaceResolverModule(saved);
@@ -1777,8 +1766,7 @@ async function resetModuleUpdate(id, button) {
 		showToast(`恢复组件基线失败：${error.message}`, "error");
 	} finally {
 		if (button.isConnected) {
-			button.disabled = false;
-			button.removeAttribute("aria-busy");
+			KDComponents.setBusyState(button, false);
 		}
 	}
 }
@@ -1875,7 +1863,7 @@ function renderSystemUpdateState() {
   els.autoUpdateTruedown.checked = trueDown.autoUpdate;
   els.autoUpdateTruedown.disabled = !trueDown.supported || Boolean(busy);
   els.checkTruedownUpdateBtn.disabled = !trueDown.supported || Boolean(busy);
-  els.checkTruedownUpdateBtn.toggleAttribute("aria-busy", busy === "truedown");
+  KDComponents.setBusyState(els.checkTruedownUpdateBtn, busy === "truedown", { manageDisabled: false });
   els.restartTruedownUpdateBtn.hidden = !trueDown.restartRequired;
   els.restartTruedownUpdateBtn.disabled = Boolean(busy);
 
@@ -1897,7 +1885,7 @@ function renderSystemUpdateState() {
   els.engineUpdateStatus.textContent = engineStatus;
   els.installNextEngineBtn.textContent = engine.nextInstalled ? "手动更新 NEXT" : "手动安装 NEXT";
   els.installNextEngineBtn.disabled = Boolean(busy);
-  els.installNextEngineBtn.toggleAttribute("aria-busy", busy === "next-engine");
+  KDComponents.setBusyState(els.installNextEngineBtn, busy === "next-engine", { manageDisabled: false });
   els.selectStableEngineBtn.disabled = Boolean(busy) || engine.preference === "stable";
   els.selectStableEngineBtn.setAttribute("aria-pressed", String(engine.preference === "stable"));
   els.selectNextEngineBtn.disabled = Boolean(busy) || !engine.nextInstalled || engine.preference === "next";
@@ -1906,8 +1894,7 @@ function renderSystemUpdateState() {
 
 async function updateTrueDownAutoUpdate() {
   const requested = els.autoUpdateTruedown.checked;
-  els.autoUpdateTruedown.disabled = true;
-  els.autoUpdateTruedown.setAttribute("aria-busy", "true");
+  KDComponents.setBusyState(els.autoUpdateTruedown, true);
   try {
     systemUpdateState = normalizeSystemUpdateState(await requestJSON("/settings/updates", {
       method: "POST",
@@ -1920,7 +1907,7 @@ async function updateTrueDownAutoUpdate() {
     showToast(`自动更新设置失败：${error.message}`, "error");
     await reloadSystemUpdateStateQuietly();
   } finally {
-    els.autoUpdateTruedown.removeAttribute("aria-busy");
+    KDComponents.setBusyState(els.autoUpdateTruedown, false, { manageDisabled: false });
     renderSystemUpdateState();
   }
 }
@@ -2012,8 +1999,7 @@ async function reloadSystemUpdateStateQuietly() {
 }
 
 function setUpdateButtonBusy(button, busy) {
-  button.disabled = busy;
-  button.toggleAttribute("aria-busy", busy);
+  KDComponents.setBusyState(button, busy);
 }
 
 function formatUpdateTime(value) {
@@ -2041,8 +2027,7 @@ function applyAuthSettings(settings) {
 
 async function updateAuthSettings() {
   const requested = els.tokenAuthEnabled.checked;
-  els.tokenAuthEnabled.disabled = true;
-  els.tokenAuthEnabled.setAttribute("aria-busy", "true");
+  KDComponents.setBusyState(els.tokenAuthEnabled, true);
   try {
     const settings = await requestJSON("/auth/settings", {
       method: "POST",
@@ -2064,13 +2049,12 @@ async function updateAuthSettings() {
     }
   } finally {
     els.tokenAuthEnabled.disabled = tokenAuthManaged;
-    els.tokenAuthEnabled.removeAttribute("aria-busy");
+    KDComponents.setBusyState(els.tokenAuthEnabled, false, { manageDisabled: false });
   }
 }
 
 async function copyAPIToken() {
-  els.copyApiTokenBtn.disabled = true;
-  els.copyApiTokenBtn.setAttribute("aria-busy", "true");
+  KDComponents.setBusyState(els.copyApiTokenBtn, true);
   try {
     const response = await requestJSON("/auth/token");
     if (!response.enabled) {
@@ -2084,7 +2068,7 @@ async function copyAPIToken() {
     showToast(`复制 API Key 失败：${error.message}`, "error");
   } finally {
     els.copyApiTokenBtn.disabled = !tokenAuthEnabled;
-    els.copyApiTokenBtn.removeAttribute("aria-busy");
+    KDComponents.setBusyState(els.copyApiTokenBtn, false, { manageDisabled: false });
   }
 }
 
@@ -2232,10 +2216,7 @@ function showModalMsg(text, isError = false) {
 }
 
 function showToast(text, type = "success") {
-  window.clearTimeout(toastTimer);
-  els.toast.textContent = text;
-  els.toast.className = `kd-toast is-visible ${type === "error" ? "error" : "success"}`;
-  toastTimer = window.setTimeout(() => { els.toast.className = "kd-toast"; }, 3200);
+  trueDownToast?.show(text, type);
 }
 
 function optionalInt(key) {

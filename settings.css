@@ -58,9 +58,11 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
   gap: 12px;
+  min-width: 0;
 }
 
 .kd-panel {
+  min-width: 0;
   padding: 15px;
 }
 
@@ -93,6 +95,7 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 12px;
+  min-width: 0;
 }
 
 .backend-batching {

@@ -3,6 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
+const read = async (relativePath) => (
+  await readFile(new URL(`../${relativePath}`, import.meta.url), "utf8")
+).replace(/\r\n?/g, "\n");
+
 const [
   helpersSource,
   downloadSource,
@@ -13,14 +17,14 @@ const [
   popupSource,
   dbHandlersSource,
 ] = await Promise.all([
-  readFile(new URL("../content/helpers.js", import.meta.url), "utf8"),
-  readFile(new URL("../content/download.js", import.meta.url), "utf8"),
-  readFile(new URL("../content/ui.js", import.meta.url), "utf8"),
-  readFile(new URL("../content/paw_actions.js", import.meta.url), "utf8"),
-  readFile(new URL("../injected/creators_page.js", import.meta.url), "utf8"),
-  readFile(new URL("../content/flag/index.js", import.meta.url), "utf8"),
-  readFile(new URL("../popup/popup.js", import.meta.url), "utf8"),
-  readFile(new URL("../background/handlers/dbHandlers.js", import.meta.url), "utf8"),
+  read("content/helpers.js"),
+  read("content/download.js"),
+  read("content/ui.js"),
+  read("content/paw_actions.js"),
+  read("injected/creators_page.js"),
+  read("content/flag/index.js"),
+  read("popup/popup.js"),
+  read("background/handlers/dbHandlers.js"),
 ]);
 
 test("Pawchive UI shares the default history source while preserving history-state rendering", () => {
@@ -41,6 +45,14 @@ test("creator history buttons distinguish complete, empty, and partial records",
     isActiveDownloadButton() { return false; },
     isHandledDownloadedStatus: (status) => status === "complete" || status === "empty",
     isRenderCurrent() { return true; },
+    KDComponents: {
+      ACTION_TAG: "kd-ui-action",
+      setBusyState(target, busy, { manageDisabled = true } = {}) {
+        if (busy) target.setAttribute("aria-busy", "true");
+        else target.removeAttribute?.("aria-busy");
+        if (manageDisabled) target.disabled = busy;
+      },
+    },
     KDI18n: { get: (key) => key },
   });
   vm.runInContext(uiSource, context);

@@ -335,16 +335,22 @@ textarea.kd-input {
 .kd-segmented {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+  max-width: 100%;
 }
 
 .kd-segment {
+  min-width: 0;
   min-height: var(--kd-control-height);
   border: 1px solid var(--kd-border);
+  padding: 6px 8px;
   background: var(--kd-input);
   color: var(--kd-muted);
   cursor: pointer;
   font-size: 13px;
   font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .kd-segment:first-child {

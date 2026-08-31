@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const read = (relativePath) => readFile(new URL(`../${relativePath}`, import.meta.url), "utf8");
+const read = async (relativePath) => (
+  await readFile(new URL(`../${relativePath}`, import.meta.url), "utf8")
+).replace(/\r\n?/g, "\n");
 
 const [
   popupHtml,
@@ -11,6 +13,7 @@ const [
   popupCss,
   settingsCss,
   sharedCss,
+  sharedComponentsSource,
   sharedUiSource,
   settingsSource,
   englishMessagesSource,
@@ -23,6 +26,7 @@ const [
   flagSource,
   trueDownHtml,
   trueDownCss,
+  trueDownComponentsSource,
   trueDownApp,
   kdownloaderLogo,
   trueDownLogo,
@@ -32,6 +36,7 @@ const [
   read("popup/popup.css"),
   read("settings.css"),
   read("shared/ui.css"),
+  read("shared/components.js"),
   read("shared/ui.js"),
   read("settings.js"),
   read("_locales/en/messages.json"),
@@ -44,6 +49,7 @@ const [
   read("content/flag/index.js"),
   read("truedown/web/index.html"),
   read("truedown/web/styles.css"),
+  read("truedown/web/components.js"),
   read("truedown/web/app.js"),
   read("icons/kdownloader-logo.svg"),
   read("truedown/web/truedown-logo.svg"),
@@ -51,8 +57,10 @@ const [
 
 test("extension pages use one component and icon layer", () => {
   assert.match(popupHtml, /\.\.\/shared\/ui\.css/);
+  assert.match(popupHtml, /\.\.\/shared\/components\.js/);
   assert.match(popupHtml, /\.\.\/shared\/ui\.js/);
   assert.match(settingsHtml, /shared\/ui\.css/);
+  assert.match(settingsHtml, /shared\/components\.js/);
   assert.match(settingsHtml, /shared\/ui\.js/);
   assert.doesNotMatch(popupHtml, /<symbol\b/);
   assert.doesNotMatch(settingsHtml, /<symbol\b/);
@@ -86,9 +94,14 @@ test("TrueDown branding stays standalone and uses the production SVG mark", () =
 });
 
 test("injected UI is scoped and site scripts reuse shared renderers", () => {
-  assert.match(contentCss, /\.kd-action-button/);
-  assert.match(contentCss, /\.kd-modal-overlay/);
-  assert.match(contentCss, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(contentCss, /Host-page layout only/);
+  assert.match(contentCss, /kd-ui-action/);
+  assert.doesNotMatch(contentCss, /background:|border:|color:/);
+  assert.match(sharedComponentsSource, /attachShadow\(\{ mode: "open", delegatesFocus: true \}\)/);
+  assert.match(sharedComponentsSource, /adoptedStyleSheets/);
+  assert.match(sharedComponentsSource, /kd-ui-action/);
+  assert.match(sharedComponentsSource, /kd-ui-links-dialog/);
+  assert.match(sharedComponentsSource, /@media \(prefers-reduced-motion: reduce\)/);
   assert.doesNotMatch(contentCss, /@keyframes\s+(?:spin|fadeIn)\b/);
   assert.doesNotMatch(contentCss, /transition:\s*all\b/);
 
@@ -103,6 +116,13 @@ test("injected UI is scoped and site scripts reuse shared renderers", () => {
   assert.doesNotMatch(flagSource, /\.style\.|cssText/);
 });
 
+test("settings segmented controls can shrink without horizontal overflow", () => {
+  assert.match(sharedCss, /\.kd-segmented\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
+  assert.match(sharedCss, /\.kd-segment\s*\{[^}]*min-width:\s*0;[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(settingsCss, /\.settings-grid\s*\{[^}]*min-width:\s*0;/s);
+  assert.match(settingsCss, /\.kd-panel\s*\{[^}]*min-width:\s*0;/s);
+});
+
 test("favorites injection preserves shared script order and styles", () => {
   const manifest = JSON.parse(manifestSource);
   const entry = manifest.content_scripts.find((item) =>
@@ -111,6 +131,7 @@ test("favorites injection preserves shared script order and styles", () => {
   assert.deepEqual(entry.js, [
     "content/helpers.js",
     "shared/i18n.js",
+    "shared/components.js",
     "content/ui.js",
     "content/router.js",
     "content/flag/index.js",
@@ -133,6 +154,7 @@ test("shared busy state restores the prior button state", async () => {
     requestAnimationFrame: (callback) => callback(),
     setTimeout,
   });
+  vm.runInContext(sharedComponentsSource, context);
   vm.runInContext(sharedUiSource, context);
 
   const response = await context.KDUI.sendMessage({ action: "ping" }, 50, { retries: 0 });
@@ -182,6 +204,7 @@ test("shared busy state remains active until overlapping tasks both settle", asy
     requestAnimationFrame: (callback) => callback(),
     setTimeout,
   });
+  vm.runInContext(sharedComponentsSource, context);
   vm.runInContext(sharedUiSource, context);
 
   const attributes = new Map();
@@ -222,6 +245,7 @@ test("shared messaging never retries an ambiguous timeout", async () => {
     requestAnimationFrame: (callback) => callback(),
     setTimeout,
   });
+  vm.runInContext(sharedComponentsSource, context);
   vm.runInContext(sharedUiSource, context);
 
   await assert.rejects(
@@ -316,7 +340,7 @@ test("the shared brand palette is anchored to #487A7A", () => {
   for (const css of [sharedCss, trueDownCss]) {
     assert.equal((css.match(/--kd-accent:\s*#487a7a;/gi) ?? []).length, 2);
   }
-  assert.equal((contentCss.match(/--kd-content-accent:\s*#487a7a;/gi) ?? []).length, 2);
+  assert.equal((sharedComponentsSource.match(/--kd-content-accent:\s*#487a7a;/gi) ?? []).length, 2);
   assert.match(kdownloaderLogo, /stop-color="#487a7a"/i);
   assert.match(trueDownLogo, /stop-color="#487a7a"/i);
 });
@@ -328,6 +352,21 @@ test("TrueDown markup uses a consistent component vocabulary", () => {
   assert.match(trueDownHtml, /class="kd-icon-button"/);
   assert.match(trueDownHtml, /class="kd-toast"/);
   assert.doesNotMatch(trueDownHtml, /class="(?:button|panel|icon-button|toast)(?:\s|\")/);
+});
+
+test("TrueDown consumes the generated canonical component runtime", () => {
+  assert.equal(trueDownComponentsSource, sharedComponentsSource);
+  assert.match(
+    trueDownHtml,
+    /<script src="\/components\.js" defer><\/script>[\s\S]*<script src="\/app\.js" defer><\/script>/
+  );
+  assert.match(trueDownApp, /KDComponents\.createToast/);
+  assert.match(trueDownApp, /KDComponents\.prepareDecorativeIcons/);
+  assert.match(trueDownApp, /KDComponents\.setBusyState/);
+  assert.doesNotMatch(
+    trueDownApp,
+    /(?:setAttribute|removeAttribute|toggleAttribute)\("aria-busy"/
+  );
 });
 
 test("TrueDown bounds task rendering and exposes accessible batch controls", () => {

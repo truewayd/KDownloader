@@ -34,6 +34,12 @@ const globalProgressEl = document.getElementById("global-progress");
 const globalProgressFill = document.getElementById("global-progress-fill");
 const globalProgressTrack = document.getElementById("global-progress-track");
 const globalProgressLabel = document.getElementById("global-progress-label");
+const globalProgress = KDUI.createProgress({
+    root: globalProgressEl,
+    fill: globalProgressFill,
+    track: globalProgressTrack,
+    label: globalProgressLabel,
+});
 const siteSearchForm = document.getElementById("site-search-form");
 const siteSearchSite = document.getElementById("site-search-site");
 const siteSearchQuery = document.getElementById("site-search-query");
@@ -496,16 +502,14 @@ function renderGlobalProgress(total, processed, acked) {
     processed = Number(processed || 0);
     acked = Number(acked || 0);
     if (total <= 0) {
-        globalProgressEl.classList.add("kd-hidden");
-        globalProgressEl.setAttribute("aria-hidden", "true");
+        globalProgress.hide();
         return;
     }
     const pct = total > 0 ? Math.round((100 * processed) / Math.max(1, total)) : 0;
-    globalProgressFill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
-    globalProgressTrack?.setAttribute("aria-valuenow", String(Math.min(100, Math.max(0, pct))));
-    globalProgressLabel.textContent = t("globalProgressActive", [processed, total, acked]);
-    globalProgressEl.classList.remove("kd-hidden");
-    globalProgressEl.setAttribute("aria-hidden", "false");
+    globalProgress.show({
+        value: pct,
+        text: t("globalProgressActive", [processed, total, acked]),
+    });
 }
 
 chrome.runtime.onMessage.addListener((message) => {

@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  const FLAG_CONTAINER_CLASS = "kd-flag-indicator";
+  const FLAG_SELECTOR = `${KDComponents.ACTION_TAG}[variant="flag"][data-kd-flag="true"]`;
   const CARD_SELECTOR = "a.fancy-link.fancy-link--kemono.user-card";
 
   async function getCreatorFlagsMany(items) {
@@ -47,9 +47,8 @@
   }
 
   function createFlagIndicator(flag) {
-    const container = document.createElement("button");
-    container.className = FLAG_CONTAINER_CLASS;
-    container.classList.add("kd-flag-button");
+    const container = document.createElement(KDComponents.ACTION_TAG);
+    container.setAttribute("variant", "flag");
     container.type = "button";
     container.setAttribute("data-kd-flag", "true");
     updateFlagIndicator(container, flag);
@@ -61,16 +60,14 @@
     event.stopPropagation();
 
     const nextFlag = container.dataset.flag !== "true";
-    container.disabled = true;
+    KDComponents.setBusyState(container, true);
     container.setAttribute("aria-disabled", "true");
-    container.setAttribute("aria-busy", "true");
     try {
       const savedFlag = await setCreatorFlag(service, userId, nextFlag);
       if (savedFlag !== null) updateFlagIndicator(container, savedFlag);
     } finally {
-      container.disabled = false;
+      KDComponents.setBusyState(container, false);
       container.setAttribute("aria-disabled", "false");
-      container.removeAttribute("aria-busy");
     }
   }
 
@@ -85,9 +82,8 @@
   function addFlagToCard(cardElement, flag) {
     const identity = getCardIdentity(cardElement);
     if (!identity) return;
-    const existing = cardElement.querySelector(`.${FLAG_CONTAINER_CLASS}`);
-    if (existing?.matches("button.kd-flag-button")
-      && existing.dataset.kdIdentity === identity.key) {
+    const existing = cardElement.querySelector(FLAG_SELECTOR);
+    if (existing?.dataset.kdIdentity === identity.key) {
       if (existing.getAttribute("aria-busy") !== "true") updateFlagIndicator(existing, flag);
       return;
     }

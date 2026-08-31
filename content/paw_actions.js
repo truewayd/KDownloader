@@ -36,9 +36,8 @@ async function addPawWatchButton(context) {
 
   btn.dataset.kdWatchIdentity = identity;
   btn.dataset.kdInitialized = "false";
-  btn.disabled = true;
+  KDComponents.setBusyState(btn, true);
   btn.setAttribute("aria-disabled", "true");
-  btn.setAttribute("aria-busy", "true");
   btn.textContent = KDI18n.get("statusProcessing");
 
   let response;
@@ -62,17 +61,15 @@ async function addPawWatchButton(context) {
       event.preventDefault();
       window.KDRouteWatcher?.schedule("watch-retry", 0);
     };
-    btn.disabled = false;
+    KDComponents.setBusyState(btn, false);
     btn.setAttribute("aria-disabled", "false");
-    btn.removeAttribute("aria-busy");
     return;
   }
   if (!isRenderCurrent(context) || btn.dataset.kdWatchIdentity !== identity) return;
   renderPawWatchState(btn, !!response.watched);
   btn.dataset.kdInitialized = "true";
-  btn.disabled = false;
+  KDComponents.setBusyState(btn, false);
   btn.setAttribute("aria-disabled", "false");
-  btn.removeAttribute("aria-busy");
 
   btn.onclick = async (event) => {
     event.preventDefault();
@@ -81,9 +78,8 @@ async function addPawWatchButton(context) {
     const operationToken = String(++pawWatchOperationSequence);
     btn.dataset.kdWatchOperation = operationToken;
     delete btn.dataset.kdWatchReset;
-    btn.disabled = true;
+    KDComponents.setBusyState(btn, true);
     btn.setAttribute("aria-disabled", "true");
-    btn.setAttribute("aria-busy", "true");
     btn.textContent = KDI18n.get("statusProcessing");
     try {
       const result = await safeSendMessage(
@@ -110,9 +106,8 @@ async function addPawWatchButton(context) {
     } finally {
       if (btn.dataset.kdWatchIdentity === identity && btn.dataset.kdWatchOperation === operationToken) {
         delete btn.dataset.kdWatchOperation;
-        btn.disabled = false;
+        KDComponents.setBusyState(btn, false);
         btn.setAttribute("aria-disabled", "false");
-        btn.removeAttribute("aria-busy");
       }
     }
   };

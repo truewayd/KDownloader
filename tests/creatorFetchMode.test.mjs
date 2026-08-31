@@ -4,7 +4,12 @@ import path from "node:path";
 import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "..");
-const readSource = (file) => readFile(path.join(root, file), "utf8");
+const normalizeSource = (source) => source.replace(/\r\n?/g, "\n");
+const readSource = async (file) => normalizeSource(await readFile(path.join(root, file), "utf8"));
+
+test("source-contract tests normalize Windows line endings", () => {
+  assert.equal(normalizeSource("one\r\ntwo\rthree"), "one\ntwo\nthree");
+});
 
 test("popup exposes Default, Full, Links only, and Pawchive DMs Creator Fetch modes", async () => {
   const html = await readSource("popup/popup.html");

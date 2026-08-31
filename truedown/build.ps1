@@ -131,6 +131,8 @@ if ($Commit -notmatch '^(unknown|[0-9a-fA-F]{7,40})$') {
   throw "Commit must be unknown or a 7-40 character Git commit"
 }
 $projectRoot = $PSScriptRoot
+$syncComponents = Join-Path $projectRoot "..\tools\sync-ui-components.ps1"
+& $syncComponents -Check | Out-Null
 $distRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "dist"))
 $outputPath = if ([System.IO.Path]::IsPathRooted($OutputDirectory)) {
   $OutputDirectory

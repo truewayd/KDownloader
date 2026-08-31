@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extensionName__",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
   "permissions": [
@@ -52,6 +52,7 @@
       "js": [
         "content/helpers.js",
         "shared/i18n.js",
+        "shared/components.js",
         "content/ui.js",
         "content/download.js",
         "content/router.js",
@@ -65,7 +66,7 @@
         "https://coomer.st/*/account/favorites/artists*",
         "https://kemono.cr/*/account/favorites/artists*"
       ],
-      "js": ["content/helpers.js", "shared/i18n.js", "content/ui.js", "content/router.js", "content/flag/index.js"],
+      "js": ["content/helpers.js", "shared/i18n.js", "shared/components.js", "content/ui.js", "content/router.js", "content/flag/index.js"],
       "css": ["content.css"],
       "run_at": "document_end"
     },
@@ -76,6 +77,7 @@
       "js": [
         "content/helpers.js",
         "shared/i18n.js",
+        "shared/components.js",
         "content/ui.js",
         "content/download.js",
         "content/router.js",
@@ -94,6 +96,7 @@
       "js": [
         "content/helpers.js",
         "shared/i18n.js",
+        "shared/components.js",
         "content/ui.js",
         "content/download.js",
         "content/router.js",
