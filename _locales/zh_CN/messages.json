@@ -153,7 +153,10 @@
     "message": "可选；与 AB 兼容后端配置的 API Key 保持一致。"
   },
   "backendApiKeyInvalid": {
-    "message": "API Key 必须包含 32 到 256 个安全字符"
+    "message": "API Key 必须包含 32 到 256 个可打印 ASCII 字符"
+  },
+  "headerSecretInvalid": {
+    "message": "令牌最多可包含 4096 个可打印 ASCII 字符"
   },
   "gopeedProtocol": {
     "message": "Gopeed 协议"
@@ -349,6 +352,9 @@
   "statusDownloadedDecorated": {
     "message": "✓ 已下载"
   },
+  "statusPartial": {
+    "message": "部分下载完成"
+  },
   "statusAllDoneDecorated": {
     "message": "✓ 全部完成"
   },
@@ -369,6 +375,9 @@
   },
   "alreadyDownloadedTooltip": {
     "message": "已下载"
+  },
+  "partiallyDownloadedTooltip": {
+    "message": "部分下载完成；点击重试"
   },
   "clickToDownloadTooltip": {
     "message": "点击下载"

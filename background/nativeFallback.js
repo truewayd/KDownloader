@@ -5,7 +5,88 @@ const MAX_PENDING_AGE_MS = 60 * 60 * 1000;
 const MAX_FALLBACK_REQUESTS = 5000;
 const MAX_FALLBACK_TASKS_PER_REQUEST = 1000;
 const MAX_FALLBACK_TASKS_TOTAL = 5000;
+const MAX_PENDING_NOTIFICATIONS = 50;
+const MAX_URL_LENGTH = 8192;
+const MAX_EXTERNAL_LINKS_TOTAL = 5000;
+const MAX_PENDING_STORAGE_BYTES = 8 * 1024 * 1024;
 const TRUSTED_MEDIA_HOSTS = new Set([...API.HOSTS, API.COOMERFANS_HOST, PAW.HOST, PAW.FILE_HOST]);
+
+export const NATIVE_FALLBACK_LIMITS = Object.freeze({
+  maxRequests: MAX_FALLBACK_REQUESTS,
+  maxTasksPerRequest: MAX_FALLBACK_TASKS_PER_REQUEST,
+  maxTasksTotal: MAX_FALLBACK_TASKS_TOTAL,
+  maxExternalLinksTotal: MAX_EXTERNAL_LINKS_TOTAL,
+  maxStorageBytes: MAX_PENDING_STORAGE_BYTES,
+});
+
+function serializedStringByteLength(value) {
+  const text = String(value || '');
+  let bytes = 2;
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    if (code === 0x22 || code === 0x5c) bytes += 2;
+    else if (code <= 0x1f) bytes += 6;
+    else if (code <= 0x7f) bytes++;
+    else if (code <= 0x7ff) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff
+        && index + 1 < text.length
+        && text.charCodeAt(index + 1) >= 0xdc00
+        && text.charCodeAt(index + 1) <= 0xdfff) {
+      bytes += 4;
+      index++;
+    } else if (code >= 0xd800 && code <= 0xdfff) bytes += 6;
+    else bytes += 3;
+  }
+  return bytes;
+}
+
+export function measureNativeFallbackRequest(request) {
+  const rawTasks = Array.isArray(request?.tasks) ? request.tasks : [];
+  const rawLinks = Array.isArray(request?.externalLinks) ? request.externalLinks : [];
+  if (rawTasks.length > MAX_FALLBACK_TASKS_PER_REQUEST) {
+    throw new Error(`Native fallback request exceeds ${MAX_FALLBACK_TASKS_PER_REQUEST} tasks`);
+  }
+  if (rawLinks.length > MAX_EXTERNAL_LINKS_TOTAL) {
+    throw new Error(`Native fallback request exceeds ${MAX_EXTERNAL_LINKS_TOTAL} external links`);
+  }
+
+  const item = request?.item && typeof request.item === 'object' ? request.item : {};
+  let bytes = 256;
+  for (const value of [item.source, item.service, item.userId, item.postId, item.requestId]) {
+    bytes += serializedStringByteLength(value);
+  }
+  for (const task of rawTasks) {
+    const rawUrl = String(task?.url || '');
+    const rawFileName = String(task?.fileName || '');
+    const rawType = String(task?.type || '');
+    if (rawUrl.length > MAX_URL_LENGTH || rawFileName.length > 1024 || rawType.length > 64) {
+      throw new Error('Native fallback request contains oversized task metadata');
+    }
+    bytes += 96
+      + serializedStringByteLength(rawUrl)
+      + serializedStringByteLength(rawFileName)
+      + serializedStringByteLength(rawType);
+    if (bytes > MAX_PENDING_STORAGE_BYTES) {
+      throw new Error('Native fallback request exceeds the 8 MiB safety limit');
+    }
+  }
+  for (const link of rawLinks) {
+    const rawLink = String(link || '');
+    if (rawLink.length > MAX_URL_LENGTH) {
+      throw new Error('Native fallback request contains an oversized external link');
+    }
+    bytes += 32 + serializedStringByteLength(rawLink);
+    if (bytes > MAX_PENDING_STORAGE_BYTES) {
+      throw new Error('Native fallback request exceeds the 8 MiB safety limit');
+    }
+  }
+  return {
+    requestCount: 1,
+    taskCount: rawTasks.length,
+    externalLinkCount: rawLinks.length,
+    bytes,
+  };
+}
 
 function isTrustedMediaUrl(url) {
   const host = url.hostname.toLowerCase();
@@ -20,7 +101,7 @@ let stateQueue = Promise.resolve();
 
 function withStateMutation(task) {
   const run = stateQueue.then(task, task);
-  stateQueue = run.catch(() => {});
+  stateQueue = run.then(() => undefined, () => undefined);
   return run;
 }
 
@@ -57,14 +138,23 @@ function notificationClear(id) {
 async function loadPending() {
   const stored = await chrome.storage.session.get(NATIVE_FALLBACK_KEY);
   const value = stored[NATIVE_FALLBACK_KEY];
-  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return Object.create(null);
+  const pending = Object.create(null);
+  for (const [id, entry] of Object.entries(value)) {
+    if (typeof id === 'string' && id.length <= 256) pending[id] = entry;
+  }
+  return pending;
 }
 
 async function savePending(pending) {
   if (Object.keys(pending).length === 0) {
     await chrome.storage.session.remove(NATIVE_FALLBACK_KEY);
   } else {
-    await chrome.storage.session.set({ [NATIVE_FALLBACK_KEY]: pending });
+    const serializable = Object.fromEntries(Object.entries(pending));
+    if (new TextEncoder().encode(JSON.stringify(serializable)).byteLength > MAX_PENDING_STORAGE_BYTES) {
+      throw new Error('Pending native fallback state exceeds the 8 MiB safety limit');
+    }
+    await chrome.storage.session.set({ [NATIVE_FALLBACK_KEY]: serializable });
   }
 }
 
@@ -75,14 +165,16 @@ function normalizeRequest(request) {
         if (!task || typeof task !== 'object') return null;
         let url;
         try {
-          const parsed = new URL(String(task.url || ''));
+          const rawUrl = String(task.url || '');
+          if (rawUrl.length > MAX_URL_LENGTH) return null;
+          const parsed = new URL(rawUrl);
           if (!isTrustedMediaUrl(parsed)) return null;
           url = parsed.toString();
         } catch (error) {
           return null;
         }
         const fileName = String(task.fileName || '').trim();
-        if (!fileName || fileName.length > 1024 || /[\0\r\n]/.test(fileName)) return null;
+        if (!fileName || fileName.length > 1024 || /[\x00-\x1f\x7f]/.test(fileName)) return null;
         return {
           url,
           fileName,
@@ -95,14 +187,17 @@ function normalizeRequest(request) {
   const postId = String(item.postId || '').trim();
   if (
     !service || !userId || !postId || tasks.length === 0
-    || [service, userId, postId].some((value) => value.length > 512 || /[\0\r\n]/.test(value))
+    || [service, userId, postId].some((value) => value.length > 512 || /[\x00-\x1f\x7f]/.test(value))
   ) return null;
   const requestId = typeof item.requestId === 'string' && item.requestId.length <= 128
+    && !/[\x00-\x1f\x7f]/.test(item.requestId)
     ? item.requestId
     : undefined;
   return {
     item: {
-      source: ['default', 'pawchive', 'coomerfans'].includes(item.source) ? item.source : undefined,
+      source: item.source === 'coomerfans'
+        ? 'coomerfans'
+        : (['default', 'pawchive'].includes(item.source) ? 'default' : undefined),
       service,
       userId,
       postId,
@@ -112,7 +207,9 @@ function normalizeRequest(request) {
     externalLinks: Array.isArray(request.externalLinks)
       ? request.externalLinks.slice(0, 5000).map((value) => {
           try {
-            const parsed = new URL(String(value || ''));
+            const rawUrl = String(value || '');
+            if (rawUrl.length > MAX_URL_LENGTH) return null;
+            const parsed = new URL(rawUrl);
             return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password
               ? parsed.toString()
               : null;
@@ -128,6 +225,20 @@ function normalizeRequest(request) {
 export async function enqueueNativeFallback(requests) {
   const input = Array.isArray(requests) ? requests : [requests];
   if (input.length > MAX_FALLBACK_REQUESTS) throw new Error('Too many native fallback requests');
+  let rawTaskCount = 0;
+  let rawExternalLinkCount = 0;
+  let rawBytes = 0;
+  for (const request of input) {
+    const measured = measureNativeFallbackRequest(request);
+    rawTaskCount += measured.taskCount;
+    rawExternalLinkCount += measured.externalLinkCount;
+    rawBytes += measured.bytes;
+    if (rawTaskCount > MAX_FALLBACK_TASKS_TOTAL) throw new Error('Too many native fallback tasks');
+    if (rawExternalLinkCount > MAX_EXTERNAL_LINKS_TOTAL) throw new Error('Too many native fallback external links');
+    if (rawBytes > MAX_PENDING_STORAGE_BYTES) {
+      throw new Error('Native fallback request exceeds the 8 MiB safety limit');
+    }
+  }
   const normalized = input
     .map(normalizeRequest)
     .filter(Boolean);
@@ -135,12 +246,29 @@ export async function enqueueNativeFallback(requests) {
   const taskCount = normalized.reduce((count, request) => count + request.tasks.length, 0);
   if (taskCount > MAX_FALLBACK_TASKS_TOTAL) throw new Error('Too many native fallback tasks');
 
-  const notificationId = `native-fallback-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const notificationSuffix = globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const notificationId = `native-fallback-${notificationSuffix}`;
   await withStateMutation(async () => {
     const pending = await loadPending();
     const now = Date.now();
     for (const [id, entry] of Object.entries(pending)) {
       if (!entry || now - Number(entry.createdAt || 0) > MAX_PENDING_AGE_MS) delete pending[id];
+    }
+    const pendingEntries = Object.values(pending);
+    const pendingTaskCount = pendingEntries.reduce((total, entry) => {
+      const requests = Array.isArray(entry?.requests) ? entry.requests : [];
+      return total + requests.reduce(
+        (count, request) => count + (Array.isArray(request?.tasks) ? request.tasks.length : 0),
+        0
+      );
+    }, 0);
+    if (pendingEntries.length >= MAX_PENDING_NOTIFICATIONS) {
+      throw new Error('Too many pending native fallback prompts');
+    }
+    if (pendingTaskCount + taskCount > MAX_FALLBACK_TASKS_TOTAL) {
+      throw new Error('Too many pending native fallback tasks');
     }
     pending[notificationId] = { createdAt: now, requests: normalized };
     await savePending(pending);
@@ -178,6 +306,7 @@ export function takeNativeFallback(notificationId) {
     if (!entry) return null;
     delete pending[notificationId];
     await savePending(pending);
+    if (Date.now() - Number(entry.createdAt || 0) > MAX_PENDING_AGE_MS) return null;
     const requests = [];
     let taskCount = 0;
     for (const value of (Array.isArray(entry.requests) ? entry.requests : []).slice(0, MAX_FALLBACK_REQUESTS)) {

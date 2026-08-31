@@ -10,6 +10,7 @@ function createContext({ invalidationMode = "throw" } = {}) {
   const warnings = [];
   let sendCount = 0;
   let observerDisconnected = false;
+  let observerCallback = null;
   const window = new EventTarget();
   const document = new EventTarget();
   document.readyState = "complete";
@@ -18,6 +19,9 @@ function createContext({ invalidationMode = "throw" } = {}) {
   document.body = {};
 
   class TestMutationObserver {
+    constructor(callback) {
+      observerCallback = callback;
+    }
     observe() { }
     disconnect() {
       observerDisconnected = true;
@@ -29,6 +33,15 @@ function createContext({ invalidationMode = "throw" } = {}) {
     lastError: null,
     sendMessage(message, callback) {
       sendCount += 1;
+      if (invalidationMode === "silent") return;
+      if (invalidationMode === "errorResponse") {
+        callback({ success: false, error: "denied by background" });
+        return;
+      }
+      if (invalidationMode === "emptyResponse") {
+        callback();
+        return;
+      }
       if (invalidationMode === "callback") {
         runtime.lastError = { message: "Extension context invalidated." };
         callback();
@@ -71,6 +84,7 @@ function createContext({ invalidationMode = "throw" } = {}) {
     context,
     get observerDisconnected() { return observerDisconnected; },
     get sendCount() { return sendCount; },
+    emitMutations(mutations) { observerCallback?.(mutations); },
     warnings,
   };
 }
@@ -108,6 +122,33 @@ test("runtime.lastError invalidation also bypasses retries", async () => {
   assert.equal(harness.sendCount, 1);
 });
 
+test("content messaging never retries an ambiguous timeout", async () => {
+  const harness = createContext({ invalidationMode: "silent" });
+  vm.runInContext(helpersSource, harness.context);
+
+  await assert.rejects(
+    vm.runInContext("safeSendMessage({ action: 'mutating' }, 5, { retries: 3, retryDelay: 0 })", harness.context),
+    /timeout/i
+  );
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(harness.sendCount, 1);
+});
+
+test("content messaging rejects explicit and empty background responses", async () => {
+  for (const [mode, expected] of [
+    ["errorResponse", /denied by background/],
+    ["emptyResponse", /No response from extension/],
+  ]) {
+    const harness = createContext({ invalidationMode: mode });
+    vm.runInContext(helpersSource, harness.context);
+    await assert.rejects(
+      vm.runInContext("safeSendMessage({ action: 'read' }, 10)", harness.context),
+      expected
+    );
+    assert.equal(harness.sendCount, 1);
+  }
+});
+
 test("route watcher stops without repeated render warnings after invalidation", async () => {
   const harness = createContext();
   vm.runInContext(helpersSource, harness.context);
@@ -133,4 +174,48 @@ test("route watcher stops without repeated render warnings after invalidation", 
   assert.equal(harness.sendCount, 1);
   assert.equal(harness.observerDisconnected, true);
   assert.deepEqual(harness.warnings, []);
+});
+
+test("route watcher does not ignore a host subtree merely because it contains injected UI", async () => {
+  const harness = createContext({ invalidationMode: "silent" });
+  vm.runInContext(helpersSource, harness.context);
+  vm.runInContext("CONFIG.INIT_DELAY = 0", harness.context);
+  vm.runInContext(routerSource, harness.context);
+  vm.runInContext(`
+    globalThis.renderCount = 0;
+    window.KDRouteWatcher.register({
+      name: "mutation-test",
+      targetSelector: ".post-card",
+      hasTargets: () => true,
+      render: () => { globalThis.renderCount += 1; },
+    });
+  `, harness.context);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  harness.emitMutations([{ addedNodes: [{
+    nodeType: 1,
+    matches() { return false; },
+    querySelector(selector) {
+      return selector.includes(".post-card") || selector.includes("data-batch-download") ? {} : null;
+    },
+  }], removedNodes: [] }]);
+  await new Promise((resolve) => setTimeout(resolve, 220));
+
+  assert.equal(harness.context.renderCount, 2);
+});
+
+test("one route renderer failure does not starve later handlers", async () => {
+  const harness = createContext({ invalidationMode: "silent" });
+  vm.runInContext(helpersSource, harness.context);
+  vm.runInContext("CONFIG.INIT_DELAY = 0", harness.context);
+  vm.runInContext(routerSource, harness.context);
+  vm.runInContext(`
+    globalThis.laterRenderCount = 0;
+    window.KDRouteWatcher.register({ name: "broken", render: () => { throw new Error("broken renderer"); } });
+    window.KDRouteWatcher.register({ name: "later", render: () => { globalThis.laterRenderCount += 1; } });
+  `, harness.context);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(harness.context.laterRenderCount, 1);
+  assert.equal(harness.warnings.length, 1);
 });

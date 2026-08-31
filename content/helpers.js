@@ -1,9 +1,6 @@
 // content/helpers.js - utility helpers for content scripts
 
 const CONFIG = { INIT_DELAY: 300 };
-const accessReports = new Map();
-const ACCESS_REPORT_INTERVAL_MS = 5 * 60 * 1000;
-const MAX_ACCESS_REPORTS = 512;
 const EXTENSION_CONTEXT_INVALIDATED_EVENT = "kd:extensioncontextinvalidated";
 let extensionContextInvalidated = false;
 
@@ -47,9 +44,25 @@ function isExtensionContextAvailable() {
 
 // Parse URL path
 function parseUrlPath(urlPath) {
-  const match = urlPath.match(/\/([^\/]+)\/user\/([^\/]+)(?:\/post\/([^\/]+))?/);
+  const path = String(urlPath || "");
+  if (path.length > 4096) return null;
+  const match = path.match(/^\/([^/]+)\/user\/([^/]+)(?:\/post\/([^/]+))?\/?$/);
   if (!match) return null;
+  if (match[1].length > 128 || match[2].length > 512 || (match[3] && match[3].length > 512)) {
+    return null;
+  }
   return { service: match[1], userId: match[2], postId: match[3] || null };
+}
+
+function getSameOriginPath(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw.length > 8192) return null;
+  try {
+    const url = new URL(raw, location.href);
+    return url.origin === location.origin ? url.pathname : null;
+  } catch (error) {
+    return null;
+  }
 }
 
 // Safe wrapper around chrome.runtime.sendMessage with retries and timeout
@@ -81,6 +94,10 @@ function safeSendMessage(message, timeout = 5000, opts = { retries: 2, retryDela
             }
             return reject(new Error(msg || 'Runtime lastError'));
           }
+          if (!response) return reject(new Error('No response from extension'));
+          if (response.success === false) {
+            return reject(new Error(response.error || 'Extension request failed'));
+          }
           return resolve(response);
         } catch (err) {
           if (isExtensionContextInvalidatedError(err)) {
@@ -109,11 +126,10 @@ function safeSendMessage(message, timeout = 5000, opts = { retries: 2, retryDela
         finished = true;
         timer = null;
         const err = new Error('No response from extension (timeout)');
-        if (remainingRetries > 0) {
-          setTimeout(() => { attempt(remainingRetries - 1).then(resolve).catch(reject); }, opts.retryDelay);
-        } else {
-          reject(err);
-        }
+        // A timed-out request may already be executing in the service worker.
+        // Retrying it can duplicate state-changing work, so only retry explicit
+        // connection failures reported by the runtime callback.
+        reject(err);
       }
     }, timeout);
   });
@@ -121,25 +137,40 @@ function safeSendMessage(message, timeout = 5000, opts = { retries: 2, retryDela
   return attempt(opts.retries);
 }
 
-// Check if post is downloaded
-async function isPostDownloaded(service, userId, postId, options = {}) {
+function isHandledDownloadedStatus(status) {
+  return status === 'complete' || status === 'empty';
+}
+
+// Read the persisted post state while preserving compatibility with older
+// backgrounds that returned only a downloaded boolean.
+async function getPostDownloadedStatus(service, userId, postId, options = {}) {
   try {
     const response = await safeSendMessage(
       { action: 'checkDownloaded', service, userId, postId, source: options.source },
       5000,
       { retries: 2, retryDelay: 300 }
     );
-    return !!(response && response.downloaded);
+    if (response && ['complete', 'partial', 'empty'].includes(response.status)) {
+      return response.status;
+    }
+    return response?.downloaded ? 'complete' : null;
   } catch (error) {
     if (isExtensionContextInvalidatedError(error)) throw error;
     console.warn('[Content] Check downloaded error:', error);
-    return false;
+    return null;
   }
 }
 
 function downloadedKey(service, userId, postId, source) {
-  const prefix = String(source || '').toLowerCase() === 'coomerfans' ? 'coomerfans:' : '';
-  return `${prefix}${String(service || '')}:${String(userId || '')}:${String(postId || '')}`;
+  const normalizedSource = String(source || '').toLowerCase() === 'coomerfans'
+    ? 'coomerfans'
+    : 'default';
+  return JSON.stringify([
+    normalizedSource,
+    String(service || ''),
+    String(userId || ''),
+    String(postId || ''),
+  ]);
 }
 
 function isActiveDownloadButton(btn) {
@@ -166,14 +197,21 @@ function removeStaleDownloadButtons(selector, livePaths) {
 }
 
 async function getDownloadedStatusMap(items) {
-  const validItems = (Array.isArray(items) ? items : [])
-    .filter(item => item && item.service && item.userId && item.postId)
-    .map(item => ({
+  const uniqueItems = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item || !item.service || !item.userId || !item.postId) continue;
+    const normalized = {
       service: String(item.service),
       userId: String(item.userId),
       postId: String(item.postId),
       source: item.source,
-    }));
+    };
+    uniqueItems.set(
+      downloadedKey(normalized.service, normalized.userId, normalized.postId, normalized.source),
+      normalized
+    );
+  }
+  const validItems = Array.from(uniqueItems.values());
   if (validItems.length === 0) return new Map();
 
   try {
@@ -182,48 +220,23 @@ async function getDownloadedStatusMap(items) {
       8000,
       { retries: 2, retryDelay: 300 }
     );
-    const raw = response && response.downloaded ? response.downloaded : {};
-    return new Map(Object.entries(raw));
+    const rawStatuses = response && response.statuses ? response.statuses : {};
+    const rawDownloaded = response && response.downloaded ? response.downloaded : {};
+    const statuses = new Map();
+    for (const item of validItems) {
+      const key = downloadedKey(item.service, item.userId, item.postId, item.source);
+      const status = rawStatuses[key];
+      statuses.set(
+        key,
+        ['complete', 'partial', 'empty'].includes(status)
+          ? status
+          : (rawDownloaded[key] ? 'complete' : null)
+      );
+    }
+    return statuses;
   } catch (error) {
     if (isExtensionContextInvalidatedError(error)) throw error;
     console.warn('[Content] Batch downloaded check error:', error);
     return new Map();
-  }
-}
-
-// Report access helper
-function reportAccessIfApplicable() {
-  try {
-    const m = location.pathname.match(/\/([^\/]+)\/user\/([^\/]+)/);
-    if (!m) return;
-    reportCreatorAccess(m[1], m[2]);
-  } catch (e) { }
-}
-
-function reportCreatorAccess(service, userId) {
-  if (!service || !userId || !isExtensionContextAvailable()) return;
-  const key = JSON.stringify([String(service), String(userId)]);
-  const now = Date.now();
-  if (now - (accessReports.get(key) || 0) < ACCESS_REPORT_INTERVAL_MS) return;
-  if (accessReports.size >= MAX_ACCESS_REPORTS) {
-    for (const [storedKey, reportedAt] of accessReports) {
-      if (now - reportedAt >= ACCESS_REPORT_INTERVAL_MS) accessReports.delete(storedKey);
-    }
-    while (accessReports.size >= MAX_ACCESS_REPORTS) {
-      accessReports.delete(accessReports.keys().next().value);
-    }
-  }
-  accessReports.delete(key);
-  accessReports.set(key, now);
-  try {
-    chrome.runtime.sendMessage(
-      { action: 'creator.recordAccess', service, userId },
-      () => {
-        const error = chrome.runtime.lastError;
-        if (isExtensionContextInvalidatedError(error)) invalidateExtensionContext();
-      }
-    );
-  } catch (error) {
-    if (isExtensionContextInvalidatedError(error)) invalidateExtensionContext();
   }
 }

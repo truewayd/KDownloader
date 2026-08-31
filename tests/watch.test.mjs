@@ -16,6 +16,14 @@ let profiles;
 let profileDelayMs;
 let profileRequestsInFlight;
 let maxProfileRequestsInFlight;
+let localSetGate;
+let localSetStarted;
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 function storageArea(name) {
   return {
@@ -24,6 +32,12 @@ function storageArea(name) {
       return Object.hasOwn(areas[name], key) ? { [key]: clone(areas[name][key]) } : {};
     },
     async set(values) {
+      if (name === 'local' && localSetGate && Object.hasOwn(values, 'pawchiveWatches')) {
+        const gate = localSetGate;
+        localSetGate = null;
+        localSetStarted?.resolve();
+        await gate.promise;
+      }
       Object.assign(areas[name], clone(values));
     },
   };
@@ -91,17 +105,28 @@ globalThis.fetch = watchFetch;
 
 const constantsSource = await readFile(path.join(root, 'background', 'constants.js'), 'utf8');
 const constantsUrl = asModuleUrl(constantsSource);
+const utilSource = (await readFile(path.join(root, 'background', 'util.js'), 'utf8'))
+  .replace(/from\s+['"]\.\/constants\.js['"]/, `from '${constantsUrl}'`);
+const utilUrl = asModuleUrl(utilSource);
+const util = await import(utilUrl);
 const networkSource = (await readFile(path.join(root, 'background', 'network.js'), 'utf8'))
   .replace(/from\s+['"]\.\/constants\.js['"]/, `from '${constantsUrl}'`);
 const networkUrl = asModuleUrl(networkSource);
 const configSource = (await readFile(path.join(root, 'background', 'config.js'), 'utf8'))
-  .replace(/from\s+['"]\.\/constants\.js['"]/, `from '${constantsUrl}'`);
+  .replace(/from\s+['"]\.\/constants\.js['"]/, `from '${constantsUrl}'`)
+  .replace(/from\s+['"]\.\/util\.js['"]/, `from '${utilUrl}'`);
 const configUrl = asModuleUrl(configSource);
 const watchSource = (await readFile(path.join(root, 'background', 'watch.js'), 'utf8'))
   .replace(/from\s+['"]\.\/constants\.js['"]/, `from '${constantsUrl}'`)
   .replace(/from\s+['"]\.\/config\.js['"]/, `from '${configUrl}'`)
-  .replace(/from\s+['"]\.\/network\.js['"]/, `from '${networkUrl}'`);
+  .replace(/from\s+['"]\.\/network\.js['"]/, `from '${networkUrl}'`)
+  .replace(/from\s+['"]\.\/util\.js['"]/, `from '${utilUrl}'`);
 const watch = await import(asModuleUrl(watchSource));
+
+test('Watch profile requests use a dedicated 256 KiB response limit', () => {
+  assert.match(watchSource, /const MAX_PROFILE_RESPONSE_BYTES = 256 \* 1024/);
+  assert.match(watchSource, /maxResponseBytes: MAX_PROFILE_RESPONSE_BYTES/);
+});
 
 beforeEach(() => {
   globalThis.chrome = watchChrome;
@@ -123,6 +148,8 @@ beforeEach(() => {
   profileDelayMs = 0;
   profileRequestsInFlight = 0;
   maxProfileRequestsInFlight = 0;
+  localSetGate = null;
+  localSetStarted = null;
 });
 
 test('manual watch caches the icon, sends a sample notification, and stores a baseline', async () => {
@@ -152,6 +179,35 @@ test('setting the same watch state repeatedly is idempotent', async () => {
   await watch.setWatchState('patreon', 'creator-1', false);
   assert.equal((await watch.getWatchSummary()).count, 0);
   assert.deepEqual(areas.local.pawchiveWatchIcons, {});
+});
+
+test('a later unwatch supersedes an in-flight initial profile request', async () => {
+  profileDelayMs = 30;
+  const adding = watch.setWatchState('patreon', 'creator-1', true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const removing = await watch.setWatchState('patreon', 'creator-1', false);
+  const addResult = await adding;
+
+  assert.equal(removing.watched, false);
+  assert.equal(addResult.watched, false);
+  assert.equal((await watch.getWatchSummary()).count, 0);
+  assert.equal(notifications.length, 0);
+});
+
+test('a later add waits for an in-flight unwatch commit and wins', async () => {
+  await watch.setWatchState('patreon', 'creator-1', true);
+  const gate = deferred();
+  localSetGate = gate;
+  localSetStarted = deferred();
+
+  const removing = watch.setWatchState('patreon', 'creator-1', false);
+  await localSetStarted.promise;
+  const adding = watch.setWatchState('patreon', 'creator-1', true);
+  gate.resolve();
+
+  assert.equal((await removing).watched, false);
+  assert.equal((await adding).watched, true);
+  assert.equal((await watch.getWatchSummary()).count, 1);
 });
 
 test('a newer updated value reuses the cached icon for one update notification', async () => {
@@ -281,6 +337,112 @@ test('watch export/import is site-scoped and replaces the list', async () => {
   await assert.rejects(
     watch.importWatches({ ...exported, watches: [exported.watches[0], exported.watches[0]] }),
     /Duplicate watch identity/
+  );
+  await assert.rejects(
+    watch.importWatches({
+      ...exported,
+      watches: [{ ...exported.watches[0], service: "bad\ud800service" }],
+    }),
+    /Invalid watch service/
+  );
+  await assert.rejects(
+    watch.importWatches({
+      ...exported,
+      watches: [{ ...exported.watches[0], watchedAt: '' }],
+    }),
+    /watchedAt/
+  );
+});
+
+test('watch imports have a total serialized storage bound', async () => {
+  const watches = Array.from({ length: 2000 }, (_, index) => ({
+    service: 'patreon',
+    userId: `creator-${index}`,
+    name: 'n'.repeat(512),
+    updated: '2026-07-01T00:00:00',
+    watchedAt: '2026-07-14T00:00:00.000Z',
+    lastError: 'e'.repeat(2048),
+  }));
+  await assert.rejects(
+    watch.importWatches({ schemaVersion: 1, site: 'pawchive.pw', watches }),
+    /4 MiB storage safety limit/
+  );
+});
+
+test('Watch text fields repair lone surrogates and never split a valid pair at their limit', async () => {
+  const watchedAt = '2026-07-14T00:00:00.000Z';
+  await watch.importWatches({
+    schemaVersion: 1,
+    site: 'pawchive.pw',
+    watches: [{
+      service: 'patreon',
+      userId: 'creator-repaired',
+      name: 'bad\ud800name',
+      updated: '2026-07-01T00:00:00Z',
+      watchedAt,
+      lastError: 'bad\udc00error',
+    }],
+  });
+  let stored = (await watch.getWatchSummary()).watches[0];
+  assert.equal(stored.name, 'bad\ufffdname');
+  assert.equal(stored.lastError, 'bad\ufffderror');
+
+  await watch.importWatches({ schemaVersion: 1, site: 'pawchive.pw', watches: [] });
+  profile = {
+    id: 'creator-boundary',
+    name: `${'a'.repeat(511)}\ud83d\ude00`,
+    service: 'patreon',
+    updated: '2026-07-15T00:00:00Z',
+  };
+  profiles.set(profile.id, profile);
+  await watch.setWatchState('patreon', profile.id, true);
+  stored = (await watch.getWatchSummary()).watches[0];
+  assert.equal(stored.name, 'a'.repeat(511));
+  assert.equal(util.hasUnpairedSurrogate(stored.name, 512), false);
+});
+
+test('manual additions cannot push a valid watch list beyond its storage bound', async () => {
+  const watches = Array.from({ length: 1536 }, (_, index) => ({
+    service: 'patreon',
+    userId: `creator-${index}`,
+    name: 'n'.repeat(512),
+    updated: '2026-07-01T00:00:00',
+    watchedAt: '2026-07-14T00:00:00.000Z',
+    checkedAt: '',
+    failedAt: '',
+    lastError: 'e'.repeat(2048),
+  }));
+  await watch.importWatches({ schemaVersion: 1, site: 'pawchive.pw', watches });
+  profile = {
+    id: 'overflow-creator',
+    name: 'n'.repeat(512),
+    service: 'patreon',
+    updated: '2026-07-15T00:00:00',
+  };
+  profiles.set(profile.id, profile);
+
+  await assert.rejects(
+    watch.setWatchState('patreon', profile.id, true),
+    /4 MiB storage safety limit/
+  );
+  assert.equal((await watch.getWatchSummary()).count, watches.length);
+});
+
+test('watch imports reject loose or impossible timestamp strings', async () => {
+  const base = {
+    service: 'patreon',
+    userId: 'creator-1',
+    name: 'Creator',
+    updated: '2026-07-01T00:00:00',
+    watchedAt: '2026-07-14T00:00:00.000Z',
+  };
+  await assert.rejects(
+    watch.importWatches({ schemaVersion: 1, site: 'pawchive.pw', watches: [{ ...base, updated: 'July 1, 2026' }] }),
+    /updated/
+  );
+  await assert.rejects(
+    watch.importWatches({ schemaVersion: 1, site: 'pawchive.pw', watches: [{ ...base, watchedAt: '2026-02-30T00:00:00Z' }] }),
+    /watchedAt/
   );
 });
 

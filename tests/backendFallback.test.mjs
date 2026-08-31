@@ -23,7 +23,10 @@ const networkUrl = asModuleUrl(`
     if (globalThis.__apiResponse) return globalThis.__apiResponse;
     throw new Error('unexpected API request');
   }
-  export async function getCookies() { return globalThis.__cookieString || ''; }
+  export async function getCookies() {
+    globalThis.__cookieReads = (globalThis.__cookieReads || 0) + 1;
+    return globalThis.__cookieString || '';
+  }
   export async function readLimitedResponseText(response) { return response.text(); }
 `);
 const pawchiveUrl = asModuleUrl(`
@@ -61,7 +64,8 @@ const testChrome = {
     },
   },
   tabs: {
-    sendMessage(_tabId, _payload, callback) {
+    sendMessage(_tabId, payload, callback) {
+      globalThis.__backendTabMessageHook?.(payload);
       callback?.();
     },
   },
@@ -70,6 +74,21 @@ const testChrome = {
 globalThis.chrome = testChrome;
 globalThis.fetch = (...args) => globalThis.__fetchImplementation(...args);
 const download = await import(asModuleUrl(downloadSource));
+const downloadInternals = await import(asModuleUrl(
+  downloadSource
+  .replace('class TaskQueue', 'export class TaskQueue')
+  .replace('const GLOBAL_TASK_QUEUE = new TaskQueue();', 'export const GLOBAL_TASK_QUEUE = new TaskQueue();')
+  .replace('async function dispatchAllToBackend(tasks, backendCfg, context)', 'export async function dispatchAllToBackend(tasks, backendCfg, context)')
+  .replace('const MAX_PENDING_BACKEND_TASKS = 10_000;', 'const MAX_PENDING_BACKEND_TASKS = 3;')
+  .replace(
+    'let currentDelay = CONFIG.TASK_INTERVAL_INITIAL || CONFIG.TASK_INTERVAL;',
+    'let currentDelay = 0;'
+  )
+  .replace(
+    'function extractCoomerFansMediaUrls(html)',
+    'export function extractCoomerFansMediaUrls(html)'
+  )
+));
 
 beforeEach(() => {
   globalThis.chrome = testChrome;
@@ -78,7 +97,9 @@ beforeEach(() => {
   runtimeMessages = [];
   globalThis.__apiResponse = null;
   globalThis.__cookieString = '';
+  globalThis.__cookieReads = 0;
   globalThis.__downloadRulesConfig = { enabled: false, excludedExtensions: [] };
+  globalThis.__backendTabMessageHook = null;
   globalThis.__fetchImplementation = async () => ({
     ok: false,
     status: 503,
@@ -122,6 +143,7 @@ test('disabled backend still uses the normal Chrome download path directly', asy
   assert.equal(result.success, true);
   assert.equal(result.successCount, 1);
   assert.equal(nativeDownloadCalls, 1);
+  assert.equal(globalThis.__cookieReads, 0);
 });
 
 test('downloads the aggregated external-link TXT directly through Chrome', async () => {
@@ -182,8 +204,11 @@ test('does not forward a site cookie to another supported media family', async (
   assert.equal(result.success, true);
   assert.equal(backendPayload.downloadSource.link, 'https://coomer.st/data/media.jpg');
   assert.equal('Cookie' in backendPayload.downloadSource.headers, false);
+  assert.equal('Origin' in backendPayload.downloadSource.headers, false);
+  assert.equal('Referer' in backendPayload.downloadSource.headers, false);
   assert.equal(backendOptions.headers['X-Api-Key'], 't'.repeat(32));
   assert.equal(backendOptions.credentials, 'omit');
+  assert.equal(backendOptions.redirect, 'error');
 });
 
 test('forwards a site cookie through TrueDown for same-family media', async () => {
@@ -212,7 +237,40 @@ test('forwards a site cookie through TrueDown for same-family media', async () =
   assert.equal(result.success, true);
   assert.equal(backendPayload.downloadSource.link, 'https://n1.kemono.cr/data/protected.jpg');
   assert.equal(backendPayload.downloadSource.headers.Cookie, 'session=secret; clearance=allowed');
+  assert.equal(
+    backendPayload.downloadSource.headers.Referer,
+    'https://kemono.cr/patreon/user/creator-1/post/post-1'
+  );
+  assert.equal('Origin' in backendPayload.downloadSource.headers, false);
   assert.equal('X-Api-Key' in backendOptions.headers, false);
+});
+
+test('Gopeed also omits a full post Referer for cross-family media', async () => {
+  globalThis.__backendConfig = {
+    ...globalThis.__backendConfig,
+    backendType: 'gopeed',
+    gopeedProtocol: 'http',
+    gopeedHost: '127.0.0.1',
+    gopeedPort: 9999,
+    gopeedToken: '',
+  };
+  globalThis.__apiResponse = {
+    post: { title: 'cross-site media' },
+    videos: [{ url: 'https://coomer.st/data/media.jpg' }],
+  };
+  let gopeedPayload;
+  globalThis.__fetchImplementation = async (_url, options) => {
+    gopeedPayload = JSON.parse(options.body);
+    return { ok: true, status: 200, async text() { return ''; } };
+  };
+
+  const result = await download.startFullDownload(
+    'patreon', 'creator-1', 'post-1', '', 'https://kemono.cr/post-1'
+  );
+
+  assert.equal(result.success, true);
+  assert.equal('Referer' in gopeedPayload.req.extra.header, false);
+  assert.equal('Cookie' in gopeedPayload.req.extra.header, false);
 });
 
 test('keeps Dropbox parsing and filter configuration out of per-file task requests', async () => {
@@ -281,4 +339,150 @@ test('backend progress preserves the originating request id', async () => {
 
   const progress = runtimeMessages.find((message) => message.action === 'downloadProgress');
   assert.equal(progress.requestId, 'request-123');
+});
+
+test('CoomerFans HTML cannot create an unbounded media task array', () => {
+  const html = Array.from(
+    { length: 5001 },
+    (_, index) => `<a href="https://coomerfans.com/storage/${index}.jpg">file</a>`
+  ).join('');
+  assert.equal(downloadInternals.extractCoomerFansMediaUrls(html).length, 5000);
+});
+
+test('CoomerFans media scanning stays synchronized after many unclosed tags', () => {
+  const malformed = '<a data-no-close '.repeat(25000);
+  const expected = 'https://coomerfans.com/storage/final.jpg';
+  const html = `${malformed}<img title="quoted > delimiter" data-src="${expected}">`;
+  assert.deepEqual(downloadInternals.extractCoomerFansMediaUrls(html), [expected]);
+  assert.doesNotMatch(downloadSource, /tagRe\s*=\s*\/<\(source\|video\|a\|img\).*\[\^>\]\*/);
+});
+
+test('backend queue rejects overflow atomically and restores capacity after draining', async () => {
+  let releaseFetch;
+  const fetchGate = new Promise((resolve) => { releaseFetch = resolve; });
+  globalThis.__fetchImplementation = async () => {
+    await fetchGate;
+    return { ok: true, status: 200, async text() { return ''; } };
+  };
+
+  const queue = new downloadInternals.TaskQueue(1);
+  const options = {
+    endpoint: 'http://127.0.0.1:15151/start-headless-download',
+    origin: 'https://kemono.cr',
+    service: 'patreon',
+    userId: 'creator-1',
+    postId: 'post-1',
+    headers: {},
+  };
+  const tasks = Array.from({ length: 3 }, (_, index) => ({
+    url: `https://kemono.cr/data/${index}.jpg`,
+    fileName: `${index}.jpg`,
+  }));
+  const draining = queue.enqueueTasks(tasks, options);
+  await assert.rejects(
+    queue.enqueueTasks([{ url: 'https://kemono.cr/data/overflow.jpg', fileName: 'overflow.jpg' }], options),
+    /pending-task limit/
+  );
+
+  releaseFetch();
+  assert.equal((await draining).length, 3);
+  assert.equal((await queue.enqueueTasks([
+    { url: 'https://kemono.cr/data/recovered.jpg', fileName: 'recovered.jpg' },
+  ], options)).length, 1);
+
+  const unexpected = await queue.enqueueTasks([
+    { url: 'https://kemono.cr/data/invalid.jpg', fileName: 'invalid.jpg' },
+  ], { ...options, userId: '\ud800' });
+  assert.equal(unexpected[0].success, false);
+  const afterFailure = await queue.enqueueTasks([
+    { url: 'https://kemono.cr/data/after-failure.jpg', fileName: 'after-failure.jpg' },
+  ], options);
+  assert.equal(afterFailure[0].success, true);
+});
+
+test('a later backend batch overflow preserves earlier successes as a partial result', async () => {
+  let releasePressure;
+  const pressureGate = new Promise((resolve) => { releasePressure = resolve; });
+  globalThis.__fetchImplementation = async (_url, options) => {
+    const payload = JSON.parse(options.body);
+    if (payload.name.startsWith('pressure-')) await pressureGate;
+    return { ok: true, status: 200, async text() { return ''; } };
+  };
+
+  let pressurePromise;
+  globalThis.__backendTabMessageHook = (message) => {
+    if (message.action !== 'downloadProgress' || message.sentCount !== 1 || pressurePromise) return;
+    const pressureTasks = Array.from({ length: 3 }, (_, index) => ({
+      url: `https://kemono.cr/data/pressure-${index}.jpg`,
+      fileName: `pressure-${index}.jpg`,
+    }));
+    pressurePromise = downloadInternals.GLOBAL_TASK_QUEUE.enqueueTasks(pressureTasks, {
+      endpoint: 'http://127.0.0.1:15151/start-headless-download',
+      origin: 'https://kemono.cr',
+      service: 'patreon',
+      userId: 'pressure',
+      postId: 'pressure',
+      headers: {},
+    });
+  };
+
+  const tasks = [
+    { url: 'https://kemono.cr/data/first.jpg', fileName: 'first.jpg' },
+    { url: 'https://kemono.cr/data/second.jpg', fileName: 'second.jpg' },
+  ];
+  try {
+    const results = await downloadInternals.dispatchAllToBackend(tasks, {
+      protocol: 'http',
+      host: '127.0.0.1',
+      port: 15151,
+      concurrency: 1,
+      perPostFileLimit: 1,
+      retryCount: 0,
+    }, {
+      origin: 'https://kemono.cr',
+      service: 'patreon',
+      userId: 'creator-1',
+      postId: 'post-1',
+      headers: {},
+      senderTabId: 7,
+      defaultFileLimit: 1,
+    });
+
+    assert.equal(results.length, 2);
+    assert.equal(results[0].success, true);
+    assert.equal(results[1].success, false);
+    assert.match(results[1].error, /pending-task limit/);
+  } finally {
+    releasePressure();
+    if (pressurePromise) await pressurePromise;
+  }
+});
+
+test('backend queue keeps workers available after lowering idle concurrency', async () => {
+  globalThis.__fetchImplementation = async () => ({
+    ok: true,
+    status: 200,
+    async text() { return ''; },
+  });
+  const queue = new downloadInternals.TaskQueue(6);
+  await Promise.resolve();
+  queue.setConcurrency(3);
+  const completed = queue.enqueueTasks([{
+    url: 'https://kemono.cr/data/after-resize.jpg',
+    fileName: 'after-resize.jpg',
+  }], {
+    endpoint: 'http://127.0.0.1:15151/start-headless-download',
+    origin: 'https://kemono.cr',
+    service: 'patreon',
+    userId: 'creator-1',
+    postId: 'post-1',
+    headers: {},
+  });
+  let timeoutId;
+  const stalled = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('queue resize stalled')), 1000);
+  });
+  const result = await Promise.race([completed, stalled]).finally(() => clearTimeout(timeoutId));
+  assert.equal(result.length, 1);
+  assert.equal(result[0].success, true);
 });

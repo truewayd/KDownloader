@@ -153,7 +153,10 @@
     "message": "Optional; use the same API Key configured by the AB-compatible backend."
   },
   "backendApiKeyInvalid": {
-    "message": "API Key must contain 32 to 256 safe characters"
+    "message": "API Key must contain 32 to 256 printable ASCII characters"
+  },
+  "headerSecretInvalid": {
+    "message": "Token must contain no more than 4096 printable ASCII characters"
   },
   "gopeedProtocol": {
     "message": "Gopeed protocol"
@@ -349,6 +352,9 @@
   "statusDownloadedDecorated": {
     "message": "✓ Downloaded"
   },
+  "statusPartial": {
+    "message": "Partially downloaded"
+  },
   "statusAllDoneDecorated": {
     "message": "✓ All done"
   },
@@ -369,6 +375,9 @@
   },
   "alreadyDownloadedTooltip": {
     "message": "Already downloaded"
+  },
+  "partiallyDownloadedTooltip": {
+    "message": "Partially downloaded; click to retry"
   },
   "clickToDownloadTooltip": {
     "message": "Click to download"

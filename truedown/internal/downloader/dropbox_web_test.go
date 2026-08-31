@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,15 @@ import (
 	"testing"
 	"time"
 )
+
+func TestDropboxFolderDecoderBoundsUnknownJSONNesting(t *testing.T) {
+	contents := `{"unknown":` + strings.Repeat(`[`, dropboxUnknownJSONMaxDepth+1) + `0` +
+		strings.Repeat(`]`, dropboxUnknownJSONMaxDepth+1) + `}`
+	if _, err := decodeDropboxFolderPage(json.NewDecoder(strings.NewReader(contents))); err == nil ||
+		!strings.Contains(err.Error(), "nesting") {
+		t.Fatalf("deep unknown JSON error=%v", err)
+	}
+}
 
 func TestParseDropboxWebShareUsesCurrentSecureHash(t *testing.T) {
 	share, ok := parseDropboxWebShare("https://www.dropbox.com/scl/fo/link-key/secure-hash/a%20folder?rlkey=read-key&dl=1")

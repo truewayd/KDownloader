@@ -46,6 +46,7 @@ test('syncs rules through the dedicated authenticated TrueDown endpoint', async 
   assert.equal(calls[0].url, 'http://127.0.0.1:15151/settings/download-rules');
   assert.equal(calls[0].options.headers['X-Api-Key'], 'k'.repeat(32));
   assert.equal(calls[0].options.credentials, 'omit');
+  assert.equal(calls[0].options.redirect, 'error');
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     enabled: true,
     excludedExtensions: ['.psd', '.clip'],

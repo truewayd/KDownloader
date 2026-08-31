@@ -11,6 +11,14 @@ import {
 
 const BACKEND_REQUEST_TIMEOUT_MS = 60 * 1000;
 const HTML_REQUEST_TIMEOUT_MS = 45 * 1000;
+const MAX_COOMERFANS_MEDIA_TASKS = 5000;
+const MAX_MEDIA_URL_LENGTH = 8192;
+const MAX_HTML_TAG_LENGTH = 64 * 1024;
+const MAX_PENDING_BACKEND_TASKS = 10_000;
+const COOMERFANS_MEDIA_TAGS = new Set(['source', 'video', 'a', 'img']);
+const COOMERFANS_MEDIA_ATTRIBUTES = new Set([
+  'src', 'href', 'data-src', 'data-original', 'data-lazy-src',
+]);
 const COOMERFANS_MEDIA_EXTENSIONS = new Set([
   '.mp4', '.webm', '.m4v', '.mov', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.zip', '.rar', '.7z',
 ]);
@@ -30,20 +38,27 @@ function trustedMediaUrl(value) {
   return false;
 }
 
-function cookieForTask(taskUrl, origin, cookieString) {
-  if (!cookieString) return '';
+function isSameSiteFamily(taskUrl, origin) {
   try {
     const task = new URL(taskUrl);
     const originHost = new URL(origin).hostname.toLowerCase();
     const taskHost = task.hostname.toLowerCase();
-    if (task.protocol !== 'https:') return '';
+    if (task.protocol !== 'https:') return false;
     if (originHost === PAW.HOST) {
-      return taskHost === PAW.HOST || taskHost === PAW.FILE_HOST ? cookieString : '';
+      return taskHost === PAW.HOST || taskHost === PAW.FILE_HOST;
     }
-    return taskHost === originHost || taskHost.endsWith(`.${originHost}`) ? cookieString : '';
+    return taskHost === originHost || taskHost.endsWith(`.${originHost}`);
   } catch (error) {
-    return '';
+    return false;
   }
+}
+
+function cookieForTask(taskUrl, origin, cookieString) {
+  return cookieString && isSameSiteFamily(taskUrl, origin) ? cookieString : '';
+}
+
+function refererForTask(taskUrl, origin, referer) {
+  return referer && isSameSiteFamily(taskUrl, origin) ? referer : '';
 }
 
 async function fetchWithTimeout(url, options, timeoutMs) {
@@ -56,13 +71,17 @@ class TaskQueue {
     this.queue = [];
     this.queueHead = 0;
     this.waiters = [];
+    this.pendingTasks = 0;
     this.concurrency = concurrency;
     this.activeWorkers = 0;
     this.setConcurrency(concurrency);
   }
 
   setConcurrency(concurrency) {
-    this.concurrency = Math.max(1, Math.floor(concurrency || CONFIG.MAX_CONCURRENT_DOWNLOADS));
+    const requested = Number(concurrency);
+    this.concurrency = Number.isFinite(requested)
+      ? Math.min(6, Math.max(1, Math.floor(requested)))
+      : CONFIG.MAX_CONCURRENT_DOWNLOADS;
     while (this.activeWorkers < this.concurrency) {
       this._spawnWorker();
     }
@@ -104,7 +123,11 @@ class TaskQueue {
 
   _takeItem() {
     if (!this._hasItems()) return null;
-    const item = this.queue[this.queueHead++];
+    const index = this.queueHead++;
+    const item = this.queue[index];
+    // Break references to completed batch metadata immediately. Waiting for a
+    // later array compaction retained every consumed task behind a large queue.
+    this.queue[index] = undefined;
     if (this.queueHead >= this.queue.length) {
       this.queue.length = 0;
       this.queueHead = 0;
@@ -117,22 +140,27 @@ class TaskQueue {
 
   // Enqueue an array of file tasks. Returns a Promise resolving to results array for those tasks.
   enqueueTasks(batchTasks, options = {}) {
+    if (Array.isArray(batchTasks) && batchTasks.length > 0
+        && this.pendingTasks + batchTasks.length > MAX_PENDING_BACKEND_TASKS) {
+      return Promise.reject(new Error(
+        `Backend task queue exceeds the ${MAX_PENDING_BACKEND_TASKS} pending-task limit`
+      ));
+    }
     return new Promise((resolve) => {
       if (!Array.isArray(batchTasks) || batchTasks.length === 0) {
         resolve([]);
         return;
       }
-      const id = Date.now() + Math.random();
+      this.pendingTasks += batchTasks.length;
       const meta = {
-        id,
         remaining: batchTasks.length,
         processed: Number(options.progressOffset || 0),
-        results: [],
+        results: new Array(batchTasks.length),
         resolve,
         total: Number(options.totalCount || batchTasks.length),
       };
-      for (const t of batchTasks) {
-        this.queue.push({ meta, task: t, options });
+      for (let index = 0; index < batchTasks.length; index++) {
+        this.queue.push({ meta, task: batchTasks[index], options, resultIndex: index });
       }
       this._notifyNew();
     });
@@ -152,75 +180,88 @@ class TaskQueue {
       const item = this._takeItem();
       if (!item) continue;
 
-      const { meta, task, options } = item;
-      const {
-        endpoint, cookieString, origin, service, userId, postId, headers, referer,
-        perFileRetry = 0, sendProgress,
-      } = options;
-      const requestReferer = referer || `${origin}/${encodeURIComponent(service)}/user/${encodeURIComponent(userId)}/post/${encodeURIComponent(postId)}`;
+      const { meta, task, options, resultIndex } = item;
+      let sendProgress;
+      let record;
+      try {
+        const {
+          endpoint, cookieString, origin, service, userId, postId, headers, referer,
+          perFileRetry = 0, sendProgress: progressCallback,
+        } = options || {};
+        sendProgress = progressCallback;
+        const requestReferer = referer || `${origin}/${encodeURIComponent(service)}/user/${encodeURIComponent(userId)}/post/${encodeURIComponent(postId)}`;
 
-      // Wait the adaptive delay before sending to avoid spikes
-      if (currentDelay > 0) await new Promise(r => setTimeout(r, currentDelay));
+        // Wait the adaptive delay before sending to avoid spikes.
+        if (currentDelay > 0) await new Promise(r => setTimeout(r, currentDelay));
 
-      // Build payload. Site cookies never cross to a different media domain.
-      const downloadHeaders = {
-        Referer: requestReferer,
-        'User-Agent': headers['User-Agent'] || 'Mozilla/5.0',
-        Origin: `chrome-extension://${chrome.runtime.id}`,
-        Accept: headers['Accept'] || 'text/css',
-        'Accept-Language': headers['Accept-Language'] || 'zh-CN,zh;q=0.9'
-      };
-      const taskCookie = cookieForTask(task.url, origin, cookieString);
-      if (taskCookie) downloadHeaders.Cookie = taskCookie;
-      const filePayload = {
-        downloadSource: {
-          link: task.url,
-          headers: downloadHeaders
-        },
-        name: task.fileName,
-        queueId: 0,
-      };
+        // Build payload. Site cookies never cross to a different media domain.
+        const downloadHeaders = {
+          'User-Agent': headers?.['User-Agent'] || 'Mozilla/5.0',
+          Accept: headers?.['Accept'] || 'text/css',
+          'Accept-Language': headers?.['Accept-Language'] || 'zh-CN,zh;q=0.9'
+        };
+        const taskReferer = refererForTask(task.url, origin, requestReferer);
+        if (taskReferer) downloadHeaders.Referer = taskReferer;
+        const taskCookie = cookieForTask(task.url, origin, cookieString);
+        if (taskCookie) downloadHeaders.Cookie = taskCookie;
+        const filePayload = {
+          downloadSource: {
+            link: task.url,
+            headers: downloadHeaders
+          },
+          name: task.fileName,
+          queueId: 0,
+        };
 
-      // Attempt with retries (simple per-file retry with incremental backoff)
-      let attempts = 0;
-      let success = false;
-      let lastError = null;
-      while (attempts <= perFileRetry && !success) {
-        try {
-          attempts++;
-          const requestHeaders = { 'Content-Type': 'application/json' };
-          if (options.apiKey) requestHeaders['X-Api-Key'] = options.apiKey;
-          const resp = await fetchWithTimeout(endpoint, {
-            method: 'POST',
-            headers: requestHeaders,
-            body: JSON.stringify(filePayload),
-            credentials: 'omit',
-          }, BACKEND_REQUEST_TIMEOUT_MS);
-          const text = await readLimitedResponseText(resp, 64 * 1024, 'Backend').catch(() => '');
-          if (!resp.ok) {
-            throw new Error(`Backend HTTP ${resp.status}${text ? `: ${text.slice(0, 200)}` : ''}`);
+        // Attempt with retries (simple per-file retry with incremental backoff).
+        let attempts = 0;
+        let success = false;
+        let lastError = null;
+        while (attempts <= perFileRetry && !success) {
+          try {
+            attempts++;
+            const requestHeaders = { 'Content-Type': 'application/json' };
+            if (options.apiKey) requestHeaders['X-Api-Key'] = options.apiKey;
+            const resp = await fetchWithTimeout(endpoint, {
+              method: 'POST',
+              headers: requestHeaders,
+              body: JSON.stringify(filePayload),
+              credentials: 'omit',
+              redirect: 'error',
+            }, BACKEND_REQUEST_TIMEOUT_MS);
+            const text = await readLimitedResponseText(resp, 64 * 1024, 'Backend').catch(() => '');
+            if (!resp.ok) {
+              throw new Error(`Backend HTTP ${resp.status}${text ? `: ${text.slice(0, 200)}` : ''}`);
+            }
+            success = true;
+          } catch (e) {
+            lastError = e;
+            if (attempts > perFileRetry) break;
+            await new Promise(r => setTimeout(r, 1000 * attempts));
           }
-          success = true;
-        } catch (e) {
-          lastError = e;
-          if (attempts > perFileRetry) break;
-          // simple incremental wait on retry
-          await new Promise(r => setTimeout(r, 1000 * attempts));
         }
-      }
 
-      // Update adaptive delay: reset on success, backoff on failure
-      if (success) {
-        currentDelay = CONFIG.TASK_INTERVAL_INITIAL || CONFIG.TASK_INTERVAL;
-      } else {
+        // Update adaptive delay: reset on success, back off on failure.
+        if (success) {
+          currentDelay = CONFIG.TASK_INTERVAL_INITIAL || CONFIG.TASK_INTERVAL;
+        } else {
+          currentDelay = Math.min(maxDelay, Math.ceil(currentDelay * factor + linearInc));
+        }
+
+        record = success ? { task, success: true, attempts } : { task, success: false, attempts, error: lastError && lastError.message ? lastError.message : String(lastError) };
+      } catch (error) {
         currentDelay = Math.min(maxDelay, Math.ceil(currentDelay * factor + linearInc));
+        record = {
+          task,
+          success: false,
+          attempts: 0,
+          error: error && error.message ? error.message : String(error),
+        };
       }
-
-      // Record result
-      const record = success ? { task, success: true, attempts } : { task, success: false, attempts, error: lastError && lastError.message ? lastError.message : String(lastError) };
-      meta.results.push(record);
+      meta.results[resultIndex] = record;
       meta.remaining--;
       meta.processed++;
+      this.pendingTasks = Math.max(0, this.pendingTasks - 1);
       try { if (typeof sendProgress === 'function') sendProgress(meta.processed, meta.total); } catch (e) { }
 
       // Resolve when all items for this batch are done
@@ -262,9 +303,6 @@ async function dispatchAllToBackend(tasks, backendCfg, context) {
     1,
     Math.min(1000, Number.isFinite(backendCfg.perPostFileLimit) ? backendCfg.perPostFileLimit : context.defaultFileLimit)
   );
-  const batches = [];
-  for (let i = 0; i < tasks.length; i += perPostFileLimit) batches.push(tasks.slice(i, i + perPostFileLimit));
-
   const allFileResults = [];
   const sendProgress = (sent, total) => {
     sendDownloadProgress(
@@ -280,24 +318,41 @@ async function dispatchAllToBackend(tasks, backendCfg, context) {
   };
 
   GLOBAL_TASK_QUEUE.setConcurrency(concurrency);
-  for (let b = 0; b < batches.length; b++) {
-    const results = await GLOBAL_TASK_QUEUE.enqueueTasks(batches[b], {
-      endpoint,
-      cookieString: context.cookieString,
-      origin: context.origin,
-      service: context.service,
-      userId: context.userId,
-      postId: context.postId,
-      headers: context.headers,
-      referer: context.referer,
-      perFileRetry,
-      sendProgress,
-      apiKey: backendCfg.apiKey || '',
-      totalCount: tasks.length,
-      progressOffset: allFileResults.length,
-    });
-    allFileResults.push(...results);
-    if (b < batches.length - 1) await new Promise(r => setTimeout(r, 250));
+  for (let offset = 0; offset < tasks.length; offset += perPostFileLimit) {
+    const batch = tasks.slice(offset, offset + perPostFileLimit);
+    try {
+      const results = await GLOBAL_TASK_QUEUE.enqueueTasks(batch, {
+        endpoint,
+        cookieString: context.cookieString,
+        origin: context.origin,
+        service: context.service,
+        userId: context.userId,
+        postId: context.postId,
+        headers: context.headers,
+        referer: context.referer,
+        perFileRetry,
+        sendProgress,
+        apiKey: backendCfg.apiKey || '',
+        totalCount: tasks.length,
+        progressOffset: allFileResults.length,
+      });
+      allFileResults.push(...results);
+    } catch (error) {
+      const failure = error && error.message ? error.message : String(error);
+      for (let index = offset; index < tasks.length; index++) {
+        allFileResults.push({
+          task: tasks[index],
+          success: false,
+          attempts: 0,
+          error: failure,
+        });
+      }
+      sendProgress(tasks.length, tasks.length);
+      break;
+    }
+    if (offset + perPostFileLimit < tasks.length) {
+      await new Promise(r => setTimeout(r, 250));
+    }
   }
 
   return allFileResults;
@@ -383,20 +438,112 @@ function validateDownloadTasks(tasks) {
 function absoluteCoomerFansUrl(rawUrl) {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
   try {
+    if (rawUrl.length > MAX_MEDIA_URL_LENGTH) return '';
     return new URL(rawUrl.replace(/&amp;/g, '&'), API.COOMERFANS_ORIGIN).toString();
   } catch (_) {
     return '';
   }
 }
 
+function isHtmlNameCode(code) {
+  return (code >= 48 && code <= 57)
+    || (code >= 65 && code <= 90)
+    || (code >= 97 && code <= 122)
+    || code === 45
+    || code === 58;
+}
+
+function forEachBoundedStartTag(input, acceptedNames, visitor) {
+  const source = String(input || '');
+  let cursor = 0;
+  while (cursor < source.length) {
+    const start = source.indexOf('<', cursor);
+    if (start < 0) return;
+
+    const nameStart = start + 1;
+    let nameEnd = nameStart;
+    while (nameEnd < source.length && isHtmlNameCode(source.charCodeAt(nameEnd))) nameEnd++;
+    if (nameEnd === nameStart || nameEnd - nameStart > 16) {
+      cursor = Math.max(nameEnd, nameStart);
+      continue;
+    }
+    const name = source.slice(nameStart, nameEnd).toLowerCase();
+    if (!acceptedNames.has(name)) {
+      cursor = nameEnd;
+      continue;
+    }
+
+    let quote = '';
+    let end = nameEnd;
+    let restart = -1;
+    const limit = Math.min(source.length, start + MAX_HTML_TAG_LENGTH + 1);
+    for (; end < limit; end++) {
+      const char = source[end];
+      if (quote) {
+        if (char === quote) quote = '';
+        continue;
+      }
+      if (char === '"' || char === "'") {
+        quote = char;
+      } else if (char === '>') {
+        break;
+      } else if (char === '<') {
+        restart = end;
+        break;
+      }
+    }
+
+    if (restart >= 0) {
+      cursor = restart;
+      continue;
+    }
+    if (end >= limit || source[end] !== '>') {
+      cursor = limit;
+      continue;
+    }
+    if (visitor(source.slice(start, end + 1), name) === false) return;
+    cursor = end + 1;
+  }
+}
+
 function extractTagAttrs(tagText) {
-  const attrs = {};
-  const attrRe = /([^\s"'=<>`]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
-  let match;
-  while ((match = attrRe.exec(tagText)) !== null) {
-    const name = String(match[1] || '').toLowerCase();
-    if (!name || name === 'a' || name === 'img' || name === 'source' || name === 'video') continue;
-    attrs[name] = match[2] || match[3] || match[4] || '';
+  const attrs = Object.create(null);
+  let cursor = 1;
+  while (cursor < tagText.length && !/\s/.test(tagText[cursor]) && tagText[cursor] !== '>') cursor++;
+  while (cursor < tagText.length) {
+    while (cursor < tagText.length && /\s/.test(tagText[cursor])) cursor++;
+    if (cursor >= tagText.length || tagText[cursor] === '>') break;
+    if (tagText[cursor] === '/') {
+      cursor++;
+      continue;
+    }
+
+    const nameStart = cursor;
+    while (cursor < tagText.length
+      && !/[\s"'=<>`/]/.test(tagText[cursor])) cursor++;
+    if (cursor === nameStart) {
+      cursor++;
+      continue;
+    }
+    const name = tagText.slice(nameStart, cursor).toLowerCase();
+    while (cursor < tagText.length && /\s/.test(tagText[cursor])) cursor++;
+
+    let value = '';
+    if (tagText[cursor] === '=') {
+      cursor++;
+      while (cursor < tagText.length && /\s/.test(tagText[cursor])) cursor++;
+      const quote = tagText[cursor] === '"' || tagText[cursor] === "'" ? tagText[cursor++] : '';
+      const valueStart = cursor;
+      if (quote) {
+        while (cursor < tagText.length && tagText[cursor] !== quote) cursor++;
+        value = tagText.slice(valueStart, cursor);
+        if (tagText[cursor] === quote) cursor++;
+      } else {
+        while (cursor < tagText.length && !/[\s"'=<>`]/.test(tagText[cursor])) cursor++;
+        value = tagText.slice(valueStart, cursor);
+      }
+    }
+    if (COOMERFANS_MEDIA_ATTRIBUTES.has(name)) attrs[name] = value;
   }
   return attrs;
 }
@@ -418,16 +565,15 @@ function isCoomerFansMediaUrl(mediaUrl) {
 function extractCoomerFansMediaUrls(html) {
   const urls = [];
   const seen = new Set();
-  const tagRe = /<(source|video|a|img)\b[^>]*>/gi;
-  let match;
-  while ((match = tagRe.exec(html || '')) !== null) {
-    const attrs = extractTagAttrs(match[0]);
+  forEachBoundedStartTag(html, COOMERFANS_MEDIA_TAGS, (tagText) => {
+    const attrs = extractTagAttrs(tagText);
     const raw = attrs.src || attrs.href || attrs['data-src'] || attrs['data-original'] || attrs['data-lazy-src'];
     const full = absoluteCoomerFansUrl(raw);
-    if (!full || !isCoomerFansMediaUrl(full) || seen.has(full)) continue;
+    if (!full || !isCoomerFansMediaUrl(full) || seen.has(full)) return true;
     seen.add(full);
     urls.push(full);
-  }
+    return urls.length < MAX_COOMERFANS_MEDIA_TASKS;
+  });
   return urls.sort();
 }
 
@@ -439,7 +585,8 @@ async function fetchCoomerFansHtml(url) {
     throw new Error('Invalid CoomerFans URL');
   }
   const host = parsed.hostname.toLowerCase();
-  if (parsed.protocol !== 'https:' || (host !== API.COOMERFANS_HOST && !host.endsWith(`.${API.COOMERFANS_HOST}`))) {
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port
+      || (host !== API.COOMERFANS_HOST && !host.endsWith(`.${API.COOMERFANS_HOST}`))) {
     throw new Error('Unexpected CoomerFans URL');
   }
   const headers = {
@@ -496,11 +643,10 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
 
   tasks = validateDownloadTasks(tasks);
 
-  const domain = API.COOMERFANS_HOST;
-  const cookieString = await getCookies(domain);
   const backendCfg = await loadBackendConfig();
 
   if (backendCfg.enabled) {
+    const cookieString = await getCookies(API.COOMERFANS_HOST);
     if (backendCfg.backendType === 'gopeed') {
       const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieString, API.COOMERFANS_ORIGIN, postUrl, service, userId, postId, senderTabId, requestId);
       if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, results, externalLinks };
@@ -540,7 +686,6 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
 // page batches can pass an already-fetched post to avoid duplicate requests.
 export async function startPawchiveDownload(service, userId, postId, senderTabId, prefetchedPost = null, requestId) {
   const postUrl = `${PAW.ORIGIN}/${encodeURIComponent(service)}/user/${encodeURIComponent(userId)}/post/${encodeURIComponent(postId)}`;
-  const cookies = await getCookies(PAW.HOST);
   const headers = {
     'Accept': 'application/json',
     'Accept-Language': 'zh-CN,zh;q=0.9',
@@ -580,6 +725,7 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
   const backendCfg = await loadBackendConfig();
 
   if (backendCfg.enabled) {
+    const cookies = await getCookies(PAW.HOST);
     if (backendCfg.backendType === 'gopeed') {
       const referer = postUrl;
       const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookies, PAW.ORIGIN, referer, service, userId, postId, senderTabId, requestId);
@@ -617,7 +763,8 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
 // service worker. Do not use no-cors here: it strips Content-Type and
 // X-Api-Token, which makes token-protected Gopeed instances silently fail.
 async function dispatchToGopeed(baseUrl, token, fileUrl, cookieString, referer, fileName) {
-  const requestHeaders = { Referer: referer };
+  const requestHeaders = {};
+  if (referer) requestHeaders.Referer = referer;
   if (cookieString) requestHeaders.Cookie = cookieString;
   const payload = {
     rid: '',
@@ -640,6 +787,8 @@ async function dispatchToGopeed(baseUrl, token, fileUrl, cookieString, referer, 
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
+      credentials: 'omit',
+      redirect: 'error',
     }, BACKEND_REQUEST_TIMEOUT_MS);
     const text = await readLimitedResponseText(resp, 64 * 1024, 'Gopeed').catch(() => '');
     let data = null;
@@ -670,7 +819,7 @@ async function dispatchAllToGopeed(tasks, backendCfg, cookieString, origin, refe
       token,
       task.url,
       cookieForTask(task.url, origin, cookieString),
-      referer,
+      refererForTask(task.url, origin, referer),
       task.fileName
     );
     results.push({ task, ...result });
@@ -700,8 +849,6 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
   const encodedPostId = encodeURIComponent(postId);
   const postUrl = `${origin}/${encodedService}/user/${encodedUserId}/post/${encodedPostId}`;
   const apiUrl = `${origin}${API.API_PREFIX}/${encodedService}/user/${encodedUserId}/post/${encodedPostId}`;
-  const domain = new URL(origin).hostname;
-  const cookies = await getCookies(domain);
   const headers = {
     'Accept': 'text/css',
     'Accept-Encoding': 'gzip, deflate, br',
@@ -710,8 +857,7 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
     'DNT': '1',
     'Pragma': 'no-cache',
     'Referer': postUrl,
-    'User-Agent': 'Mozilla/5.0',
-    'Cookie': cookies
+    'User-Agent': 'Mozilla/5.0'
   };
 
   const postData = await handleAPIRequest(apiUrl, headers);
@@ -730,11 +876,11 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
 
   tasks = validateDownloadTasks(tasks);
 
-  const cookieString = cookies;
   const backendCfg = await loadBackendConfig();
 
   // 3. Backend forwarding (with centralized queue/batching and adaptive throttle)
   if (backendCfg.enabled) {
+    const cookieString = await getCookies(new URL(origin).hostname);
     if (backendCfg.backendType === 'gopeed') {
       const referer = postUrl;
       const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieString, origin, referer, service, userId, postId, senderTabId, requestId);

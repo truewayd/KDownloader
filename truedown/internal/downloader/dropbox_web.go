@@ -25,6 +25,7 @@ const (
 	dropboxFolderMaxPages        = 2000
 	dropboxFolderMaxDepth        = 64
 	dropboxFolderWorkers         = 4
+	dropboxUnknownJSONMaxDepth   = 64
 )
 
 type DropboxExpansionResult struct {
@@ -446,6 +447,10 @@ func decodeDropboxFolderPage(decoder *json.Decoder) (dropboxFolderPage, error) {
 }
 
 func skipJSONValue(decoder *json.Decoder) error {
+	return skipJSONValueAtDepth(decoder, 0)
+}
+
+func skipJSONValueAtDepth(decoder *json.Decoder, depth int) error {
 	token, err := decoder.Token()
 	if err != nil {
 		return err
@@ -454,13 +459,16 @@ func skipJSONValue(decoder *json.Decoder) error {
 	if !nested || (delimiter != '{' && delimiter != '[') {
 		return nil
 	}
+	if depth >= dropboxUnknownJSONMaxDepth {
+		return fmt.Errorf("Dropbox JSON nesting exceeds %d levels", dropboxUnknownJSONMaxDepth)
+	}
 	for decoder.More() {
 		if delimiter == '{' {
 			if _, err := decoder.Token(); err != nil {
 				return err
 			}
 		}
-		if err := skipJSONValue(decoder); err != nil {
+		if err := skipJSONValueAtDepth(decoder, depth+1); err != nil {
 			return err
 		}
 	}

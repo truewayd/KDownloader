@@ -315,6 +315,9 @@ function createChromeMock() {
     async set(values) {
       Object.assign(areas[name], clone(values));
     },
+    async remove(keys) {
+      for (const key of Array.isArray(keys) ? keys : [keys]) delete areas[name][key];
+    },
   });
   return {
     alarms: { create() {} },
@@ -395,15 +398,80 @@ test("downloaded status distinguishes partial from terminal records", async () =
   assert.equal(await db.checkDownloaded("patreon", "creator-1", "complete", "default"), true);
   assert.equal(await db.checkDownloaded("patreon", "creator-1", "empty", "default"), true);
 
+  assert.deepEqual(await db.getDownloadedStatusesMany([
+    { source: "default", service: "patreon", userId: "creator-1", postId: "partial" },
+    { source: "default", service: "patreon", userId: "creator-1", postId: "complete" },
+    { source: "default", service: "patreon", userId: "creator-1", postId: "missing" },
+  ]), {
+    '["default","patreon","creator-1","partial"]': "partial",
+    '["default","patreon","creator-1","complete"]': "complete",
+    '["default","patreon","creator-1","missing"]': null,
+  });
+
   const many = await db.checkDownloadedMany([
     { source: "default", service: "patreon", userId: "creator-1", postId: "partial" },
     { source: "default", service: "patreon", userId: "creator-1", postId: "complete" },
     { source: "default", service: "patreon", userId: "creator-1", postId: "missing" },
   ]);
   assert.deepEqual(many, {
-    "patreon:creator-1:partial": false,
-    "patreon:creator-1:complete": true,
-    "patreon:creator-1:missing": false,
+    '["default","patreon","creator-1","partial"]': false,
+    '["default","patreon","creator-1","complete"]': true,
+    '["default","patreon","creator-1","missing"]': false,
+  });
+});
+
+test("shared history reads retain complete records stored under the legacy Pawchive label", async () => {
+  const db = await loadDBModule();
+  await db.importDB(importPayload([]));
+
+  const database = globalThis.indexedDB.databases.get("kdownloaderHistory");
+  const metaRecords = database.stores.get("importSessions").records;
+  const activePointer = [...metaRecords.values()].find(
+    (entry) => entry.sessionId === "__active_generation__"
+  );
+  assert.ok(activePointer?.generation);
+
+  const legacyRecord = record({
+    source: "pawchive",
+    postId: "legacy-paw-complete",
+  });
+  const staged = { sessionId: activePointer.generation, ...legacyRecord };
+  database.stores.get("importRecords").records.set(
+    keyToken([
+      activePointer.generation,
+      "pawchive",
+      legacyRecord.service,
+      legacyRecord.userId,
+      legacyRecord.postId,
+    ]),
+    clone(staged)
+  );
+
+  assert.equal(
+    await db.getDownloadedStatus(
+      legacyRecord.service,
+      legacyRecord.userId,
+      legacyRecord.postId,
+      "default"
+    ),
+    "complete"
+  );
+  assert.equal(
+    await db.checkDownloaded(
+      legacyRecord.service,
+      legacyRecord.userId,
+      legacyRecord.postId,
+      "default"
+    ),
+    true
+  );
+  assert.deepEqual(await db.getDownloadedStatusesMany([{
+    source: "default",
+    service: legacyRecord.service,
+    userId: legacyRecord.userId,
+    postId: legacyRecord.postId,
+  }]), {
+    '["default","patreon","creator-1","legacy-paw-complete"]': "complete",
   });
 });
 
@@ -507,6 +575,20 @@ test("chunked import keeps current history visible until commit replaces it", as
   assert.equal(await db.checkDownloaded("patreon", "creator-1", "incoming-1", "default"), true);
 });
 
+test("history import sessions are globally bounded until cleanup reclaims them", async () => {
+  const db = await loadDBModule();
+  const sessions = [];
+  for (let index = 0; index < 8; index++) {
+    sessions.push(await db.beginImportSession(importEnvelope()));
+  }
+  await assert.rejects(
+    db.beginImportSession(importEnvelope()),
+    /session limit \(8\) reached/
+  );
+  await db.abortImportSession(sessions[0]);
+  assert.equal(typeof await db.beginImportSession(importEnvelope()), "string");
+});
+
 test("aborting a chunked import discards staging records without changing history", async () => {
   const db = await loadDBModule();
   const existing = record({ postId: "existing" });
@@ -599,9 +681,11 @@ test("chunk retries with the same sequence and digest are idempotent", async () 
   const incoming = record({ postId: "retried" });
   await db.appendImportChunk(sessionId, [incoming], { sequence: 0, digest: "same" });
   await db.appendImportChunk(sessionId, [incoming], { sequence: 0, digest: "same" });
-  await assert.rejects(
-    db.appendImportChunk(sessionId, [incoming], { sequence: 0, digest: "different" })
-  );
+  await assert.rejects(db.appendImportChunk(
+    sessionId,
+    [{ ...incoming, postId: "different" }],
+    { sequence: 0, digest: "same" }
+  ), /digest does not match/);
   await db.commitImportSession(sessionId);
   const exported = JSON.parse(await db.exportDB());
   assert.deepEqual(exported.records, [incoming]);
@@ -616,6 +700,15 @@ test("import rejects malformed or incompatible payloads", async () => {
   );
   await assert.rejects(db.importDB(JSON.stringify({ schemaVersion: 2, records: [{}] })));
   await assert.rejects(db.importDB(importPayload([record({ status: "unknown" })])));
+  for (const field of ["totalCount", "successCount", "failedCount"]) {
+    await assert.rejects(
+      db.importDB(importPayload([record({
+        [field]: Number.MAX_SAFE_INTEGER + 1,
+        ...(field === "totalCount" ? { successCount: 0, failedCount: 0 } : {}),
+      })])),
+      new RegExp(`${field} must be a non-negative safe integer`)
+    );
+  }
 });
 
 test("clearDB removes regular and CoomerFans records", async () => {
@@ -665,11 +758,17 @@ test("paginated export returns every record without one oversized response", asy
   }));
   await db.markMultipleDownloaded(records);
 
+  const exportSession = await db.beginHistoryExport();
   const exported = [];
   let afterKey = null;
   let pages = 0;
   while (true) {
-    const page = await db.getHistoryExportPage(afterKey, 64 * 1024);
+    const page = await db.getHistoryExportPage(
+      afterKey,
+      64 * 1024,
+      exportSession.generation,
+      exportSession.revision
+    );
     exported.push(...page.records);
     pages++;
     if (page.done) break;
@@ -682,29 +781,136 @@ test("paginated export returns every record without one oversized response", asy
   assert.deepEqual(sortedRecords(exported), sortedRecords(records));
 });
 
-test("export pages stay pinned to one generation across a later import commit", async () => {
+test("export pages abort when a later import commit replaces the generation", async () => {
   const db = await loadDBModule();
   const firstGeneration = Array.from({ length: 500 }, (_, index) => record({
     postId: `first-${String(index).padStart(4, "0")}-${"x".repeat(120)}`,
   }));
   await db.importDB(importPayload(firstGeneration));
   const exportSession = await db.beginHistoryExport();
-  const firstPage = await db.getHistoryExportPage(null, 64 * 1024, exportSession.generation);
+  const firstPage = await db.getHistoryExportPage(
+    null,
+    64 * 1024,
+    exportSession.generation,
+    exportSession.revision
+  );
   assert.equal(firstPage.done, false);
 
   const replacement = [record({ postId: "replacement" })];
   await db.importDB(importPayload(replacement));
 
-  const exported = [...firstPage.records];
-  let afterKey = firstPage.nextKey;
-  while (true) {
-    const page = await db.getHistoryExportPage(afterKey, 64 * 1024, exportSession.generation);
-    exported.push(...page.records);
-    if (page.done) break;
-    afterKey = page.nextKey;
-  }
-  assert.deepEqual(sortedRecords(exported), sortedRecords(firstGeneration));
+  await assert.rejects(
+    db.getHistoryExportPage(
+      firstPage.nextKey,
+      64 * 1024,
+      exportSession.generation,
+      exportSession.revision
+    ),
+    /History changed during export/
+  );
   assert.deepEqual(JSON.parse(await db.exportDB()).records, replacement);
+});
+
+test("export revision detects legacy and active-generation history writes", async () => {
+  const db = await loadDBModule();
+  const records = Array.from({ length: 500 }, (_, index) => record({
+    postId: `revision-${String(index).padStart(4, "0")}-${"x".repeat(120)}`,
+  }));
+  await db.markMultipleDownloaded(records);
+
+  let exportSession = await db.beginHistoryExport();
+  let firstPage = await db.getHistoryExportPage(
+    null,
+    64 * 1024,
+    exportSession.generation,
+    exportSession.revision
+  );
+  assert.equal(exportSession.generation, null);
+  assert.equal(firstPage.done, false);
+  await db.markDownloaded(record({ postId: "legacy-single-write" }));
+  await assert.rejects(
+    db.getHistoryExportPage(
+      firstPage.nextKey,
+      64 * 1024,
+      exportSession.generation,
+      exportSession.revision
+    ),
+    /History changed during export/
+  );
+
+  exportSession = await db.beginHistoryExport();
+  firstPage = await db.getHistoryExportPage(
+    null,
+    64 * 1024,
+    exportSession.generation,
+    exportSession.revision
+  );
+  await db.markMultipleDownloaded([record({ postId: "legacy-batch-write" })]);
+  await assert.rejects(
+    db.getHistoryExportPage(
+      firstPage.nextKey,
+      64 * 1024,
+      exportSession.generation,
+      exportSession.revision
+    ),
+    /History changed during export/
+  );
+
+  await db.importDB(importPayload(records));
+  exportSession = await db.beginHistoryExport();
+  firstPage = await db.getHistoryExportPage(
+    null,
+    64 * 1024,
+    exportSession.generation,
+    exportSession.revision
+  );
+  assert.equal(typeof exportSession.generation, "string");
+  await db.markDownloaded(record({ postId: "active-single-write" }));
+  await assert.rejects(
+    db.getHistoryExportPage(
+      firstPage.nextKey,
+      64 * 1024,
+      exportSession.generation,
+      exportSession.revision
+    ),
+    /History changed during export/
+  );
+
+  exportSession = await db.beginHistoryExport();
+  firstPage = await db.getHistoryExportPage(
+    null,
+    64 * 1024,
+    exportSession.generation,
+    exportSession.revision
+  );
+  await db.markMultipleDownloaded([record({ postId: "active-batch-write" })]);
+  await assert.rejects(
+    db.getHistoryExportPage(
+      firstPage.nextKey,
+      64 * 1024,
+      exportSession.generation,
+      exportSession.revision
+    ),
+    /History changed during export/
+  );
+
+  exportSession = await db.beginHistoryExport();
+  firstPage = await db.getHistoryExportPage(
+    null,
+    64 * 1024,
+    exportSession.generation,
+    exportSession.revision
+  );
+  await db.clearDB();
+  await assert.rejects(
+    db.getHistoryExportPage(
+      firstPage.nextKey,
+      64 * 1024,
+      exportSession.generation,
+      exportSession.revision
+    ),
+    /History changed during export/
+  );
 });
 
 test("marks after generation commit remain visible in the active generation", async () => {
@@ -739,4 +945,139 @@ test("history cleanup reclaims retired generations and the legacy store", async 
     [...database.stores.get("importRecords").records.values()].every((item) => item.sessionId === second),
     true
   );
+});
+
+test("retrying a retired commit cannot switch the active generation cache", async () => {
+  const db = await loadDBModule();
+  const first = await db.beginImportSession(importEnvelope({ expectedRecords: 1 }));
+  await db.appendImportChunk(first, [record({ postId: "first" })]);
+  await db.commitImportSession(first);
+
+  const second = await db.beginImportSession(importEnvelope({ expectedRecords: 1 }));
+  await db.appendImportChunk(second, [record({ postId: "second" })]);
+  await db.commitImportSession(second);
+  await db.commitImportSession(first);
+
+  assert.deepEqual(JSON.parse(await db.exportDB()).records, [record({ postId: "second" })]);
+  assert.equal(await db.checkDownloaded("patreon", "creator-1", "second", "default"), true);
+  assert.equal(await db.checkDownloaded("patreon", "creator-1", "first", "default"), false);
+});
+
+test("import sessions reject empty chunks and declared-count overflow", async () => {
+  const db = await loadDBModule();
+  const sessionId = await db.beginImportSession(importEnvelope({ expectedRecords: 1 }));
+  await assert.rejects(db.appendImportChunk(sessionId, []), /must not be empty/);
+  await assert.rejects(
+    db.appendImportChunk(sessionId, [record(), record({ postId: "extra" })]),
+    /declared record count/
+  );
+  assert.deepEqual(await db.getImportSessionStatus(sessionId), {
+    state: "active",
+    receivedRecords: 0,
+    expectedRecords: 1,
+  });
+});
+
+test("downloaded status keys cannot collide on delimiter-like identities", async () => {
+  const db = await loadDBModule();
+  await db.markDownloaded(record({ service: "a:b", userId: "c", postId: "d" }));
+  const result = await db.checkDownloadedMany([
+    { service: "a:b", userId: "c", postId: "d" },
+    { service: "a", userId: "b:c", postId: "d" },
+  ]);
+  assert.deepEqual(result, {
+    '["default","a:b","c","d"]': true,
+    '["default","a","b:c","d"]': false,
+  });
+});
+
+test("creator flags migrate legacy keys, delete false values, and bound identities", async () => {
+  const db = await loadDBModule();
+  await chrome.storage.local.set({ creatorFlags: { "patreon:creator-1": true } });
+  assert.deepEqual(await db.getCreatorFlagsMany([{ service: "patreon", userId: "creator-1" }]), {
+    '["patreon","creator-1"]': true,
+  });
+
+  assert.equal(await db.setCreatorFlag("patreon", "creator-1", false), false);
+  assert.deepEqual((await chrome.storage.local.get("creatorFlags")).creatorFlags, {});
+  await assert.rejects(db.setCreatorFlag("x".repeat(513), "creator-1", true), /creator flag service/);
+  await assert.rejects(
+    db.getCreatorFlagsMany(Array.from({ length: 5000 }, (_, index) => ({
+      service: "patreon",
+      userId: `${index}-${"u".repeat(500)}`,
+    }))),
+    /2 MiB safety limit/
+  );
+});
+
+test("creator flag reads preserve overflow entries and mutations refuse lossy rewrites", async () => {
+  const db = await loadDBModule();
+  const oversized = Object.fromEntries(Array.from(
+    { length: 10_001 },
+    (_, index) => [JSON.stringify(["patreon", `creator-${index}`]), true]
+  ));
+  await chrome.storage.local.set({ creatorFlags: oversized });
+
+  assert.deepEqual(await db.getCreatorFlagsMany([
+    { service: "patreon", userId: "creator-10000" },
+  ]), { '["patreon","creator-10000"]': true });
+  await assert.rejects(
+    db.setCreatorFlag("patreon", "creator-0", false),
+    /refusing a lossy update/
+  );
+  assert.deepEqual((await chrome.storage.local.get("creatorFlags")).creatorFlags, oversized);
+});
+
+test("legacy lastAccess sync metadata is removed idempotently", async () => {
+  const db = await loadDBModule();
+  await chrome.storage.sync.set({ lastAccess: { patreon: { creator: "2026-01-01" } } });
+  await db.cleanupLegacyHistoryMetadata();
+  await db.cleanupLegacyHistoryMetadata();
+  assert.deepEqual(await chrome.storage.sync.get("lastAccess"), {});
+});
+
+test("history imports require valid timezone-qualified ISO timestamps", async () => {
+  const db = await loadDBModule();
+  await assert.rejects(
+    db.beginImportSession({
+      schemaVersion: 2,
+      exportedAt: "2026-07-11T00:00:00",
+      expectedRecords: 0,
+    }),
+    /timezone-qualified ISO 8601/
+  );
+  const sessionId = await db.beginImportSession(importEnvelope({ expectedRecords: 1 }));
+  await assert.rejects(
+    db.appendImportChunk(sessionId, [record({ updatedAt: "2026-02-30T00:00:00Z" })]),
+    /valid timezone-qualified ISO 8601/
+  );
+  await assert.rejects(
+    db.getImportSessionStatus("x".repeat(129)),
+    /Invalid import session id/
+  );
+});
+
+test("history identities reject lone UTF-16 surrogates and preserve valid pairs", async () => {
+  const db = await loadDBModule();
+  for (const postId of ["\ud800", "\udc00", "left\ud800right", "left\udc00right"]) {
+    await assert.rejects(
+      db.importDB(importPayload([record({ postId })])),
+      /unpaired UTF-16 surrogate/
+    );
+  }
+
+  const paired = record({ postId: "emoji-😀" });
+  await db.importDB(importPayload([paired]));
+  assert.deepEqual(JSON.parse(await db.exportDB()).records, [paired]);
+});
+
+test("bounded history export pages incrementally and rejects before exceeding its byte limit", async () => {
+  const db = await loadDBModule();
+  const records = Array.from({ length: 500 }, (_, index) => record({
+    postId: `bounded-${index}-${"x".repeat(120)}`,
+  }));
+  await db.importDB(importPayload(records));
+  await assert.rejects(db.exportDB(64 * 1024), /History export exceeds/);
+  const exported = JSON.parse(await db.exportDB(1024 * 1024));
+  assert.deepEqual(sortedRecords(exported.records), sortedRecords(records));
 });

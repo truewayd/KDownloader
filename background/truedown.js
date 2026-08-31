@@ -20,6 +20,7 @@ export async function syncDownloadRulesToTrueDown(rules, configuredBackend) {
       excludedExtensions: Array.isArray(rules.excludedExtensions) ? rules.excludedExtensions : [],
     }),
     credentials: 'omit',
+    redirect: 'error',
     signal: AbortSignal.timeout(RULE_SYNC_TIMEOUT_MS),
   });
   let body = '';

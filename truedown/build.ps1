@@ -6,6 +6,118 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Test-ReparsePoint {
+  param([System.IO.FileSystemInfo]$Item)
+  return ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+}
+
+function Assert-NoReparsePath {
+  param(
+    [string]$Root,
+    [string]$Path
+  )
+  $rootPath = [System.IO.Path]::GetFullPath($Root).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+  $candidatePath = [System.IO.Path]::GetFullPath($Path)
+  $rootPrefix = $rootPath + [System.IO.Path]::DirectorySeparatorChar
+  if ($candidatePath -ne $rootPath -and -not $candidatePath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Path must remain inside $rootPath"
+  }
+  $current = $rootPath
+  $relative = [System.IO.Path]::GetRelativePath($rootPath, $candidatePath)
+  $segments = $relative.Split(
+    [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar),
+    [System.StringSplitOptions]::RemoveEmptyEntries
+  )
+  # The repository root is the caller's trusted boundary. Reject only reparse
+  # points below it so a checkout hosted in a junction remains buildable.
+  $paths = @()
+  foreach ($segment in $segments) {
+    if ($segment -eq ".") { continue }
+    $current = Join-Path $current $segment
+    $paths += $current
+  }
+  foreach ($candidate in $paths) {
+    if (-not (Test-Path -LiteralPath $candidate)) { break }
+    $item = Get-Item -LiteralPath $candidate -Force
+    if (Test-ReparsePoint $item) {
+      throw "Refusing to traverse reparse point: $candidate"
+    }
+  }
+}
+
+function Assert-NoReparseTree {
+  param([string]$Path)
+  $item = Get-Item -LiteralPath $Path -Force
+  if (Test-ReparsePoint $item) {
+    throw "Refusing to remove reparse point: $Path"
+  }
+  if (-not $item.PSIsContainer) { return }
+  foreach ($child in Get-ChildItem -LiteralPath $Path -Force) {
+    if (Test-ReparsePoint $child) {
+      throw "Refusing to remove a tree containing reparse point: $($child.FullName)"
+    }
+    if ($child.PSIsContainer) {
+      Assert-NoReparseTree $child.FullName
+    }
+  }
+}
+
+function Assert-RegularSourceFile {
+  param(
+    [string]$Root,
+    [string]$Path
+  )
+  Assert-NoReparsePath -Root $Root -Path $Path
+  $item = Get-Item -LiteralPath $Path -Force
+  if ($item.PSIsContainer -or (Test-ReparsePoint $item)) {
+    throw "Build source must be a regular file: $Path"
+  }
+}
+
+function Assert-BuildInputs {
+  param([string]$Root)
+  foreach ($source in Get-ChildItem -LiteralPath $Root -Force -File -Filter "*.go") {
+    Assert-RegularSourceFile -Root $Root -Path $source.FullName
+  }
+  foreach ($manifestName in @("go.mod", "go.sum")) {
+    $manifest = Join-Path $Root $manifestName
+    if (Test-Path -LiteralPath $manifest) {
+      Assert-RegularSourceFile -Root $Root -Path $manifest
+    }
+  }
+  foreach ($treeName in @("internal", "web")) {
+    $tree = Join-Path $Root $treeName
+    Assert-NoReparsePath -Root $Root -Path $tree
+    Assert-NoReparseTree $tree
+  }
+}
+
+function Remove-TreeSafely {
+  param(
+    [string]$Root,
+    [string]$Path
+  )
+  Assert-NoReparsePath -Root $Root -Path $Path
+  if (-not (Test-Path -LiteralPath $Path)) { return }
+  Assert-NoReparseTree $Path
+
+  $fullPath = [System.IO.Path]::GetFullPath($Path)
+  $parent = [System.IO.Path]::GetDirectoryName($fullPath)
+  $quarantine = Join-Path $parent (".truedown-clean-" + [System.Guid]::NewGuid().ToString("N"))
+  [System.IO.Directory]::Move($fullPath, $quarantine)
+  try {
+    Assert-NoReparsePath -Root $Root -Path $quarantine
+    Assert-NoReparseTree $quarantine
+    Remove-Item -LiteralPath $quarantine -Recurse -Force
+  } catch {
+    if ((Test-Path -LiteralPath $quarantine) -and -not (Test-Path -LiteralPath $fullPath)) {
+      [System.IO.Directory]::Move($quarantine, $fullPath)
+    }
+    throw
+  }
+}
+
 if ($Version -notmatch '^(dev|truedown-build-[1-9][0-9]*)$') {
   throw "Version must be dev or truedown-build-N"
 }
@@ -30,25 +142,55 @@ $distPrefix = $distRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [Sys
 if (-not $dist.StartsWith($distPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
   throw "OutputDirectory must be inside $distRoot"
 }
-$exe = Join-Path $dist "TrueDown.exe"
 $aria = Join-Path $projectRoot "aria2\aria2c.exe"
+$copySources = @(
+  @{ Source = $aria; Name = "aria2c.exe" },
+  @{ Source = (Join-Path $projectRoot "ARIA2_COPYING"); Name = "ARIA2_COPYING" },
+  @{ Source = (Join-Path $projectRoot "THIRD_PARTY_NOTICES.md"); Name = "THIRD_PARTY_NOTICES.md" }
+)
 
-if (Test-Path -LiteralPath $dist) {
-  Remove-Item -LiteralPath $dist -Recurse -Force
+Assert-NoReparsePath -Root $projectRoot -Path $dist
+Assert-BuildInputs -Root $projectRoot
+foreach ($entry in $copySources) {
+  Assert-RegularSourceFile -Root $projectRoot -Path $entry.Source
 }
-New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-Write-Host "Building..."
-Push-Location $projectRoot
+Remove-TreeSafely -Root $projectRoot -Path $dist
+$stagingParent = [System.IO.Path]::GetDirectoryName($dist)
+[System.IO.Directory]::CreateDirectory($stagingParent) | Out-Null
+Assert-NoReparsePath -Root $projectRoot -Path $stagingParent
+$staging = Join-Path $stagingParent (".truedown-build-" + [System.Guid]::NewGuid().ToString("N"))
+[System.IO.Directory]::CreateDirectory($staging) | Out-Null
 try {
-  $ldflags = "-s -w -X main.version=$Version -X main.buildNumber=$BuildNumber -X main.commit=$Commit"
-  go build -trimpath -ldflags $ldflags -o $exe .
-} finally {
-  Pop-Location
-}
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  Assert-NoReparsePath -Root $projectRoot -Path $staging
+  $exe = Join-Path $staging "TrueDown.exe"
+  Write-Host "Building..."
+  Push-Location $projectRoot
+  try {
+    $ldflags = "-s -w -X main.version=$Version -X main.buildNumber=$BuildNumber -X main.commit=$Commit"
+    go build -trimpath -ldflags $ldflags -o $exe .
+    $buildExitCode = $LASTEXITCODE
+  } finally {
+    Pop-Location
+  }
+  if ($buildExitCode -ne 0) { exit $buildExitCode }
 
-Copy-Item -Force $aria "$dist\aria2c.exe"
-Copy-Item -Force (Join-Path $projectRoot "ARIA2_COPYING") "$dist\ARIA2_COPYING"
-Copy-Item -Force (Join-Path $projectRoot "THIRD_PARTY_NOTICES.md") "$dist\THIRD_PARTY_NOTICES.md"
+  Assert-NoReparsePath -Root $projectRoot -Path $staging
+  foreach ($entry in $copySources) {
+    Assert-RegularSourceFile -Root $projectRoot -Path $entry.Source
+    [System.IO.File]::Copy($entry.Source, (Join-Path $staging $entry.Name), $false)
+  }
+  Assert-NoReparseTree $staging
+  if (Test-Path -LiteralPath $dist) {
+    throw "Output directory appeared while the build was staged: $dist"
+  }
+  [System.IO.Directory]::Move($staging, $dist)
+  Assert-NoReparsePath -Root $projectRoot -Path $dist
+  Assert-NoReparseTree $dist
+  $staging = $null
+} finally {
+  if ($null -ne $staging -and (Test-Path -LiteralPath $staging)) {
+    Remove-TreeSafely -Root $projectRoot -Path $staging
+  }
+}
 Write-Host "Build OK -> $dist\"

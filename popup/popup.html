@@ -20,10 +20,10 @@
     </div>
   </header>
 
-  <div id="global-progress" class="kd-progress kd-hidden">
+  <div id="global-progress" class="kd-progress kd-hidden" aria-hidden="true">
     <div class="kd-progress-inner">
       <div class="kd-progress-label" id="global-progress-label" data-i18n="statusSending">Sending...</div>
-      <div class="kd-progress-track" id="global-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div class="kd-progress-track" id="global-progress-track" role="progressbar" aria-labelledby="global-progress-label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <div class="kd-progress-fill" id="global-progress-fill"></div>
       </div>
     </div>
@@ -42,7 +42,7 @@
           <option value="coomer">Coomer</option>
           <option value="coomerfans">CoomerFans</option>
         </select>
-        <input id="site-search-query" type="text" placeholder="Search creators" data-i18n-placeholder="siteSearchPlaceholder" data-i18n-aria-label="siteSearchPlaceholder" aria-label="Search creators" class="kd-input input-flex" autocomplete="off" />
+        <input id="site-search-query" type="text" maxlength="512" placeholder="Search creators" data-i18n-placeholder="siteSearchPlaceholder" data-i18n-aria-label="siteSearchPlaceholder" aria-label="Search creators" class="kd-input input-flex" autocomplete="off" />
         <button class="kd-button kd-icon-button" id="site-search-btn" type="submit" title="Search" data-i18n-title="searchAction" data-i18n-aria-label="searchAction" aria-label="Search">
           <svg class="kd-button-icon"><use href="../shared/icons.svg#icon-search"></use></svg>
         </button>
@@ -55,7 +55,7 @@
         <h2 data-i18n="creatorFetchTitle">Creator Fetch</h2>
       </div>
       <div class="column mt-8">
-        <input id="creator-url" type="text" placeholder="Configure and enable backend first" data-i18n-placeholder="creatorFetchBackendRequiredPlaceholder" class="kd-input input-flex" />
+        <input id="creator-url" type="url" maxlength="8192" placeholder="Configure and enable backend first" data-i18n-placeholder="creatorFetchBackendRequiredPlaceholder" data-i18n-aria-label="creatorFetchTitle" aria-label="Creator Fetch" class="kd-input input-flex" autocomplete="off" spellcheck="false" />
         <label class="creator-fetch-mode" for="creator-fetch-mode" data-i18n-title="creatorFetchModeTooltip" title="Choose normal, full, or links-only creator fetching">
           <span data-i18n="creatorFetchModeLabel">Mode</span>
           <select class="kd-select" id="creator-fetch-mode">
@@ -66,7 +66,7 @@
           </select>
         </label>
         <div class="row mt-8 align-right">
-          <button class="kd-button" id="creator-fetch-btn">
+          <button type="button" class="kd-button" id="creator-fetch-btn">
             <svg class="kd-button-icon"><use href="../shared/icons.svg#icon-server"></use></svg>
             <span data-i18n="settingsAction">Settings</span>
           </button>
@@ -80,11 +80,11 @@
         <h2 data-i18n="searchPageFetchTitle">Search Page Fetch</h2>
       </div>
       <div class="row mt-8 align-right">
-        <button class="kd-button secondary" id="creators-update-coomer">
+        <button type="button" class="kd-button secondary" id="creators-update-coomer">
           <svg class="kd-button-icon"><use href="../shared/icons.svg#icon-refresh"></use></svg>
           <span data-i18n="cacheCoomerAction">Cache Coomer</span>
         </button>
-        <button class="kd-button secondary" id="creators-update-kemono">
+        <button type="button" class="kd-button secondary" id="creators-update-kemono">
           <svg class="kd-button-icon"><use href="../shared/icons.svg#icon-refresh"></use></svg>
           <span data-i18n="cacheKemonoAction">Cache Kemono</span>
         </button>
@@ -97,11 +97,11 @@
         <h2 data-i18n="gistSyncTitle">GitHub Gist Sync</h2>
       </div>
       <div class="row mt-8 align-right">
-        <button class="kd-button secondary" id="gist-download-btn">
+        <button type="button" class="kd-button secondary" id="gist-download-btn">
           <svg class="kd-button-icon"><use href="../shared/icons.svg#icon-download"></use></svg>
           <span data-i18n="downloadAction">Download</span>
         </button>
-        <button class="kd-button primary" id="gist-upload-btn">
+        <button type="button" class="kd-button primary" id="gist-upload-btn">
           <svg class="kd-button-icon"><use href="../shared/icons.svg#icon-upload"></use></svg>
           <span data-i18n="uploadAction">Upload</span>
         </button>
@@ -114,21 +114,21 @@
         <h2 data-i18n="historyTitle">History</h2>
       </div>
       <div class="row mt-8 align-right">
-        <button class="kd-button secondary" id="import-btn">
+        <button type="button" class="kd-button secondary" id="import-btn">
           <svg class="kd-button-icon"><use href="../shared/icons.svg#icon-upload"></use></svg>
           <span data-i18n="importAction">Import</span>
         </button>
-        <button class="kd-button primary" id="export-btn">
+        <button type="button" class="kd-button primary" id="export-btn">
           <svg class="kd-button-icon"><use href="../shared/icons.svg#icon-download"></use></svg>
           <span data-i18n="exportAction">Export</span>
         </button>
       </div>
     </section>
 
-    <input type="file" id="file-input" class="file-input" accept="application/json">
+    <input type="file" id="file-input" class="file-input" accept="application/json,.json" tabindex="-1" aria-hidden="true">
   </main>
 
-  <div class="kd-loading" id="loading" role="status" aria-live="polite">
+  <div class="kd-loading" id="loading" role="status" aria-live="polite" aria-hidden="true">
     <div class="kd-spinner"></div>
     <div data-i18n="statusProcessing">Processing...</div>
   </div>

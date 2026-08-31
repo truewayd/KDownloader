@@ -38,7 +38,7 @@ export const PAW = {
 
 // Lightweight storage keys. Download history itself lives in IndexedDB.
 export const STORAGE_VERSION_KEY = "version";
-export const LAST_ACCESS_KEY = "lastAccess";
+export const LEGACY_LAST_ACCESS_KEY = "lastAccess";
 export const WATCH_CONFIG_KEY = "watchConfig";
 export const WATCH_DATA_KEY = "pawchiveWatches";
 export const WATCH_ICON_CACHE_KEY = "pawchiveWatchIcons";

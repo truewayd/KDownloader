@@ -1,6 +1,6 @@
 // background/gist.js - GitHub Gist upload/download helpers
 import { loadGistConfig, saveGistConfig } from './config.js';
-import { exportDB, importDB } from './db.js';
+import { exportDB, getHistoryStats, importDB } from './db.js';
 import { readLimitedResponseText } from './network.js';
 
 const GITHUB_API = 'https://api.github.com';
@@ -43,10 +43,11 @@ export async function gistUpload() {
   const token = cfg.token;
   if (!token) throw new Error('No GitHub token configured');
 
-  const text = await exportDB();
-  if (new TextEncoder().encode(text).byteLength > MAX_GIST_FILE_BYTES) {
+  const stats = await getHistoryStats();
+  if (Number(stats.bytes || 0) > MAX_GIST_FILE_BYTES) {
     throw new Error('History is too large for safe Gist upload');
   }
+  const text = await exportDB(MAX_GIST_FILE_BYTES);
   const filename = 'kemono_history.json';
 
   // If gistId present, try to update; otherwise create new gist

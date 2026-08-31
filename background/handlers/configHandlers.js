@@ -14,7 +14,11 @@ import { setCreatorsOverrideEnabled } from "../creators.js";
 import { gistUpload, gistDownload } from "../gist.js";
 import { getGlobalProgress } from "../progress.js";
 import { configureWatchAlarm } from "../watch.js";
-import { respondWith } from "../messageHelpers.js";
+import {
+  isExtensionPageSender,
+  requireExtensionPage,
+  respondWith,
+} from "../messageHelpers.js";
 import { syncDownloadRulesToTrueDown } from "../truedown.js";
 
 async function restoreSettingsDefaults() {
@@ -38,16 +42,6 @@ async function saveAndSyncDownloadRules(value) {
         error: error && error.message ? error.message : String(error),
       },
     };
-  }
-}
-
-function isExtensionPageSender(sender) {
-  return !sender || !sender.tab;
-}
-
-function requireExtensionPage(sender, operation) {
-  if (!isExtensionPageSender(sender)) {
-    throw new Error(`${operation} is restricted to extension pages`);
   }
 }
 

@@ -82,6 +82,7 @@ export async function updateCacheFromNetwork(host) {
 
 export async function getCachedCreators(host) {
   if (host) {
+    if (!TARGET_HOSTS.includes(host)) throw new Error('Unknown host');
     const st = await chrome.storage.local.get(hostKey(host));
     return st && st[hostKey(host)] ? st[hostKey(host)] : null;
   }

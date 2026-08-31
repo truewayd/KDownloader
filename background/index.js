@@ -1,7 +1,7 @@
 // background/index.js - service worker entry
 import { WATCH_ALARM } from './constants.js';
 import { registerMessageHandlers } from './messages.js';
-import { cleanupHistoryStorage } from './db.js';
+import { cleanupHistoryStorage, cleanupLegacyHistoryMetadata } from './db.js';
 import { configureWatchAlarm, runWatchCheck } from './watch.js';
 import { handleNativeFallbackDecision } from './handlers/downloadHandlers.js';
 import {
@@ -16,11 +16,13 @@ registerMessageHandlers();
 chrome.runtime.onInstalled.addListener(async () => {
   try { await configureWatchAlarm(); } catch (e) { console.warn('[Background] configureWatchAlarm failed', e); }
   try { await cleanupHistoryStorage(); } catch (e) { console.warn('[Background] history cleanup failed', e); }
+  try { await cleanupLegacyHistoryMetadata(); } catch (e) { console.warn('[Background] legacy metadata cleanup failed', e); }
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   try { await configureWatchAlarm(); } catch (e) { console.warn('[Background] configureWatchAlarm failed', e); }
   try { await cleanupHistoryStorage(); } catch (e) { console.warn('[Background] history cleanup failed', e); }
+  try { await cleanupLegacyHistoryMetadata(); } catch (e) { console.warn('[Background] legacy metadata cleanup failed', e); }
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -43,6 +45,7 @@ chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) =
     }
     return;
   }
+  if (!String(notificationId || '').startsWith('native-fallback-')) return;
   handleNativeFallbackDecision(notificationId, buttonIndex === 0).catch((error) => {
     console.error('[Background] native fallback decision failed', error);
   });
@@ -50,6 +53,7 @@ chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) =
 
 chrome.notifications.onClosed.addListener((notificationId) => {
   if (notificationId === PAWCHIVE_CLOUDFLARE_NOTIFICATION_ID) return;
+  if (!String(notificationId || '').startsWith('native-fallback-')) return;
   handleNativeFallbackDecision(notificationId, false).catch((error) => {
     console.error('[Background] native fallback close failed', error);
   });

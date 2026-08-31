@@ -2,6 +2,7 @@ package systemupdate
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -312,11 +313,14 @@ func checksumForAsset(checksums, name string) (string, error) {
 	return result, nil
 }
 
-func (m *Manager) RunAutomatic(ctx context.Context, canApply func() bool) {
+func (m *Manager) RunAutomatic(ctx context.Context, canApply func() bool) <-chan struct{} {
+	done := make(chan struct{})
 	if runtime.GOOS != "windows" || m.currentBuild <= 0 {
-		return
+		close(done)
+		return done
 	}
 	go func() {
+		defer close(done)
 		initial := time.NewTimer(8 * time.Second)
 		defer initial.Stop()
 		select {
@@ -342,6 +346,7 @@ func (m *Manager) RunAutomatic(ctx context.Context, canApply func() bool) {
 			}
 		}
 	}()
+	return done
 }
 
 func (m *Manager) runAutomaticCheck(ctx context.Context) {
@@ -369,7 +374,7 @@ func (m *Manager) fetchJSON(ctx context.Context, rawURL string, maximum int64, t
 	if err != nil {
 		return err
 	}
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	if err := decoder.Decode(target); err != nil {
 		return err
 	}
@@ -387,7 +392,11 @@ func (m *Manager) fetchStrictJSON(ctx context.Context, rawURL string, maximum, e
 	if expected <= 0 || int64(len(data)) != expected {
 		return fmt.Errorf("response size does not match its release metadata")
 	}
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	data, err = requireJSONObject(data, "release manifest")
+	if err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return err
@@ -549,10 +558,10 @@ func extractTrueDownExecutable(archivePath, destination string) (string, error) 
 	var executable *zip.File
 	var expanded uint64
 	for _, entry := range archive.File {
-		expanded += entry.UncompressedSize64
-		if expanded > maxArchiveExpanded {
+		if entry.UncompressedSize64 > maxArchiveExpanded-expanded {
 			return "", fmt.Errorf("release archive expands beyond the allowed size")
 		}
+		expanded += entry.UncompressedSize64
 		if strings.ReplaceAll(entry.Name, "\\", "/") == "TrueDown.exe" {
 			if executable != nil {
 				return "", fmt.Errorf("release archive contains duplicate TrueDown executables")

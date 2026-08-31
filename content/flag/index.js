@@ -12,10 +12,11 @@
         5000,
         { retries: 2, retryDelay: 300 }
       );
-      return response && response.flags ? response.flags : {};
+      return response?.flags && typeof response.flags === "object" ? response.flags : null;
     } catch (e) {
+      if (isExtensionContextInvalidatedError(e)) throw e;
       console.warn("[KD Flag] failed to get flags", e);
-      return {};
+      return null;
     }
   }
 
@@ -28,6 +29,7 @@
       );
       return response ? response.flag : null;
     } catch (e) {
+      if (isExtensionContextInvalidatedError(e)) throw e;
       console.warn("[KD Flag] failed to set flag", e);
       return null;
     }
@@ -60,12 +62,14 @@
 
     const nextFlag = container.dataset.flag !== "true";
     container.disabled = true;
+    container.setAttribute("aria-disabled", "true");
     container.setAttribute("aria-busy", "true");
     try {
       const savedFlag = await setCreatorFlag(service, userId, nextFlag);
       if (savedFlag !== null) updateFlagIndicator(container, savedFlag);
     } finally {
       container.disabled = false;
+      container.setAttribute("aria-disabled", "false");
       container.removeAttribute("aria-busy");
     }
   }
@@ -74,18 +78,23 @@
     const service = cardElement.getAttribute("data-service");
     const userId = cardElement.getAttribute("data-id");
     if (!service || !userId) return null;
-    return { service, userId, key: `${service}:${userId}` };
+    if (service.length > 128 || userId.length > 512) return null;
+    return { service, userId, key: JSON.stringify([String(service), String(userId)]) };
   }
 
   function addFlagToCard(cardElement, flag) {
-    const existing = cardElement.querySelector(`.${FLAG_CONTAINER_CLASS}`);
-    if (existing?.matches("button.kd-flag-button")) return;
-    existing?.remove();
-
     const identity = getCardIdentity(cardElement);
     if (!identity) return;
+    const existing = cardElement.querySelector(`.${FLAG_CONTAINER_CLASS}`);
+    if (existing?.matches("button.kd-flag-button")
+      && existing.dataset.kdIdentity === identity.key) {
+      if (existing.getAttribute("aria-busy") !== "true") updateFlagIndicator(existing, flag);
+      return;
+    }
+    existing?.remove();
 
     const indicator = createFlagIndicator(flag);
+    indicator.dataset.kdIdentity = identity.key;
     indicator.addEventListener("click", (event) =>
       handleFlagClick(event, identity.service, identity.userId, indicator)
     );
@@ -94,11 +103,19 @@
     cardElement.appendChild(indicator);
   }
 
-  async function processCreatorCards() {
+  async function processCreatorCards(context) {
     const cards = Array.from(document.querySelectorAll(CARD_SELECTOR));
-    const identities = cards.map(getCardIdentity).filter(Boolean);
+    const uniqueIdentities = new Map();
+    for (const identity of cards.map(getCardIdentity).filter(Boolean)) {
+      uniqueIdentities.set(identity.key, identity);
+    }
+    const identities = Array.from(uniqueIdentities.values());
+    if (identities.length === 0) return;
     const flags = await getCreatorFlagsMany(identities);
+    if (!flags) return;
+    if (!isRenderCurrent(context) || !isFavoritesArtistsPage()) return;
     for (const card of cards) {
+      if (!card.isConnected) continue;
       const identity = getCardIdentity(card);
       if (!identity) continue;
       addFlagToCard(card, flags[identity.key]);
@@ -106,11 +123,19 @@
   }
 
   function isFavoritesArtistsPage() {
-    return window.location.pathname.includes("/account/favorites/artists");
+    return /^\/[^/]+\/account\/favorites\/artists\/?$/.test(window.location.pathname);
   }
 
-  function initializeScript() {
-    if (isFavoritesArtistsPage()) processCreatorCards();
+  function initializeScript(context) {
+    if (!isFavoritesArtistsPage()) return Promise.resolve();
+    return processCreatorCards(context);
+  }
+
+  function cleanupFlags() {
+    document.querySelectorAll('[data-kd-flag="true"]').forEach((element) => element.remove());
+    document.querySelectorAll(`${CARD_SELECTOR}.kd-position-context`).forEach((element) => {
+      element.classList.remove("kd-position-context");
+    });
   }
 
   function waitForElements(maxAttempts = 20, intervalMs = 300) {
@@ -119,7 +144,7 @@
       attempts++;
       const hasCards = document.querySelectorAll(CARD_SELECTOR).length > 0;
       if (hasCards || attempts >= maxAttempts) {
-        initializeScript();
+        initializeScript().catch((error) => console.warn("[KD Flag] render failed", error));
         return true;
       }
       return false;
@@ -137,7 +162,8 @@
       targetSelector: CARD_SELECTOR,
       match: isFavoritesArtistsPage,
       hasTargets: () => document.querySelectorAll(CARD_SELECTOR).length > 0,
-      render: initializeScript,
+      render: processCreatorCards,
+      cleanup: cleanupFlags,
       maxAttempts: 25,
     });
   } else if (document.readyState === "loading") {

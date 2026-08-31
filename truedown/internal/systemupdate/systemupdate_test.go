@@ -18,6 +18,18 @@ import (
 	"time"
 )
 
+func TestRunAutomaticStopsWhenContextIsCanceled(t *testing.T) {
+	manager := &Manager{currentBuild: 1}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := manager.RunAutomatic(ctx, nil)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("automatic update loop did not stop after cancellation")
+	}
+}
+
 func TestManualNextInstallPersistsSelection(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows assets are intentionally platform-specific")
@@ -187,6 +199,16 @@ func TestSignalHealthyRequiresMatchingBoundedToken(t *testing.T) {
 	}
 }
 
+func TestHealthCheckRejectsOversizedMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "health")
+	if err := os.WriteFile(path, bytes.Repeat([]byte{'a'}, 513), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if healthTokenMatches(path, strings.Repeat("a", 48)) {
+		t.Fatal("oversized health marker was accepted")
+	}
+}
+
 func TestInvalidUpdateStateFallsBackWithoutBlockingStartup(t *testing.T) {
 	root := t.TempDir()
 	stablePath := filepath.Join(root, "aria2c.exe")
@@ -208,6 +230,31 @@ func TestInvalidUpdateStateFallsBackWithoutBlockingStartup(t *testing.T) {
 	matches, err := filepath.Glob(statePath + ".invalid-*")
 	if err != nil || len(matches) != 1 {
 		t.Fatalf("invalid state preservation matches=%v err=%v", matches, err)
+	}
+}
+
+func TestNullUpdateStateFallsBackWithoutBecomingValidConfiguration(t *testing.T) {
+	root := t.TempDir()
+	stablePath := filepath.Join(root, "aria2c.exe")
+	if err := os.WriteFile(stablePath, []byte("stable"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(root, "truedown.updates.json")
+	if err := os.WriteFile(statePath, []byte("null\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := New(Options{
+		BaseDir: root, DataDir: root, StableEnginePath: stablePath,
+		InspectEngine: func(string) (string, string, error) { return EngineStable, "1.37.0", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(manager.Snapshot().Error, "JSON object") {
+		t.Fatalf("null update state was not reported as invalid: %+v", manager.Snapshot())
+	}
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Fatalf("invalid update state remained active: %v", err)
 	}
 }
 
@@ -381,6 +428,31 @@ func TestApplyTransactionReplacesExecutableAfterHealthSignal(t *testing.T) {
 		t.Fatalf("staged executable was not reclaimed: %v", err)
 	}
 	time.Sleep(900 * time.Millisecond)
+}
+
+func TestCopyVerifiedExecutableRejectsStagedFileChangedAfterManifestCheck(t *testing.T) {
+	root := t.TempDir()
+	stagedPath := filepath.Join(root, "staged.exe")
+	candidatePath := filepath.Join(root, "candidate.exe")
+	original := []byte("MZ-original signed executable")
+	if err := os.WriteFile(stagedPath, original, 0700); err != nil {
+		t.Fatal(err)
+	}
+	expectedSHA, expectedSize, err := hashFile(stagedPath, maxExecutableBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := append([]byte(nil), original...)
+	tampered[len(tampered)-1] ^= 1
+	if err := os.WriteFile(stagedPath, tampered, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyVerifiedExecutable(stagedPath, candidatePath, expectedSHA, expectedSize); err == nil {
+		t.Fatal("candidate copied from a replaced staged executable passed manifest verification")
+	}
+	if _, err := os.Stat(candidatePath); !os.IsNotExist(err) {
+		t.Fatalf("unverified candidate was not removed: %v", err)
+	}
 }
 
 func TestUpdateHealthChild(t *testing.T) {

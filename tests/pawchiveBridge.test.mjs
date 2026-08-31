@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 const bridgeSource = await readFile(new URL('../content/paw_api_bridge.js', import.meta.url), 'utf8');
 
-function createBridgeHarness() {
+function createBridgeHarness(options = {}) {
   let listener = null;
   const requests = [];
   const context = vm.createContext({
@@ -23,8 +23,9 @@ function createBridgeHarness() {
         },
       },
     },
-    fetch: async (url, options) => {
-      requests.push({ url, options });
+    fetch: async (url, fetchOptions) => {
+      requests.push({ url, options: fetchOptions });
+      if (typeof options.fetch === 'function') return options.fetch(url, fetchOptions);
       return {
         ok: true,
         status: 200,
@@ -44,7 +45,10 @@ function createBridgeHarness() {
     },
     setTimeout,
   });
-  vm.runInContext(bridgeSource, context);
+  const source = Number.isInteger(options.maxResponseBytes)
+    ? bridgeSource.replace('16 * 1024 * 1024', String(options.maxResponseBytes))
+    : bridgeSource;
+  vm.runInContext(source, context);
 
   return {
     requests,
@@ -76,6 +80,7 @@ test('Pawchive bridge performs credentialed same-origin API GETs with safe heade
   assert.equal(harness.requests.length, 1);
   assert.equal(harness.requests[0].options.credentials, 'include');
   assert.equal(harness.requests[0].options.method, 'GET');
+  assert.equal(harness.requests[0].options.redirect, 'error');
   assert.deepEqual(
     Object.fromEntries(Object.entries(harness.requests[0].options.headers)),
     { Accept: 'application/json' }
@@ -99,9 +104,70 @@ test('Pawchive bridge rejects requests outside the fixed API origin and path', a
     action: 'pawchive.api.fetch',
     url: 'https://pawchive.pw/icons/patreon/creator-1',
   });
+  const credentialed = await harness.send({
+    action: 'pawchive.api.fetch',
+    url: 'https://user:secret@pawchive.pw/api/v1/leak',
+  });
 
   assert.equal(external.success, false);
   assert.match(external.error, /Rejected non-Pawchive API bridge request/);
   assert.equal(nonApi.success, false);
+  assert.equal(credentialed.success, false);
   assert.equal(harness.requests.length, 0);
+});
+
+test('Pawchive bridge joins streamed bytes once and preserves the size error if cancellation fails', async () => {
+  let cancelCalls = 0;
+  const encoder = new TextEncoder();
+  const chunks = [encoder.encode('{"'), encoder.encode('id"'), encoder.encode(':1}')];
+  const harness = createBridgeHarness({
+    maxResponseBytes: 8,
+    fetch: async (url) => ({
+      ok: true,
+      status: 200,
+      url,
+      headers: { get: () => null },
+      body: {
+        getReader() {
+          let index = 0;
+          return {
+            async read() {
+              return index < chunks.length
+                ? { done: false, value: chunks[index++] }
+                : { done: true };
+            },
+            async cancel() {
+              cancelCalls += 1;
+              throw new Error('cancel failed');
+            },
+            releaseLock() {},
+          };
+        },
+      },
+    }),
+  });
+
+  const response = await harness.send({
+    action: 'pawchive.api.fetch',
+    url: 'https://pawchive.pw/api/v1/test',
+  });
+  assert.equal(response.success, true);
+  assert.equal(response.response.body, '{"id":1}');
+
+  const endpointLimited = await harness.send({
+    action: 'pawchive.api.fetch',
+    url: 'https://pawchive.pw/api/v1/test',
+    maxResponseBytes: 7,
+  });
+  assert.equal(endpointLimited.success, false);
+  assert.match(endpointLimited.error, /too large/);
+
+  chunks.push(encoder.encode('x'));
+  const oversized = await harness.send({
+    action: 'pawchive.api.fetch',
+    url: 'https://pawchive.pw/api/v1/test',
+  });
+  assert.equal(oversized.success, false);
+  assert.match(oversized.error, /too large/);
+  assert.equal(cancelCalls, 2);
 });

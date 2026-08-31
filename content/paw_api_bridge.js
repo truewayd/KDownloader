@@ -12,7 +12,11 @@
 
   function normalizeApiUrl(value) {
     const url = new URL(String(value || ''), location.origin);
-    if (location.origin !== PAW_ORIGIN || url.origin !== PAW_ORIGIN || !url.pathname.startsWith('/api/v1/')) {
+    if (location.origin !== PAW_ORIGIN
+      || url.origin !== PAW_ORIGIN
+      || url.username
+      || url.password
+      || !url.pathname.startsWith('/api/v1/')) {
       throw new Error('Rejected non-Pawchive API bridge request');
     }
     return url.toString();
@@ -31,40 +35,59 @@
     return output;
   }
 
-  async function readLimitedText(response) {
+  async function readLimitedText(response, maxResponseBytes) {
     const reader = response.body && typeof response.body.getReader === 'function'
       ? response.body.getReader()
       : null;
     if (!reader) {
       const body = await response.text();
-      if (new Blob([body]).size > MAX_RESPONSE_BYTES) {
+      if (new Blob([body]).size > maxResponseBytes) {
         throw new Error('Pawchive API response is too large for the extension bridge');
       }
       return body;
     }
-    const decoder = new TextDecoder();
-    const chunks = [];
+    let bytes = new Uint8Array(Math.min(maxResponseBytes, 64 * 1024));
     let received = 0;
     try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        received += value.byteLength;
-        if (received > MAX_RESPONSE_BYTES) {
-          await reader.cancel();
+        const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+        if (chunk.byteLength > maxResponseBytes - received) {
+          try { await reader.cancel(); } catch (error) { /* preserve the size error */ }
           throw new Error('Pawchive API response is too large for the extension bridge');
         }
-        chunks.push(decoder.decode(value, { stream: true }));
+        const required = received + chunk.byteLength;
+        if (required > bytes.byteLength) {
+          let capacity = bytes.byteLength;
+          while (capacity < required) {
+            capacity = Math.min(maxResponseBytes, Math.max(required, capacity * 2));
+          }
+          const grown = new Uint8Array(capacity);
+          grown.set(bytes.subarray(0, received));
+          bytes = grown;
+        }
+        bytes.set(chunk, received);
+        received = required;
       }
-      chunks.push(decoder.decode());
-      return chunks.join('');
+      return new TextDecoder().decode(bytes.subarray(0, received));
     } finally {
       reader.releaseLock?.();
     }
   }
 
+  async function cancelResponseBody(response) {
+    try { await response.body?.cancel?.(); } catch (error) { /* preserve the boundary error */ }
+  }
+
   async function fetchApi(message) {
     const url = normalizeApiUrl(message.url);
+    const requestedLimit = Number(message.maxResponseBytes);
+    const maxResponseBytes = Number.isSafeInteger(requestedLimit)
+      && requestedLimit > 0
+      && requestedLimit <= MAX_RESPONSE_BYTES
+      ? requestedLimit
+      : MAX_RESPONSE_BYTES;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
@@ -73,15 +96,18 @@
         headers: safeHeaders(message.headers),
         credentials: 'include',
         cache: 'no-store',
-        redirect: 'follow',
+        // Do not let an API redirect turn this same-origin bridge into an
+        // unintended cross-origin credentialed request.
+        redirect: 'error',
         signal: controller.signal,
       });
       const declaredBytes = Number(response.headers.get('content-length'));
-      if (Number.isFinite(declaredBytes) && declaredBytes > MAX_RESPONSE_BYTES) {
+      if (Number.isFinite(declaredBytes) && declaredBytes > maxResponseBytes) {
+        await cancelResponseBody(response);
         throw new Error('Pawchive API response is too large for the extension bridge');
       }
       normalizeApiUrl(response.url);
-      const body = await readLimitedText(response);
+      const body = await readLimitedText(response, maxResponseBytes);
       const headers = {};
       for (const name of RESPONSE_HEADER_NAMES) {
         const value = response.headers.get(name);

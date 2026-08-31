@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -93,6 +95,77 @@ func TestNormalizeRequestTreatsNilAndEmptyCollectionsEqually(t *testing.T) {
 	if a != b {
 		t.Fatalf("normalized fingerprints differ: %q != %q", a, b)
 	}
+}
+
+func TestNormalizeRequestTreatsWhitespaceFolderAsDefault(t *testing.T) {
+	identity := normalizeRequest("https://example.test/a", "", "  \t", "downloads", nil, "", 0, Aria2Opts{})
+	if identity.Folder != filepath.Clean("downloads") {
+		t.Fatalf("whitespace folder=%q", identity.Folder)
+	}
+}
+
+func TestDuplicateRecheckDoesNotCommitWhenPersistenceFails(t *testing.T) {
+	root := t.TempDir()
+	m, err := NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	task, _, err := m.AddTask("https://example.test/file.bin", "file.bin", "", nil, "", 0, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		persisted, loadErr := m.store.LoadAll()
+		if loadErr == nil && len(persisted) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task was not persisted: records=%d err=%v", len(persisted), loadErr)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := m.setTask(task.ID, func(current *Task) { current.Status = StatusDone }); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := m.GetTask(task.ID)
+	if err := m.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, duplicate, err := m.AddTask("https://example.test/file.bin", "file.bin", "", nil, "", 0, Aria2Opts{}); err == nil || !duplicate {
+		t.Fatalf("duplicate recheck err=%v duplicate=%v", err, duplicate)
+	}
+	after, _ := m.GetTask(task.ID)
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("failed persistence changed task: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestWaitForManagedCommandKillsAndReapsTimedOutProcess(t *testing.T) {
+	command := exec.Command(os.Args[0], "-test.run=^TestManagedCommandChild$")
+	command.Env = append(os.Environ(), "TRUEDOWN_MANAGED_COMMAND_CHILD=1")
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- command.Wait()
+		close(done)
+	}()
+	if !waitForManagedCommand(command, done, 20*time.Millisecond, 2*time.Second) {
+		t.Fatal("timed-out child process was not reaped after kill")
+	}
+	if command.ProcessState == nil || !command.ProcessState.Exited() {
+		t.Fatal("child process has no exited process state")
+	}
+}
+
+func TestManagedCommandChild(t *testing.T) {
+	if os.Getenv("TRUEDOWN_MANAGED_COMMAND_CHILD") != "1" {
+		t.Skip("only runs as the managed-command child process")
+	}
+	time.Sleep(30 * time.Second)
 }
 
 func TestDropboxDirectDownloadDetection(t *testing.T) {

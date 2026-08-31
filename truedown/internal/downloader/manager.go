@@ -228,6 +228,8 @@ type Manager struct {
 	wg           sync.WaitGroup
 	stopOnce     sync.Once
 	engineExited atomic.Bool
+	lifecycleCtx context.Context
+	cancel       context.CancelFunc
 
 	rpc     ariaRPC
 	cmd     *exec.Cmd
@@ -277,6 +279,7 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 	}
 	dropboxProxy := systemProxyFunc()
 	googleDriveProxy := systemProxyFunc()
+	lifecycleCtx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
 		aria2Path:         aria2Path,
 		aria2Next:         config.Aria2Next,
@@ -304,6 +307,8 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		wake:              make(chan struct{}, 1),
 		dbWake:            make(chan struct{}, 1),
 		done:              make(chan struct{}),
+		lifecycleCtx:      lifecycleCtx,
+		cancel:            cancel,
 	}
 	var maxID int64
 	for _, task := range tasks {
@@ -378,6 +383,9 @@ func (m *Manager) Start() error {
 
 func (m *Manager) Stop() {
 	m.stopOnce.Do(func() {
+		if m.cancel != nil {
+			m.cancel()
+		}
 		close(m.done)
 		m.wg.Wait()
 		if m.rpc != nil {
@@ -388,21 +396,46 @@ func (m *Manager) Stop() {
 			m.trackerResearch.close()
 		}
 		if m.cmdDone != nil {
-			select {
-			case <-m.cmdDone:
-			case <-time.After(4 * time.Second):
-				if m.cmd != nil && m.cmd.Process != nil {
-					_ = m.cmd.Process.Kill()
-				}
+			if !waitForManagedCommand(m.cmd, m.cmdDone, 4*time.Second, 2*time.Second) {
+				log.Printf("timed out reaping the aria2 process after shutdown")
 			}
 		}
 		if m.logFile != nil {
 			_ = m.logFile.Close()
 		}
+		if m.dropboxClient != nil {
+			m.dropboxClient.CloseIdleConnections()
+		}
+		if m.googleDriveClient != nil {
+			m.googleDriveClient.CloseIdleConnections()
+		}
 		if m.store != nil {
 			_ = m.store.Close()
 		}
 	})
+}
+
+func waitForManagedCommand(command *exec.Cmd, done <-chan error, gracefulTimeout, killTimeout time.Duration) bool {
+	timer := time.NewTimer(gracefulTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+	}
+	if command == nil || command.Process == nil {
+		return false
+	}
+	if err := command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		log.Printf("kill aria2 process after shutdown timeout: %v", err)
+	}
+	timer.Reset(killTimeout)
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 // AddTask records the request and returns immediately. Persistence and aria2
@@ -433,63 +466,61 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 
 	m.mu.Lock()
 	if task := m.findModuleResumeLocked(identity, fingerprint); task != nil {
-		original := cloneTask(task)
-		oldFingerprint := task.Fingerprint
-		removeGID := m.rotateGIDLocked(task)
-		delete(m.fingerprints, oldFingerprint)
-		task.Fingerprint = fingerprint
-		task.RequestJSON = string(requestJSON)
-		task.Link = identity.Link
-		task.Headers = identity.Headers
-		task.DownloadPage = identity.DownloadPage
-		task.QueueID = identity.QueueID
-		task.Opts = identity.Opts
-		task.ModuleID = moduleID
-		task.DropboxDirect = moduleID == DropboxModuleID
-		m.fingerprints[fingerprint] = task.ID
-		m.setStatusLocked(task, StatusQueued)
-		task.Error = ""
-		task.Progress = "Waiting for aria2 to verify and resume partial data"
-		m.touchTaskLocked(task)
-		result := cloneTask(task)
-		m.mu.Unlock()
-
-		if err := m.store.UpdateRequest(result); err != nil {
-			m.mu.Lock()
-			currentStatus := task.Status
-			delete(m.fingerprints, task.Fingerprint)
-			delete(m.gids, task.GID)
-			*task = *original
-			m.fingerprints[task.Fingerprint] = task.ID
-			m.gids[task.GID] = task.ID
-			m.statusCounts[currentStatus]--
-			m.statusCounts[task.Status]++
-			m.structureRev++
+		removeGID := task.GID
+		proposed := cloneTask(task)
+		proposed.GID = m.newGIDLocked()
+		proposed.Fingerprint = fingerprint
+		proposed.RequestJSON = string(requestJSON)
+		proposed.Link = identity.Link
+		proposed.Headers = identity.Headers
+		proposed.DownloadPage = identity.DownloadPage
+		proposed.QueueID = identity.QueueID
+		proposed.Opts = identity.Opts
+		proposed.ModuleID = moduleID
+		proposed.DropboxDirect = moduleID == DropboxModuleID
+		proposed.Status = StatusQueued
+		proposed.Error = ""
+		proposed.Progress = "Waiting for aria2 to verify and resume partial data"
+		proposed.Revision = m.revision + 1
+		proposed.UpdatedAt = time.Now()
+		// This rare resume path keeps the task lock through the SQLite commit so
+		// the poller cannot advance the same task before the index swap.
+		if err := m.store.UpdateRequest(proposed); err != nil {
 			m.mu.Unlock()
 			return nil, true, err
 		}
+		m.revision = proposed.Revision
+		m.replaceTaskLocked(task, proposed)
+		result := cloneTask(task)
+		m.mu.Unlock()
 		m.enqueue(submission{id: result.ID, removeGID: removeGID})
 		return result, true, nil
 	}
 	if id, ok := m.fingerprints[fingerprint]; ok {
 		task := m.tasks[id]
 		shouldRecheck := task.Status == StatusDone || task.Status == StatusError
-		removeGID := ""
-		if shouldRecheck {
-			removeGID = m.rotateGIDLocked(task)
-			m.setStatusLocked(task, StatusQueued)
-			task.Error = ""
-			task.Progress = "Checking whether the remote content has changed"
-			m.touchTaskLocked(task)
+		if !shouldRecheck {
+			result := cloneTask(task)
+			m.mu.Unlock()
+			return result, true, nil
 		}
+		removeGID := task.GID
+		proposed := cloneTask(task)
+		proposed.GID = m.newGIDLocked()
+		proposed.Status = StatusQueued
+		proposed.Error = ""
+		proposed.Progress = "Checking whether the remote content has changed"
+		proposed.Revision = m.revision + 1
+		proposed.UpdatedAt = time.Now()
+		if err := m.store.Update(proposed); err != nil {
+			m.mu.Unlock()
+			return nil, true, err
+		}
+		m.revision = proposed.Revision
+		m.replaceTaskLocked(task, proposed)
 		result := cloneTask(task)
 		m.mu.Unlock()
-		if shouldRecheck {
-			if err := m.store.Update(result); err != nil {
-				return nil, true, err
-			}
-			m.enqueue(submission{id: id, recheck: true, removeGID: removeGID})
-		}
+		m.enqueue(submission{id: id, recheck: true, removeGID: removeGID})
 		return result, true, nil
 	}
 
@@ -565,6 +596,7 @@ func (m *Manager) findModuleResumeLocked(identity requestIdentity, fingerprint s
 		if task := m.tasks[id]; eligible(task) {
 			return task
 		}
+		return nil
 	}
 	for index := len(m.orderedIDs) - 1; index >= 0; index-- {
 		if task := m.tasks[m.orderedIDs[index]]; eligible(task) {
@@ -1541,20 +1573,35 @@ func (m *Manager) enqueueAdmission(item admission) {
 
 func (m *Manager) persistenceWriter() {
 	defer m.wg.Done()
+	coalesceTimer := time.NewTimer(time.Hour)
+	stopAndDrainTimer(coalesceTimer)
+	defer coalesceTimer.Stop()
 	for {
 		select {
 		case <-m.done:
 			m.flushAdmissions(true)
 			return
 		case <-m.dbWake:
+			coalesceTimer.Reset(2 * time.Millisecond)
 			select {
 			case <-m.done:
+				stopAndDrainTimer(coalesceTimer)
 				m.flushAdmissions(true)
 				return
-			case <-time.After(2 * time.Millisecond):
+			case <-coalesceTimer.C:
 			}
 			m.flushAdmissions(false)
 		}
+	}
+}
+
+func stopAndDrainTimer(timer *time.Timer) {
+	if timer.Stop() {
+		return
+	}
+	select {
+	case <-timer.C:
+	default:
 	}
 }
 
@@ -1699,8 +1746,13 @@ func (m *Manager) submit(item submission) bool {
 	preparedLink := ""
 	var preparedHeaders map[string]string
 	if module := m.modules.module(snapshot.ModuleID); module != nil {
-		prepared, err := module.prepare(context.Background(), m, snapshot)
+		prepareContext, cancel := context.WithTimeout(m.lifecycleCtx, 5*time.Minute)
+		prepared, err := module.prepare(prepareContext, m, snapshot)
+		cancel()
 		if err != nil {
+			if errors.Is(err, context.Canceled) && m.lifecycleCtx.Err() != nil {
+				return false
+			}
 			m.failTask(snapshot.ID, err)
 			return false
 		}
@@ -1985,6 +2037,36 @@ func (m *Manager) touchTaskLocked(task *Task) {
 	m.revision++
 	task.Revision = m.revision
 	task.UpdatedAt = time.Now()
+}
+
+// replaceTaskLocked commits a task snapshot while keeping every secondary
+// index in sync. The caller must hold m.mu and persist replacement first.
+func (m *Manager) replaceTaskLocked(task, replacement *Task) {
+	oldStatus := task.Status
+	if m.fingerprints[task.Fingerprint] == task.ID {
+		delete(m.fingerprints, task.Fingerprint)
+	}
+	if m.gids[task.GID] == task.ID {
+		delete(m.gids, task.GID)
+	}
+	if task.OutputName != "" {
+		key := outputNameKey(task.Folder, task.OutputName)
+		if m.outputNames[key] == task.ID {
+			delete(m.outputNames, key)
+		}
+	}
+
+	*task = *cloneTask(replacement)
+	m.fingerprints[task.Fingerprint] = task.ID
+	m.gids[task.GID] = task.ID
+	if task.OutputName != "" {
+		m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID
+	}
+	if oldStatus != task.Status {
+		m.statusCounts[oldStatus]--
+		m.statusCounts[task.Status]++
+		m.structureRev++
+	}
 }
 
 func (m *Manager) removeTaskLocked(id int64) bool {
@@ -2291,6 +2373,7 @@ func aria2NextVersionAtLeast(version string, requiredMajor, requiredMinor, requi
 }
 
 func normalizeRequest(link, name, folder, defaultDir string, headers map[string]string, downloadPage string, queueID int, opts Aria2Opts) requestIdentity {
+	folder = strings.TrimSpace(folder)
 	if folder == "" {
 		folder = defaultDir
 	}
@@ -2304,7 +2387,7 @@ func normalizeRequest(link, name, folder, defaultDir string, headers map[string]
 	return requestIdentity{
 		Link:         strings.TrimSpace(link),
 		Name:         strings.TrimSpace(name),
-		Folder:       filepath.Clean(strings.TrimSpace(folder)),
+		Folder:       filepath.Clean(folder),
 		QueueID:      queueID,
 		Headers:      cleanHeaders,
 		DownloadPage: strings.TrimSpace(downloadPage),

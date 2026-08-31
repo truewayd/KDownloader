@@ -128,3 +128,29 @@ func TestAriaCallKeepsGenericHTTPErrorWithoutRPCEnvelope(t *testing.T) {
 		t.Fatalf("call error = %v, want generic HTTP 400 error", err)
 	}
 }
+
+func TestAriaReadyRejectsImpersonatingEmptyVersionResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+	}))
+	defer server.Close()
+	client := newAriaClient(0, "secret")
+	client.url = server.URL
+	if err := client.ready(); err == nil || !strings.Contains(err.Error(), "empty engine version") {
+		t.Fatalf("ready error=%v", err)
+	}
+}
+
+func TestAriaCallRejectsNonObjectEnvelopeWithoutAResultTarget(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("null\n"))
+	}))
+	defer server.Close()
+	client := newAriaClient(0, "secret")
+	client.url = server.URL
+	if err := client.call("aria2.shutdown", nil, nil); err == nil || !strings.Contains(err.Error(), "JSON object") {
+		t.Fatalf("non-object RPC envelope error=%v", err)
+	}
+}

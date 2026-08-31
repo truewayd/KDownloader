@@ -167,7 +167,7 @@ func TestTrackerResearchRelayForwardsHTTPSWithoutMITM(t *testing.T) {
 		t.Fatalf("upstream query=%v", upstreamQuery)
 	}
 	module.mu.Lock()
-	state := module.announces[token+"\x00test-hash"]
+	state := module.announces[token]
 	forwarded := module.forwardedAnnounces
 	module.mu.Unlock()
 	if state == nil || state.lastIncomplete != 7 || forwarded != 1 {
@@ -316,6 +316,65 @@ func TestTrackerResearchManagerRewritesAndRestoresTieredTrackers(t *testing.T) {
 		t.Fatalf("restored trackers=%+v", restored)
 	}
 	manager.Stop()
+}
+
+func TestTrackerResearchSyncReclaimsStaleRewriteState(t *testing.T) {
+	module, err := newTrackerResearchModule(filepath.Join(t.TempDir(), "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer module.close()
+	settings := defaultTrackerResearchSettings()
+	settings.Enabled = true
+	module.settings = settings
+	module.supported = true
+	gid := "0123456789abcdef"
+	token := strings.Repeat("a", 32)
+	module.originals[gid] = []btTrackerConfig{{URL: "https://tracker.example/announce", Tier: 0}}
+	module.rewrites[gid] = trackerTorrentRewrite{replacementCount: 1, tokens: []string{token}}
+	parsed, _ := url.Parse("https://tracker.example/announce")
+	module.bindings[token] = trackerRelayBinding{original: parsed}
+	module.announces[token] = &trackerAnnounceState{actualSeen: true}
+
+	stub := &trackerResearchRPCStub{fakeAriaRPC: &fakeAriaRPC{}}
+	module.sync(stub, nil)
+	if len(stub.replacements) != 1 || len(module.originals) != 0 || len(module.rewrites) != 0 ||
+		len(module.bindings) != 0 || len(module.announces) != 0 {
+		t.Fatalf("stale state was retained: replacements=%d originals=%d rewrites=%d bindings=%d announces=%d",
+			len(stub.replacements), len(module.originals), len(module.rewrites), len(module.bindings), len(module.announces))
+	}
+}
+
+func TestTrackerResearchRelayCanRestartAfterUnexpectedListenerClose(t *testing.T) {
+	module, err := newTrackerResearchModule(filepath.Join(t.TempDir(), "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer module.close()
+	if err := module.startRelay(); err != nil {
+		t.Fatal(err)
+	}
+	module.mu.Lock()
+	listener := module.listener
+	done := module.serverDone
+	module.mu.Unlock()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("tracker relay did not exit after its listener closed")
+	}
+	module.mu.Lock()
+	stopped := module.server == nil && module.listener == nil && module.serverDone == nil
+	module.mu.Unlock()
+	if !stopped {
+		t.Fatal("tracker relay retained stale lifecycle state")
+	}
+	if err := module.startRelay(); err != nil {
+		t.Fatalf("restart tracker relay: %v", err)
+	}
 }
 
 func TestBencodeDictionaryInt(t *testing.T) {

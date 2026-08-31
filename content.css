@@ -11,6 +11,8 @@
   --kd-content-focus: #79a8a8;
   --kd-content-success: #5c9452;
   --kd-content-success-hover: #6aa660;
+  --kd-content-warning: #d19a5b;
+  --kd-content-warning-hover: #b87c3d;
   --kd-content-error: #ad5047;
   --kd-content-error-hover: #c15d52;
   --kd-content-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
@@ -32,6 +34,8 @@
     --kd-content-focus: #487a7a;
     --kd-content-success: #4e8445;
     --kd-content-success-hover: #3f7038;
+    --kd-content-warning: #8b5e20;
+    --kd-content-warning-hover: #704714;
     --kd-content-error: #b0453a;
     --kd-content-error-hover: #96372f;
     --kd-content-shadow: 0 8px 24px rgba(35, 60, 60, 0.18);
@@ -121,6 +125,16 @@
   background: var(--kd-content-success-hover);
 }
 
+.kd-action-button[data-status="PARTIAL"] {
+  border-color: var(--kd-content-warning);
+  background: var(--kd-content-warning);
+  color: #fff;
+}
+
+.kd-action-button[data-status="PARTIAL"]:hover:not(:disabled) {
+  background: var(--kd-content-warning-hover);
+}
+
 .kd-action-button[data-status="ERROR"] {
   border-color: var(--kd-content-error);
   background: var(--kd-content-error);
@@ -183,6 +197,11 @@
 .kd-creator-button[data-status="SUCCESS"] {
   border-color: color-mix(in srgb, var(--kd-content-success) 72%, transparent);
   color: #d3e6cd;
+}
+
+.kd-creator-button[data-status="PARTIAL"] {
+  border-color: color-mix(in srgb, var(--kd-content-warning) 76%, transparent);
+  color: var(--kd-content-warning);
 }
 
 .kd-creator-button[data-status="ERROR"] {

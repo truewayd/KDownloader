@@ -1,13 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
+
+	"truedown/internal/safefile"
 )
+
+const maxAuthSettingsBytes = 4096
 
 type authController struct {
 	mu           sync.RWMutex
@@ -28,18 +33,27 @@ func newAuthController(dataDir string, required bool, configured string) (*authC
 	controller := &authController{
 		dataDir:      dataDir,
 		settingsPath: filepath.Join(dataDir, "truedown.auth.json"),
-		managed:      required || strings.TrimSpace(configured) != "",
+		managed:      required || configured != "",
 	}
 	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		return nil, fmt.Errorf("create TrueDown data directory: %w", err)
 	}
 	controller.enabled = controller.managed
 	if !controller.managed {
-		data, err := os.ReadFile(controller.settingsPath)
+		data, err := safefile.ReadFile(controller.settingsPath, maxAuthSettingsBytes)
 		if err == nil {
+			data = bytes.TrimSpace(data)
+			if len(data) == 0 || data[0] != '{' {
+				return nil, fmt.Errorf("read TrueDown auth settings: expected one JSON object")
+			}
 			var settings persistedAuthSettings
-			if err := json.Unmarshal(data, &settings); err != nil {
+			decoder := json.NewDecoder(bytes.NewReader(data))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&settings); err != nil {
 				return nil, fmt.Errorf("read TrueDown auth settings: %w", err)
+			}
+			if err := decoder.Decode(&struct{}{}); err != io.EOF {
+				return nil, fmt.Errorf("read TrueDown auth settings: expected one JSON object")
 			}
 			controller.enabled = settings.Enabled
 		} else if !os.IsNotExist(err) {
@@ -84,13 +98,16 @@ func (controller *authController) SetEnabled(enabled bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("encode TrueDown auth settings: %w", err)
 	}
-	if err := os.WriteFile(controller.settingsPath, append(data, '\n'), 0600); err != nil {
+	if err := safefile.WriteFile(controller.settingsPath, append(data, '\n'), 0600); err != nil {
 		return "", fmt.Errorf("write TrueDown auth settings: %w", err)
 	}
 	controller.enabled = enabled
 	if enabled {
 		controller.token = token
 		controller.tokenPath = tokenPath
+	} else {
+		controller.token = ""
+		controller.tokenPath = ""
 	}
 	return controller.token, nil
 }

@@ -13,8 +13,10 @@ func systemOpenPath(path string) error {
 	if runtime.GOOS == "darwin" {
 		command = "open"
 	}
-	if err := exec.Command(command, path).Start(); err != nil {
+	process := exec.Command(command, path)
+	if err := process.Start(); err != nil {
 		return fmt.Errorf("start %s: %w", command, err)
 	}
+	go func() { _ = process.Wait() }()
 	return nil
 }

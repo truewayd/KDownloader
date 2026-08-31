@@ -110,6 +110,13 @@ func (c *ariaClient) call(method string, params []any, result any) error {
 	if len(data) > 16*1024*1024 {
 		return fmt.Errorf("aria2 RPC response exceeds 16 MiB")
 	}
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || data[0] != '{' {
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("aria2 RPC returned HTTP %d", resp.StatusCode)
+		}
+		return fmt.Errorf("aria2 RPC response must contain one JSON object")
+	}
 	var envelope struct {
 		Result json.RawMessage `json:"result"`
 		Error  *ariaRPCError   `json:"error"`
@@ -139,7 +146,13 @@ func (c *ariaClient) ready() error {
 	var version struct {
 		Version string `json:"version"`
 	}
-	return c.call("aria2.getVersion", nil, &version)
+	if err := c.call("aria2.getVersion", nil, &version); err != nil {
+		return err
+	}
+	if strings.TrimSpace(version.Version) == "" {
+		return fmt.Errorf("aria2 RPC returned an empty engine version")
+	}
+	return nil
 }
 
 func (c *ariaClient) addURI(t *Task, options map[string]any) error {
@@ -215,6 +228,7 @@ func (c *ariaClient) purgeResults() error {
 }
 
 func (c *ariaClient) shutdown() error {
+	defer c.http.CloseIdleConnections()
 	var result string
 	return c.call("aria2.shutdown", nil, &result)
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -21,6 +22,11 @@ const maxBatchRequestBytes = 64 * 1024
 const maxBatchTaskIDs = 1000
 const maxBrowserIntegrationItems = 256
 const SessionCookieName = "truedown_session"
+
+// SessionCookieValue encodes the header-safe token into a cookie-safe value.
+func SessionCookieValue(token string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(token))
+}
 
 type TokenAuth interface {
 	Snapshot() (enabled bool, token string, managed bool)
@@ -852,7 +858,7 @@ func writeModuleAddResponse(w http.ResponseWriter, result downloader.ModuleAddRe
 func setAuthSessionCookie(w http.ResponseWriter, r *http.Request, enabled bool, token string) {
 	cookie := &http.Cookie{
 		Name:     SessionCookieName,
-		Value:    token,
+		Value:    SessionCookieValue(token),
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   r.TLS != nil,
@@ -871,18 +877,7 @@ func decodeJSONRequest(w http.ResponseWriter, r *http.Request, maxBytes int64, t
 		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
 		return false
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		http.Error(w, "invalid JSON request", http.StatusBadRequest)
-		return false
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		http.Error(w, "request must contain one JSON object", http.StatusBadRequest)
-		return false
-	}
-	return true
+	return decodeBoundedJSONObject(w, r, maxBytes, target, "invalid JSON request", "request must contain one JSON object")
 }
 
 func decodeBrowserIntegrationRequest(w http.ResponseWriter, r *http.Request, target any) bool {
@@ -894,15 +889,39 @@ func decodeBrowserIntegrationRequest(w http.ResponseWriter, r *http.Request, tar
 			return false
 		}
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxStartRequestBytes)
-	decoder := json.NewDecoder(r.Body)
+	return decodeBoundedJSONObject(
+		w, r, maxStartRequestBytes, target,
+		"invalid browser integration request", "request must contain one JSON object",
+	)
+}
+
+func decodeBoundedJSONObject(
+	w http.ResponseWriter,
+	r *http.Request,
+	maxBytes int64,
+	target any,
+	invalidMessage string,
+	objectMessage string,
+) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, invalidMessage, http.StatusBadRequest)
+		return false
+	}
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || data[0] != '{' {
+		http.Error(w, objectMessage, http.StatusBadRequest)
+		return false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		http.Error(w, "invalid browser integration request", http.StatusBadRequest)
+		http.Error(w, invalidMessage, http.StatusBadRequest)
 		return false
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		http.Error(w, "request must contain one JSON object", http.StatusBadRequest)
+		http.Error(w, objectMessage, http.StatusBadRequest)
 		return false
 	}
 	return true

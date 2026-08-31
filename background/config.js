@@ -10,6 +10,7 @@ import {
   GIST_CONFIG_KEY,
   GIST_SECRETS_KEY,
 } from './constants.js';
+import { hasUnpairedSurrogate } from './util.js';
 
 export function getDefaultWatchConfig() {
   return { intervalMinutes: 30, checkMode: 'batch' };
@@ -36,23 +37,53 @@ function normalizedBackendHost(value, fallback) {
   }
 }
 
-function normalizedShortString(value, fallback = '', maxLength = 4096) {
-  return typeof value === 'string' ? value.slice(0, maxLength) : fallback;
+function normalizedGistId(value, fallback = '') {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim();
+  return normalized.length <= 128
+    && !/[\x00-\x1f\x7f]/.test(normalized)
+    && !hasUnpairedSurrogate(normalized, 128)
+    ? normalized
+    : fallback;
+}
+
+function validatedGistId(value) {
+  if (typeof value !== 'string') throw new Error('Gist ID must be a string');
+  const normalized = value.trim();
+  if (normalized.length > 128 || /[\x00-\x1f\x7f]/.test(normalized)
+      || hasUnpairedSurrogate(normalized, 128)) {
+    throw new Error('Gist ID is too long or contains invalid characters');
+  }
+  return normalized;
 }
 
 function normalizedSecret(value, fallback = '') {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim();
-  return normalized.length <= 4096 && !/[\0\r\n]/.test(normalized) ? normalized : fallback;
+  return normalized.length <= 4096 && /^[\x20-\x7e]*$/.test(normalized) ? normalized : fallback;
 }
 
 function normalizedApiKey(value, fallback = '') {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim();
   if (!normalized) return '';
-  return normalized.length >= 32 && normalized.length <= 256 && !/[\0\r\n]/.test(normalized)
+  return /^[\x20-\x7e]{32,256}$/.test(normalized)
     ? normalized
     : fallback;
+}
+
+function validatedHeaderSecret(value, label, { apiKey = false } = {}) {
+  if (typeof value !== 'string') throw new Error(`${label} must be a string`);
+  const normalized = value.trim();
+  const valid = apiKey
+    ? (!normalized || /^[\x20-\x7e]{32,256}$/.test(normalized))
+    : (normalized.length <= 4096 && /^[\x20-\x7e]*$/.test(normalized));
+  if (!valid) {
+    throw new Error(apiKey
+      ? `${label} must contain 32 to 256 printable ASCII characters`
+      : `${label} must contain at most 4096 printable ASCII characters`);
+  }
+  return normalized;
 }
 
 export async function loadWatchConfig() {
@@ -109,41 +140,46 @@ export async function loadBackendConfig() {
   const secrets = local[BACKEND_SECRETS_KEY] || {};
   const config = normalizeBackendConfig({
     ...legacy,
-    apiKey: secrets.apiKey,
+    apiKey: Object.hasOwn(secrets, 'apiKey') ? secrets.apiKey : legacy.apiKey,
     gopeedToken: Object.hasOwn(secrets, 'gopeedToken') ? secrets.gopeedToken : legacy.gopeedToken,
   });
-  if (Object.hasOwn(legacy, 'gopeedToken')) {
+  if (Object.hasOwn(legacy, 'apiKey') || Object.hasOwn(legacy, 'gopeedToken')) {
     const publicConfig = { ...config };
     delete publicConfig.apiKey;
     delete publicConfig.gopeedToken;
-    await Promise.all([
-      chrome.storage.sync.set({ [BACKEND_CONFIG_KEY]: publicConfig }),
-      chrome.storage.local.set({
-        [BACKEND_SECRETS_KEY]: {
-          apiKey: config.apiKey,
-          gopeedToken: config.gopeedToken,
-        },
-      }),
-    ]);
+    // Persist the local-only copy before removing the synced legacy fields. A
+    // failed local write must never turn a privacy migration into data loss.
+    await chrome.storage.local.set({
+      [BACKEND_SECRETS_KEY]: {
+        apiKey: config.apiKey,
+        gopeedToken: config.gopeedToken,
+      },
+    });
+    await chrome.storage.sync.set({ [BACKEND_CONFIG_KEY]: publicConfig });
   }
   return config;
 }
 
 export async function saveBackendConfig(cfg) {
   const current = await loadBackendConfig();
-  const next = normalizeBackendConfig({ ...current, ...(cfg || {}) }, current);
+  const input = cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? { ...cfg } : {};
+  if (Object.hasOwn(input, 'apiKey')) {
+    input.apiKey = validatedHeaderSecret(input.apiKey, 'API Key', { apiKey: true });
+  }
+  if (Object.hasOwn(input, 'gopeedToken')) {
+    input.gopeedToken = validatedHeaderSecret(input.gopeedToken, 'Gopeed token');
+  }
+  const next = normalizeBackendConfig({ ...current, ...input }, current);
   const publicConfig = { ...next };
   delete publicConfig.apiKey;
   delete publicConfig.gopeedToken;
-  await Promise.all([
-    chrome.storage.sync.set({ [BACKEND_CONFIG_KEY]: publicConfig }),
-    chrome.storage.local.set({
-      [BACKEND_SECRETS_KEY]: {
-        apiKey: next.apiKey,
-        gopeedToken: next.gopeedToken,
-      },
-    }),
-  ]);
+  await chrome.storage.local.set({
+    [BACKEND_SECRETS_KEY]: {
+      apiKey: next.apiKey,
+      gopeedToken: next.gopeedToken,
+    },
+  });
+  await chrome.storage.sync.set({ [BACKEND_CONFIG_KEY]: publicConfig });
   return next;
 }
 
@@ -209,19 +245,17 @@ export async function restoreDefaultConfigs() {
   delete publicBackend.gopeedToken;
   const publicGist = { ...configs.gist };
   delete publicGist.token;
-  await Promise.all([
-    chrome.storage.sync.set({
-      [BACKEND_CONFIG_KEY]: publicBackend,
-      [DOWNLOAD_RULES_CONFIG_KEY]: configs.downloadRules,
-      [EXTERNAL_LINK_FILTER_CONFIG_KEY]: configs.externalLinkFilter,
-      [WATCH_CONFIG_KEY]: configs.watch,
-      [GIST_CONFIG_KEY]: publicGist,
-    }),
-    chrome.storage.local.set({
-      [BACKEND_SECRETS_KEY]: { apiKey: '', gopeedToken: '' },
-      [GIST_SECRETS_KEY]: { token: '' },
-    }),
-  ]);
+  await chrome.storage.local.set({
+    [BACKEND_SECRETS_KEY]: { apiKey: '', gopeedToken: '' },
+    [GIST_SECRETS_KEY]: { token: '' },
+  });
+  await chrome.storage.sync.set({
+    [BACKEND_CONFIG_KEY]: publicBackend,
+    [DOWNLOAD_RULES_CONFIG_KEY]: configs.downloadRules,
+    [EXTERNAL_LINK_FILTER_CONFIG_KEY]: configs.externalLinkFilter,
+    [WATCH_CONFIG_KEY]: configs.watch,
+    [GIST_CONFIG_KEY]: publicGist,
+  });
   return configs;
 }
 
@@ -280,32 +314,33 @@ export async function loadGistConfig() {
   const config = {
     enabled: typeof cfg.enabled === 'boolean' ? cfg.enabled : def.enabled,
     token: normalizedSecret(cfg.token, def.token),
-    gistId: normalizedShortString(cfg.gistId, def.gistId, 128).trim(),
+    gistId: normalizedGistId(cfg.gistId, def.gistId),
   };
   if (Object.hasOwn(legacy, 'token')) {
     const publicConfig = { ...config };
     delete publicConfig.token;
-    await Promise.all([
-      chrome.storage.sync.set({ [GIST_CONFIG_KEY]: publicConfig }),
-      chrome.storage.local.set({ [GIST_SECRETS_KEY]: { token: config.token } }),
-    ]);
+    await chrome.storage.local.set({ [GIST_SECRETS_KEY]: { token: config.token } });
+    await chrome.storage.sync.set({ [GIST_CONFIG_KEY]: publicConfig });
   }
   return config;
 }
 
 export async function saveGistConfig(cfg) {
   const current = await loadGistConfig();
-  const value = { ...current, ...(cfg || {}) };
+  const input = cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? { ...cfg } : {};
+  if (Object.hasOwn(input, 'token')) {
+    input.token = validatedHeaderSecret(input.token, 'Gist token');
+  }
+  if (Object.hasOwn(input, 'gistId')) input.gistId = validatedGistId(input.gistId);
+  const value = { ...current, ...input };
   const next = {
     enabled: typeof value.enabled === 'boolean' ? value.enabled : current.enabled,
     token: normalizedSecret(value.token, current.token),
-    gistId: normalizedShortString(value.gistId, current.gistId, 128).trim(),
+    gistId: normalizedGistId(value.gistId, current.gistId),
   };
   const publicConfig = { ...next };
   delete publicConfig.token;
-  await Promise.all([
-    chrome.storage.sync.set({ [GIST_CONFIG_KEY]: publicConfig }),
-    chrome.storage.local.set({ [GIST_SECRETS_KEY]: { token: next.token } }),
-  ]);
+  await chrome.storage.local.set({ [GIST_SECRETS_KEY]: { token: next.token } });
+  await chrome.storage.sync.set({ [GIST_CONFIG_KEY]: publicConfig });
   return next;
 }

@@ -8,11 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"truedown/internal/safefile"
 )
 
 const (
@@ -76,6 +76,10 @@ func loadBaselineComponent(factory resolverComponentFactory) (loadedComponent, e
 func decodeComponent(factory resolverComponentFactory, raw []byte, source string) (loadedComponent, error) {
 	if len(raw) == 0 || len(raw) > maxModulePackageBytes {
 		return loadedComponent{}, &ValidationError{Message: "resolver component package must be between 1 byte and 64 KiB"}
+	}
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || raw[0] != '{' {
+		return loadedComponent{}, &ValidationError{Message: "resolver component package must contain one JSON object"}
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -168,70 +172,15 @@ func marshalComponentPackage(pkg componentPackage) ([]byte, error) {
 }
 
 func writeComponentPackage(path string, data []byte) error {
-	directory := filepath.Dir(path)
-	if err := os.MkdirAll(directory, 0700); err != nil {
-		return err
-	}
-	temporary, err := os.CreateTemp(directory, ".component-*.tmp")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0600); err != nil {
-		temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	backupPath := path + ".bak"
-	_ = os.Remove(backupPath)
-	if _, err := os.Stat(path); err == nil {
-		if err := os.Rename(path, backupPath); err != nil {
-			return err
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		_ = os.Rename(backupPath, path)
-		return err
-	}
-	_ = os.Remove(backupPath)
-	return nil
+	return safefile.WriteFile(path, data, 0600)
 }
 
 func readComponentPackage(path string) ([]byte, error) {
-	data, err := readBoundedComponentFile(path)
-	if os.IsNotExist(err) {
-		data, err = readBoundedComponentFile(path + ".bak")
-	}
-	return data, err
+	return safefile.ReadFile(path, maxModulePackageBytes)
 }
 
-func readBoundedComponentFile(path string) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, maxModulePackageBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > maxModulePackageBytes {
-		return nil, fmt.Errorf("resolver component package exceeds 64 KiB")
-	}
-	return data, nil
+func removeComponentPackage(path string) error {
+	return safefile.RemoveFile(path)
 }
 
 func validComponentHeaderValue(value string, maxLength int) bool {

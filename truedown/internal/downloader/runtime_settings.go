@@ -11,6 +11,7 @@ import (
 const (
 	defaultConcurrentDownloads       = 3
 	maxGlobalDownloadLimitBps  int64 = 1 << 50
+	maxRuntimeSettingsBytes    int64 = 4096
 )
 
 // RuntimeSettings controls aria2-wide behavior shared by every task.
@@ -36,16 +37,13 @@ func newRuntimeSettingsStore(databasePath string) (*runtimeSettingsStore, error)
 		path:     filepath.Join(filepath.Dir(databasePath), "truedown.settings.json"),
 		settings: defaultRuntimeSettings(),
 	}
-	data, err := os.ReadFile(store.path)
+	var settings RuntimeSettings
+	err := readStrictJSONFile(store.path, maxRuntimeSettingsBytes, &settings)
 	if os.IsNotExist(err) {
 		return store, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read runtime settings: %w", err)
-	}
-	var settings RuntimeSettings
-	if err := json.Unmarshal(data, &settings); err != nil {
-		return nil, fmt.Errorf("decode runtime settings: %w", err)
 	}
 	normalized, err := normalizeRuntimeSettings(settings)
 	if err != nil {
@@ -86,10 +84,7 @@ func (store *runtimeSettingsStore) update(settings RuntimeSettings) (RuntimeSett
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(store.path), 0700); err != nil {
-		return RuntimeSettings{}, fmt.Errorf("create runtime-settings directory: %w", err)
-	}
-	if err := os.WriteFile(store.path, append(data, '\n'), 0600); err != nil {
+	if err := writeConfigFile(store.path, append(data, '\n')); err != nil {
 		return RuntimeSettings{}, fmt.Errorf("persist runtime settings: %w", err)
 	}
 	store.settings = normalized

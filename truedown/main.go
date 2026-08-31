@@ -22,8 +22,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
 	"truedown/internal/api"
 	"truedown/internal/downloader"
+	"truedown/internal/safefile"
 	"truedown/internal/systemupdate"
 )
 
@@ -67,6 +69,13 @@ func main() {
 	if dataDir == "" {
 		dataDir = base
 	}
+	// TRUEDOWN_DATA_DIR is an operator-chosen trusted storage boundary. It may
+	// itself be a junction; managed config helpers validate the leaf entries.
+	dataDir, err = filepath.Abs(dataDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	dataDir = filepath.Clean(dataDir)
 	currentBuild, parseErr := strconv.ParseInt(strings.TrimSpace(buildNumber), 10, 64)
 	if parseErr != nil || currentBuild < 0 {
 		currentBuild = 0
@@ -192,7 +201,7 @@ func main() {
 	}()
 	updateContext, cancelUpdates := context.WithCancel(context.Background())
 	defer cancelUpdates()
-	updates.RunAutomatic(updateContext, func() bool {
+	automaticUpdatesDone := updates.RunAutomatic(updateContext, func() bool {
 		return dm.TaskCountByStatus(downloader.StatusQueued) == 0 &&
 			dm.TaskCountByStatus(downloader.StatusDownloading) == 0 &&
 			dm.TaskCountByStatus(downloader.StatusPaused) == 0
@@ -219,6 +228,7 @@ func main() {
 	case <-restart:
 	}
 	cancelUpdates()
+	<-automaticUpdatesDone
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
@@ -280,6 +290,7 @@ func browserURLForAddress(addr string, tlsEnabled ...bool) string {
 }
 
 const apiSessionCookie = api.SessionCookieName
+const maxAPITokenFileBytes int64 = 258
 
 type authState interface {
 	Snapshot() (enabled bool, token string, managed bool)
@@ -304,7 +315,7 @@ func secureHandler(next http.Handler, auth authState, listenAddresses ...string)
 		if authEnabled && isDashboard && isDashboardNavigation(r) && loopbackListener(listenAddresses) {
 			http.SetCookie(w, &http.Cookie{
 				Name:     apiSessionCookie,
-				Value:    apiToken,
+				Value:    apiSessionCookieValue(apiToken),
 				Path:     "/",
 				HttpOnly: true,
 				Secure:   r.TLS != nil,
@@ -362,18 +373,28 @@ func isDashboardNavigation(r *http.Request) bool {
 
 func isAPIPath(path string) bool {
 	return path == "/ping" || path == "/add" || path == "/start-headless-download" || path == "/start-bt-download" ||
-		path == "/tasks" || strings.HasPrefix(path, "/settings/") ||
+		path == "/tasks" || path == "/modules" || strings.HasPrefix(path, "/modules/") || strings.HasPrefix(path, "/settings/") ||
 		strings.HasPrefix(path, "/auth/") || strings.HasPrefix(path, "/tasks/") ||
 		strings.HasPrefix(path, "/queue/") || strings.HasPrefix(path, "/system/")
 }
 
 func authorizedAPIRequest(r *http.Request, expected string) bool {
-	provided := strings.TrimSpace(r.Header.Get("X-Api-Key"))
-	if provided == "" {
-		if cookie, err := r.Cookie(apiSessionCookie); err == nil {
-			provided = cookie.Value
-		}
+	provided := r.Header.Get("X-Api-Key")
+	if provided != "" && constantTimeStringEqual(provided, expected) {
+		return true
 	}
+	cookie, err := r.Cookie(apiSessionCookie)
+	if err != nil {
+		return false
+	}
+	return constantTimeStringEqual(cookie.Value, apiSessionCookieValue(expected))
+}
+
+func apiSessionCookieValue(token string) string {
+	return api.SessionCookieValue(token)
+}
+
+func constantTimeStringEqual(provided, expected string) bool {
 	if len(provided) != len(expected) || expected == "" {
 		return false
 	}
@@ -384,15 +405,15 @@ func loadOrCreateAPIToken(dataDir, configured string) (string, string, error) {
 	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		return "", "", fmt.Errorf("create TrueDown data directory: %w", err)
 	}
-	if token := strings.TrimSpace(configured); token != "" {
-		if err := validateAPIToken(token); err != nil {
+	if configured != "" {
+		if err := validateAPIToken(configured); err != nil {
 			return "", "", fmt.Errorf("TRUEDOWN_API_TOKEN: %w", err)
 		}
-		return token, "", nil
+		return configured, "", nil
 	}
 	tokenPath := filepath.Join(dataDir, "truedown.token")
-	if data, err := os.ReadFile(tokenPath); err == nil {
-		token := strings.TrimSpace(string(data))
+	if data, err := safefile.ReadFile(tokenPath, maxAPITokenFileBytes); err == nil {
+		token := storedAPIToken(data)
 		if err := validateAPIToken(token); err != nil {
 			return "", "", fmt.Errorf("read %s: %w", tokenPath, err)
 		}
@@ -414,17 +435,40 @@ func loadOrCreateAPIToken(dataDir, configured string) (string, string, error) {
 	}
 	if _, err := file.WriteString(token + "\n"); err != nil {
 		_ = file.Close()
+		_ = os.Remove(tokenPath)
 		return "", "", fmt.Errorf("write TrueDown API Key: %w", err)
 	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		_ = os.Remove(tokenPath)
+		return "", "", fmt.Errorf("sync TrueDown API Key: %w", err)
+	}
 	if err := file.Close(); err != nil {
+		_ = os.Remove(tokenPath)
 		return "", "", fmt.Errorf("close TrueDown API Key: %w", err)
 	}
 	return token, tokenPath, nil
 }
 
+func storedAPIToken(data []byte) string {
+	if len(data) >= 2 && data[len(data)-2] == '\r' && data[len(data)-1] == '\n' {
+		return string(data[:len(data)-2])
+	}
+	if len(data) >= 1 && data[len(data)-1] == '\n' {
+		return string(data[:len(data)-1])
+	}
+	return string(data)
+}
+
 func validateAPIToken(token string) error {
-	if len(token) < 32 || len(token) > 256 || strings.ContainsAny(token, "\x00\r\n") {
-		return fmt.Errorf("token must contain 32 to 256 safe characters")
+	const message = "token must contain 32 to 256 printable ASCII bytes without surrounding whitespace"
+	if len(token) < 32 || len(token) > 256 || strings.TrimSpace(token) != token {
+		return fmt.Errorf("%s", message)
+	}
+	for _, character := range []byte(token) {
+		if character < 0x20 || character > 0x7e {
+			return fmt.Errorf("%s", message)
+		}
 	}
 	return nil
 }
@@ -476,5 +520,11 @@ func openBrowser(url string) {
 	default:
 		cmd = exec.Command("xdg-open", url)
 	}
-	cmd.Start()
+	if err := cmd.Start(); err == nil {
+		if runtime.GOOS == "windows" {
+			_ = cmd.Process.Release()
+		} else {
+			go func() { _ = cmd.Wait() }()
+		}
+	}
 }

@@ -42,7 +42,7 @@ test("legacy synced secrets migrate to local storage on first read", async () =>
   const originalLocalGet = chrome.storage.local.get;
   chrome.storage.sync.get = async (key) => {
     if (key === "backendConfig") {
-      return { backendConfig: { enabled: true, gopeedToken: "gopeed-secret" } };
+      return { backendConfig: { enabled: true, apiKey: "a".repeat(32), gopeedToken: "gopeed-secret" } };
     }
     if (key === "gistConfig") return { gistConfig: { enabled: true, gistId: "gist-id", token: "gist-secret" } };
     return {};
@@ -51,18 +51,41 @@ test("legacy synced secrets migrate to local storage on first read", async () =>
   try {
     const backend = await loadBackendConfig();
     const gist = await loadGistConfig();
-    assert.equal(backend.apiKey, "");
+    assert.equal(backend.apiKey, "a".repeat(32));
     assert.equal(gist.token, "gist-secret");
     assert.equal(Object.hasOwn(syncWrites.find((write) => write.backendConfig).backendConfig, "apiKey"), false);
     assert.equal(Object.hasOwn(syncWrites.find((write) => write.gistConfig).gistConfig, "token"), false);
     assert.deepEqual(localWrites.find((write) => write.backendSecrets).backendSecrets, {
-      apiKey: "",
+      apiKey: "a".repeat(32),
       gopeedToken: "gopeed-secret",
     });
     assert.deepEqual(localWrites.find((write) => write.gistSecrets).gistSecrets, { token: "gist-secret" });
   } finally {
     chrome.storage.sync.get = originalSyncGet;
     chrome.storage.local.get = originalLocalGet;
+  }
+});
+
+test("legacy secret migration never clears sync before the local write succeeds", async () => {
+  syncWrites.length = 0;
+  localWrites.length = 0;
+  const originalSyncGet = chrome.storage.sync.get;
+  const originalLocalGet = chrome.storage.local.get;
+  const originalLocalSet = chrome.storage.local.set;
+  chrome.storage.sync.get = async () => ({
+    backendConfig: { enabled: true, apiKey: "a".repeat(32) },
+  });
+  chrome.storage.local.get = async () => ({});
+  chrome.storage.local.set = async () => {
+    throw new Error("local unavailable");
+  };
+  try {
+    await assert.rejects(loadBackendConfig(), /local unavailable/);
+    assert.equal(syncWrites.some((write) => write.backendConfig), false);
+  } finally {
+    chrome.storage.sync.get = originalSyncGet;
+    chrome.storage.local.get = originalLocalGet;
+    chrome.storage.local.set = originalLocalSet;
   }
 });
 
@@ -85,6 +108,20 @@ test("default config restoration batches every sync value into one write", async
     "gistConfig",
     "watchConfig",
   ]);
+});
+
+test("default restoration never publishes defaults before local secrets are cleared", async () => {
+  syncWrites.length = 0;
+  const originalLocalSet = chrome.storage.local.set;
+  chrome.storage.local.set = async () => {
+    throw new Error("local unavailable");
+  };
+  try {
+    await assert.rejects(restoreDefaultConfigs(), /local unavailable/);
+    assert.equal(syncWrites.length, 0);
+  } finally {
+    chrome.storage.local.set = originalLocalSet;
+  }
 });
 
 test("backend and token settings are bounded and restricted to loopback", async () => {
@@ -121,8 +158,30 @@ test("backend and token settings are bounded and restricted to loopback", async 
   assert.equal(backendLocalWrite.backendSecrets.apiKey, "t".repeat(32));
   assert.equal(backendLocalWrite.backendSecrets.gopeedToken, "token-value");
 
-  const gist = await saveGistConfig({ token: "unsafe\r\nheader", gistId: "  gist-id  " });
-  assert.deepEqual(gist, { enabled: false, token: "", gistId: "gist-id" });
+  await assert.rejects(
+    saveGistConfig({ token: "unsafe\r\nheader", gistId: "  gist-id  " }),
+    /printable ASCII/
+  );
+  const gist = await saveGistConfig({ token: "safe-token", gistId: "  gist-id  " });
+  assert.deepEqual(gist, { enabled: false, token: "safe-token", gistId: "gist-id" });
+  await assert.rejects(saveGistConfig({ gistId: "bad\ud800id" }), /Gist ID/);
+});
+
+test("API keys use the same printable-ASCII bounds as TrueDown", async () => {
+  const unicodeKey = "é".repeat(32);
+  await assert.rejects(saveBackendConfig({ apiKey: unicodeKey }), /printable ASCII/);
+  assert.equal((await saveBackendConfig({ apiKey: `${"a".repeat(16)} ${"b".repeat(15)}` })).apiKey.length, 32);
+  await assert.rejects(saveBackendConfig({ apiKey: `a\tb${"c".repeat(30)}` }), /printable ASCII/);
+  await assert.rejects(saveBackendConfig({ apiKey: "😀".repeat(65) }), /printable ASCII/);
+  assert.equal((await saveBackendConfig({ apiKey: "~".repeat(256) })).apiKey.length, 256);
+  await assert.rejects(saveBackendConfig({ apiKey: "~".repeat(257) }), /printable ASCII/);
+});
+
+test("Bearer and Gopeed tokens reject values that Fetch headers cannot encode", async () => {
+  await assert.rejects(saveBackendConfig({ gopeedToken: "tøkén" }), /printable ASCII/);
+  assert.equal((await saveBackendConfig({ gopeedToken: "inside space" })).gopeedToken, "inside space");
+  await assert.rejects(saveGistConfig({ token: "令牌" }), /printable ASCII/);
+  assert.equal((await saveGistConfig({ token: "gist token" })).token, "gist token");
 });
 
 test("content-script config reads are redacted and cannot mutate settings", async () => {
@@ -149,6 +208,13 @@ test("content-script config reads are redacted and cannot mutate settings", asyn
     assert.equal(backend.config.apiKey, "");
     assert.equal(backend.config.gopeedToken, "");
     assert.equal(gist.config.token, "");
+    const extensionTab = {
+      tab: { id: 2, url: "https://kemono.cr/stale-tab-url" },
+      url: "chrome-extension://test/settings.html",
+    };
+    const extensionBackend = await new Promise((resolve) =>
+      handlers["backend.getConfig"]({ sender: extensionTab, sendResponse: resolve }));
+    assert.equal(extensionBackend.config.apiKey, "t".repeat(32));
     assert.throws(
       () => handlers["backend.setConfig"]({ message: { config: {} }, sender: contentSender, sendResponse() {} }),
       /restricted to extension pages/

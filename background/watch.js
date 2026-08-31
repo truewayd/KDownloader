@@ -12,26 +12,34 @@ import {
   preparePawchiveWatchRequest,
   readLimitedResponseBytes,
 } from './network.js';
+import { hasUnpairedSurrogate } from './util.js';
 
 const WATCH_SCHEMA_VERSION = 1;
 const WATCH_BATCH_SIZE = 5;
 const WATCH_BATCH_PAUSE_MS = 400;
 const WATCH_ALL_CONCURRENCY = 25;
 const MAX_NOTIFICATION_ICON_BYTES = 2 * 1024 * 1024;
+const MAX_PROFILE_RESPONSE_BYTES = 256 * 1024;
 const MAX_WATCHES = 5000;
+const MAX_WATCH_STORAGE_BYTES = 4 * 1024 * 1024;
+const MAX_ICON_CACHE_BYTES = 8 * 1024 * 1024;
+const MAX_ICON_DATA_URI_LENGTH = Math.ceil(MAX_NOTIFICATION_ICON_BYTES * 4 / 3) + 64;
+const WATCH_TIMESTAMP_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(?:Z|([+-])(\d{2}):(\d{2}))?$/i;
 
 let mutationQueue = Promise.resolve();
 let activeCheck = null;
+const watchStateIntents = new Map();
 
 function withWatchMutation(task) {
   const run = mutationQueue.then(task, task);
-  mutationQueue = run.catch(() => {});
+  mutationQueue = run.then(() => undefined, () => undefined);
   return run;
 }
 
 function requiredString(value, label) {
   const normalized = String(value ?? '').trim();
-  if (!normalized || normalized.length > 512 || /[\0\r\n]/.test(normalized)) {
+  if (!normalized || normalized.length > 512 || /[\x00-\x1f\x7f]/.test(normalized)
+      || hasUnpairedSurrogate(normalized, 512)) {
     throw new Error(`Invalid watch ${label}`);
   }
   return normalized;
@@ -40,13 +48,58 @@ function requiredString(value, label) {
 function boundedText(value, fallback, maxLength) {
   const normalized = typeof value === 'string' ? value.trim() : '';
   if (!normalized) return fallback;
-  return normalized.replace(/\0/g, '').slice(0, maxLength);
+  let end = Math.min(normalized.length, maxLength);
+  if (end < normalized.length
+      && end > 0
+      && normalized.charCodeAt(end - 1) >= 0xd800
+      && normalized.charCodeAt(end - 1) <= 0xdbff
+      && normalized.charCodeAt(end) >= 0xdc00
+      && normalized.charCodeAt(end) <= 0xdfff) {
+    end--;
+  }
+  const bounded = normalized.slice(0, end).replace(/\0/g, '');
+  if (!hasUnpairedSurrogate(bounded, maxLength)) return bounded || fallback;
+
+  const parts = [];
+  let segmentStart = 0;
+  for (let index = 0; index < bounded.length; index++) {
+    const code = bounded.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = bounded.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        index++;
+        continue;
+      }
+    } else if (code < 0xdc00 || code > 0xdfff) {
+      continue;
+    }
+    parts.push(bounded.slice(segmentStart, index), '\ufffd');
+    segmentStart = index + 1;
+  }
+  parts.push(bounded.slice(segmentStart));
+  return parts.join('') || fallback;
 }
 
 function timestampValue(value) {
   const raw = typeof value === 'string' ? value.trim() : '';
-  if (!raw) return null;
-  const zoned = /(?:z|[+-]\d{2}:?\d{2})$/i.test(raw) ? raw : `${raw}Z`;
+  if (!raw || raw.length > 64) return null;
+  const match = WATCH_TIMESTAMP_RE.exec(raw);
+  if (!match) return null;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText,
+    , , offsetHourText, offsetMinuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const monthDays = month === 2 ? (leap ? 29 : 28) : ([4, 6, 9, 11].includes(month) ? 30 : 31);
+  const offsetHour = offsetHourText === undefined ? 0 : Number(offsetHourText);
+  const offsetMinute = offsetMinuteText === undefined ? 0 : Number(offsetMinuteText);
+  if (
+    month < 1 || month > 12 || day < 1 || day > monthDays
+    || Number(hourText) > 23 || Number(minuteText) > 59 || Number(secondText) > 59
+    || offsetHour > 14 || offsetMinute > 59 || (offsetHour === 14 && offsetMinute !== 0)
+  ) return null;
+  const zoned = /(?:z|[+-]\d{2}:\d{2})$/i.test(raw) ? raw : `${raw}Z`;
   const parsed = Date.parse(zoned);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -65,7 +118,8 @@ function normalizeWatchRecord(value, { strict = false } = {}) {
   const service = requiredString(value.service, 'service').toLowerCase();
   const userId = requiredString(value.userId, 'creator id');
   const updated = boundedText(value.updated, '', 64);
-  if (strict && updated && timestampValue(updated) === null) {
+  if (strict && (typeof value.updated !== 'string' || value.updated.trim().length > 64
+      || timestampValue(updated) === null)) {
     throw new Error(`Invalid watch updated value for ${service}/${userId}`);
   }
   if (strict) {
@@ -74,7 +128,10 @@ function normalizeWatchRecord(value, { strict = false } = {}) {
       checkedAt: value.checkedAt,
       failedAt: value.failedAt,
     })) {
-      if (raw && timestampValue(raw) === null) {
+      const required = field === 'watchedAt';
+      if ((required && (typeof raw !== 'string' || raw.trim().length > 64 || timestampValue(raw) === null))
+          || (raw !== undefined && raw !== '' && (typeof raw !== 'string'
+            || raw.trim().length > 64 || timestampValue(raw) === null))) {
         throw new Error(`Invalid watch ${field} value for ${service}/${userId}`);
       }
     }
@@ -95,13 +152,17 @@ function normalizeWatchList(value, options) {
   const records = Array.isArray(value) ? value : [];
   if (records.length > MAX_WATCHES) throw new Error(`Watch list exceeds ${MAX_WATCHES} records`);
   const keys = new Set();
-  return records.map((record) => {
+  const normalizedRecords = records.map((record) => {
     const normalized = normalizeWatchRecord(record, options);
     const key = watchIdentityKey(normalized.service, normalized.userId);
     if (keys.has(key)) throw new Error(`Duplicate watch identity: ${normalized.service}/${normalized.userId}`);
     keys.add(key);
     return normalized;
   });
+  if (new TextEncoder().encode(JSON.stringify(normalizedRecords)).byteLength > MAX_WATCH_STORAGE_BYTES) {
+    throw new Error('Watch list exceeds the 4 MiB storage safety limit');
+  }
+  return normalizedRecords;
 }
 
 async function loadWatches() {
@@ -111,10 +172,11 @@ async function loadWatches() {
 }
 
 async function saveWatches(watches) {
+  const normalized = normalizeWatchList(watches);
   await chrome.storage.local.set({
     [WATCH_DATA_KEY]: {
       schemaVersion: WATCH_SCHEMA_VERSION,
-      watches,
+      watches: normalized,
     },
   });
 }
@@ -122,14 +184,44 @@ async function saveWatches(watches) {
 async function loadIconCache() {
   const stored = await chrome.storage.local.get(WATCH_ICON_CACHE_KEY);
   const cache = stored[WATCH_ICON_CACHE_KEY];
-  return cache && typeof cache === 'object' && !Array.isArray(cache) ? cache : {};
+  if (!cache || typeof cache !== 'object' || Array.isArray(cache)) return {};
+  const entries = [];
+  let bytes = 0;
+  for (const [key, value] of Object.entries(cache)) {
+    if (key.length > 2048 || typeof value !== 'string'
+        || !value.startsWith('data:image/jpeg;base64,')
+        || value.length > MAX_ICON_DATA_URI_LENGTH) continue;
+    if (bytes + value.length > MAX_ICON_CACHE_BYTES) break;
+    entries.push([key, value]);
+    bytes += value.length;
+  }
+  return Object.fromEntries(entries);
+}
+
+function putCachedIcon(cache, key, icon) {
+  delete cache[key];
+  if (typeof icon !== 'string' || icon.length > MAX_ICON_DATA_URI_LENGTH
+      || !icon.startsWith('data:image/jpeg;base64,')) return false;
+  let bytes = Object.values(cache).reduce(
+    (total, value) => total + (typeof value === 'string' ? value.length : 0),
+    0
+  );
+  for (const oldestKey of Object.keys(cache)) {
+    if (bytes + icon.length <= MAX_ICON_CACHE_BYTES) break;
+    bytes -= typeof cache[oldestKey] === 'string' ? cache[oldestKey].length : 0;
+    delete cache[oldestKey];
+  }
+  if (bytes + icon.length > MAX_ICON_CACHE_BYTES) return false;
+  cache[key] = icon;
+  return true;
 }
 
 async function saveWatchesAndIcons(watches, icons) {
+  const normalized = normalizeWatchList(watches);
   await chrome.storage.local.set({
     [WATCH_DATA_KEY]: {
       schemaVersion: WATCH_SCHEMA_VERSION,
-      watches,
+      watches: normalized,
     },
     [WATCH_ICON_CACHE_KEY]: icons,
   });
@@ -152,7 +244,9 @@ function validateProfile(profile, service, userId) {
 }
 
 async function fetchProfile(service, userId) {
-  return validateProfile(await fetchPawchiveJson(profileUrl(service, userId)), service, userId);
+  return validateProfile(await fetchPawchiveJson(profileUrl(service, userId), {}, {
+    maxResponseBytes: MAX_PROFILE_RESPONSE_BYTES,
+  }), service, userId);
 }
 
 function recordFromProfile(profile, existing = {}) {
@@ -184,40 +278,69 @@ export async function setWatchState(serviceValue, userIdValue, watchedValue) {
   const userId = requiredString(userIdValue, 'creator id');
   const watched = watchedValue === true;
   const key = watchIdentityKey(service, userId);
+  const intent = { watched };
+  watchStateIntents.set(key, intent);
 
-  const result = await withWatchMutation(async () => {
-    const watches = await loadWatches();
-    const icons = await loadIconCache();
-    const index = watches.findIndex((item) => watchIdentityKey(item.service, item.userId) === key);
+  try {
     if (!watched) {
-      if (index < 0) return { watched: false, watch: null };
-      watches.splice(index, 1);
-      delete icons[key];
-      await saveWatchesAndIcons(watches, icons);
-      return { watched: false, watch: null };
+      return await withWatchMutation(async () => {
+        const watches = await loadWatches();
+        const index = watches.findIndex((item) => watchIdentityKey(item.service, item.userId) === key);
+        if (watchStateIntents.get(key) !== intent) {
+          return { watched: index >= 0, watch: index >= 0 ? watches[index] : null };
+        }
+        if (index < 0) return { watched: false, watch: null };
+        const icons = await loadIconCache();
+        watches.splice(index, 1);
+        delete icons[key];
+        await saveWatchesAndIcons(watches, icons);
+        return { watched: false, watch: null };
+      });
     }
-    if (index >= 0) return { watched: true, watch: watches[index] };
 
+    const existing = await withWatchMutation(async () => {
+      const watches = await loadWatches();
+      const index = watches.findIndex((item) => watchIdentityKey(item.service, item.userId) === key);
+      return { watched: index >= 0, watch: index >= 0 ? watches[index] : null };
+    });
+    if (watchStateIntents.get(key) !== intent) return existing;
+    if (existing.watched) return existing;
+
+    // Network work stays outside the mutation queue so a slow icon or profile
+    // response cannot block unrelated unwatch/import/check commits.
     const profile = await fetchProfile(service, userId);
-    const watch = recordFromProfile(profile, { watchedAt: new Date().toISOString() });
+    const candidate = recordFromProfile(profile, { watchedAt: new Date().toISOString() });
     let cachedIcon = '';
     try {
-      cachedIcon = await fetchCreatorIconData(watch);
-      icons[key] = cachedIcon;
+      cachedIcon = await fetchCreatorIconData(candidate);
     } catch (error) {
       console.warn('[Watch] initial creator icon fetch failed', error);
     }
-    watches.push(watch);
-    await saveWatchesAndIcons(watches, icons);
-    return { watched: true, watch, added: true, cachedIcon };
-  });
 
-  if (result.added) {
-    await notifyWatchStarted(result.watch, result.cachedIcon || fallbackIconUrl()).catch((error) => {
-      console.warn('[Watch] initial notification failed', error);
+    const result = await withWatchMutation(async () => {
+      const watches = await loadWatches();
+      const index = watches.findIndex((item) => watchIdentityKey(item.service, item.userId) === key);
+      if (watchStateIntents.get(key) !== intent) {
+        return { watched: index >= 0, watch: index >= 0 ? watches[index] : null };
+      }
+      if (index >= 0) return { watched: true, watch: watches[index] };
+      if (watches.length >= MAX_WATCHES) throw new Error(`Watch list exceeds ${MAX_WATCHES} records`);
+      const icons = await loadIconCache();
+      if (cachedIcon) putCachedIcon(icons, key, cachedIcon);
+      watches.push(candidate);
+      await saveWatchesAndIcons(watches, icons);
+      return { watched: true, watch: candidate, added: true, cachedIcon };
     });
+
+    if (result.added && watchStateIntents.get(key) === intent) {
+      await notifyWatchStarted(result.watch, result.cachedIcon || fallbackIconUrl()).catch((error) => {
+        console.warn('[Watch] initial notification failed', error);
+      });
+    }
+    return { watched: result.watched, watch: result.watch };
+  } finally {
+    if (watchStateIntents.get(key) === intent) watchStateIntents.delete(key);
   }
-  return { watched: result.watched, watch: result.watch };
 }
 
 export async function exportWatches() {
@@ -245,6 +368,9 @@ export function importWatches(payload) {
   } catch (error) {
     return Promise.reject(error);
   }
+  // A replacement import is newer than any state change that was still
+  // waiting on profile/icon I/O when the import began.
+  watchStateIntents.clear();
   return withWatchMutation(async () => {
     const currentIcons = await loadIconCache();
     const nextKeys = new Set(watches.map((watch) => watchIdentityKey(watch.service, watch.userId)));
@@ -301,7 +427,7 @@ async function getNotificationIcon(watch) {
       const watches = await loadWatches();
       if (!watches.some((item) => watchIdentityKey(item.service, item.userId) === key)) return;
       const icons = await loadIconCache();
-      icons[key] = icon;
+      if (!putCachedIcon(icons, key, icon)) return;
       await chrome.storage.local.set({ [WATCH_ICON_CACHE_KEY]: icons });
     });
     return icon;
@@ -332,6 +458,13 @@ function createNotification(id, options) {
   });
 }
 
+function notificationId(prefix) {
+  const suffix = globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${suffix}`;
+}
+
 async function notifyUpdates(updates) {
   if (updates.length === 0) return;
   const sorted = [...updates].sort((a, b) => timestampValue(b.updated) - timestampValue(a.updated));
@@ -340,7 +473,7 @@ async function notifyUpdates(updates) {
   const notificationMessage = sorted.length === 1
     ? message('watchNotificationSingle', [latest.name], `A watched creator, ${latest.name}, has updated.`)
     : message('watchNotificationMultiple', [latest.name, String(sorted.length)], `${latest.name} and ${sorted.length - 1} other watched creators have updated.`);
-  await createNotification(`pawchive-watch-update-${Date.now()}`, {
+  await createNotification(notificationId('pawchive-watch-update'), {
     type: 'basic',
     iconUrl: icon,
     title: message('watchNotificationTitle', null, 'Pawchive Watch'),
@@ -349,7 +482,7 @@ async function notifyUpdates(updates) {
 }
 
 async function notifyWatchStarted(watch, icon) {
-  await createNotification(`pawchive-watch-started-${Date.now()}`, {
+  await createNotification(notificationId('pawchive-watch-started'), {
     type: 'basic',
     iconUrl: icon,
     title: message('watchStartedTitle', [watch.name], `Watching ${watch.name}`),
@@ -367,7 +500,7 @@ async function notifyFailures(failures) {
   const notificationMessage = failures.length === 1
     ? message('watchFailureSingle', [first.name, first.error], `Failed to check ${first.name}: ${first.error}`)
     : message('watchFailureMultiple', [String(failures.length), first.error], `Failed to check ${failures.length} watched creators: ${first.error}`);
-  await createNotification(`pawchive-watch-failure-${Date.now()}`, {
+  await createNotification(notificationId('pawchive-watch-failure'), {
     type: 'basic',
     iconUrl: fallbackIconUrl(),
     title: message('watchFailureTitle', null, 'Pawchive Watch check failed'),

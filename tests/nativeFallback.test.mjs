@@ -98,6 +98,14 @@ test('taking a fallback decision is atomic and removes its session entry', async
   assert.deepEqual(cleared, [id]);
 });
 
+test('legacy Pawchive fallback items rejoin the shared default history source', async () => {
+  const legacy = request('legacy-paw-source');
+  legacy.item.source = 'pawchive';
+  const id = await fallback.enqueueNativeFallback(legacy);
+  const pending = await fallback.takeNativeFallback(id);
+  assert.equal(pending.requests[0].item.source, 'default');
+});
+
 test('fallback prompts reject empty or malformed task sets', async () => {
   await assert.rejects(fallback.enqueueNativeFallback({
     item: { service: 'patreon', userId: 'creator-1', postId: 'post-1' },
@@ -115,4 +123,45 @@ test('fallback tasks preserve request correlation and reject unsafe URLs', async
   const unsafe = request('post-2');
   unsafe.tasks[0].url = 'file:///sensitive.txt';
   await assert.rejects(fallback.enqueueNativeFallback(unsafe), /No native fallback tasks/);
+});
+
+test('expired fallback decisions are discarded instead of starting stale downloads', async () => {
+  const id = await fallback.enqueueNativeFallback(request('old-post'));
+  stored.pendingNativeFallbacks[id].createdAt = Date.now() - 61 * 60 * 1000;
+  assert.equal(await fallback.takeNativeFallback(id), null);
+  assert.equal(stored.pendingNativeFallbacks, undefined);
+});
+
+test('pending fallback task limits apply across notifications', async () => {
+  await fallback.enqueueNativeFallback([
+    request('first-a', 1000),
+    request('first-b', 1000),
+    request('first-c', 1000),
+  ]);
+  await assert.rejects(fallback.enqueueNativeFallback([
+    request('second-a', 1000),
+    request('second-b', 1000),
+    request('second-c', 1),
+  ]), /pending native fallback tasks/);
+  assert.equal(created.length, 1);
+});
+
+test('fallback state rejects oversized serialized task payloads before storage', async () => {
+  const oversized = request('oversized', 1000);
+  for (const task of oversized.tasks) {
+    task.url = `https://file.pawchive.pw/data/${'x'.repeat(8140)}`;
+    task.fileName = `${'n'.repeat(1020)}.jpg`;
+  }
+  await assert.rejects(fallback.enqueueNativeFallback(oversized), /8 MiB safety limit/);
+  assert.equal(created.length, 0);
+  assert.equal(stored.pendingNativeFallbacks, undefined);
+});
+
+test('a per-request task overflow is rejected instead of silently truncated', async () => {
+  await assert.rejects(
+    fallback.enqueueNativeFallback(request('too-many', 1001)),
+    /exceeds 1000 tasks/
+  );
+  assert.equal(created.length, 0);
+  assert.equal(stored.pendingNativeFallbacks, undefined);
 });

@@ -14,6 +14,7 @@
     stopped: false,
     listenerController: null,
     targetSelector: "",
+    historyPatch: null,
   };
 
   function stop() {
@@ -31,6 +32,19 @@
     }
     state.listenerController?.abort();
     state.listenerController = null;
+    const patch = state.historyPatch;
+    if (patch) {
+      if (history.pushState === patch.pushState) history.pushState = patch.originalPushState;
+      if (history.replaceState === patch.replaceState) history.replaceState = patch.originalReplaceState;
+      try {
+        delete history.__kdRouteWatcherPatched;
+      } catch (e) {
+        /* A host page may have made the marker non-configurable. */
+      }
+      state.historyPatch = null;
+    }
+    handlers.length = 0;
+    state.targetSelector = "";
   }
 
   function isElement(node) {
@@ -47,10 +61,14 @@
   }
 
   function isOwnInjectedNode(node) {
-    return isElement(node) && nodeHasSelector(
-      node,
-      '[data-batch-download="true"], [data-kd-watch="true"], [data-kd-flag="true"]'
-    );
+    if (!isElement(node)) return false;
+    try {
+      return node.matches(
+        '[data-batch-download="true"], [data-kd-watch="true"], [data-kd-flag="true"]'
+      );
+    } catch (e) {
+      return false;
+    }
   }
 
   function mutationLooksRelevant(mutations) {
@@ -73,30 +91,33 @@
     if (history.__kdRouteWatcherPatched) return;
     const originalPushState = history.pushState;
     const originalReplaceState = history.replaceState;
-
-    history.pushState = function (...args) {
+    const pushState = function (...args) {
       const result = originalPushState.apply(this, args);
       window.dispatchEvent(new Event("kd:locationchange"));
       return result;
     };
-
-    history.replaceState = function (...args) {
+    const replaceState = function (...args) {
       const result = originalReplaceState.apply(this, args);
       window.dispatchEvent(new Event("kd:locationchange"));
       return result;
     };
 
+    history.pushState = pushState;
+    history.replaceState = replaceState;
+
     Object.defineProperty(history, "__kdRouteWatcherPatched", {
       value: true,
-      configurable: false,
+      configurable: true,
     });
+    state.historyPatch = { originalPushState, originalReplaceState, pushState, replaceState };
   }
 
   function getInitDelay() {
     try {
-      return typeof CONFIG !== "undefined" && CONFIG && CONFIG.INIT_DELAY
-        ? CONFIG.INIT_DELAY
-        : 300;
+      const delay = typeof CONFIG !== "undefined" && CONFIG
+        ? Number(CONFIG.INIT_DELAY)
+        : NaN;
+      return Number.isFinite(delay) && delay >= 0 ? delay : 300;
     } catch (e) {
       return 300;
     }
@@ -121,6 +142,7 @@
 
   async function run() {
     if (state.stopped) return;
+    state.timer = null;
     if (state.running) {
       schedule("rerun", 250);
       return;
@@ -129,6 +151,7 @@
     state.running = true;
     state.scheduled = false;
     const reason = state.pendingReason || "scheduled";
+    state.pendingReason = null;
     const href = location.href;
     const urlChanged = href !== state.lastHref;
     if (urlChanged) state.generation += 1;
@@ -144,24 +167,33 @@
 
     try {
       for (const handler of handlers) {
-        const matches = typeof handler.match === "function" ? handler.match() : true;
-        if (!matches) {
-          if (urlChanged && typeof handler.cleanup === "function") {
-            await handler.cleanup(context);
+        try {
+          const matches = typeof handler.match === "function" ? handler.match() : true;
+          if (!matches) {
+            handler.attempts = 0;
+            if (urlChanged && typeof handler.cleanup === "function") {
+              await handler.cleanup(context);
+            }
+            continue;
           }
-          continue;
-        }
 
-        const ready = typeof handler.hasTargets === "function" ? handler.hasTargets() : true;
-        const maxAttempts = Number.isFinite(handler.maxAttempts) ? handler.maxAttempts : 20;
-        if (!ready && handler.attempts < maxAttempts) {
-          handler.attempts += 1;
-          needsRetry = true;
-          continue;
-        }
+          const ready = typeof handler.hasTargets === "function" ? handler.hasTargets() : true;
+          const maxAttempts = Number.isFinite(handler.maxAttempts) ? handler.maxAttempts : 20;
+          if (!ready && handler.attempts < maxAttempts) {
+            handler.attempts += 1;
+            needsRetry = true;
+            continue;
+          }
 
-        handler.attempts = 0;
-        await handler.render(context);
+          handler.attempts = 0;
+          await handler.render(context);
+        } catch (err) {
+          if (typeof isExtensionContextInvalidatedError === "function"
+            && isExtensionContextInvalidatedError(err)) {
+            throw err;
+          }
+          console.warn(`[KD Router] ${handler.name || "handler"} render failed`, err);
+        }
       }
     } catch (err) {
       if (typeof isExtensionContextInvalidatedError === "function"
@@ -173,6 +205,9 @@
     } finally {
       state.lastHref = href;
       state.running = false;
+      if (typeof pruneActiveDownloadRequests === "function") {
+        pruneActiveDownloadRequests();
+      }
       if (needsRetry && !state.stopped) schedule("wait-targets", 300);
     }
   }
@@ -219,7 +254,12 @@
 
   function register(handler) {
     if (!handler || typeof handler.render !== "function") return;
-    handlers.push({ attempts: 0, ...handler });
+    const registered = { ...handler, attempts: 0 };
+    const existingIndex = registered.name
+      ? handlers.findIndex((item) => item.name === registered.name)
+      : -1;
+    if (existingIndex >= 0) handlers[existingIndex] = registered;
+    else handlers.push(registered);
     state.targetSelector = handlers
       .map((registered) => registered.targetSelector)
       .filter(Boolean)

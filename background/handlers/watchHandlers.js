@@ -1,6 +1,11 @@
 // background/handlers/watchHandlers.js - Pawchive Watch RPCs
 import { loadWatchConfig, saveWatchConfig } from '../config.js';
-import { respondWith } from '../messageHelpers.js';
+import { PAW } from '../constants.js';
+import {
+  requireExtensionPage,
+  requireTrustedWebSender,
+  respondWith,
+} from '../messageHelpers.js';
 import {
   configureWatchAlarm,
   exportWatches,
@@ -19,28 +24,43 @@ async function saveConfigAndSchedule(config) {
 
 export function createWatchHandlers() {
   return {
-    'watch.getConfig': ({ sendResponse }) =>
-      respondWith(sendResponse, loadWatchConfig(), (config) => ({ config })),
+    'watch.getConfig': ({ sender, sendResponse }) => {
+      requireExtensionPage(sender, 'Watch configuration');
+      return respondWith(sendResponse, loadWatchConfig(), (config) => ({ config }));
+    },
 
-    'watch.setConfig': ({ message, sendResponse }) =>
-      respondWith(sendResponse, saveConfigAndSchedule(message.config), (config) => ({ config })),
+    'watch.setConfig': ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, 'Watch configuration');
+      return respondWith(sendResponse, saveConfigAndSchedule(message.config), (config) => ({ config }));
+    },
 
-    'watch.getState': ({ message, sendResponse }) =>
-      respondWith(sendResponse, getWatchState(message.service, message.userId), (state) => state),
+    'watch.getState': ({ message, sender, sendResponse }) => {
+      requireTrustedWebSender(sender, [PAW.HOST], 'Watch state reads');
+      return respondWith(sendResponse, getWatchState(message.service, message.userId), (state) => state);
+    },
 
-    'watch.getSummary': ({ sendResponse }) =>
-      respondWith(sendResponse, getWatchSummary(), (summary) => ({ summary })),
+    'watch.getSummary': ({ sender, sendResponse }) => {
+      requireExtensionPage(sender, 'Watch summaries');
+      return respondWith(sendResponse, getWatchSummary(), (summary) => ({ summary }));
+    },
 
-    'watch.setState': ({ message, sendResponse }) =>
-      respondWith(sendResponse, setWatchState(message.service, message.userId, message.watched), (state) => state),
+    'watch.setState': ({ message, sender, sendResponse }) => {
+      requireTrustedWebSender(sender, [PAW.HOST], 'Watch state changes');
+      return respondWith(sendResponse, setWatchState(message.service, message.userId, message.watched), (state) => state);
+    },
 
-    'watch.export': ({ sendResponse }) =>
-      respondWith(sendResponse, exportWatches(), (data) => ({ data })),
+    'watch.export': ({ sender, sendResponse }) => {
+      requireExtensionPage(sender, 'Watch export');
+      return respondWith(sendResponse, exportWatches(), (data) => ({ data }));
+    },
 
-    'watch.import': ({ message, sendResponse }) =>
-      respondWith(sendResponse, importWatches(message.data), (result) => ({ result })),
+    'watch.import': ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, 'Watch import');
+      return respondWith(sendResponse, importWatches(message.data), (result) => ({ result }));
+    },
 
-    'watch.forceCheck': ({ sendResponse }) => {
+    'watch.forceCheck': ({ sender, sendResponse }) => {
+      requireExtensionPage(sender, 'Watch checks');
       sendResponse({ success: true, accepted: true });
       runWatchCheck().catch((error) => console.error('[Watch] forced check failed', error));
       return false;

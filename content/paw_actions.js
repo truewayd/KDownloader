@@ -5,9 +5,10 @@ const PAW_TARGET_SELECTOR = [
   ".user-header__actions",
   "article.post-card",
 ].join(", ");
+let pawWatchOperationSequence = 0;
 
 function isPawPostPage() {
-  return /\/user\/[^\/]+\/post\//.test(location.pathname);
+  return !!parseUrlPath(location.pathname)?.postId;
 }
 
 function renderPawWatchState(btn, watched) {
@@ -28,23 +29,61 @@ async function addPawWatchButton(context) {
     attributes: { "data-kd-watch": "true" },
   });
   if (!btn) return;
-
-  const response = await safeSendMessage(
-    { action: "watch.getState", service: parsed.service, userId: parsed.userId },
-    8000,
-    { retries: 2, retryDelay: 300 }
-  );
-  if (!isRenderCurrent(context)) return;
-  if (!response || response.success === false) {
-    throw new Error(response?.error || "Failed to read watch state");
+  const identity = JSON.stringify([parsed.service, parsed.userId]);
+  if (btn.dataset.kdWatchIdentity === identity && btn.dataset.kdInitialized === "true") {
+    return;
   }
+
+  btn.dataset.kdWatchIdentity = identity;
+  btn.dataset.kdInitialized = "false";
+  btn.disabled = true;
+  btn.setAttribute("aria-disabled", "true");
+  btn.setAttribute("aria-busy", "true");
+  btn.textContent = KDI18n.get("statusProcessing");
+
+  let response;
+  try {
+    response = await safeSendMessage(
+      { action: "watch.getState", service: parsed.service, userId: parsed.userId },
+      8000,
+      { retries: 2, retryDelay: 300 }
+    );
+    if (!response || response.success === false) {
+      throw new Error(response?.error || "Failed to read watch state");
+    }
+  } catch (error) {
+    if (isExtensionContextInvalidatedError(error)) throw error;
+    if (!isRenderCurrent(context) || btn.dataset.kdWatchIdentity !== identity) return;
+    const message = boundedDisplayText(getErrorMessage(error), KDI18n.get("statusFailedDecorated"));
+    btn.textContent = KDI18n.get("statusFailedDecorated");
+    btn.title = message;
+    btn.setAttribute("aria-label", message);
+    btn.onclick = (event) => {
+      event.preventDefault();
+      window.KDRouteWatcher?.schedule("watch-retry", 0);
+    };
+    btn.disabled = false;
+    btn.setAttribute("aria-disabled", "false");
+    btn.removeAttribute("aria-busy");
+    return;
+  }
+  if (!isRenderCurrent(context) || btn.dataset.kdWatchIdentity !== identity) return;
   renderPawWatchState(btn, !!response.watched);
+  btn.dataset.kdInitialized = "true";
+  btn.disabled = false;
+  btn.setAttribute("aria-disabled", "false");
+  btn.removeAttribute("aria-busy");
 
   btn.onclick = async (event) => {
     event.preventDefault();
     if (btn.disabled) return;
     const previous = btn.dataset.watched === "true";
+    const operationToken = String(++pawWatchOperationSequence);
+    btn.dataset.kdWatchOperation = operationToken;
+    delete btn.dataset.kdWatchReset;
     btn.disabled = true;
+    btn.setAttribute("aria-disabled", "true");
+    btn.setAttribute("aria-busy", "true");
     btn.textContent = KDI18n.get("statusProcessing");
     try {
       const result = await safeSendMessage(
@@ -53,13 +92,28 @@ async function addPawWatchButton(context) {
         { retries: 1, retryDelay: 400 }
       );
       if (!result || result.success === false) throw new Error(result?.error || "Watch request failed");
+      if (btn.dataset.kdWatchIdentity !== identity || btn.dataset.kdWatchOperation !== operationToken) return;
       renderPawWatchState(btn, !!result.watched);
     } catch (error) {
+      if (isExtensionContextInvalidatedError(error)) return;
+      if (btn.dataset.kdWatchIdentity !== identity || btn.dataset.kdWatchOperation !== operationToken) return;
       btn.textContent = KDI18n.get("statusFailedDecorated");
-      btn.title = error && error.message ? error.message : String(error);
-      setTimeout(() => renderPawWatchState(btn, previous), 1800);
+      btn.title = boundedDisplayText(getErrorMessage(error), KDI18n.get("statusFailedDecorated"));
+      btn.setAttribute("aria-label", btn.title);
+      const resetToken = `${operationToken}:reset`;
+      btn.dataset.kdWatchReset = resetToken;
+      setTimeout(() => {
+        if (btn.dataset.kdWatchIdentity !== identity || btn.dataset.kdWatchReset !== resetToken) return;
+        delete btn.dataset.kdWatchReset;
+        renderPawWatchState(btn, previous);
+      }, 1800);
     } finally {
-      btn.disabled = false;
+      if (btn.dataset.kdWatchIdentity === identity && btn.dataset.kdWatchOperation === operationToken) {
+        delete btn.dataset.kdWatchOperation;
+        btn.disabled = false;
+        btn.setAttribute("aria-disabled", "false");
+        btn.removeAttribute("aria-busy");
+      }
     }
   };
 }
@@ -80,7 +134,8 @@ function getPawCreatorEntries() {
     const anchor = article.querySelector('a.image-link, a[href*="/post/"]');
     if (!anchor) continue;
     const href = anchor.getAttribute("href") || anchor.href;
-    const path = new URL(href, location.origin).pathname;
+    const path = getSameOriginPath(href);
+    if (!path) continue;
     const parsed = parseUrlPath(path);
     if (!parsed || !parsed.postId) continue;
     entries.push({ article, anchor, path, ...parsed });
@@ -111,7 +166,7 @@ function addPawPageFetchButton() {
   btn.onclick = async (event) => {
     event.preventDefault();
     if (btn.disabled) return;
-    btn.disabled = true;
+    updateButtonStatus(btn, "SCANNING", KDI18n.get("statusFetching"), false);
 
     const entries = getPawCreatorEntries();
     const offset = Number(new URL(location.href).searchParams.get("o") || 0);
@@ -122,14 +177,13 @@ function addPawPageFetchButton() {
       userId: parsed.userId,
       requestMessage: {
         action: "creator.pageFetch",
-        source: "pawchive",
         origin: location.origin,
         service: parsed.service,
         userId: parsed.userId,
         offset: Number.isFinite(offset) && offset >= 0 ? offset : 0,
       },
-       initialText: KDI18n.get("dispatchingCount", [String(entries.length)]),
-       ackText: KDI18n.get("statusSending"),
+      initialText: KDI18n.get("dispatchingCount", [String(entries.length)]),
+      ackText: KDI18n.get("statusSending"),
       total: entries.length,
       renderProgress: ({ btn: progressBtn, message, state }) => {
         progressBtn.title = KDI18n.get("sendingCount", [message.sentCount || 0, state.total]);
@@ -138,26 +192,30 @@ function addPawPageFetchButton() {
   };
 }
 
-function reportPawAccess() {
-  try {
-    const match = location.pathname.match(/\/([^\/]+)\/user\/([^\/]+)/);
-    if (!match) return;
-    reportCreatorAccess(match[1], match[2]);
-  } catch (e) {
-    /* ignore */
-  }
-}
-
 async function renderPawActions(context) {
-  reportPawAccess();
   if (isPawPostPage()) {
+    document.querySelectorAll([
+      KD_CREATOR_BUTTON_SELECTOR,
+      KD_PAGE_FETCH_BUTTON_SELECTOR,
+      '[data-kd-watch="true"]',
+    ].join(', ')).forEach((element) => element.remove());
     await addPawPostButton(context);
   } else {
+    document.querySelectorAll(KD_POST_BUTTON_SELECTOR).forEach((element) => element.remove());
     await addPawCreatorButtons(context);
     if (!isRenderCurrent(context)) return;
     addPawPageFetchButton();
     await addPawWatchButton(context);
   }
+}
+
+function cleanupPawActions() {
+  document.querySelectorAll([
+    KD_CREATOR_BUTTON_SELECTOR,
+    KD_POST_BUTTON_SELECTOR,
+    KD_PAGE_FETCH_BUTTON_SELECTOR,
+    '[data-kd-watch="true"]',
+  ].join(', ')).forEach((element) => element.remove());
 }
 
 function hasPawTargets() {
@@ -168,9 +226,10 @@ if (window.KDRouteWatcher) {
   window.KDRouteWatcher.register({
     name: "paw-download-actions",
     targetSelector: PAW_TARGET_SELECTOR,
-    match: () => location.hostname === "pawchive.pw" && /\/[^/]+\/user\/[^/]+/.test(location.pathname),
+    match: () => location.hostname === "pawchive.pw" && !!parseUrlPath(location.pathname),
     hasTargets: hasPawTargets,
     render: renderPawActions,
+    cleanup: cleanupPawActions,
     maxAttempts: 25,
   });
 } else if (document.readyState === "loading") {

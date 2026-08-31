@@ -62,7 +62,7 @@
             </label>
             <label class="field">
               <span data-i18n="backendApiKey">API Key</span>
-              <input id="backend-api-key" type="password" autocomplete="off" spellcheck="false">
+              <input id="backend-api-key" type="password" maxlength="256" autocomplete="off" spellcheck="false">
               <span class="field-help" data-i18n="backendApiKeyHelp">Use the same API Key configured by the backend.</span>
             </label>
           </div>
@@ -84,7 +84,7 @@
             </label>
             <label class="field">
               <span data-i18n="apiToken">API token</span>
-              <input id="gopeed-token" type="password" autocomplete="off">
+              <input id="gopeed-token" type="password" maxlength="4096" autocomplete="off" spellcheck="false">
             </label>
           </div>
           <div class="backend-config backend-batching">
@@ -142,7 +142,7 @@
           </label>
           <label class="field" id="external-link-filter-details">
             <span data-i18n="externalLinkFilterDomains">Blocked domains (one per line)</span>
-            <textarea id="external-link-filter-blacklist" class="kd-input" rows="4" spellcheck="false" placeholder="patreon.com"></textarea>
+            <textarea id="external-link-filter-blacklist" class="kd-input" rows="4" maxlength="8192" spellcheck="false" placeholder="patreon.com"></textarea>
           </label>
         </div>
       </article>
@@ -169,7 +169,7 @@
               <strong>Pawchive</strong>
               <span id="watch-count" data-i18n="watchCountEmpty">No watched creators</span>
             </div>
-            <button type="button" class="kd-icon-button" id="watch-check" title="Check now" data-i18n-title="checkNow">
+            <button type="button" class="kd-icon-button" id="watch-check" title="Check now" aria-label="Check now" data-i18n-title="checkNow" data-i18n-aria-label="checkNow">
               <svg class="kd-button-icon"><use href="shared/icons.svg#icon-refresh"></use></svg>
             </button>
           </div>
@@ -202,7 +202,7 @@
               <strong>Coomer</strong>
               <span id="creators-coomer-meta" data-i18n="statusNever">Never</span>
             </div>
-            <button type="button" class="kd-icon-button" id="creators-update-coomer" title="Refresh Coomer cache" data-i18n-title="refreshCoomerCacheTooltip">
+            <button type="button" class="kd-icon-button" id="creators-update-coomer" title="Refresh Coomer cache" aria-label="Refresh Coomer cache" data-i18n-title="refreshCoomerCacheTooltip" data-i18n-aria-label="refreshCoomerCacheTooltip">
               <svg class="kd-button-icon"><use href="shared/icons.svg#icon-refresh"></use></svg>
             </button>
           </div>
@@ -211,7 +211,7 @@
               <strong>Kemono</strong>
               <span id="creators-kemono-meta" data-i18n="statusNever">Never</span>
             </div>
-            <button type="button" class="kd-icon-button" id="creators-update-kemono" title="Refresh Kemono cache" data-i18n-title="refreshKemonoCacheTooltip">
+            <button type="button" class="kd-icon-button" id="creators-update-kemono" title="Refresh Kemono cache" aria-label="Refresh Kemono cache" data-i18n-title="refreshKemonoCacheTooltip" data-i18n-aria-label="refreshKemonoCacheTooltip">
               <svg class="kd-button-icon"><use href="shared/icons.svg#icon-refresh"></use></svg>
             </button>
           </div>
@@ -231,11 +231,11 @@
           <div></div>
           <label class="field">
             <span data-i18n="tokenLabel">Token</span>
-            <input id="gist-token" type="password" autocomplete="off">
+            <input id="gist-token" type="password" maxlength="4096" autocomplete="off" spellcheck="false">
           </label>
           <label class="field">
             <span data-i18n="gistId">Gist ID</span>
-            <input id="gist-id" type="text">
+            <input id="gist-id" type="text" maxlength="128" spellcheck="false">
           </label>
           <div class="button-row">
             <button type="button" class="kd-button secondary" id="gist-save">
@@ -278,7 +278,7 @@
         <svg class="kd-button-icon"><use href="shared/icons.svg#icon-refresh"></use></svg>
         <span data-i18n="reloadAction">Reload</span>
       </button>
-      <button type="button" class="kd-button primary" id="save-settings">
+      <button type="button" class="kd-button primary" id="save-settings" disabled>
         <svg class="kd-button-icon"><use href="shared/icons.svg#icon-save"></use></svg>
         <span data-i18n="saveSettingsAction">Save settings</span>
       </button>

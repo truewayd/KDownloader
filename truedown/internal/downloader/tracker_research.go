@@ -25,6 +25,8 @@ const (
 	trackerResearchRequiredRPC        = "aria2.replaceBtTrackers"
 	trackerResearchMinimumNextVersion = "2.5.7"
 	trackerRelayBodyLimit             = 4 * 1024 * 1024
+	maxTrackerResearchStateBytes      = 16 * 1024 * 1024
+	maxTrackerResearchTorrents        = 256
 )
 
 // TrackerResearchSettings controls the opt-in RatioGhost-compatible announce model.
@@ -134,11 +136,12 @@ type trackerResearchModule struct {
 	lastError          string
 	forwardedAnnounces uint64
 
-	listener net.Listener
-	server   *http.Server
-	client   *http.Client
-	now      func() time.Time
-	random   func() float64
+	listener   net.Listener
+	server     *http.Server
+	serverDone chan struct{}
+	client     *http.Client
+	now        func() time.Time
+	random     func() float64
 }
 
 func defaultTrackerResearchSettings() TrackerResearchSettings {
@@ -174,16 +177,13 @@ func newTrackerResearchModule(databasePath string) (*trackerResearchModule, erro
 		now:    time.Now,
 		random: func() float64 { return float64(randomUint53()) / float64(uint64(1)<<53) },
 	}
-	data, err := os.ReadFile(module.path)
+	var state trackerResearchDiskState
+	err := readStrictJSONFile(module.path, maxTrackerResearchStateBytes, &state)
 	if os.IsNotExist(err) {
 		return module, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read tracker research settings: %w", err)
-	}
-	var state trackerResearchDiskState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, fmt.Errorf("decode tracker research settings: %w", err)
 	}
 	if state.SchemaVersion != 1 {
 		return nil, fmt.Errorf("unsupported tracker research settings schema %d", state.SchemaVersion)
@@ -193,6 +193,9 @@ func newTrackerResearchModule(databasePath string) (*trackerResearchModule, erro
 		return nil, fmt.Errorf("validate tracker research settings: %w", err)
 	}
 	module.settings = normalized
+	if len(state.Originals) > maxTrackerResearchTorrents {
+		return nil, fmt.Errorf("validate tracker research state: too many torrents")
+	}
 	for gid, trackers := range state.Originals {
 		if !validTrackerResearchGID(gid) {
 			return nil, fmt.Errorf("validate tracker research state: invalid GID")
@@ -273,6 +276,19 @@ func validTrackerResearchGID(gid string) bool {
 }
 
 func (module *trackerResearchModule) persistLocked() error {
+	if len(module.originals) > maxTrackerResearchTorrents {
+		return fmt.Errorf("tracker research state exceeds the %d-torrent limit", maxTrackerResearchTorrents)
+	}
+	estimatedBytes := 0
+	for gid, trackers := range module.originals {
+		estimatedBytes += len(gid)
+		for _, tracker := range trackers {
+			estimatedBytes += len(tracker.URL) + 32
+		}
+		if estimatedBytes > maxTrackerResearchStateBytes {
+			return fmt.Errorf("tracker research state exceeds %d bytes", maxTrackerResearchStateBytes)
+		}
+	}
 	state := trackerResearchDiskState{
 		SchemaVersion: 1,
 		Settings:      module.settings,
@@ -282,10 +298,10 @@ func (module *trackerResearchModule) persistLocked() error {
 	if err != nil {
 		return fmt.Errorf("encode tracker research settings: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(module.path), 0700); err != nil {
-		return fmt.Errorf("create tracker research settings directory: %w", err)
+	if len(data)+1 > maxTrackerResearchStateBytes {
+		return fmt.Errorf("tracker research state exceeds %d bytes", maxTrackerResearchStateBytes)
 	}
-	if err := os.WriteFile(module.path, append(data, '\n'), 0600); err != nil {
+	if err := writeConfigFile(module.path, append(data, '\n')); err != nil {
 		return fmt.Errorf("persist tracker research settings: %w", err)
 	}
 	return nil
@@ -418,10 +434,21 @@ func (module *trackerResearchModule) startRelay() error {
 	}
 	module.listener = listener
 	module.server = server
+	done := make(chan struct{})
+	module.serverDone = done
 	go func() {
-		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			module.setLastError(fmt.Errorf("local tracker research relay stopped: %w", err))
+		defer close(done)
+		err := server.Serve(listener)
+		module.mu.Lock()
+		if module.server == server {
+			module.server = nil
+			module.listener = nil
+			module.serverDone = nil
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				module.lastError = errorText(fmt.Errorf("local tracker research relay stopped: %w", err))
+			}
 		}
+		module.mu.Unlock()
 	}()
 	return nil
 }
@@ -438,32 +465,51 @@ func (module *trackerResearchModule) relayBaseURL() string {
 func (module *trackerResearchModule) close() {
 	module.mu.Lock()
 	server := module.server
+	done := module.serverDone
 	module.server = nil
 	module.listener = nil
+	module.serverDone = nil
 	module.bindings = make(map[string]trackerRelayBinding)
 	module.rewrites = make(map[string]trackerTorrentRewrite)
 	module.announces = make(map[string]*trackerAnnounceState)
 	module.mu.Unlock()
 	if server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = server.Shutdown(ctx)
+		if err := server.Shutdown(ctx); err != nil {
+			_ = server.Close()
+		}
+		cancel()
+		waitForTrackerRelay(done)
 	}
+	module.client.CloseIdleConnections()
 }
 
 func (module *trackerResearchModule) maybeCloseRelay() {
 	module.mu.Lock()
 	shouldClose := !module.settings.Enabled && len(module.rewrites) == 0
 	server := module.server
+	done := module.serverDone
 	if shouldClose {
 		module.server = nil
 		module.listener = nil
+		module.serverDone = nil
 		module.bindings = make(map[string]trackerRelayBinding)
 		module.announces = make(map[string]*trackerAnnounceState)
 	}
 	module.mu.Unlock()
 	if shouldClose && server != nil {
 		_ = server.Close()
+		waitForTrackerRelay(done)
+	}
+}
+
+func waitForTrackerRelay(done <-chan struct{}) {
+	if done == nil {
+		return
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
 	}
 }
 
@@ -488,12 +534,31 @@ func (module *trackerResearchModule) sync(rpc ariaRPC, statuses []ariaStatus) {
 		module.setLastError(err)
 		return
 	}
+	liveGIDs := make(map[string]struct{}, len(statuses))
 	for _, status := range statuses {
-		if status.Bittorrent == nil || len(status.Bittorrent.AnnounceList) == 0 {
+		if status.Bittorrent != nil && (status.Status == "active" || status.Status == "waiting" || status.Status == "paused") {
+			liveGIDs[status.GID] = struct{}{}
+		}
+	}
+	module.restoreStale(researchRPC, liveGIDs)
+	for _, status := range statuses {
+		if _, live := liveGIDs[status.GID]; !live || len(status.Bittorrent.AnnounceList) == 0 {
 			continue
 		}
 		module.ensureRewrite(researchRPC, status.GID, status.Bittorrent.AnnounceList)
 	}
+}
+
+func (module *trackerResearchModule) restoreStale(rpc trackerResearchRPC, liveGIDs map[string]struct{}) {
+	module.mu.Lock()
+	stale := make([]string, 0)
+	for gid := range module.originals {
+		if _, live := liveGIDs[gid]; !live {
+			stale = append(stale, gid)
+		}
+	}
+	module.mu.Unlock()
+	module.restoreMany(rpc, stale)
 }
 
 func (module *trackerResearchModule) ensureRewrite(rpc trackerResearchRPC, gid string, announceList [][]string) {
@@ -600,9 +665,7 @@ func (module *trackerResearchModule) restoreAll(rpc trackerResearchRPC) {
 		gids = append(gids, gid)
 	}
 	module.mu.Unlock()
-	for _, gid := range gids {
-		module.restore(rpc, gid)
-	}
+	module.restoreMany(rpc, gids)
 }
 
 func (module *trackerResearchModule) restoreAllIfSupported(rpc ariaRPC) {
@@ -612,27 +675,46 @@ func (module *trackerResearchModule) restoreAllIfSupported(rpc ariaRPC) {
 	}
 }
 
-func (module *trackerResearchModule) restore(rpc trackerResearchRPC, gid string) {
-	module.mu.Lock()
-	originals, ok := module.originals[gid]
-	module.mu.Unlock()
-	if !ok {
-		return
-	}
-	if err := rpc.replaceBtTrackers(gid, originals); err != nil && !isGIDNotFound(err) {
-		module.setLastError(fmt.Errorf("restore BitTorrent trackers: %w", err))
-		return
+func (module *trackerResearchModule) restoreMany(rpc trackerResearchRPC, gids []string) {
+	type restoreTarget struct {
+		gid      string
+		trackers []btTrackerConfig
 	}
 	module.mu.Lock()
-	if rewrite, ok := module.rewrites[gid]; ok {
-		for _, token := range rewrite.tokens {
-			delete(module.bindings, token)
+	targets := make([]restoreTarget, 0, len(gids))
+	for _, gid := range gids {
+		if originals, ok := module.originals[gid]; ok {
+			targets = append(targets, restoreTarget{gid: gid, trackers: cloneTrackerConfigs(originals)})
 		}
-		delete(module.rewrites, gid)
 	}
-	delete(module.originals, gid)
+	module.mu.Unlock()
+	if len(targets) == 0 {
+		return
+	}
+	restored := make([]string, 0, len(targets))
+	var restoreErr error
+	for _, target := range targets {
+		if err := rpc.replaceBtTrackers(target.gid, target.trackers); err != nil && !isGIDNotFound(err) {
+			restoreErr = fmt.Errorf("restore BitTorrent trackers: %w", err)
+			continue
+		}
+		restored = append(restored, target.gid)
+	}
+	module.mu.Lock()
+	for _, gid := range restored {
+		if rewrite, ok := module.rewrites[gid]; ok {
+			for _, token := range rewrite.tokens {
+				delete(module.bindings, token)
+				delete(module.announces, token)
+			}
+			delete(module.rewrites, gid)
+		}
+		delete(module.originals, gid)
+	}
 	if err := module.persistLocked(); err != nil {
 		module.lastError = errorText(err)
+	} else if restoreErr != nil {
+		module.lastError = errorText(restoreErr)
 	} else {
 		module.lastError = ""
 	}
@@ -670,7 +752,8 @@ func (module *trackerResearchModule) ServeHTTP(response http.ResponseWriter, req
 		return
 	}
 	query, err := url.ParseQuery(request.URL.RawQuery)
-	if err != nil || len(query["info_hash"]) == 0 {
+	infoHashes := query["info_hash"]
+	if err != nil || len(infoHashes) != 1 || len(infoHashes[0]) == 0 || len(infoHashes[0]) > 64 {
 		http.Error(response, "tracker query required", http.StatusBadRequest)
 		return
 	}
@@ -682,7 +765,7 @@ func (module *trackerResearchModule) ServeHTTP(response http.ResponseWriter, req
 			targetQuery.Add(key, value)
 		}
 	}
-	announceKey := token + "\x00" + query.Get("info_hash")
+	announceKey := token
 	module.rewriteAnnounce(targetQuery, announceKey)
 	target.RawQuery = targetQuery.Encode()
 	outbound, err := http.NewRequestWithContext(request.Context(), http.MethodGet, target.String(), nil)

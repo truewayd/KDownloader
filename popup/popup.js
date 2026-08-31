@@ -3,6 +3,8 @@ const BACKEND_CONFIG_KEY = "backendConfig";
 const GIST_CONFIG_KEY = "gistConfig";
 const CREATORS_OVERRIDE_ENABLED_KEY = "creatorsOverrideEnabled";
 const GLOBAL_PROGRESS_KEY = "globalProgressSnapshot";
+const MAX_HISTORY_FILE_BYTES = 64 * 1024 * 1024;
+const exportTextEncoder = new TextEncoder();
 
 const CREATOR_FETCH_PLACEHOLDER =
     "https://kemono.cr/patreon/user/114514";
@@ -37,6 +39,8 @@ const siteSearchSite = document.getElementById("site-search-site");
 const siteSearchQuery = document.getElementById("site-search-query");
 
 let backendReady = false;
+let loadingDepth = 0;
+let popupRequestSequence = 0;
 
 try {
     const manifest = chrome.runtime.getManifest();
@@ -44,11 +48,37 @@ try {
     if (verEl) verEl.textContent = `v${manifest.version || "?"}`;
 } catch (_) { }
 
-function setLoading(show, label = null) {
-    if (loading) loading.classList.toggle("is-visible", !!show);
+function createPopupRequestId() {
+    try {
+        const uuid = globalThis.crypto?.randomUUID?.();
+        if (uuid) return `popup:${uuid}`;
+    } catch (_) { }
+    popupRequestSequence += 1;
+    return `popup:${Date.now()}:${popupRequestSequence}`;
+}
+
+function renderLoading(label = null) {
+    if (loading) {
+        loading.classList.toggle("is-visible", loadingDepth > 0);
+        loading.setAttribute("aria-hidden", String(loadingDepth === 0));
+    }
     if (loadingLabel) {
         loadingLabel.textContent = label || t("statusProcessing");
     }
+}
+
+function beginLoading(label = null) {
+    loadingDepth += 1;
+    renderLoading(label);
+}
+
+function updateLoading(label = null) {
+    if (loadingDepth > 0) renderLoading(label);
+}
+
+function endLoading() {
+    loadingDepth = Math.max(0, loadingDepth - 1);
+    renderLoading();
 }
 
 function showSuccess(message) {
@@ -110,19 +140,23 @@ async function loadBackendState() {
 }
 
 async function loadFeatureVisibility() {
-    try {
-        const creators = await safeSendMessage({ action: "creators.ensureRuleState" }, 3000, { retries: 1, retryDelay: 200 });
+    const [creatorsResult, gistResult] = await Promise.allSettled([
+        safeSendMessage({ action: "creators.ensureRuleState" }, 3000, { retries: 1, retryDelay: 200 }),
+        safeSendMessage({ action: "gist.getConfig" }, 3000, { retries: 1, retryDelay: 200 }),
+    ]);
+    if (creatorsResult.status === "fulfilled") {
+        const creators = creatorsResult.value;
         searchCachePanel?.classList.toggle("kd-hidden", !creators.enabled);
-    } catch (err) {
-        console.warn("[Popup] creators.ensureRuleState failed", err);
+    } else {
+        console.warn("[Popup] creators.ensureRuleState failed", creatorsResult.reason);
         searchCachePanel?.classList.add("kd-hidden");
     }
 
-    try {
-        const gist = await safeSendMessage({ action: "gist.getConfig" }, 3000, { retries: 1, retryDelay: 200 });
+    if (gistResult.status === "fulfilled") {
+        const gist = gistResult.value;
         gistPanel?.classList.toggle("kd-hidden", !(gist.config && gist.config.enabled));
-    } catch (err) {
-        console.warn("[Popup] gist.getConfig failed", err);
+    } else {
+        console.warn("[Popup] gist.getConfig failed", gistResult.reason);
         gistPanel?.classList.add("kd-hidden");
     }
 }
@@ -156,7 +190,10 @@ function notifyContentUpdate() {
             "https://*.coomerfans.com/*",
         ],
     }, (tabs) => {
+        const runtimeError = chrome.runtime.lastError;
+        if (runtimeError || !Array.isArray(tabs)) return;
         tabs.forEach((tab) => {
+            if (!Number.isInteger(tab?.id)) return;
             try {
                 chrome.tabs.sendMessage(tab.id, { action: "updateUI" });
             } catch (_) { }
@@ -164,56 +201,97 @@ function notifyContentUpdate() {
     });
 }
 
+function appendHistoryExportPart(parts, state, text, reservedBytes = 0, knownByteLength = null) {
+    const byteLength = knownByteLength ?? exportTextEncoder.encode(text).byteLength;
+    if (byteLength > MAX_HISTORY_FILE_BYTES - state.bytes - reservedBytes) {
+        throw new Error("History export exceeds the 64 MiB file safety limit");
+    }
+    state.bytes += byteLength;
+    parts.push(text);
+}
+
 async function exportData() {
+    let objectUrl = null;
     try {
-        setLoading(true);
+        beginLoading();
         const envelope = await safeSendMessage(
             { action: "db.export.begin" },
             8000,
             { retries: 2, retryDelay: 300 }
         );
-        const parts = [
+        if (envelope.schemaVersion !== 2
+            || typeof envelope.exportedAt !== "string"
+            || (envelope.revision !== null && typeof envelope.revision !== "string")) {
+            throw new Error("Invalid export envelope response");
+        }
+        const suffix = "]}";
+        const suffixBytes = exportTextEncoder.encode(suffix).byteLength;
+        const parts = [];
+        const exportSize = { bytes: 0 };
+        appendHistoryExportPart(
+            parts,
+            exportSize,
             `{"schemaVersion":${envelope.schemaVersion},"exportedAt":${JSON.stringify(envelope.exportedAt)},"records":[`,
-        ];
+            suffixBytes
+        );
         let firstRecord = true;
         let afterKey = null;
+        const seenPageKeys = new Set();
         while (true) {
             const response = await safeSendMessage({
                 action: "db.export.page",
                 afterKey,
                 generation: envelope.generation,
+                revision: envelope.revision,
                 maxBytes: 4 * 1024 * 1024,
             }, 30000, { retries: 2, retryDelay: 300 });
             const page = response.page;
             if (!page || !Array.isArray(page.records)) throw new Error("Invalid export page response");
-            for (const record of page.records) {
-                if (!firstRecord) parts.push(",");
-                parts.push(JSON.stringify(record));
+            if (page.records.length > 0) {
+                const pageParts = new Array(page.records.length);
+                for (let index = 0; index < page.records.length; index++) {
+                    const recordText = JSON.stringify(page.records[index]);
+                    if (typeof recordText !== "string") {
+                        throw new Error("Invalid export record response");
+                    }
+                    pageParts[index] = recordText;
+                }
+                appendHistoryExportPart(
+                    parts,
+                    exportSize,
+                    `${firstRecord ? "" : ","}${pageParts.join(",")}`,
+                    suffixBytes
+                );
                 firstRecord = false;
             }
             if (page.done) break;
             if (!page.nextKey || page.records.length === 0) throw new Error("Export paging did not advance");
+            const nextKeyToken = JSON.stringify(page.nextKey);
+            if (!nextKeyToken || seenPageKeys.has(nextKeyToken)) {
+                throw new Error("Export paging repeated a cursor");
+            }
+            seenPageKeys.add(nextKeyToken);
             afterKey = page.nextKey;
         }
-        parts.push("]}");
+        appendHistoryExportPart(parts, exportSize, suffix, 0, suffixBytes);
         const blob = new Blob(parts, { type: "application/json" });
-        const url = URL.createObjectURL(blob);
+        objectUrl = URL.createObjectURL(blob);
         const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-        await chrome.downloads.download({ url, filename: `kemono_history_${timestamp}.json`, saveAs: true });
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        await chrome.downloads.download({ url: objectUrl, filename: `kemono_history_${timestamp}.json`, saveAs: true });
         showSuccess(t("historyExported"));
     } catch (err) {
         console.error("[Popup] export failed", err);
         showError(`Export failed: ${err.message}`);
     } finally {
-        setLoading(false);
+        if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+        endLoading();
     }
 }
 
 async function importData(file) {
     let sessionId = null;
     try {
-        setLoading(true);
+        beginLoading();
         if (!file || file.size > 64 * 1024 * 1024) {
             throw new Error("History import file exceeds the 64 MiB safety limit");
         }
@@ -227,13 +305,16 @@ async function importData(file) {
             typeof parsed.exportedAt !== "string") {
             throw new Error("Invalid history schema");
         }
+        if (parsed.records.length > 1_000_000) {
+            throw new Error("History import exceeds the 1,000,000 record safety limit");
+        }
 
         const beginResponse = await safeSendMessage({
             action: "db.import.begin",
             schemaVersion: parsed.schemaVersion,
             exportedAt: parsed.exportedAt,
             expectedRecords: parsed.records.length,
-        }, 15000, { retries: 2, retryDelay: 300 });
+        }, 15000, { retries: 0, retryDelay: 0 });
         sessionId = beginResponse.sessionId;
         if (!sessionId) throw new Error("Background did not create an import session");
 
@@ -243,14 +324,16 @@ async function importData(file) {
         while (index < parsed.records.length) {
             const chunk = [];
             let chunkBytes = 2;
-            let hash = 2166136261;
             const startIndex = index;
             while (index < parsed.records.length && chunk.length < 5000) {
                 const record = parsed.records[index];
                 const recordText = JSON.stringify(record);
+                if (typeof recordText !== "string") {
+                    throw new Error(`History record ${index + 1} is not serializable`);
+                }
                 // Three bytes per UTF-16 code unit is a conservative UTF-8
                 // estimate for these mostly-ASCII records and avoids allocating
-                // a temporary TextEncoder buffer for every one of 300k items.
+                // a temporary TextEncoder buffer for every imported item.
                 const recordBytes = recordText.length * 3 + 1;
                 if (recordBytes > maxChunkBytes) {
                     throw new Error(`History record ${index + 1} is too large to import safely`);
@@ -258,12 +341,6 @@ async function importData(file) {
                 if (chunk.length > 0 && chunkBytes + recordBytes > maxChunkBytes) break;
                 chunk.push(record);
                 chunkBytes += recordBytes;
-                for (let i = 0; i < recordText.length; i++) {
-                    hash ^= recordText.charCodeAt(i);
-                    hash = Math.imul(hash, 16777619);
-                }
-                hash ^= 10;
-                hash = Math.imul(hash, 16777619);
                 index++;
             }
 
@@ -272,7 +349,6 @@ async function importData(file) {
                     action: "db.import.chunk",
                     sessionId,
                     sequence,
-                    digest: (hash >>> 0).toString(16),
                     records: chunk,
                 }, 120000, { retries: 2, retryDelay: 300 });
             } catch (chunkError) {
@@ -286,15 +362,15 @@ async function importData(file) {
 
             for (let i = startIndex; i < index; i++) parsed.records[i] = null;
             sequence++;
-            setLoading(true, t("historyImportProgress", [index, parsed.records.length]));
+            updateLoading(t("historyImportProgress", [index, parsed.records.length]));
         }
 
-        setLoading(true, t("historyImportFinalizing"));
+        updateLoading(t("historyImportFinalizing"));
         try {
             await safeSendMessage(
                 { action: "db.import.commit", sessionId },
                 120000,
-                { retries: 2, retryDelay: 500 }
+                { retries: 0, retryDelay: 0 }
             );
         } catch (commitError) {
             const statusResponse = await safeSendMessage(
@@ -319,7 +395,7 @@ async function importData(file) {
         console.error("[Popup] import failed", err);
         showError(`Import failed: ${err.message}`);
     } finally {
-        setLoading(false);
+        endLoading();
     }
 }
 
@@ -347,6 +423,7 @@ async function handleCreatorFetchClick() {
     }
 
     try {
+        const requestId = createPopupRequestId();
         const ack = await safeSendMessage(
             {
                 action: "creator.fetch",
@@ -356,18 +433,15 @@ async function handleCreatorFetchClick() {
                 creatorName: parsed.creatorName,
                 source: parsed.source,
                 mode,
+                requestId,
             },
             7000,
-            { retries: 2, retryDelay: 400 }
+            { retries: 0, retryDelay: 0 }
         );
         if (!ack || (!ack.accepted && !ack.success)) throw new Error("No ack");
         showSuccess(t("taskAdded"));
         creatorUrlInput.value = "";
         setCreatorFetchAvailability({ enabled: backendReady });
-        creatorFetchBtn.disabled = true;
-        setTimeout(() => {
-            creatorFetchBtn.disabled = false;
-        }, 1200);
     } catch (err) {
         console.error("[Popup] creator.fetch failed", err);
         showError(`Creator Fetch failed: ${err.message}`);
@@ -376,39 +450,43 @@ async function handleCreatorFetchClick() {
 
 async function updateCreatorsCache(host) {
     try {
-        setLoading(true);
-        await safeSendMessage({ action: "creators.updateCache", host }, 5000, { retries: 2, retryDelay: 300 });
+        beginLoading();
+        await safeSendMessage(
+            { action: "creators.updateCache", host, requestId: createPopupRequestId() },
+            5000,
+            { retries: 0, retryDelay: 0 }
+        );
         showSuccess(t("cacheRefreshStarted"));
     } catch (err) {
         showError(`Cache failed: ${err.message}`);
     } finally {
-        setLoading(false);
+        endLoading();
     }
 }
 
 async function uploadToGist() {
     try {
-        setLoading(true);
-        await safeSendMessage({ action: "gist.upload" }, 12000, { retries: 2, retryDelay: 300 });
+        beginLoading();
+        await safeSendMessage({ action: "gist.upload" }, 12000, { retries: 0, retryDelay: 0 });
         showSuccess(t("gistUploaded"));
     } catch (err) {
         showError(`Upload failed: ${err.message}`);
     } finally {
-        setLoading(false);
+        endLoading();
     }
 }
 
 async function downloadFromGist() {
     try {
-        setLoading(true);
-        await safeSendMessage({ action: "gist.download" }, 12000, { retries: 2, retryDelay: 300 });
+        beginLoading();
+        await safeSendMessage({ action: "gist.download" }, 12000, { retries: 0, retryDelay: 0 });
         await loadStats();
         notifyContentUpdate();
         showSuccess(t("gistDownloaded"));
     } catch (err) {
         showError(`Download failed: ${err.message}`);
     } finally {
-        setLoading(false);
+        endLoading();
     }
 }
 
@@ -419,6 +497,7 @@ function renderGlobalProgress(total, processed, acked) {
     acked = Number(acked || 0);
     if (total <= 0) {
         globalProgressEl.classList.add("kd-hidden");
+        globalProgressEl.setAttribute("aria-hidden", "true");
         return;
     }
     const pct = total > 0 ? Math.round((100 * processed) / Math.max(1, total)) : 0;
@@ -426,6 +505,7 @@ function renderGlobalProgress(total, processed, acked) {
     globalProgressTrack?.setAttribute("aria-valuenow", String(Math.min(100, Math.max(0, pct))));
     globalProgressLabel.textContent = t("globalProgressActive", [processed, total, acked]);
     globalProgressEl.classList.remove("kd-hidden");
+    globalProgressEl.setAttribute("aria-hidden", "false");
 }
 
 chrome.runtime.onMessage.addListener((message) => {
@@ -450,20 +530,24 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (changes[STORAGE_VERSION_KEY]) loadStats();
 });
 
-exportBtn?.addEventListener("click", exportData);
+exportBtn?.addEventListener("click", () => KDUI.withBusyButton(exportBtn, exportData));
 importBtn?.addEventListener("click", () => fileInput?.click());
 fileInput?.addEventListener("change", async (event) => {
     const file = event.target.files && event.target.files[0];
-    if (file) await importData(file);
+    if (file) await KDUI.withBusyButton(importBtn, () => importData(file));
     event.target.value = "";
 });
-creatorFetchBtn?.addEventListener("click", handleCreatorFetchClick);
+creatorFetchBtn?.addEventListener("click", () => KDUI.withBusyButton(creatorFetchBtn, handleCreatorFetchClick));
 creatorFetchMode?.addEventListener("change", () => setCreatorFetchAvailability({ enabled: backendReady }));
 siteSearchForm?.addEventListener("submit", handleSiteSearch);
-creatorsUpdateCoomer?.addEventListener("click", () => updateCreatorsCache("coomer.st"));
-creatorsUpdateKemono?.addEventListener("click", () => updateCreatorsCache("kemono.cr"));
-gistUploadBtn?.addEventListener("click", uploadToGist);
-gistDownloadBtn?.addEventListener("click", downloadFromGist);
+creatorsUpdateCoomer?.addEventListener("click", () =>
+    KDUI.withBusyButton(creatorsUpdateCoomer, () => updateCreatorsCache("coomer.st"))
+);
+creatorsUpdateKemono?.addEventListener("click", () =>
+    KDUI.withBusyButton(creatorsUpdateKemono, () => updateCreatorsCache("kemono.cr"))
+);
+gistUploadBtn?.addEventListener("click", () => KDUI.withBusyButton(gistUploadBtn, uploadToGist));
+gistDownloadBtn?.addEventListener("click", () => KDUI.withBusyButton(gistDownloadBtn, downloadFromGist));
 
 loadStats();
 loadBackendState();

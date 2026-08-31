@@ -17,8 +17,9 @@ var defaultExcludedExtensions = []string{
 }
 
 const (
-	DropboxModeDirect = "direct"
-	DropboxModeExpand = "expand"
+	DropboxModeDirect     = "direct"
+	DropboxModeExpand     = "expand"
+	maxDownloadRulesBytes = 16 * 1024
 )
 
 // DownloadRules stores the default Dropbox folder behavior and the optional
@@ -48,16 +49,13 @@ func newDownloadRulesStore(databasePath string) (*downloadRulesStore, error) {
 		path:  filepath.Join(filepath.Dir(databasePath), "truedown.download-rules.json"),
 		rules: defaultDownloadRules(),
 	}
-	data, err := os.ReadFile(store.path)
+	var rules DownloadRules
+	err := readStrictJSONFile(store.path, maxDownloadRulesBytes, &rules)
 	if os.IsNotExist(err) {
 		return store, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read download rules: %w", err)
-	}
-	var rules DownloadRules
-	if err := json.Unmarshal(data, &rules); err != nil {
-		return nil, fmt.Errorf("decode download rules: %w", err)
 	}
 	normalized, err := normalizeDownloadRules(rules)
 	if err != nil {
@@ -125,10 +123,7 @@ func (store *downloadRulesStore) update(rules DownloadRules) (DownloadRules, err
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(store.path), 0700); err != nil {
-		return DownloadRules{}, fmt.Errorf("create download-rules directory: %w", err)
-	}
-	if err := os.WriteFile(store.path, append(data, '\n'), 0600); err != nil {
+	if err := writeConfigFile(store.path, append(data, '\n')); err != nil {
 		return DownloadRules{}, fmt.Errorf("persist download rules: %w", err)
 	}
 	store.rules = normalized
@@ -154,10 +149,7 @@ func (store *downloadRulesStore) updateRequest(request DownloadRulesUpdate) (Dow
 	if err != nil {
 		return DownloadRules{}, fmt.Errorf("encode download rules: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(store.path), 0700); err != nil {
-		return DownloadRules{}, fmt.Errorf("create download-rules directory: %w", err)
-	}
-	if err := os.WriteFile(store.path, append(data, '\n'), 0600); err != nil {
+	if err := writeConfigFile(store.path, append(data, '\n')); err != nil {
 		return DownloadRules{}, fmt.Errorf("persist download rules: %w", err)
 	}
 	store.rules = normalized

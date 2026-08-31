@@ -1,7 +1,7 @@
 // background/handlers/dbHandlers.js - downloaded history and creator flag RPCs
 import {
-  checkDownloaded,
-  checkDownloadedMany,
+  getDownloadedStatus,
+  getDownloadedStatusesMany,
   markDownloaded,
   markMultipleDownloaded,
   getHistoryExportPage,
@@ -13,46 +13,60 @@ import {
   getImportSessionStatus,
   clearDB,
   getHistoryStats,
-  setLastAccess,
   getCreatorFlagsMany,
   setCreatorFlag,
 } from "../db.js";
-import { respondWith } from "../messageHelpers.js";
+import { API, PAW } from "../constants.js";
+import {
+  isExtensionPageSender,
+  requireExtensionPage,
+  requireTrustedWebSender,
+  respondWith,
+} from "../messageHelpers.js";
+
+const CONTENT_HOSTS = [...API.HOSTS, API.COOMERFANS_HOST, PAW.HOST];
+
+function requireHistoryReader(sender, operation) {
+  if (isExtensionPageSender(sender)) return;
+  requireTrustedWebSender(sender, CONTENT_HOSTS, operation, { allowSubdomains: true });
+}
 
 export function createDbHandlers() {
-  const checkOne = ({ message, sendResponse }) =>
-    respondWith(
+  const checkOne = ({ message, sender, sendResponse }) => {
+    requireHistoryReader(sender, "History status reads");
+    return respondWith(
       sendResponse,
-      checkDownloaded(message.service, message.userId, message.postId, message.source),
-      (downloaded) => ({ downloaded })
+      getDownloadedStatus(message.service, message.userId, message.postId, message.source),
+      (status) => ({ downloaded: status === "complete" || status === "empty", status })
     );
+  };
 
-  const checkMany = ({ message, sendResponse }) =>
-    respondWith(
+  const checkMany = ({ message, sender, sendResponse }) => {
+    requireHistoryReader(sender, "History status reads");
+    return respondWith(
       sendResponse,
-      checkDownloadedMany(message.items || message.posts || []),
-      (downloaded) => ({ downloaded })
+      getDownloadedStatusesMany(message.items || message.posts || []),
+      (statuses) => ({
+        downloaded: Object.fromEntries(
+          Object.entries(statuses).map(([key, status]) => [
+            key,
+            status === "complete" || status === "empty",
+          ])
+        ),
+        statuses,
+      })
     );
+  };
 
   return {
-    "creator.recordAccess": ({ message, sendResponse }) =>
-      respondWith(
-        sendResponse,
-        setLastAccess(
-          message.service,
-          message.userId,
-          message.when ? new Date(message.when) : new Date()
-        ),
-        () => ({})
-      ),
-
     checkDownloaded: checkOne,
     "db.checkDownloaded": checkOne,
     checkDownloadedMany: checkMany,
     "db.checkDownloadedMany": checkMany,
 
-    "db.markDownloaded": ({ message, sendResponse }) =>
-      respondWith(
+    "db.markDownloaded": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "History writes");
+      return respondWith(
         sendResponse,
         markDownloaded(message.record || {
           source: message.source,
@@ -66,23 +80,36 @@ export function createDbHandlers() {
           updatedAt: message.updatedAt,
         }),
         () => ({})
-      ),
+      );
+    },
 
-    "db.markMultiple": ({ message, sendResponse }) =>
-      respondWith(sendResponse, markMultipleDownloaded(message.items), () => ({})),
+    "db.markMultiple": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "History writes");
+      return respondWith(sendResponse, markMultipleDownloaded(message.items), () => ({}));
+    },
 
-    "db.export.begin": ({ sendResponse }) =>
-      respondWith(sendResponse, beginHistoryExport(), (result) => result),
+    "db.export.begin": ({ sender, sendResponse }) => {
+      requireExtensionPage(sender, "History export");
+      return respondWith(sendResponse, beginHistoryExport(), (result) => result);
+    },
 
-    "db.export.page": ({ message, sendResponse }) =>
-      respondWith(
+    "db.export.page": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "History export");
+      return respondWith(
         sendResponse,
-        getHistoryExportPage(message.afterKey || null, message.maxBytes, message.generation),
+        getHistoryExportPage(
+          message.afterKey || null,
+          message.maxBytes,
+          message.generation,
+          message.revision
+        ),
         (page) => ({ page })
-      ),
+      );
+    },
 
-    "db.import.begin": ({ message, sendResponse }) =>
-      respondWith(
+    "db.import.begin": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "History import");
+      return respondWith(
         sendResponse,
         beginImportSession({
           schemaVersion: message.schemaVersion,
@@ -90,49 +117,66 @@ export function createDbHandlers() {
           expectedRecords: message.expectedRecords,
         }),
         (sessionId) => ({ sessionId })
-      ),
+      );
+    },
 
-    "db.import.chunk": ({ message, sendResponse }) =>
-      respondWith(
+    "db.import.chunk": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "History import");
+      return respondWith(
         sendResponse,
         appendImportChunk(message.sessionId, message.records, {
           sequence: message.sequence,
           digest: message.digest,
         }),
         (result) => ({ result })
-      ),
+      );
+    },
 
-    "db.import.commit": ({ message, sendResponse }) =>
-      respondWith(sendResponse, commitImportSession(message.sessionId), () => ({})),
+    "db.import.commit": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "History import");
+      return respondWith(sendResponse, commitImportSession(message.sessionId), () => ({}));
+    },
 
-    "db.import.abort": ({ message, sendResponse }) =>
-      respondWith(sendResponse, abortImportSession(message.sessionId), () => ({})),
+    "db.import.abort": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "History import");
+      return respondWith(sendResponse, abortImportSession(message.sessionId), () => ({}));
+    },
 
-    "db.import.status": ({ message, sendResponse }) =>
-      respondWith(
+    "db.import.status": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "History import");
+      return respondWith(
         sendResponse,
         getImportSessionStatus(message.sessionId),
         (status) => ({ status })
-      ),
+      );
+    },
 
-    "db.clear": ({ sendResponse }) =>
-      respondWith(sendResponse, clearDB(), () => ({})),
+    "db.clear": ({ sender, sendResponse }) => {
+      requireExtensionPage(sender, "History clear");
+      return respondWith(sendResponse, clearDB(), () => ({}));
+    },
 
-    "db.stats": ({ sendResponse }) =>
-      respondWith(sendResponse, getHistoryStats(), (stats) => ({ stats })),
+    "db.stats": ({ sender, sendResponse }) => {
+      requireExtensionPage(sender, "History statistics");
+      return respondWith(sendResponse, getHistoryStats(), (stats) => ({ stats }));
+    },
 
-    "flag.getMany": ({ message, sendResponse }) =>
-      respondWith(
+    "flag.getMany": ({ message, sender, sendResponse }) => {
+      requireHistoryReader(sender, "Creator flag reads");
+      return respondWith(
         sendResponse,
         getCreatorFlagsMany(message.items || []),
         (flags) => ({ flags })
-      ),
+      );
+    },
 
-    "flag.set": ({ message, sendResponse }) =>
-      respondWith(
+    "flag.set": ({ message, sender, sendResponse }) => {
+      requireHistoryReader(sender, "Creator flag writes");
+      return respondWith(
         sendResponse,
         setCreatorFlag(message.service, message.userId, message.value),
         (flag) => ({ flag })
-      ),
+      );
+    },
   };
 }

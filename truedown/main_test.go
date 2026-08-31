@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"truedown/internal/api"
+	"truedown/internal/downloader"
 )
 
 func TestBundledStableAria2MatchesReviewedOfficialBuild(t *testing.T) {
@@ -25,6 +28,20 @@ func TestBundledStableAria2MatchesReviewedOfficialBuild(t *testing.T) {
 
 func testAuthState(token string) *authController {
 	return &authController{enabled: token != "", token: token}
+}
+
+type toggleTestAuth struct {
+	enabled bool
+	token   string
+}
+
+func (auth *toggleTestAuth) Snapshot() (bool, string, bool) {
+	return auth.enabled, auth.token, false
+}
+
+func (auth *toggleTestAuth) SetEnabled(enabled bool) (string, error) {
+	auth.enabled = enabled
+	return auth.token, nil
 }
 
 func TestValidateListenAddressDefaultsToLoopback(t *testing.T) {
@@ -111,7 +128,7 @@ func TestSecureHandlerRejectsCrossOriginWrites(t *testing.T) {
 }
 
 func TestSecureHandlerRequiresTokenAndIssuesDashboardSession(t *testing.T) {
-	token := "0123456789abcdef0123456789abcdef"
+	token := strings.Repeat("x", 30) + ";,"
 	handler := secureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}), testAuthState(token), "127.0.0.1:15151")
@@ -137,6 +154,9 @@ func TestSecureHandlerRequiresTokenAndIssuesDashboardSession(t *testing.T) {
 	if len(result.Cookies()) != 1 || result.Cookies()[0].Name != apiSessionCookie || !result.Cookies()[0].HttpOnly {
 		t.Fatalf("dashboard cookies=%+v", result.Cookies())
 	}
+	if result.Cookies()[0].Value != apiSessionCookieValue(token) || result.Cookies()[0].Value == token {
+		t.Fatalf("dashboard token was not encoded into a cookie-safe value: %q", result.Cookies()[0].Value)
+	}
 	crossSiteNavigation := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/", nil)
 	crossSiteNavigation.Header.Set("Sec-Fetch-Mode", "navigate")
 	crossSiteNavigation.Header.Set("Sec-Fetch-Site", "cross-site")
@@ -153,6 +173,28 @@ func TestSecureHandlerRequiresTokenAndIssuesDashboardSession(t *testing.T) {
 	if authorizedResponse.Code != http.StatusNoContent {
 		t.Fatalf("cookie-authorized status=%d", authorizedResponse.Code)
 	}
+	staleHeader := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/tasks?limit=10", nil)
+	staleHeader.Header.Set("X-Api-Key", strings.Repeat("z", 32))
+	staleHeader.AddCookie(result.Cookies()[0])
+	staleHeaderResponse := httptest.NewRecorder()
+	handler.ServeHTTP(staleHeaderResponse, staleHeader)
+	if staleHeaderResponse.Code != http.StatusNoContent {
+		t.Fatalf("fresh dashboard cookie did not override stale session header: status=%d", staleHeaderResponse.Code)
+	}
+	headerAuthorized := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/tasks?limit=10", nil)
+	headerAuthorized.Header.Set("X-Api-Key", token)
+	headerResponse := httptest.NewRecorder()
+	handler.ServeHTTP(headerResponse, headerAuthorized)
+	if headerResponse.Code != http.StatusNoContent {
+		t.Fatalf("printable-ASCII header-authorized status=%d", headerResponse.Code)
+	}
+	paddedHeader := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/tasks?limit=10", nil)
+	paddedHeader.Header.Set("X-Api-Key", " "+token+" ")
+	paddedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(paddedResponse, paddedHeader)
+	if paddedResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("padded API Key header status=%d", paddedResponse.Code)
+	}
 
 	remoteHandler := secureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -163,6 +205,43 @@ func TestSecureHandlerRequiresTokenAndIssuesDashboardSession(t *testing.T) {
 	remoteHandler.ServeHTTP(remoteResponse, remoteDashboard)
 	if len(remoteResponse.Result().Cookies()) != 0 {
 		t.Fatalf("remote dashboard received an automatic API session: %+v", remoteResponse.Result().Cookies())
+	}
+}
+
+func TestAuthSettingsCookieAuthenticatesPrintableASCIIToken(t *testing.T) {
+	root := t.TempDir()
+	manager, err := downloader.NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Stop()
+	token := strings.Repeat("x", 28) + ";,\"\\"
+	if err := validateAPIToken(token); err != nil {
+		t.Fatal(err)
+	}
+	auth := &toggleTestAuth{token: token}
+	mux := http.NewServeMux()
+	api.Register(mux, manager, auth)
+	handler := secureHandler(mux, auth, "127.0.0.1:15151")
+
+	enable := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:15151/auth/settings", strings.NewReader(`{"enabled":true}`))
+	enable.Header.Set("Content-Type", "application/json")
+	enableResponse := httptest.NewRecorder()
+	handler.ServeHTTP(enableResponse, enable)
+	if enableResponse.Code != http.StatusOK {
+		t.Fatalf("enable auth status=%d body=%s", enableResponse.Code, enableResponse.Body.String())
+	}
+	cookies := enableResponse.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Value != api.SessionCookieValue(token) || cookies[0].Value == token {
+		t.Fatalf("enable auth cookies=%+v", cookies)
+	}
+
+	tasks := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/tasks?limit=1", nil)
+	tasks.AddCookie(cookies[0])
+	tasksResponse := httptest.NewRecorder()
+	handler.ServeHTTP(tasksResponse, tasks)
+	if tasksResponse.Code != http.StatusOK {
+		t.Fatalf("cookie-authenticated tasks status=%d body=%s", tasksResponse.Code, tasksResponse.Body.String())
 	}
 }
 
@@ -252,7 +331,64 @@ func TestSecureHandlerProtectsDownloadRuleSyncWithAPIKey(t *testing.T) {
 	}
 }
 
+func TestBuildScriptGuardsRecursiveDeleteAndCopiesAgainstReparsePoints(t *testing.T) {
+	data, err := os.ReadFile("build.ps1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	quarantine := strings.Index(script, "[System.IO.Directory]::Move($fullPath, $quarantine)")
+	guard := strings.Index(script, "Assert-NoReparseTree $quarantine")
+	remove := strings.Index(script, "Remove-Item -LiteralPath $quarantine -Recurse -Force")
+	if quarantine < 0 || guard < quarantine || remove < guard {
+		t.Fatal("recursive build cleanup is not quarantined and revalidated before removal")
+	}
+	if !strings.Contains(script, "Assert-RegularSourceFile -Root $projectRoot -Path $entry.Source") ||
+		!strings.Contains(script, "[System.IO.File]::Copy") ||
+		!strings.Contains(script, "Assert-NoReparsePath -Root $projectRoot -Path $dist") ||
+		!strings.Contains(script, "Assert-BuildInputs -Root $projectRoot") {
+		t.Fatal("build input/output paths are not constrained against reparse traversal")
+	}
+	if strings.Contains(script, "$paths = @($current)") {
+		t.Fatal("build script must trust the repository root while checking descendants")
+	}
+}
+
+func TestSecureHandlerProtectsResolverModuleEndpointsWithAPIKey(t *testing.T) {
+	token := strings.Repeat("m", 32)
+	handler := secureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}), testAuthState(token), "127.0.0.1:15151")
+
+	for _, path := range []string{"/modules", "/modules/package"} {
+		request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:15151"+path, strings.NewReader(`{}`))
+		request.Header.Set("Origin", "chrome-extension://abcdefghijklmnop")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("unauthorized %s status=%d", path, response.Code)
+		}
+
+		request.Header.Set("X-Api-Key", token)
+		authorized := httptest.NewRecorder()
+		handler.ServeHTTP(authorized, request)
+		if authorized.Code != http.StatusNoContent {
+			t.Fatalf("authorized %s status=%d", path, authorized.Code)
+		}
+	}
+}
+
 func TestAuthControllerIsOptionalAndPersistsDashboardSetting(t *testing.T) {
+	if _, err := newAuthController(t.TempDir(), false, "   "); err == nil {
+		t.Fatal("all-whitespace environment token did not make managed authentication fail closed")
+	}
+	invalidDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(invalidDir, "truedown.auth.json"), []byte("null\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newAuthController(invalidDir, false, ""); err == nil {
+		t.Fatal("non-object auth settings disabled authentication instead of failing closed")
+	}
 	dataDir := t.TempDir()
 	controller, err := newAuthController(dataDir, false, "")
 	if err != nil {
@@ -274,12 +410,20 @@ func TestAuthControllerIsOptionalAndPersistsDashboardSetting(t *testing.T) {
 	if !enabled || reloadedToken != token || managed {
 		t.Fatalf("reloaded auth enabled=%v token match=%v managed=%v", enabled, reloadedToken == token, managed)
 	}
-	if _, err := reloaded.SetEnabled(false); err != nil {
+	disabledToken, err := reloaded.SetEnabled(false)
+	if err != nil {
 		t.Fatal(err)
 	}
-	disabled, _, _ := reloaded.Snapshot()
-	if disabled {
-		t.Fatal("dashboard setting did not disable token authentication")
+	disabled, residentToken, _ := reloaded.Snapshot()
+	if disabled || disabledToken != "" || residentToken != "" || reloaded.TokenPath() != "" {
+		t.Fatalf("disabled auth retained token material: enabled=%v returned=%q resident=%q path=%q", disabled, disabledToken, residentToken, reloaded.TokenPath())
+	}
+	reenabledToken, err := reloaded.SetEnabled(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reenabledToken != token {
+		t.Fatal("re-enabling authentication did not reuse its persisted API key")
 	}
 
 	managedController, err := newAuthController(t.TempDir(), false, strings.Repeat("c", 32))
@@ -311,5 +455,60 @@ func TestAPITokenPersistsAndConfiguredValueIsValidated(t *testing.T) {
 	}
 	if _, _, err := loadOrCreateAPIToken(dataDir, "short"); err == nil {
 		t.Fatal("short configured token was accepted")
+	}
+	if _, _, err := loadOrCreateAPIToken(dataDir, strings.Repeat("x", 31)+"\t"); err == nil {
+		t.Fatal("configured token with a control character was accepted")
+	}
+	if _, _, err := loadOrCreateAPIToken(dataDir, strings.Repeat("x", 32)+" "); err == nil {
+		t.Fatal("configured token with surrounding whitespace was accepted")
+	}
+	if _, _, err := loadOrCreateAPIToken(dataDir, "   "); err == nil {
+		t.Fatal("all-whitespace configured token was treated as unset")
+	}
+	if err := validateAPIToken(strings.Repeat("x", 31) + "é"); err == nil || !strings.Contains(err.Error(), "printable ASCII") {
+		t.Fatalf("non-ASCII token error=%v", err)
+	}
+	persistedDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(persistedDir, "truedown.token"), []byte(strings.Repeat("x", 32)+"é\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := loadOrCreateAPIToken(persistedDir, ""); err == nil || !strings.Contains(err.Error(), "printable ASCII") {
+		t.Fatalf("persisted non-ASCII token error=%v", err)
+	}
+	crlfDir := t.TempDir()
+	maximumToken := strings.Repeat("z", 256)
+	if err := validateAPIToken(maximumToken); err != nil {
+		t.Fatalf("256-byte printable ASCII token was rejected: %v", err)
+	}
+	if err := validateAPIToken(maximumToken + "z"); err == nil {
+		t.Fatal("257-byte printable ASCII token was accepted")
+	}
+	if err := os.WriteFile(filepath.Join(crlfDir, "truedown.token"), []byte(maximumToken+"\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if token, _, err := loadOrCreateAPIToken(crlfDir, ""); err != nil || token != maximumToken {
+		t.Fatalf("persisted 256-byte CRLF token length=%d err=%v", len(token), err)
+	}
+	invalidDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(invalidDir, "truedown.token"), []byte(strings.Repeat("x", 32)+"\x7f\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := loadOrCreateAPIToken(invalidDir, ""); err == nil || !strings.Contains(err.Error(), "printable ASCII") {
+		t.Fatalf("persisted control-character token error=%v", err)
+	}
+	for name, contents := range map[string]string{
+		"leading-space":  " " + strings.Repeat("x", 32) + "\n",
+		"trailing-space": strings.Repeat("x", 32) + " \n",
+		"extra-newline":  strings.Repeat("x", 32) + "\n\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dataDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dataDir, "truedown.token"), []byte(contents), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := loadOrCreateAPIToken(dataDir, ""); err == nil || !strings.Contains(err.Error(), "without surrounding whitespace") {
+				t.Fatalf("invalid persisted token error=%v", err)
+			}
+		})
 	}
 }

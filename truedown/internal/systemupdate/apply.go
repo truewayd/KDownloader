@@ -1,6 +1,7 @@
 package systemupdate
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"truedown/internal/safefile"
 )
 
 const (
@@ -88,7 +91,17 @@ func (m *Manager) LaunchPendingApply(originalArgs []string) error {
 	}
 	expectedSHA := pending.SHA256
 	build := pending.Build
+	m.applyLaunched = true
 	m.mu.Unlock()
+	launched := false
+	defer func() {
+		if launched {
+			return
+		}
+		m.mu.Lock()
+		m.applyLaunched = false
+		m.mu.Unlock()
+	}()
 
 	digest, _, err := hashFile(stagedPath, maxExecutableBytes)
 	if err != nil || !strings.EqualFold(digest, expectedSHA) {
@@ -139,9 +152,7 @@ func (m *Manager) LaunchPendingApply(originalArgs []string) error {
 		return fmt.Errorf("start update helper: %w", err)
 	}
 	_ = command.Process.Release()
-	m.mu.Lock()
-	m.applyLaunched = true
-	m.mu.Unlock()
+	launched = true
 	return nil
 }
 
@@ -206,12 +217,12 @@ func runApplyTransaction(transactionPath string) error {
 	defer os.Remove(transactionPath)
 	defer os.Remove(transaction.HealthPath)
 
-	digest, _, err := hashFile(transaction.StagedPath, maxExecutableBytes)
+	digest, stagedSize, err := hashFile(transaction.StagedPath, maxExecutableBytes)
 	if err != nil || !strings.EqualFold(digest, transaction.ExpectedSHA) {
 		return fmt.Errorf("staged executable failed its SHA-256 check")
 	}
 	candidatePath := transaction.TargetPath + ".update-new"
-	if err := copyExecutable(transaction.StagedPath, candidatePath); err != nil {
+	if err := copyVerifiedExecutable(transaction.StagedPath, candidatePath, transaction.ExpectedSHA, stagedSize); err != nil {
 		return fmt.Errorf("prepare replacement executable: %w", err)
 	}
 	defer os.Remove(candidatePath)
@@ -239,12 +250,15 @@ func runApplyTransaction(transactionPath string) error {
 }
 
 func loadApplyTransaction(path string) (applyTransaction, error) {
-	file, err := os.Open(path)
+	data, err := safefile.ReadFile(path, 64*1024)
 	if err != nil {
-		return applyTransaction{}, fmt.Errorf("open update transaction: %w", err)
+		return applyTransaction{}, fmt.Errorf("read update transaction: %w", err)
 	}
-	defer file.Close()
-	decoder := json.NewDecoder(io.LimitReader(file, 64*1024+1))
+	data, err = requireJSONObject(data, "update transaction")
+	if err != nil {
+		return applyTransaction{}, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var transaction applyTransaction
 	if err := decoder.Decode(&transaction); err != nil {
@@ -323,8 +337,7 @@ func launchAndAwaitHealth(transaction applyTransaction) error {
 			}
 			return fmt.Errorf("updated TrueDown exited before becoming healthy: %w", err)
 		case <-ticker.C:
-			data, err := os.ReadFile(transaction.HealthPath)
-			if err == nil && strings.TrimSpace(string(data)) == transaction.HealthToken {
+			if healthTokenMatches(transaction.HealthPath, transaction.HealthToken) {
 				return nil
 			}
 		case <-timer.C:
@@ -333,6 +346,11 @@ func launchAndAwaitHealth(transaction applyTransaction) error {
 			return fmt.Errorf("updated TrueDown did not report healthy startup")
 		}
 	}
+}
+
+func healthTokenMatches(path, expected string) bool {
+	data, err := safefile.ReadFile(path, 512)
+	return err == nil && strings.TrimSpace(string(data)) == expected
 }
 
 func rollbackReplacement(transaction applyTransaction) error {
@@ -351,20 +369,22 @@ func rollbackReplacement(transaction applyTransaction) error {
 }
 
 func clearPendingUpdate(statePath string, build int64, updateError string) error {
-	file, err := os.Open(statePath)
+	data, err := safefile.ReadFile(statePath, 256*1024)
 	if err != nil {
 		return err
 	}
-	decoder := json.NewDecoder(io.LimitReader(file, 256*1024+1))
+	data, err = requireJSONObject(data, "update settings")
+	if err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var state persistedState
-	err = decoder.Decode(&state)
-	closeErr := file.Close()
-	if err != nil {
+	if err := decoder.Decode(&state); err != nil {
 		return err
 	}
-	if closeErr != nil {
-		return closeErr
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return fmt.Errorf("update settings must contain one JSON object")
 	}
 	if state.SchemaVersion != stateSchemaVersion {
 		return fmt.Errorf("unsupported update settings schema %d", state.SchemaVersion)
@@ -373,7 +393,7 @@ func clearPendingUpdate(statePath string, build int64, updateError string) error
 		state.PendingUpdate = nil
 	}
 	state.LastUpdateError = truncate(updateError, 1024)
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, err = json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -429,6 +449,19 @@ func copyExecutable(source, destination string) error {
 	}
 	_ = os.Remove(destination)
 	return os.Rename(temporaryPath, destination)
+}
+
+func copyVerifiedExecutable(source, destination, expectedSHA string, expectedSize int64) error {
+	if err := copyExecutable(source, destination); err != nil {
+		_ = os.Remove(destination)
+		return err
+	}
+	digest, size, err := hashFile(destination, maxExecutableBytes)
+	if err != nil || size != expectedSize || !strings.EqualFold(digest, expectedSHA) {
+		_ = os.Remove(destination)
+		return fmt.Errorf("copied executable does not match the staged update manifest")
+	}
+	return nil
 }
 
 func randomToken() (string, error) {

@@ -33,6 +33,7 @@ test("buildSearchUrl creates CoomerFans root searches", () => {
 test("buildSearchUrl rejects empty queries and unknown sites", () => {
     assert.equal(buildSearchUrl("pawchive", "  "), null);
     assert.equal(buildSearchUrl("unknown", "creator"), null);
+    assert.equal(buildSearchUrl("pawchive", "x".repeat(513)), null);
 });
 
 test("parseCreatorUrl accepts only supported HTTPS creator pages", () => {
@@ -48,4 +49,7 @@ test("parseCreatorUrl accepts only supported HTTPS creator pages", () => {
     assert.equal(parseCreatorUrl("https://example.com/patreon/user/42"), null);
     assert.equal(parseCreatorUrl("http://kemono.cr/patreon/user/42"), null);
     assert.equal(parseCreatorUrl("https://127.0.0.1/api/user/42"), null);
+    assert.equal(parseCreatorUrl("https://user:secret@kemono.cr/patreon/user/42"), null);
+    assert.equal(parseCreatorUrl("https://kemono.cr/patreon/user/42/post/99"), null);
+    assert.equal(parseCreatorUrl(`https://kemono.cr/patreon/user/${"x".repeat(513)}`), null);
 });

@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"truedown/internal/safefile"
 )
 
 const (
@@ -479,15 +481,18 @@ func (m *Manager) installedEnginePath(engine *installedEngine) (string, error) {
 }
 
 func (m *Manager) loadState() error {
-	file, err := os.Open(m.statePath)
+	data, err := safefile.ReadFile(m.statePath, 256*1024)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("read update settings: %w", err)
 	}
-	defer file.Close()
-	decoder := json.NewDecoder(io.LimitReader(file, 256*1024+1))
+	data, err = requireJSONObject(data, "update settings")
+	if err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var state persistedState
 	if err := decoder.Decode(&state); err != nil {
@@ -522,6 +527,14 @@ func (m *Manager) loadState() error {
 	}
 	m.state = state
 	return nil
+}
+
+func requireJSONObject(data []byte, description string) ([]byte, error) {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || data[0] != '{' {
+		return nil, fmt.Errorf("%s must contain one JSON object", description)
+	}
+	return data, nil
 }
 
 func (m *Manager) persistLocked() error {
@@ -598,46 +611,7 @@ func hashFile(path string, maximum int64) (string, int64, error) {
 }
 
 func writeAtomicFile(path string, data []byte, mode os.FileMode) error {
-	directory := filepath.Dir(path)
-	if err := os.MkdirAll(directory, 0700); err != nil {
-		return err
-	}
-	temporary, err := os.CreateTemp(directory, ".truedown-update-*.tmp")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(mode); err != nil {
-		temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	backup := path + ".bak"
-	_ = os.Remove(backup)
-	if _, err := os.Stat(path); err == nil {
-		if err := os.Rename(path, backup); err != nil {
-			return err
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		_ = os.Rename(backup, path)
-		return err
-	}
-	_ = os.Remove(backup)
-	return nil
+	return safefile.WriteFile(path, data, mode)
 }
 
 func normalizeSHA256(value string) string {

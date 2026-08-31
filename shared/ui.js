@@ -3,6 +3,7 @@
   "use strict";
 
   const TRANSIENT_ERROR = /Receiving end does not exist|message port closed|Could not establish connection/i;
+  const busyButtons = new WeakMap();
 
   function sendMessage(message, timeout = 7000, opts = {}) {
     const retries = Math.max(0, Number.isFinite(opts.retries) ? opts.retries : 1);
@@ -54,11 +55,9 @@
       if (timeout > 0) {
         timer = setTimeout(() => {
           const error = new Error("Request timed out");
-          if (remaining > 0) {
-            finish(() => setTimeout(() => attempt(remaining - 1).then(resolve, reject), retryDelay));
-          } else {
-            finish(reject, error);
-          }
+          // The service worker may still be processing a request whose reply
+          // timed out. Retrying here could duplicate a state-changing action.
+          finish(reject, error);
         }, timeout);
       }
     });
@@ -68,34 +67,54 @@
 
   async function withBusyButton(button, task) {
     if (!button) return task();
-    const wasDisabled = button.disabled;
-    const previousBusy = button.getAttribute("aria-busy");
+    let state = busyButtons.get(button);
+    if (!state) {
+      state = {
+        count: 0,
+        wasDisabled: button.disabled,
+        previousBusy: button.getAttribute("aria-busy"),
+      };
+      busyButtons.set(button, state);
+    }
+    state.count += 1;
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
     try {
       return await task();
     } finally {
-      button.disabled = wasDisabled;
-      if (previousBusy === null) button.removeAttribute("aria-busy");
-      else button.setAttribute("aria-busy", previousBusy);
+      state.count -= 1;
+      if (state.count === 0) {
+        busyButtons.delete(button);
+        button.disabled = state.wasDisabled;
+        if (state.previousBusy === null) button.removeAttribute("aria-busy");
+        else button.setAttribute("aria-busy", state.previousBusy);
+      }
     }
   }
 
   function createToast(element, { statusElement = null, duration = 2600 } = {}) {
     let timer = null;
+    let presentation = 0;
     const hide = () => {
+      presentation += 1;
       if (timer) clearTimeout(timer);
       timer = null;
       element?.classList.remove("is-visible");
     };
     const show = (message, type = "success") => {
       if (!element) return;
+      const version = ++presentation;
       if (timer) clearTimeout(timer);
-      element.className = `kd-toast ${type}`;
+      const normalizedType = type === "error" ? "error" : "success";
+      element.classList.add("kd-toast");
+      element.classList.remove("success", "error", "is-visible");
+      element.classList.add(normalizedType);
       element.textContent = String(message ?? "");
-      element.setAttribute("aria-live", type === "error" ? "assertive" : "polite");
+      element.setAttribute("aria-live", normalizedType === "error" ? "assertive" : "polite");
       if (statusElement) statusElement.textContent = String(message ?? "");
-      requestAnimationFrame(() => element.classList.add("is-visible"));
+      requestAnimationFrame(() => {
+        if (version === presentation) element.classList.add("is-visible");
+      });
       timer = setTimeout(hide, duration);
     };
     return Object.freeze({ show, hide });

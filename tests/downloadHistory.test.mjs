@@ -13,14 +13,14 @@ const item = {
   postId: "post-1",
 };
 
-test("backend hand-off is recorded complete even without final disk confirmation", () => {
+test("a partial backend hand-off remains retryable", () => {
   const record = buildDownloadHistoryRecord(item, {
     success: true,
     backend: true,
     successCount: 1,
     results: [{ success: true }, { success: false }],
   });
-  assert.equal(record.status, "complete");
+  assert.equal(record.status, "partial");
   assert.equal(record.totalCount, 2);
   assert.equal(record.successCount, 1);
   assert.equal(record.failedCount, 1);

@@ -1,9 +1,11 @@
 package downloader
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -158,9 +160,18 @@ func (registry *moduleRegistry) loadSettings() error {
 	if err != nil {
 		return fmt.Errorf("read resolver module settings: %w", err)
 	}
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || data[0] != '{' {
+		return fmt.Errorf("resolver module settings must contain one JSON object")
+	}
 	var saved moduleSettingsFile
-	if err := json.Unmarshal(data, &saved); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&saved); err != nil {
 		return fmt.Errorf("decode resolver module settings: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return fmt.Errorf("resolver module settings must contain one JSON object")
 	}
 	if saved.SchemaVersion != 1 {
 		return fmt.Errorf("unsupported resolver module settings schema %d", saved.SchemaVersion)
@@ -280,10 +291,7 @@ func (registry *moduleRegistry) resetPackage(id string) (ModuleInfo, error) {
 		return ModuleInfo{}, &ValidationError{Message: fmt.Sprintf("unknown resolver component %q", id)}
 	}
 	packagePath := registry.packagePath(id)
-	if err := os.Remove(packagePath + ".bak"); err != nil && !os.IsNotExist(err) {
-		return ModuleInfo{}, fmt.Errorf("remove resolver component update backup: %w", err)
-	}
-	if err := os.Remove(packagePath); err != nil && !os.IsNotExist(err) {
+	if err := removeComponentPackage(packagePath); err != nil {
 		return ModuleInfo{}, fmt.Errorf("remove resolver component update: %w", err)
 	}
 	registry.mu.Lock()

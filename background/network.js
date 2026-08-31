@@ -8,6 +8,8 @@ const PAWCHIVE_CLOUDFLARE_NOTICE_COOLDOWN_MS = 5 * 60 * 1000;
 const PAWCHIVE_BRIDGE_READY_TIMEOUT_MS = 15 * 1000;
 const PAWCHIVE_BRIDGE_POLL_MS = 250;
 const MAX_API_RESPONSE_BYTES = 16 * 1024 * 1024;
+const MAX_WATCH_PROFILE_RESPONSE_BYTES = 256 * 1024;
+const MAX_FORWARDED_COOKIE_HEADER_BYTES = 64 * 1024;
 const NETWORK_REQUEST_TIMEOUT_MS = 45 * 1000;
 const ALLOWED_COOKIE_DOMAINS = new Set([...API.HOSTS, API.COOMERFANS_HOST, ...PAW.HOSTS]);
 const SAFE_REQUEST_HEADERS = new Set([
@@ -176,7 +178,7 @@ function safeRequestHeaders(headers, defaults = {}) {
   for (const [name, value] of Object.entries(input)) {
     if (!SAFE_REQUEST_HEADERS.has(name.toLowerCase())) continue;
     const normalized = String(value ?? '').trim();
-    if (!normalized || normalized.length > 4096 || /[\r\n\0]/.test(normalized)) continue;
+    if (!normalized || normalized.length > 4096 || /[\x00-\x1f\x7f]/.test(normalized)) continue;
     result[name] = normalized;
   }
   return result;
@@ -197,11 +199,83 @@ function pawchiveRequestHeaders(headers) {
   });
 }
 
-export async function readLimitedResponseText(response, maxBytes, label = 'Network') {
-  const declaredBytes = Number(response?.headers?.get?.('content-length'));
-  if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
+const TEXT_CHUNK_GROUP_SIZE = 4096;
+const TEXT_CHUNK_GROUP_CHARS = 64 * 1024;
+
+function appendDecodedText(state, value) {
+  if (!value) return;
+  state.parts.push(value);
+  state.partChars += value.length;
+  if (state.parts.length >= TEXT_CHUNK_GROUP_SIZE || state.partChars >= TEXT_CHUNK_GROUP_CHARS) {
+    state.blocks.push(state.parts.join(''));
+    state.parts.length = 0;
+    state.partChars = 0;
+  }
+}
+
+function finishDecodedText(state) {
+  if (state.parts.length) state.blocks.push(state.parts.join(''));
+  return state.blocks.join('');
+}
+
+async function cancelReaderQuietly(reader) {
+  try {
+    await reader.cancel();
+  } catch (error) {
+    // Preserve the response-size error even if the stream rejects cancellation.
+  }
+}
+
+async function cancelBodyQuietly(body) {
+  try {
+    if (body && typeof body.cancel === 'function') await body.cancel();
+  } catch (error) {
+    // Preserve the response-size error if cancellation itself fails.
+  }
+}
+
+function declaredResponseLength(response, label) {
+  const raw = response?.headers?.get?.('content-length');
+  if (raw === null || raw === undefined || raw === '') return null;
+  const normalized = String(raw).trim();
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error(`${label} response has an invalid Content-Length`);
+  }
+  const bytes = Number(normalized);
+  if (!Number.isSafeInteger(bytes) || bytes < 0) {
+    throw new Error(`${label} response has an invalid Content-Length`);
+  }
+  return bytes;
+}
+
+async function checkedDeclaredResponseLength(response, maxBytes, label) {
+  let declaredBytes;
+  try {
+    declaredBytes = declaredResponseLength(response, label);
+  } catch (error) {
+    await cancelBodyQuietly(response?.body);
+    throw error;
+  }
+  if (declaredBytes !== null && declaredBytes > maxBytes) {
+    await cancelBodyQuietly(response?.body);
     throw new Error(`${label} response exceeds the ${maxBytes} byte safety limit`);
   }
+  return declaredBytes;
+}
+
+function growByteBuffer(buffer, requiredBytes, maxBytes) {
+  if (buffer.byteLength >= requiredBytes) return buffer;
+  let capacity = Math.min(maxBytes, Math.max(1024, buffer.byteLength));
+  while (capacity < requiredBytes) {
+    capacity = Math.min(maxBytes, Math.max(requiredBytes, capacity * 2));
+  }
+  const expanded = new Uint8Array(capacity);
+  expanded.set(buffer);
+  return expanded;
+}
+
+export async function readLimitedResponseText(response, maxBytes, label = 'Network') {
+  const declaredBytes = await checkedDeclaredResponseLength(response, maxBytes, label);
 
   const reader = response?.body && typeof response.body.getReader === 'function'
     ? response.body.getReader()
@@ -215,31 +289,28 @@ export async function readLimitedResponseText(response, maxBytes, label = 'Netwo
   }
 
   const decoder = new TextDecoder();
-  const chunks = [];
+  const text = { blocks: [], parts: [], partChars: 0 };
   let received = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      received += value.byteLength;
-      if (received > maxBytes) {
-        await reader.cancel();
+      if (value.byteLength > maxBytes - received) {
+        await cancelReaderQuietly(reader);
         throw new Error(`${label} response exceeds the ${maxBytes} byte safety limit`);
       }
-      chunks.push(decoder.decode(value, { stream: true }));
+      received += value.byteLength;
+      appendDecodedText(text, decoder.decode(value, { stream: true }));
     }
-    chunks.push(decoder.decode());
-    return chunks.join('');
+    appendDecodedText(text, decoder.decode());
+    return finishDecodedText(text);
   } finally {
     reader.releaseLock?.();
   }
 }
 
 export async function readLimitedResponseBytes(response, maxBytes, label = 'Network') {
-  const declaredBytes = Number(response?.headers?.get?.('content-length'));
-  if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
-    throw new Error(`${label} response exceeds the ${maxBytes} byte safety limit`);
-  }
+  const declaredBytes = await checkedDeclaredResponseLength(response, maxBytes, label);
 
   const reader = response?.body && typeof response.body.getReader === 'function'
     ? response.body.getReader()
@@ -252,26 +323,29 @@ export async function readLimitedResponseBytes(response, maxBytes, label = 'Netw
     return buffer;
   }
 
-  const chunks = [];
+  const initialCapacity = declaredBytes !== null && declaredBytes > 0
+    ? Math.min(maxBytes, declaredBytes)
+    : 0;
+  let result = new Uint8Array(initialCapacity);
   let received = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      received += value.byteLength;
-      if (received > maxBytes) {
-        await reader.cancel();
+      if (value.byteLength > maxBytes - received) {
+        await cancelReaderQuietly(reader);
         throw new Error(`${label} response exceeds the ${maxBytes} byte safety limit`);
       }
-      chunks.push(value);
+      const chunk = value instanceof Uint8Array
+        ? value
+        : new Uint8Array(value.buffer, value.byteOffset || 0, value.byteLength);
+      result = growByteBuffer(result, received + chunk.byteLength, maxBytes);
+      result.set(chunk, received);
+      received += chunk.byteLength;
     }
-    const result = new Uint8Array(received);
-    let offset = 0;
-    for (const chunk of chunks) {
-      result.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return result.buffer;
+    return received === result.byteLength
+      ? result.buffer
+      : result.buffer.slice(0, received);
   } finally {
     reader.releaseLock?.();
   }
@@ -310,7 +384,7 @@ async function queryOpenPawchiveTabs() {
   }
 }
 
-async function fetchPawchiveFromOpenTab(url, headers) {
+async function fetchPawchiveFromOpenTab(url, headers, maxResponseBytes) {
   if (!globalThis.chrome || !chrome.tabs || typeof chrome.tabs.query !== 'function' || typeof chrome.tabs.sendMessage !== 'function') {
     return null;
   }
@@ -321,6 +395,7 @@ async function fetchPawchiveFromOpenTab(url, headers) {
         action: 'pawchive.api.fetch',
         url,
         headers,
+        maxResponseBytes,
       });
       if (result && result.success === true && result.response) return bridgeResponse(result.response);
     } catch (error) {
@@ -331,10 +406,13 @@ async function fetchPawchiveFromOpenTab(url, headers) {
   return null;
 }
 
-async function parsePawchiveResponse(response, { notifyOnCloudflare = true } = {}) {
+async function parsePawchiveResponse(response, {
+  notifyOnCloudflare = true,
+  maxResponseBytes = MAX_API_RESPONSE_BYTES,
+} = {}) {
   let text = '';
   if (typeof response.text === 'function') {
-    text = await readLimitedResponseText(response, MAX_API_RESPONSE_BYTES, 'Pawchive API');
+    text = await readLimitedResponseText(response, maxResponseBytes, 'Pawchive API');
   } else if (response.ok && typeof response.json === 'function') {
     return response.json();
   }
@@ -361,11 +439,19 @@ export async function fetchPawchiveJson(url, headers = {}, options = {}) {
   const {
     notifyOnCloudflare = true,
     preferOpenTab = true,
+    maxResponseBytes: requestedMaxResponseBytes = MAX_API_RESPONSE_BYTES,
   } = options;
+  const maxResponseBytes = Number.isSafeInteger(requestedMaxResponseBytes)
+    && requestedMaxResponseBytes > 0
+    && requestedMaxResponseBytes <= MAX_API_RESPONSE_BYTES
+    ? requestedMaxResponseBytes
+    : MAX_API_RESPONSE_BYTES;
   const requestHeaders = pawchiveRequestHeaders(headers);
   if (preferOpenTab) {
-    const bridgedResponse = await fetchPawchiveFromOpenTab(url, requestHeaders);
-    if (bridgedResponse) return parsePawchiveResponse(bridgedResponse, { notifyOnCloudflare });
+    const bridgedResponse = await fetchPawchiveFromOpenTab(url, requestHeaders, maxResponseBytes);
+    if (bridgedResponse) {
+      return parsePawchiveResponse(bridgedResponse, { notifyOnCloudflare, maxResponseBytes });
+    }
   }
 
   let response;
@@ -389,7 +475,7 @@ export async function fetchPawchiveJson(url, headers = {}, options = {}) {
     throw error;
   }
 
-  return parsePawchiveResponse(response, { notifyOnCloudflare });
+  return parsePawchiveResponse(response, { notifyOnCloudflare, maxResponseBytes });
 }
 
 export async function fetchPawchiveDmsHtml(url) {
@@ -459,6 +545,7 @@ export async function preparePawchiveWatchRequest(url) {
     const value = await fetchPawchiveJson(url, {}, {
       notifyOnCloudflare: false,
       preferOpenTab: false,
+      maxResponseBytes: MAX_WATCH_PROFILE_RESPONSE_BYTES,
     });
     return {
       tabAvailable: false,
@@ -522,11 +609,26 @@ export async function getCookies(domain) {
   if (!ALLOWED_COOKIE_DOMAINS.has(normalizedDomain)) {
     throw new Error('Refusing to export cookies for an unexpected domain');
   }
+  let cookies;
   try {
-    const cookies = await chrome.cookies.getAll({ domain: normalizedDomain });
-    return cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    cookies = await chrome.cookies.getAll({ domain: normalizedDomain });
   } catch (e) {
     console.error('[Background] getCookies error', e);
     return '';
   }
+  const pairs = [];
+  let bytes = 0;
+  for (const cookie of Array.isArray(cookies) ? cookies : []) {
+    const name = String(cookie?.name || '');
+    const value = String(cookie?.value || '');
+    if (!name || /[\0-\x20\x7f;=]/.test(name) || /[\0-\x1f\x7f;]/.test(value)) continue;
+    const pair = `${name}=${value}`;
+    const pairBytes = new TextEncoder().encode(pair).byteLength + (pairs.length > 0 ? 2 : 0);
+    if (bytes + pairBytes > MAX_FORWARDED_COOKIE_HEADER_BYTES) {
+      throw new Error('Site cookies exceed the 64 KiB forwarding safety limit');
+    }
+    pairs.push(pair);
+    bytes += pairBytes;
+  }
+  return pairs.join('; ');
 }

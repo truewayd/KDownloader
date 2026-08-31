@@ -15,6 +15,7 @@ on:
       - "popup/**"
       - "shared/**"
       - "tools/build-extension.ps1"
+      - "tools/read-extension-version.ps1"
       - "tools/read-latest-changelog.ps1"
       - "content.css"
       - "manifest.json"
@@ -27,20 +28,42 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: publish-extension-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-release:
     runs-on: windows-latest
+    timeout-minutes: 30
     env:
-      ARTIFACT_NAME: KDownloader-build-${{ github.run_number }}.zip
-      RELEASE_TAG: build-${{ github.run_number }}
+      BUILD_NUMBER: ${{ github.run_number }}
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Test extension
+        shell: pwsh
+        run: npm test
+
+      - name: Read extension version
+        shell: pwsh
+        run: |
+          $version = ./tools/read-extension-version.ps1
+          "KDOWNLOADER_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ARTIFACT_NAME=KDownloader-v$version-build-$env:BUILD_NUMBER.zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_TAG=kdownloader-v$version-build-$env:BUILD_NUMBER" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Test migration tool
+        shell: pwsh
+        run: python -m unittest tests/migrate_history_json_test.py
 
       - name: Build extension
         shell: pwsh
-        run: ./tools/build-extension.ps1 -OutputDirectory dist/KDownloader
+        run: ./tools/build-extension.ps1 -OutputDirectory dist/KDownloader -BuildNumber $env:BUILD_NUMBER
 
       - name: Create release archive
         shell: pwsh
@@ -51,17 +74,18 @@ jobs:
         run: ./tools/read-latest-changelog.ps1 -Product KDownloader -OutputFile release-notes.md
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: KDownloader-${{ env.RELEASE_TAG }}
+          name: KDownloader-v${{ env.KDOWNLOADER_VERSION }}-build-${{ env.BUILD_NUMBER }}
           path: ${{ env.ARTIFACT_NAME }}
           if-no-files-found: error
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: KDownloader ${{ env.RELEASE_TAG }}
+          name: KDownloader v${{ env.KDOWNLOADER_VERSION }} (build ${{ env.BUILD_NUMBER }})
+          target_commitish: ${{ github.sha }}
           generate_release_notes: false
           body_path: release-notes.md
           files: ${{ env.ARTIFACT_NAME }}

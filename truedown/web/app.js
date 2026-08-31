@@ -2121,8 +2121,8 @@ async function apiFetch(url, options = {}) {
       inputType: "password",
       validate: (value) => {
         const normalized = value.trim();
-        return normalized.length < 32 || normalized.length > 256 || /[\0\r\n]/.test(normalized)
-          ? "API Key 应为 32–256 个字符，且不能包含换行。"
+        return normalized.length < 32 || normalized.length > 256 || !/^[\x20-\x7e]+$/.test(normalized)
+          ? "API Key 应为 32–256 个可打印 ASCII 字符。"
           : "";
       },
     }).finally(() => { apiTokenRequestPromise = null; });
@@ -2160,7 +2160,12 @@ function fetchWithAPIToken(url, options) {
 
 function readSessionToken() {
   try {
-    return window.sessionStorage.getItem(API_TOKEN_SESSION_KEY) || "";
+    const token = window.sessionStorage.getItem(API_TOKEN_SESSION_KEY) || "";
+    if (token.length >= 32 && token.length <= 256 && token.trim() === token && /^[\x20-\x7e]+$/.test(token)) {
+      return token;
+    }
+    window.sessionStorage.removeItem(API_TOKEN_SESSION_KEY);
+    return "";
   } catch {
     return "";
   }

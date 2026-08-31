@@ -19,18 +19,30 @@ const BTN_STATUS = Object.freeze({
   IDLE: { text: KDI18n.get('downloadActionDecorated'), icon: '↓', disabled: false },
   SCANNING: { text: KDI18n.get('statusFetching'), icon: '↻', disabled: true },
   SENDING: { text: KDI18n.get('statusSending'), icon: '↻', disabled: true },
+  PARTIAL: { text: KDI18n.get('statusPartial'), icon: '!', disabled: false },
   SUCCESS: { text: KDI18n.get('statusAllSent'), icon: '✓', disabled: false },
   ERROR: { text: KDI18n.get('statusFailedDecorated'), icon: '×', disabled: false },
 });
 
 let kdButtonResetSequence = 0;
+let kdModalSequence = 0;
 let closeActiveExternalLinksModal = null;
+const MAX_BUTTON_TEXT_LENGTH = 240;
+const MAX_EXTERNAL_LINKS = 500;
+const MAX_EXTERNAL_LINK_LENGTH = 8192;
+
+function boundedDisplayText(value, fallback = '') {
+  const text = String(value ?? fallback).replace(/[\0\r\n\t]+/g, ' ').trim();
+  return text.length <= MAX_BUTTON_TEXT_LENGTH
+    ? text
+    : `${text.slice(0, MAX_BUTTON_TEXT_LENGTH - 1)}…`;
+}
 
 function updateButtonStatus(btn, statusKey, customText = null, isCreatorPage = false) {
   const status = BTN_STATUS[statusKey];
   if (!status || !btn) return;
 
-  const label = customText || status.text;
+  const label = boundedDisplayText(customText || status.text, status.text);
   delete btn.dataset.kdResetToken;
   btn.dataset.status = statusKey;
   btn.disabled = status.disabled;
@@ -131,12 +143,14 @@ function ensurePageFetchButton(container) {
   return button;
 }
 
-function configureCreatorDownloadButton(button, downloaded, onDownload) {
+function configureCreatorDownloadButton(button, historyStatus, onDownload) {
   if (!button) return;
+  const downloaded = isHandledDownloadedStatus(historyStatus);
+  const partial = historyStatus === 'partial';
   const label = downloaded
     ? KDI18n.get('alreadyDownloadedTooltip')
-    : KDI18n.get('clickToDownloadTooltip');
-  updateButtonStatus(button, downloaded ? 'SUCCESS' : 'IDLE', label, true);
+    : (partial ? KDI18n.get('partiallyDownloadedTooltip') : KDI18n.get('clickToDownloadTooltip'));
+  updateButtonStatus(button, downloaded ? 'SUCCESS' : (partial ? 'PARTIAL' : 'IDLE'), label, true);
   button.disabled = downloaded;
   button.setAttribute('aria-disabled', String(downloaded));
   button.onclick = downloaded
@@ -178,12 +192,19 @@ async function renderPostDownloadButton(context, options = {}) {
 
   if (!isActiveDownloadButton(button)) {
     updateButtonStatus(button, 'IDLE', null, false);
-    const downloaded = await isPostDownloaded(parsed.service, parsed.userId, parsed.postId, { source });
+    const historyStatus = await getPostDownloadedStatus(
+      parsed.service,
+      parsed.userId,
+      parsed.postId,
+      { source }
+    );
     if (!isRenderCurrent(context)) return null;
-    if (downloaded) {
+    if (isHandledDownloadedStatus(historyStatus)) {
       updateButtonStatus(button, 'SUCCESS', KDI18n.get('statusDownloadedDecorated'), false);
       button.disabled = true;
       button.setAttribute('aria-disabled', 'true');
+    } else if (historyStatus === 'partial') {
+      updateButtonStatus(button, 'PARTIAL', KDI18n.get('partiallyDownloadedTooltip'), false);
     }
   }
 
@@ -209,7 +230,7 @@ async function renderCreatorDownloadButtons(entries, context, options = {}) {
       ? options.getSource(entry)
       : entry.source;
     const key = downloadedKey(entry.service, entry.userId, entry.postId, source);
-    const isDone = downloaded.get(key) === true;
+    const historyStatus = downloaded.get(key) || null;
     const button = ensureCreatorDownloadButton(
       container,
       entry.path,
@@ -219,7 +240,7 @@ async function renderCreatorDownloadButtons(entries, context, options = {}) {
 
     ensurePositionContext(container);
     if (options.decorateContainer) options.decorateContainer(container, entry);
-    configureCreatorDownloadButton(button, isDone, () =>
+    configureCreatorDownloadButton(button, historyStatus, () =>
       handleDownload(
         button,
         entry.service,
@@ -240,38 +261,49 @@ function ensurePositionContext(element) {
 }
 
 function showExternalLinksModal(links) {
-  const normalizedLinks = Array.from(new Set(Array.isArray(links) ? links : []))
-    .map((link) => String(link || '').trim())
-    .filter((link) => {
-      try {
-        const url = new URL(link);
-        return url.protocol === 'http:' || url.protocol === 'https:';
-      } catch (error) {
-        return false;
+  if (!document.body) return;
+  const normalizedLinks = [];
+  const seen = new Set();
+  for (const value of Array.isArray(links) ? links : []) {
+    if (normalizedLinks.length >= MAX_EXTERNAL_LINKS) break;
+    const link = String(value || '').trim();
+    if (!link || link.length > MAX_EXTERNAL_LINK_LENGTH) continue;
+    try {
+      const url = new URL(link);
+      if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) {
+        continue;
       }
-    });
+      const normalized = url.href;
+      if (normalized.length > MAX_EXTERNAL_LINK_LENGTH || seen.has(normalized)) continue;
+      seen.add(normalized);
+      normalizedLinks.push(normalized);
+    } catch (error) {
+      /* Ignore malformed links from host-page content. */
+    }
+  }
   if (normalizedLinks.length === 0) return;
 
   closeActiveExternalLinksModal?.();
+  const modalId = ++kdModalSequence;
   const previousFocus = document.activeElement;
   const overlay = document.createElement('div');
   overlay.id = 'kd-external-links-modal';
   overlay.className = 'kd-modal-overlay';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-labelledby', 'kd-external-links-title');
-  overlay.setAttribute('aria-describedby', 'kd-external-links-description');
+  overlay.setAttribute('aria-labelledby', `kd-external-links-title-${modalId}`);
+  overlay.setAttribute('aria-describedby', `kd-external-links-description-${modalId}`);
 
   const modal = document.createElement('div');
   modal.className = 'kd-modal';
 
   const title = document.createElement('h3');
-  title.id = 'kd-external-links-title';
+  title.id = `kd-external-links-title-${modalId}`;
   title.className = 'kd-modal-title';
   title.textContent = KDI18n.get('externalLinksTitle');
 
   const description = document.createElement('p');
-  description.id = 'kd-external-links-description';
+  description.id = `kd-external-links-description-${modalId}`;
   description.className = 'kd-modal-description';
   description.textContent = KDI18n.get('externalLinksDescription');
 
@@ -295,10 +327,18 @@ function showExternalLinksModal(links) {
   closeButton.type = 'button';
   closeButton.textContent = KDI18n.get('closeAction');
 
+  let closed = false;
+  let removalObserver = null;
+  const lifecycleController = typeof AbortController === 'function' ? new AbortController() : null;
   const close = () => {
+    if (closed) return;
+    closed = true;
     document.removeEventListener('keydown', handleKeydown);
+    lifecycleController?.abort();
+    removalObserver?.disconnect();
+    removalObserver = null;
     overlay.remove();
-    closeActiveExternalLinksModal = null;
+    if (closeActiveExternalLinksModal === close) closeActiveExternalLinksModal = null;
     if (previousFocus?.isConnected && typeof previousFocus.focus === 'function') {
       previousFocus.focus({ preventScroll: true });
     }
@@ -313,7 +353,10 @@ function showExternalLinksModal(links) {
     if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
+    if (!modal.contains(document.activeElement)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && document.activeElement === first) {
       event.preventDefault();
       last.focus();
     } else if (!event.shiftKey && document.activeElement === last) {
@@ -327,10 +370,22 @@ function showExternalLinksModal(links) {
     if (event.target === overlay) close();
   });
   document.addEventListener('keydown', handleKeydown);
+  const lifecycleSignal = lifecycleController?.signal;
+  window.addEventListener('pagehide', close, { once: true, signal: lifecycleSignal });
+  window.addEventListener(EXTENSION_CONTEXT_INVALIDATED_EVENT, close, {
+    once: true,
+    signal: lifecycleSignal,
+  });
   closeActiveExternalLinksModal = close;
 
   modal.append(title, description, list, closeButton);
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
+  if (typeof MutationObserver === 'function') {
+    removalObserver = new MutationObserver(() => {
+      if (!overlay.isConnected) close();
+    });
+    removalObserver.observe(document.body, { childList: true });
+  }
   closeButton.focus({ preventScroll: true });
 }

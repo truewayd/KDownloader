@@ -21,6 +21,7 @@ concurrency:
 jobs:
   build-release:
     runs-on: windows-latest
+    timeout-minutes: 45
     env:
       ARTIFACT_NAME: TrueDown-build-${{ github.run_number }}.zip
       UPDATE_MANIFEST: truedown-update-${{ github.run_number }}.json
@@ -32,10 +33,15 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Test release workflow safety
+        run: node --test tests/releaseWorkflow.test.mjs
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: truedown/go.mod
           cache: false
@@ -43,6 +49,10 @@ jobs:
       - name: Test TrueDown
         working-directory: truedown
         run: go test ./...
+
+      - name: Vet TrueDown
+        working-directory: truedown
+        run: go vet ./...
 
       - name: Build TrueDown
         run: ./truedown/build.ps1 -OutputDirectory dist/TrueDown -Version $env:RELEASE_TAG -BuildNumber ${{ github.run_number }} -Commit ${{ github.sha }}
@@ -71,7 +81,7 @@ jobs:
         run: ./tools/read-latest-changelog.ps1 -Product TrueDown -OutputFile release-notes.md
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: TrueDown-${{ env.RELEASE_TAG }}
           path: |
@@ -80,10 +90,11 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: TrueDown ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
           generate_release_notes: false
           body_path: release-notes.md
           files: |

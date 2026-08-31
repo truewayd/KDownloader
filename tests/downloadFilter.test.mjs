@@ -23,13 +23,23 @@ globalThis.chrome = {
 const constantsUrl = asModuleUrl(await readFile(path.join(root, 'background', 'constants.js'), 'utf8'));
 const utilSource = (await readFile(path.join(root, 'background', 'util.js'), 'utf8'))
   .replace(/from\s+['"]\.\/constants\.js['"]/, `from '${constantsUrl}'`);
+const utilUrl = asModuleUrl(utilSource);
 const configSource = (await readFile(path.join(root, 'background', 'config.js'), 'utf8'))
-  .replace(/from\s+['"]\.\/constants\.js['"]/, `from '${constantsUrl}'`);
-const util = (await import(asModuleUrl(utilSource))).default;
+  .replace(/from\s+['"]\.\/constants\.js['"]/, `from '${constantsUrl}'`)
+  .replace(/from\s+['"]\.\/util\.js['"]/, `from '${utilUrl}'`);
+const util = (await import(utilUrl)).default;
 const config = await import(asModuleUrl(configSource));
 
 beforeEach(() => {
   for (const key of Object.keys(stored)) delete stored[key];
+});
+
+test('Unicode validation rejects only unpaired UTF-16 surrogates within a bounded scan', () => {
+  assert.equal(util.hasUnpairedSurrogate('plain text', 32), false);
+  assert.equal(util.hasUnpairedSurrogate('valid 😀 pair', 32), false);
+  assert.equal(util.hasUnpairedSurrogate('bad \ud800 value', 32), true);
+  assert.equal(util.hasUnpairedSurrogate('bad \udc00 value', 32), true);
+  assert.equal(util.hasUnpairedSurrogate('too long', 3), true);
 });
 
 test('download extension filtering is disabled by default', async () => {
@@ -115,12 +125,31 @@ test('extracts all HTTP links without dropping query strings or MEGA keys', () =
     https://mega.nz/file/abc#secret-key
     https://mega.nz/file/abc
     https://example.invalid/custom?id=1#part
+    https://example.invalid/entity?a=1&amp;b=2&#35;fragment
+    https://example.invalid/before-quote&quot;https://example.invalid/after-quote
+    https://example.invalid/double?a=1&amp;amp;b=2&amp;#35;part
+    https://example.invalid/double-quote&amp;quot;https://example.invalid/after-double-quote
   `);
   assert.deepEqual(links, [
     'https://example.invalid/custom?id=1#part',
     'https://mega.nz/file/abc#secret-key',
     'https://mega.nz/file/abc',
+    'https://example.invalid/entity?a=1&b=2#fragment',
+    'https://example.invalid/before-quote',
+    'https://example.invalid/after-quote',
+    'https://example.invalid/double?a=1&amp;b=2#part',
+    'https://example.invalid/double-quote',
+    'https://example.invalid/after-double-quote',
   ]);
+});
+
+test('external-link scanning bounds candidate memory on a 16 MiB token', () => {
+  const oversizedToken = `https://example.invalid/${'x'.repeat(16 * 1024 * 1024)}`;
+  assert.deepEqual(
+    util.extractExternalLinks(`${oversizedToken} https://valid.example/file?a=1&amp;b=2`),
+    ['https://valid.example/file?a=1&b=2']
+  );
+  assert.doesNotMatch(utilSource, /normalizedContent|content\s*\.replace\(\/&amp;/);
 });
 
 test('extracts provider links from flat and wrapped post embeds', () => {
@@ -181,4 +210,36 @@ test('builds a sorted deduplicated TXT task and adds source posts for keyless ME
     'https://z.example/file',
     '',
   ].join('\n'));
+});
+
+test('bounds generated text, extracted links, and per-post task fanout', () => {
+  assert.throws(
+    () => util.buildTextDownloadTask('x'.repeat(8 * 1024 * 1024 + 1), 'large.txt'),
+    /8 MiB/
+  );
+
+  const linkText = Array.from(
+    { length: 5001 },
+    (_, index) => `https://example.invalid/${index}`
+  ).join(' ');
+  assert.equal(util.extractExternalLinks(linkText).length, 5000);
+
+  const tasks = util.buildDownloadTasks({
+    post: {
+      attachments: Array.from({ length: 5001 }, (_, index) => ({
+        path: `/data/${index}.jpg`,
+      })),
+    },
+    videos: [null],
+  }, 'title', 'https://kemono.cr');
+  assert.equal(tasks.length, 5000);
+
+  const oversizedLinks = Array.from(
+    { length: 1100 },
+    (_, index) => `https://example.invalid/${index}/${'x'.repeat(8000)}`
+  );
+  assert.throws(
+    () => util.buildExternalLinksText(oversizedLinks),
+    /External links TXT exceeds the 8 MiB/
+  );
 });

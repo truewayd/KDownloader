@@ -4,6 +4,12 @@
   const ENABLED_KEY = 'creatorsOverrideEnabled';
   const host = location.hostname.toLowerCase();
   if (!TARGET_HOSTS.has(host)) return;
+  const INSTALL_KEY = '__kdCreatorsInjectorInstalledV1';
+  if (window[INSTALL_KEY]) return;
+  Object.defineProperty(window, INSTALL_KEY, { value: true, configurable: false });
+  let stateReadSequence = 0;
+  let stateReadInFlight = false;
+  let stateReadQueued = false;
 
   function postState(enabled, payload = null) {
     window.postMessage({
@@ -18,26 +24,50 @@
   }
 
   function readAndPostState() {
+    const sequence = ++stateReadSequence;
+    if (stateReadInFlight) {
+      stateReadQueued = true;
+      return;
+    }
+    stateReadInFlight = true;
     const key = `creatorsOverride_${host}`;
-    chrome.storage.local.get([ENABLED_KEY, key], (stored) => {
-      if (chrome.runtime.lastError) {
-        postState(false);
-        return;
+    const finish = () => {
+      stateReadInFlight = false;
+      if (stateReadQueued) {
+        stateReadQueued = false;
+        readAndPostState();
       }
-      const enabled = stored?.[ENABLED_KEY] === true;
-      const cached = stored?.[key] || null;
-      let payload = null;
-      if (enabled && cached && typeof cached.__text === 'string') {
+    };
+    try {
+      chrome.storage.local.get([ENABLED_KEY, key], (stored) => {
         try {
-          payload = JSON.parse(cached.__text);
-        } catch (error) {
-          payload = null;
+          const runtimeError = chrome.runtime.lastError;
+          if (sequence === stateReadSequence) {
+            if (runtimeError) {
+              postState(false);
+            } else {
+              const enabled = stored?.[ENABLED_KEY] === true;
+              const cached = stored?.[key] || null;
+              let payload = null;
+              if (enabled && cached && typeof cached.__text === 'string') {
+                try {
+                  payload = JSON.parse(cached.__text);
+                } catch (error) {
+                  payload = null;
+                }
+              } else if (enabled && cached && typeof cached === 'object') {
+                payload = cached;
+              }
+              postState(enabled, payload);
+            }
+          }
+        } finally {
+          finish();
         }
-      } else if (enabled && cached && typeof cached === 'object') {
-        payload = cached;
-      }
-      postState(enabled, payload);
-    });
+      });
+    } catch (error) {
+      finish();
+    }
   }
 
   try {

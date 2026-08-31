@@ -9,7 +9,8 @@ const KEMONO_TARGET_SELECTOR = [
 ].join(", ");
 
 function isCreatorPage() {
-  return !location.pathname.includes("/post/");
+  const parsed = parseUrlPath(location.pathname);
+  return !!parsed && !parsed.postId;
 }
 
 function getCreatorEntries() {
@@ -27,8 +28,8 @@ function getCreatorEntries() {
     if (!anchor) continue;
 
     const href = anchor.getAttribute("href") || anchor.href;
-    const url = new URL(href, location.origin);
-    const path = url.pathname;
+    const path = getSameOriginPath(href);
+    if (!path) continue;
     const parsed = parseUrlPath(path);
     if (!parsed || !parsed.postId) continue;
     entries.push({ article, anchor, path, ...parsed });
@@ -69,7 +70,7 @@ function addDownloadAllButton() {
   btn.onclick = async (event) => {
     event.preventDefault();
     if (btn.disabled) return;
-    btn.disabled = true;
+    updateButtonStatus(btn, "SCANNING", KDI18n.get("statusFetching"), false);
 
     const parsedPage = parseUrlPath(location.pathname);
     if (!parsedPage) {
@@ -115,7 +116,8 @@ function addDownloadAllButton() {
     const service = parsedPage.service;
     const userId = parsedPage.userId;
     const offsetParam = new URL(location.href).searchParams.get("o");
-    const offset = offsetParam ? Number(offsetParam) : null;
+    const parsedOffset = offsetParam ? Number(offsetParam) : null;
+    const offset = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : null;
     await runPageFetchWithProgress({
       btn,
       service,
@@ -128,14 +130,26 @@ function addDownloadAllButton() {
 }
 
 async function renderKemonoDownloadUI(context) {
-  reportAccessIfApplicable();
   if (isCreatorPage()) {
+    document.querySelectorAll(KD_POST_BUTTON_SELECTOR).forEach((element) => element.remove());
     await addCreatorButtons(context);
     if (!isRenderCurrent(context)) return;
     addDownloadAllButton();
   } else {
+    document.querySelectorAll([
+      KD_CREATOR_BUTTON_SELECTOR,
+      KD_PAGE_FETCH_BUTTON_SELECTOR,
+    ].join(', ')).forEach((element) => element.remove());
     await addPostButton(context);
   }
+}
+
+function cleanupKemonoDownloadUI() {
+  document.querySelectorAll([
+    KD_CREATOR_BUTTON_SELECTOR,
+    KD_POST_BUTTON_SELECTOR,
+    KD_PAGE_FETCH_BUTTON_SELECTOR,
+  ].join(', ')).forEach((element) => element.remove());
 }
 
 function hasKemonoTargets() {
@@ -146,7 +160,9 @@ chrome.runtime.onMessage.addListener((message) => {
   if (!message) return;
   if (message.action === "updateUI") {
     if (window.KDRouteWatcher) window.KDRouteWatcher.schedule("updateUI", 100);
-    else renderKemonoDownloadUI();
+    else renderKemonoDownloadUI().catch((error) => {
+      console.warn("[Content] updateUI render failed", error);
+    });
   }
 });
 
@@ -154,9 +170,10 @@ if (window.KDRouteWatcher) {
   window.KDRouteWatcher.register({
     name: "kemono-download-actions",
     targetSelector: KEMONO_TARGET_SELECTOR,
-    match: () => /\/[^/]+\/user\/[^/]+/.test(location.pathname),
+    match: () => !!parseUrlPath(location.pathname),
     hasTargets: hasKemonoTargets,
     render: renderKemonoDownloadUI,
+    cleanup: cleanupKemonoDownloadUI,
     maxAttempts: 25,
   });
 } else if (document.readyState === "loading") {

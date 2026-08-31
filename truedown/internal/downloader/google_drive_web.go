@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -79,7 +80,7 @@ func newGoogleDriveHTTPClient(proxy func(*http.Request) (*url.URL, error)) *http
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = proxy
 	transport.DisableCompression = true
-	return &http.Client{Transport: transport, CheckRedirect: googleDriveRedirectPolicy}
+	return &http.Client{Transport: transport, CheckRedirect: googleDriveRedirectPolicy, Timeout: 2 * time.Minute}
 }
 
 func googleDriveRedirectPolicy(request *http.Request, via []*http.Request) error {

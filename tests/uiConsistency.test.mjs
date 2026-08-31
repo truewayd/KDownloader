@@ -12,6 +12,9 @@ const [
   settingsCss,
   sharedCss,
   sharedUiSource,
+  settingsSource,
+  englishMessagesSource,
+  chineseMessagesSource,
   contentCss,
   manifestSource,
   actionsSource,
@@ -30,6 +33,9 @@ const [
   read("settings.css"),
   read("shared/ui.css"),
   read("shared/ui.js"),
+  read("settings.js"),
+  read("_locales/en/messages.json"),
+  read("_locales/zh_CN/messages.json"),
   read("content.css"),
   read("manifest.json"),
   read("content/actions.js"),
@@ -145,6 +151,154 @@ test("shared busy state restores the prior button state", async () => {
   });
   assert.equal(button.disabled, false);
   assert.equal(attributes.has("aria-busy"), false);
+});
+
+test("Watch exports use a bounded compact format that the importer can accept", () => {
+  assert.match(settingsSource, /const MAX_WATCH_STORAGE_BYTES = 4 \* 1024 \* 1024/);
+  assert.match(
+    settingsSource,
+    /const MAX_WATCH_IMPORT_FILE_BYTES = MAX_WATCH_STORAGE_BYTES \+ 1024/
+  );
+  const exportFunction = settingsSource.match(
+    /async function exportWatchList\(\) \{[\s\S]*?\n\}/
+  )?.[0];
+  const importFunction = settingsSource.match(
+    /async function importWatchList\(file\) \{[\s\S]*?\n\}/
+  )?.[0];
+  assert.ok(exportFunction);
+  assert.ok(importFunction);
+  assert.match(exportFunction, /new Blob\(\[JSON\.stringify\(data\)\]/);
+  assert.doesNotMatch(exportFunction, /JSON\.stringify\(data, null, 2\)/);
+  assert.match(exportFunction, /blob\.size > MAX_WATCH_IMPORT_FILE_BYTES/);
+  assert.match(importFunction, /file\.size > MAX_WATCH_IMPORT_FILE_BYTES/);
+});
+
+test("shared busy state remains active until overlapping tasks both settle", async () => {
+  const context = vm.createContext({
+    chrome: { runtime: { lastError: null, sendMessage() {} } },
+    clearTimeout,
+    console,
+    document: {},
+    requestAnimationFrame: (callback) => callback(),
+    setTimeout,
+  });
+  vm.runInContext(sharedUiSource, context);
+
+  const attributes = new Map();
+  const button = {
+    disabled: false,
+    getAttribute: (name) => attributes.get(name) ?? null,
+    removeAttribute: (name) => attributes.delete(name),
+    setAttribute: (name, value) => attributes.set(name, value),
+  };
+  let resolveFirst;
+  let resolveSecond;
+  const first = context.KDUI.withBusyButton(button, () => new Promise((resolve) => { resolveFirst = resolve; }));
+  const second = context.KDUI.withBusyButton(button, () => new Promise((resolve) => { resolveSecond = resolve; }));
+
+  resolveFirst();
+  await first;
+  assert.equal(button.disabled, true);
+  assert.equal(attributes.get("aria-busy"), "true");
+
+  resolveSecond();
+  await second;
+  assert.equal(button.disabled, false);
+  assert.equal(attributes.has("aria-busy"), false);
+});
+
+test("shared messaging never retries an ambiguous timeout", async () => {
+  let sendCount = 0;
+  const context = vm.createContext({
+    chrome: {
+      runtime: {
+        lastError: null,
+        sendMessage() { sendCount += 1; },
+      },
+    },
+    clearTimeout,
+    console,
+    document: {},
+    requestAnimationFrame: (callback) => callback(),
+    setTimeout,
+  });
+  vm.runInContext(sharedUiSource, context);
+
+  await assert.rejects(
+    context.KDUI.sendMessage({ action: "mutating.action" }, 5, { retries: 3, retryDelay: 0 }),
+    /timed out/i
+  );
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(sendCount, 1);
+});
+
+test("settings validates backend API Keys as 32 to 256 printable ASCII characters", () => {
+  const declaration = settingsSource.match(/function backendApiKeyValue\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(declaration, "backendApiKeyValue should remain a focused validator");
+  const input = { value: "" };
+  const context = vm.createContext({
+    input,
+    $: () => input,
+    t: (_key, _substitutions, fallback) => fallback,
+  });
+  vm.runInContext(`${declaration}\nglobalThis.backendApiKeyValue = backendApiKeyValue;`, context);
+  const validate = (value) => {
+    input.value = value;
+    return context.backendApiKeyValue();
+  };
+
+  assert.equal(validate(""), "");
+  assert.equal(validate(`  ${"a".repeat(32)}  `), "a".repeat(32));
+  assert.equal(validate(`${"a".repeat(16)} ${"b".repeat(15)}`), `${"a".repeat(16)} ${"b".repeat(15)}`);
+  assert.equal(validate("~".repeat(256)), "~".repeat(256));
+  assert.throws(() => validate("a".repeat(31)), /32 to 256 printable ASCII characters/);
+  assert.throws(() => validate("a".repeat(257)), /32 to 256 printable ASCII characters/);
+  assert.throws(() => validate("a".repeat(31) + "界"), /32 to 256 printable ASCII characters/);
+  for (const control of ["\0", "\t", "\n", "\x1f", "\x7f"]) {
+    assert.throws(
+      () => validate(`${"a".repeat(16)}${control}${"b".repeat(16)}`),
+      /32 to 256 printable ASCII characters/
+    );
+  }
+
+  assert.match(JSON.parse(englishMessagesSource).backendApiKeyInvalid.message, /printable ASCII/);
+  assert.match(JSON.parse(chineseMessagesSource).backendApiKeyInvalid.message, /可打印 ASCII/);
+});
+
+test("settings validates every token used in a Fetch header", () => {
+  const declaration = settingsSource.match(/function headerSecretValue\(id\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(declaration, "headerSecretValue should remain a focused validator");
+  const input = { value: "" };
+  const context = vm.createContext({
+    input,
+    $: () => input,
+    t: (_key, _substitutions, fallback) => fallback,
+  });
+  vm.runInContext(`${declaration}\nglobalThis.headerSecretValue = headerSecretValue;`, context);
+  const validate = (value) => {
+    input.value = value;
+    return context.headerSecretValue("token");
+  };
+
+  assert.equal(validate(""), "");
+  assert.equal(validate("  token with space  "), "token with space");
+  assert.equal(validate("~".repeat(4096)).length, 4096);
+  assert.throws(() => validate("~".repeat(4097)), /4096 printable ASCII/);
+  assert.throws(() => validate("令牌"), /4096 printable ASCII/);
+  assert.throws(() => validate("line\nbreak"), /4096 printable ASCII/);
+  assert.match(JSON.parse(englishMessagesSource).headerSecretInvalid.message, /4096 printable ASCII/);
+  assert.match(JSON.parse(chineseMessagesSource).headerSecretInvalid.message, /4096 个可打印 ASCII/);
+});
+
+test("extension icon-only controls expose localized accessible names", () => {
+  for (const id of ["watch-check", "creators-update-coomer", "creators-update-kemono"]) {
+    assert.match(
+      settingsHtml,
+      new RegExp(`<button[^>]+id="${id}"[^>]+aria-label="[^"]+"[^>]+data-i18n-aria-label=`)
+    );
+  }
+  assert.match(popupHtml, /id="creator-url"[^>]+data-i18n-aria-label=/);
+  assert.match(popupHtml, /id="global-progress-track"[^>]+aria-labelledby="global-progress-label"/);
 });
 
 function kdTokens(css) {

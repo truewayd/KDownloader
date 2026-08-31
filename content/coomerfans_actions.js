@@ -9,17 +9,30 @@ const COOMERFANS_TARGET_SELECTOR = [
 
 function parseCoomerFansCreatorPath(pathname) {
   const parts = String(pathname || "").split("/").filter(Boolean);
-  if (parts[0] !== "u" || parts.length < 3) return null;
+  if (parts[0] !== "u" || (parts.length !== 3 && parts.length !== 4)) return null;
+  if (parts[1].length > 128 || parts[2].length > 512 || (parts[3] && parts[3].length > 1024)) {
+    return null;
+  }
+  let creatorName = "";
+  if (parts[3]) {
+    try {
+      creatorName = decodeURIComponent(parts[3]);
+    } catch (error) {
+      return null;
+    }
+    if (creatorName.length > 512) return null;
+  }
   return {
     service: String(parts[1] || "").toLowerCase(),
     userId: String(parts[2] || ""),
-    creatorName: parts[3] ? decodeURIComponent(parts[3]) : "",
+    creatorName,
   };
 }
 
 function parseCoomerFansPostPath(pathname) {
   const parts = String(pathname || "").split("/").filter(Boolean);
-  if (parts[0] !== "p" || parts.length < 4) return null;
+  if (parts[0] !== "p" || parts.length !== 4) return null;
+  if (parts[1].length > 512 || parts[2].length > 512 || parts[3].length > 128) return null;
   return {
     postId: String(parts[1] || ""),
     userId: String(parts[2] || ""),
@@ -51,20 +64,15 @@ function getCoomerFansCreatorEntries() {
     if (!anchor) continue;
 
     const href = anchor.getAttribute("href") || anchor.href;
-    let url;
-    try {
-      url = new URL(href, location.origin);
-    } catch (e) {
-      continue;
-    }
-
-    const parsed = parseCoomerFansPostPath(url.pathname);
+    const path = getSameOriginPath(href);
+    if (!path) continue;
+    const parsed = parseCoomerFansPostPath(path);
     if (!parsed || !parsed.postId || !parsed.userId || !parsed.service) continue;
 
     entries.push({
       postEl,
       anchor,
-      path: url.pathname,
+      path,
       source: "coomerfans",
       service: parsed.service,
       userId: parsed.userId,
@@ -137,20 +145,34 @@ function addCoomerFansPageFetchButton() {
   btn.onclick = async (event) => {
     event.preventDefault();
     if (btn.disabled) return;
-    btn.disabled = true;
+    updateButtonStatus(btn, "SCANNING", KDI18n.get("statusFetching"), false);
 
-    const entries = getCoomerFansCreatorEntries();
-    const downloaded = await getDownloadedStatusMap(entries);
-    const items = entries
-      .filter((entry) => !downloaded.get(downloadedKey(entry.service, entry.userId, entry.postId, entry.source)))
-      .map((entry) => ({
-        service: entry.service,
-        userId: entry.userId,
-        postId: entry.postId,
-        path: entry.path,
-        source: "coomerfans",
-        creatorName: entry.creatorName,
-      }));
+    let items;
+    try {
+      const entries = getCoomerFansCreatorEntries();
+      const downloaded = await getDownloadedStatusMap(entries);
+      items = entries
+        .filter((entry) => !isHandledDownloadedStatus(
+          downloaded.get(downloadedKey(entry.service, entry.userId, entry.postId, entry.source))
+        ))
+        .map((entry) => ({
+          service: entry.service,
+          userId: entry.userId,
+          postId: entry.postId,
+          path: entry.path,
+          source: "coomerfans",
+          creatorName: entry.creatorName,
+        }));
+    } catch (error) {
+      showTransientButtonStatus(
+        btn,
+        "ERROR",
+        `× ${boundedDisplayText(getErrorMessage(error), KDI18n.get("statusFailedDecorated"))}`,
+        false,
+        KDI18n.get("pageFetchAction")
+      );
+      return;
+    }
 
     if (items.length === 0) {
       showTransientButtonStatus(
@@ -186,25 +208,32 @@ function addCoomerFansPageFetchButton() {
   };
 }
 
-function reportCoomerFansAccess() {
-  try {
-    const parsed = parseCoomerFansCreatorPath(location.pathname);
-    if (!parsed) return;
-    reportCreatorAccess(parsed.service, parsed.userId);
-  } catch (e) {
-    /* ignore */
-  }
-}
-
 async function renderCoomerFansActions(context) {
-  reportCoomerFansAccess();
   if (isCoomerFansPostPage()) {
+    document.querySelectorAll([
+      KD_CREATOR_BUTTON_SELECTOR,
+      KD_PAGE_FETCH_BUTTON_SELECTOR,
+      '.kd-coomerfans-actions',
+    ].join(', ')).forEach((element) => element.remove());
     await addCoomerFansPostButton(context);
   } else {
+    document.querySelectorAll(KD_POST_BUTTON_SELECTOR).forEach((element) => element.remove());
     await addCoomerFansCreatorButtons(context);
     if (!isRenderCurrent(context)) return;
     addCoomerFansPageFetchButton();
   }
+}
+
+function cleanupCoomerFansActions() {
+  document.querySelectorAll([
+    KD_CREATOR_BUTTON_SELECTOR,
+    KD_POST_BUTTON_SELECTOR,
+    KD_PAGE_FETCH_BUTTON_SELECTOR,
+    '.kd-coomerfans-actions',
+  ].join(', ')).forEach((element) => element.remove());
+  document.querySelectorAll('.kd-coomerfans-post').forEach((element) => {
+    element.classList.remove('kd-coomerfans-post');
+  });
 }
 
 function hasCoomerFansTargets() {
@@ -218,7 +247,9 @@ chrome.runtime.onMessage.addListener((message) => {
   if (!message) return;
   if (message.action === "updateUI") {
     if (window.KDRouteWatcher) window.KDRouteWatcher.schedule("updateUI", 100);
-    else renderCoomerFansActions();
+    else renderCoomerFansActions().catch((error) => {
+      console.warn("[Content] updateUI render failed", error);
+    });
   }
 });
 
@@ -226,9 +257,10 @@ if (window.KDRouteWatcher) {
   window.KDRouteWatcher.register({
     name: "coomerfans-download-actions",
     targetSelector: COOMERFANS_TARGET_SELECTOR,
-    match: () => /^\/u\/[^/]+\/[^/]+/.test(location.pathname) || /^\/p\/[^/]+\/[^/]+\/[^/]+/.test(location.pathname),
+    match: () => !!parseCoomerFansCreatorPath(location.pathname) || !!parseCoomerFansPostPath(location.pathname),
     hasTargets: hasCoomerFansTargets,
     render: renderCoomerFansActions,
+    cleanup: cleanupCoomerFansActions,
     maxAttempts: 25,
   });
 } else if (document.readyState === "loading") {

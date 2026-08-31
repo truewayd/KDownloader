@@ -6,12 +6,17 @@
   const TARGET_HOSTS = new Set(['coomer.st', 'kemono.cr']);
   const host = location.hostname.toLowerCase();
   if (!TARGET_HOSTS.has(host)) return;
+  const INSTALL_KEY = '__kdCreatorsPageInstalledV1';
+  if (window[INSTALL_KEY]) return;
+  Object.defineProperty(window, INSTALL_KEY, { value: true, configurable: false });
 
   let dbPromise = null;
   let dbInstance = null;
   let overrideEnabled = false;
   let stateReceived = false;
   let stateRequestTimer = 0;
+  let stateSequence = 0;
+  let cacheWritePromise = Promise.resolve();
 
   function openDB() {
     if (dbInstance) return Promise.resolve(dbInstance);
@@ -46,19 +51,42 @@
   }
 
   function closeDB() {
+    stateSequence++;
     if (stateRequestTimer) clearInterval(stateRequestTimer);
     stateRequestTimer = 0;
+    const pending = dbPromise;
     dbInstance?.close();
     dbInstance = null;
     dbPromise = null;
+    pending?.then((db) => db.close()).catch(() => {});
   }
 
   function transactionRequest(mode, work) {
     return openDB().then((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction(STORE_NAME, mode);
-      const request = work(transaction.objectStore(STORE_NAME));
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error || new Error('creator cache transaction failed'));
+      let request;
+      let result = null;
+      let settled = false;
+      const fail = () => {
+        if (settled) return;
+        settled = true;
+        reject(transaction.error || request?.error || new Error('creator cache transaction failed'));
+      };
+      try {
+        request = work(transaction.objectStore(STORE_NAME));
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      request.onsuccess = () => { result = request.result ?? null; };
+      request.onerror = fail;
+      transaction.onerror = fail;
+      transaction.onabort = fail;
+      transaction.oncomplete = () => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
     }));
   }
 
@@ -96,7 +124,18 @@
     }, location.origin);
   }
 
-  window.addEventListener('pagehide', closeDB, { once: true });
+  function createAbortError(signal) {
+    if (signal && 'reason' in signal && signal.reason !== undefined) return signal.reason;
+    try {
+      return new DOMException('The operation was aborted.', 'AbortError');
+    } catch (error) {
+      const abortError = new Error('The operation was aborted.');
+      abortError.name = 'AbortError';
+      return abortError;
+    }
+  }
+
+  window.addEventListener('pagehide', closeDB);
   window.addEventListener('message', (event) => {
     if (event.source !== window || event.origin !== location.origin) return;
     const message = event.data?.message;
@@ -104,9 +143,17 @@
     if (String(message.host || '').toLowerCase() !== host) return;
     stateReceived = true;
     overrideEnabled = message.enabled === true;
+    const sequence = ++stateSequence;
     if (stateRequestTimer) clearInterval(stateRequestTimer);
     stateRequestTimer = 0;
-    if (overrideEnabled && message.payload) writeCache(message.payload).catch(() => {});
+    if (overrideEnabled && message.payload) {
+      cacheWritePromise = cacheWritePromise
+        .catch(() => {})
+        .then(() => {
+          if (!overrideEnabled || sequence !== stateSequence) return false;
+          return writeCache(message.payload);
+        });
+    }
   });
 
   requestState();
@@ -123,17 +170,42 @@
 
   const originalFetch = window.fetch.bind(window);
   window.fetch = async function (input, init) {
-    if (overrideEnabled && creatorRequestUrl(input)) {
+    let method = 'GET';
+    try {
+      method = String(
+        init?.method
+        || (typeof Request === 'function' && input instanceof Request ? input.method : 'GET')
+      ).toUpperCase();
+    } catch (error) {
+      return originalFetch(input, init);
+    }
+    const hasBody = init?.body != null
+      || (typeof Request === 'function' && input instanceof Request && input.body != null);
+    if (overrideEnabled && method === 'GET' && !hasBody && creatorRequestUrl(input)) {
+      const interceptionSequence = stateSequence;
+      const signal = init?.signal
+        || (typeof Request === 'function' && input instanceof Request ? input.signal : null);
+      if (signal?.aborted) throw createAbortError(signal);
+      let cached = null;
       try {
-        const cached = await readCache();
-        if (cached?.data) {
+        cached = await readCache();
+      } catch (error) {
+        // Fall through to the site's request after checking cancellation.
+      }
+      if (signal?.aborted) throw createAbortError(signal);
+      if (!overrideEnabled || interceptionSequence !== stateSequence) {
+        return originalFetch(input, init);
+      }
+      if (cached?.data) {
+        try {
           return new Response(JSON.stringify(cached.data), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           });
+        } catch (error) {
+          if (signal?.aborted) throw createAbortError(signal);
+          // Fall through to the site's request for unserializable cache data.
         }
-      } catch (error) {
-        // Fall through to the site's request.
       }
     }
     return originalFetch(input, init);
@@ -143,28 +215,78 @@
   if (!XHR?.prototype) return;
   const originalOpen = XHR.prototype.open;
   const originalSend = XHR.prototype.send;
+  const originalAbort = XHR.prototype.abort;
   const requestMeta = new WeakMap();
+  const SYNTHETIC_PROPERTIES = [
+    'readyState',
+    'status',
+    'statusText',
+    'responseText',
+    'response',
+    'responseURL',
+    'getResponseHeader',
+    'getAllResponseHeaders',
+  ];
 
-  XHR.prototype.open = function (method, url) {
-    requestMeta.set(this, { method: String(method || 'GET').toUpperCase(), url });
-    return originalOpen.apply(this, arguments);
+  function clearSyntheticProperties(xhr) {
+    for (const property of SYNTHETIC_PROPERTIES) {
+      try {
+        delete xhr[property];
+      } catch (error) {
+        /* Ignore host-object cleanup failures and let native open decide. */
+      }
+    }
+  }
+
+  XHR.prototype.open = function (method, url, asyncFlag) {
+    clearSyntheticProperties(this);
+    const result = originalOpen.apply(this, arguments);
+    requestMeta.set(this, {
+      method: String(method || 'GET').toUpperCase(),
+      url,
+      async: asyncFlag === undefined ? true : Boolean(asyncFlag),
+      aborted: false,
+      dispatched: false,
+      pending: false,
+      syntheticComplete: false,
+    });
+    return result;
   };
 
   XHR.prototype.send = function (body) {
     const xhr = this;
     const meta = requestMeta.get(xhr);
-    if (!overrideEnabled || meta?.method !== 'GET' || !creatorRequestUrl(meta.url)) {
+    if (meta?.pending || meta?.dispatched) {
+      throw new DOMException('The object is in an invalid state.', 'InvalidStateError');
+    }
+    if (!overrideEnabled
+      || meta?.method !== 'GET'
+      || meta.async === false
+      || body != null
+      || (xhr.responseType && xhr.responseType !== 'text' && xhr.responseType !== 'json')
+      || !creatorRequestUrl(meta.url)) {
+      if (meta) meta.dispatched = true;
       return originalSend.call(xhr, body);
     }
 
+    meta.pending = true;
+    const interceptionSequence = stateSequence;
+    const sendOriginal = () => {
+      if (meta.aborted || meta.dispatched) return;
+      meta.pending = false;
+      meta.dispatched = true;
+      originalSend.call(xhr, body);
+    };
     readCache().then((cached) => {
-      if (!cached?.data) {
-        originalSend.call(xhr, body);
+      if (!overrideEnabled || interceptionSequence !== stateSequence || !cached?.data) {
+        sendOriginal();
         return;
       }
+      if (meta.aborted) return;
       const responseText = JSON.stringify(cached.data);
       const response = xhr.responseType === 'json' ? cached.data : responseText;
       try {
+        xhr.dispatchEvent(new ProgressEvent('loadstart'));
         Object.defineProperties(xhr, {
           readyState: { configurable: true, get: () => 4 },
           status: { configurable: true, get: () => 200 },
@@ -181,12 +303,25 @@
             value: () => 'content-type: application/json\r\n',
           },
         });
+        meta.pending = false;
+        meta.dispatched = true;
+        meta.syntheticComplete = true;
         xhr.dispatchEvent(new Event('readystatechange'));
         xhr.dispatchEvent(new ProgressEvent('load', { loaded: responseText.length, total: responseText.length }));
         xhr.dispatchEvent(new ProgressEvent('loadend', { loaded: responseText.length, total: responseText.length }));
       } catch (error) {
-        originalSend.call(xhr, body);
+        sendOriginal();
       }
-    }).catch(() => originalSend.call(xhr, body));
+    }).catch(sendOriginal);
+  };
+
+  XHR.prototype.abort = function () {
+    const meta = requestMeta.get(this);
+    if (meta?.syntheticComplete) return;
+    if (meta) {
+      meta.aborted = true;
+      meta.pending = false;
+    }
+    return originalAbort.apply(this, arguments);
   };
 })();

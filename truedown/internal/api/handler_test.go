@@ -276,7 +276,7 @@ func TestAuthSettingsToggleReturnsSessionWithoutBreakingDashboardRequests(t *tes
 		t.Fatal(err)
 	}
 	defer manager.Stop()
-	auth := &testTokenAuth{}
+	auth := &testTokenAuth{token: strings.Repeat("x", 28) + ";,\"\\"}
 	mux := http.NewServeMux()
 	Register(mux, manager, auth)
 
@@ -284,11 +284,19 @@ func TestAuthSettingsToggleReturnsSessionWithoutBreakingDashboardRequests(t *tes
 	enable.Header.Set("Content-Type", "application/json")
 	enableResponse := httptest.NewRecorder()
 	mux.ServeHTTP(enableResponse, enable)
-	if enableResponse.Code != http.StatusOK || !auth.enabled || !strings.Contains(enableResponse.Body.String(), auth.token) {
+	var enabledBody struct {
+		Enabled bool   `json:"enabled"`
+		Token   string `json:"token"`
+	}
+	if err := json.Unmarshal(enableResponse.Body.Bytes(), &enabledBody); err != nil {
+		t.Fatal(err)
+	}
+	if enableResponse.Code != http.StatusOK || !auth.enabled || !enabledBody.Enabled || enabledBody.Token != auth.token {
 		t.Fatalf("enable status=%d auth=%+v body=%s", enableResponse.Code, auth, enableResponse.Body.String())
 	}
 	cookies := enableResponse.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != SessionCookieName || cookies[0].Value != auth.token || !cookies[0].HttpOnly {
+	if len(cookies) != 1 || cookies[0].Name != SessionCookieName || cookies[0].Value != SessionCookieValue(auth.token) ||
+		cookies[0].Value == auth.token || !cookies[0].HttpOnly {
 		t.Fatalf("enable cookies=%+v", cookies)
 	}
 
@@ -686,5 +694,31 @@ func TestTaskListOmitsSensitiveRequestFields(t *testing.T) {
 	}
 	if bytes.Contains(data, []byte("secret=value")) || bytes.Contains(data, []byte("headers")) {
 		t.Fatalf("task list leaked request headers: %s", data)
+	}
+}
+
+func TestRequestDecodersRequireAJSONObjectRoot(t *testing.T) {
+	type requestBody struct {
+		Enabled bool `json:"enabled"`
+	}
+	for name, decode := range map[string]func(http.ResponseWriter, *http.Request, any) bool{
+		"api": func(w http.ResponseWriter, r *http.Request, target any) bool {
+			r.Header.Set("Content-Type", "application/json")
+			return decodeJSONRequest(w, r, 1024, target)
+		},
+		"browser-integration": func(w http.ResponseWriter, r *http.Request, target any) bool {
+			return decodeBrowserIntegrationRequest(w, r, target)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("null\n"))
+			response := httptest.NewRecorder()
+			if decode(response, request, &requestBody{}) {
+				t.Fatal("non-object JSON request was accepted")
+			}
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("non-object JSON status=%d", response.Code)
+			}
+		})
 	}
 }

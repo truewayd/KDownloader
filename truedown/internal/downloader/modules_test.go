@@ -130,6 +130,31 @@ func TestResolverComponentInvalidInstalledUpdateFallsBackToBaseline(t *testing.T
 	t.Fatal("Dropbox component is missing")
 }
 
+func TestResolverComponentNullInstalledUpdateFallsBackToBaseline(t *testing.T) {
+	root := t.TempDir()
+	modulesDir := filepath.Join(root, "modules")
+	if err := os.MkdirAll(modulesDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modulesDir, "dropbox.json"), []byte("null\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Stop()
+	for _, module := range manager.Modules() {
+		if module.ID == DropboxModuleID {
+			if module.Source != "baseline" || !strings.Contains(module.UpdateError, "JSON object") {
+				t.Fatalf("null package did not fail closed to the baseline: %+v", module)
+			}
+			return
+		}
+	}
+	t.Fatal("Dropbox component is missing")
+}
+
 func TestResolverModuleSettingsRecoverFromAtomicWriteBackup(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(

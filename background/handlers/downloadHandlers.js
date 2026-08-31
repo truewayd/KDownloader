@@ -30,18 +30,74 @@ import {
   completeBatch,
 } from "../progress.js";
 import {
+  beginAcceptedRequest,
+  completeAcceptedRequest,
   delay,
   buildDownloadHistoryRecord,
   getSenderTabId,
   getSenderUrl,
+  requireExtensionPage,
+  requireTrustedWebSender,
   safeBroadcast,
 } from "../messageHelpers.js";
 import {
   clearNativeFallbackNotification,
   enqueueNativeFallback,
+  measureNativeFallbackRequest,
+  NATIVE_FALLBACK_LIMITS,
   takeNativeFallback,
 } from "../nativeFallback.js";
 import { loadExternalLinkFilterConfig } from "../config.js";
+
+const DOWNLOAD_CONTENT_HOSTS = [...API.HOSTS, API.COOMERFANS_HOST, PAW.HOST];
+const MAX_BATCH_EXTERNAL_LINKS = 5000;
+const MAX_CREATOR_POSTS = 10000;
+const MAX_CREATOR_PAGE_POSTS = 5000;
+const MAX_CREATOR_RETAINED_BYTES = 64 * 1024 * 1024;
+const MAX_EXTERNAL_LINK_TEXT_BYTES = 8 * 1024 * 1024;
+const MAX_BROADCAST_EXTERNAL_LINKS = 1000;
+const MAX_BROADCAST_EXTERNAL_LINK_BYTES = 512 * 1024;
+const MAX_HTML_TAG_LENGTH = 64 * 1024;
+const MAX_HTML_URL_LENGTH = 8192;
+
+function utf8ByteLength(value) {
+  const text = String(value || "");
+  let bytes = 0;
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    if (code <= 0x7f) bytes++;
+    else if (code <= 0x7ff) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff
+        && index + 1 < text.length
+        && text.charCodeAt(index + 1) >= 0xdc00
+        && text.charCodeAt(index + 1) <= 0xdfff) {
+      bytes += 4;
+      index++;
+    } else bytes += 3;
+  }
+  return bytes;
+}
+
+function serializedStringByteLength(value) {
+  const text = String(value || "");
+  let bytes = 2;
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    if (code === 0x22 || code === 0x5c) bytes += 2;
+    else if (code <= 0x1f) bytes += 6;
+    else if (code <= 0x7f) bytes++;
+    else if (code <= 0x7ff) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff
+        && index + 1 < text.length
+        && text.charCodeAt(index + 1) >= 0xdc00
+        && text.charCodeAt(index + 1) <= 0xdfff) {
+      bytes += 4;
+      index++;
+    } else if (code >= 0xd800 && code <= 0xdfff) bytes += 6;
+    else bytes += 3;
+  }
+  return bytes;
+}
 
 function createBatchId() {
   return `batch:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
@@ -57,7 +113,6 @@ function isPawRequest(item, senderUrl) {
     }
   }
   return (
-    item.source === "pawchive" ||
     item.site === "pawchive" ||
     isPawSender
   );
@@ -89,6 +144,84 @@ async function runSingleDownload(item, sender, tabId) {
   );
 }
 
+function normalizedHttpUrl(value) {
+  try {
+    const raw = String(value || "");
+    if (!raw || raw.length > MAX_HTML_URL_LENGTH) return "";
+    const parsed = new URL(raw);
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) return "";
+    return parsed.toString();
+  } catch (error) {
+    return "";
+  }
+}
+
+function boundedResultText(value, maxLength = 2048) {
+  if (value === undefined || value === null) return "";
+  return String(value).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]+/g, " ").slice(0, maxLength);
+}
+
+function projectBroadcastExternalLinks(values) {
+  const links = [];
+  const seen = new Set();
+  const candidates = Array.isArray(values) ? values : [];
+  let bytes = 2;
+  let truncated = candidates.length > MAX_BROADCAST_EXTERNAL_LINKS;
+  const limit = Math.min(candidates.length, MAX_BATCH_EXTERNAL_LINKS);
+  for (let index = 0; index < limit; index++) {
+    const url = normalizedHttpUrl(candidates[index]);
+    if (!url || seen.has(url)) continue;
+    const addedBytes = utf8ByteLength(url) + 4;
+    if (links.length >= MAX_BROADCAST_EXTERNAL_LINKS
+        || bytes + addedBytes > MAX_BROADCAST_EXTERNAL_LINK_BYTES) {
+      truncated = true;
+      continue;
+    }
+    seen.add(url);
+    links.push(url);
+    bytes += addedBytes;
+  }
+  if (candidates.length > limit) truncated = true;
+  return { links, truncated };
+}
+
+export function projectDownloadResultForBroadcast(result) {
+  const value = result && typeof result === "object" ? result : {};
+  const results = Array.isArray(value.results) ? value.results : [];
+  const countedSuccesses = results.reduce(
+    (count, entry) => count + (entry && entry.success === true ? 1 : 0),
+    0
+  );
+  const suppliedSuccessCount = Number(value.successCount);
+  const successCount = Number.isFinite(suppliedSuccessCount) && suppliedSuccessCount >= 0
+    ? Math.floor(suppliedSuccessCount)
+    : countedSuccesses;
+  const suppliedTotalCount = Number(value.totalCount);
+  const totalCount = results.length > 0
+    ? results.length
+    : (Number.isFinite(suppliedTotalCount) && suppliedTotalCount >= 0
+        ? Math.floor(suppliedTotalCount)
+        : successCount);
+  const dto = {
+    success: value.success === true,
+    successCount: Math.min(successCount, totalCount),
+    totalCount,
+    failedCount: Math.max(0, totalCount - successCount),
+  };
+  for (const flag of [
+    "alreadyDownloaded", "backend", "gopeed", "noFiles", "cancelled",
+    "incomplete", "skipped", "skippedByFilter",
+  ]) {
+    if (value[flag] === true) dto[flag] = true;
+  }
+  const error = boundedResultText(value.error);
+  if (error) dto.error = error;
+  const projectedLinks = projectBroadcastExternalLinks(value.externalLinks);
+  if (projectedLinks.links.length > 0) dto.externalLinks = projectedLinks.links;
+  if (projectedLinks.truncated) dto.externalLinksTruncated = true;
+  return dto;
+}
+
 function broadcastComplete(item, result, tabId, requestId = item?.requestId) {
   safeBroadcast(
     {
@@ -97,7 +230,7 @@ function broadcastComplete(item, result, tabId, requestId = item?.requestId) {
       service: item.service,
       userId: item.userId,
       postId: item.postId,
-      result,
+      result: projectDownloadResultForBroadcast(result),
     },
     tabId
   );
@@ -130,7 +263,7 @@ function broadcastBatchError(scope, err, tabId) {
       sentCount: 0,
       totalCount: 0,
       progress: 0,
-      error: err && err.message ? err.message : String(err),
+      error: boundedResultText(err && err.message ? err.message : String(err)),
     },
     tabId
   );
@@ -157,10 +290,51 @@ function itemPostUrl(item, senderUrl) {
   return `${origin || API.DEFAULT_ORIGIN}/${service}/user/${userId}/post/${postId}`;
 }
 
-function collectExternalLinkEntries(target, item, result, senderUrl) {
+function createExternalLinkAccumulator() {
+  return {
+    entries: [],
+    outputLinks: new Set(),
+    textBytes: 1,
+  };
+}
+
+function appendExternalTextLink(accumulator, url) {
+  if (accumulator.outputLinks.has(url)) return true;
+  if (accumulator.outputLinks.size >= MAX_BATCH_EXTERNAL_LINKS) return false;
+  const addedBytes = utf8ByteLength(url) + (accumulator.outputLinks.size > 0 ? 1 : 0);
+  if (accumulator.textBytes + addedBytes > MAX_EXTERNAL_LINK_TEXT_BYTES) return false;
+  accumulator.outputLinks.add(url);
+  accumulator.textBytes += addedBytes;
+  return true;
+}
+
+function isHashlessMegaUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return ["mega.nz", "www.mega.nz", "mega.co.nz", "www.mega.co.nz"].includes(host)
+      && !parsed.hash.slice(1).trim();
+  } catch (error) {
+    return false;
+  }
+}
+
+function collectExternalLinkEntries(accumulator, item, result, senderUrl) {
   if (!result || !Array.isArray(result.externalLinks)) return;
-  const sourceUrl = itemPostUrl(item, senderUrl);
-  for (const url of result.externalLinks) target.push({ url, sourceUrl });
+  const sourceUrl = normalizedHttpUrl(itemPostUrl(item, senderUrl));
+  for (const value of result.externalLinks) {
+    if (accumulator.entries.length >= MAX_BATCH_EXTERNAL_LINKS) break;
+    const url = normalizedHttpUrl(value);
+    if (!url || accumulator.outputLinks.has(url)) continue;
+    if (!appendExternalTextLink(accumulator, url)) continue;
+    const entry = { url };
+    if (sourceUrl && isHashlessMegaUrl(url)
+        && !accumulator.outputLinks.has(sourceUrl)
+        && appendExternalTextLink(accumulator, sourceUrl)) {
+      entry.sourceUrl = sourceUrl;
+    }
+    accumulator.entries.push(entry);
+  }
 }
 
 async function extractItemExternalLinks(item, filterConfig) {
@@ -190,7 +364,7 @@ async function runLinksOnlyBatch(items, sender, scope = {}) {
   const tabId = getSenderTabId(sender);
   const total = items.length;
   const batchId = createBatchId();
-  const externalLinkEntries = [];
+  const externalLinkEntries = createExternalLinkAccumulator();
   const filterConfig = await loadExternalLinkFilterConfig();
   let processed = 0;
 
@@ -211,7 +385,7 @@ async function runLinksOnlyBatch(items, sender, scope = {}) {
       await delay(200);
     }
 
-    const linkResult = await dispatchExternalLinksTextTask(externalLinkEntries, {
+    const linkResult = await dispatchExternalLinksTextTask(externalLinkEntries.entries, {
       fileName: scope.linksFileName,
     });
     if (!linkResult.success && !linkResult.skipped) {
@@ -222,13 +396,30 @@ async function runLinksOnlyBatch(items, sender, scope = {}) {
   }
 }
 
+function appendNativeFallbackRequest(target, budget, request) {
+  const measured = measureNativeFallbackRequest(request);
+  if (measured.taskCount === 0) throw new Error("No native fallback tasks");
+  if (budget.requests + 1 > NATIVE_FALLBACK_LIMITS.maxRequests
+      || budget.tasks + measured.taskCount > NATIVE_FALLBACK_LIMITS.maxTasksTotal
+      || budget.externalLinks + measured.externalLinkCount > NATIVE_FALLBACK_LIMITS.maxExternalLinksTotal
+      || budget.bytes + measured.bytes > NATIVE_FALLBACK_LIMITS.maxStorageBytes) {
+    throw new Error("Native fallback batch exceeds the 5,000 task or 8 MiB safety limit");
+  }
+  target.push(request);
+  budget.requests++;
+  budget.tasks += measured.taskCount;
+  budget.externalLinks += measured.externalLinkCount;
+  budget.bytes += measured.bytes;
+}
+
 async function runDownloadBatch(items, sender, scope = {}) {
   const tabId = getSenderTabId(sender);
   const senderUrl = getSenderUrl(sender);
   const total = items.length;
   const historyRecords = [];
   const fallbackRequests = [];
-  const externalLinkEntries = [];
+  const fallbackBudget = { requests: 0, tasks: 0, externalLinks: 0, bytes: 0 };
+  const externalLinkEntries = createExternalLinkAccumulator();
   const batchId = createBatchId();
   let processed = 0;
   const progressScope = {
@@ -249,12 +440,25 @@ async function runDownloadBatch(items, sender, scope = {}) {
           collectExternalLinkEntries(externalLinkEntries, item, result, senderUrl);
         }
         if (result && result.backendFailed && Array.isArray(result.fallbackTasks)) {
-          fallbackRequests.push({
-            item: { ...item, requestId: scope.requestId },
-            tasks: result.fallbackTasks,
-            externalLinks: result.externalLinks,
-            tabId,
-          });
+          try {
+            appendNativeFallbackRequest(fallbackRequests, fallbackBudget, {
+              item: {
+                source: item.source,
+                service: item.service,
+                userId: item.userId,
+                postId: item.postId,
+                requestId: scope.requestId,
+              },
+              tasks: result.fallbackTasks,
+              externalLinks: result.externalLinks,
+              tabId,
+            });
+          } catch (error) {
+            broadcastComplete(item, {
+              success: false,
+              error: error && error.message ? error.message : String(error),
+            }, tabId, scope.requestId);
+          }
         } else {
           broadcastComplete(item, result, tabId, scope.requestId);
           const historyRecord = buildDownloadHistoryRecord(item, result);
@@ -300,9 +504,9 @@ async function runDownloadBatch(items, sender, scope = {}) {
         }
       }
     }
-    if (scope.aggregateExternalLinks === true && externalLinkEntries.length > 0) {
+    if (scope.aggregateExternalLinks === true && externalLinkEntries.entries.length > 0) {
       try {
-        const linkResult = await dispatchExternalLinksTextTask(externalLinkEntries, {
+        const linkResult = await dispatchExternalLinksTextTask(externalLinkEntries.entries, {
           fileName: scope.linksFileName,
           origin: scope.origin,
           referer: scope.referer,
@@ -392,6 +596,34 @@ export async function handleNativeFallbackDecision(notificationId, shouldContinu
   return true;
 }
 
+export function projectCreatorPost(post, includePostData = false) {
+  if (!post || typeof post !== "object" || Array.isArray(post)) return null;
+  const id = String(post.id ?? "").trim();
+  if (!id || id.length > 512 || /[\x00-\x1f\x7f]/.test(id)
+      || UTIL.hasUnpairedSurrogate(id, 512)) return null;
+  const projected = { id };
+  const path = typeof post.file?.path === "string" ? post.file.path.trim() : "";
+  if (path && path.length <= MAX_HTML_URL_LENGTH && !/[\x00-\x1f\x7f]/.test(path)
+      && !UTIL.hasUnpairedSurrogate(path, MAX_HTML_URL_LENGTH)) {
+    projected.file = { path };
+  }
+  if (includePostData) {
+    if (typeof post.content === "string" && post.content) projected.content = post.content;
+    if (typeof post.embed?.url === "string" && post.embed.url) {
+      projected.embed = { url: post.embed.url };
+    }
+  }
+  return projected;
+}
+
+function creatorPostRetainedBytes(post) {
+  let bytes = 256 + serializedStringByteLength(post.id);
+  if (post.file) bytes += 64 + serializedStringByteLength(post.file.path);
+  if (typeof post.content === "string") bytes += 32 + serializedStringByteLength(post.content);
+  if (post.embed) bytes += 64 + serializedStringByteLength(post.embed.url);
+  return bytes;
+}
+
 function postToDownloadItem(origin, service, userId, post, includePostData = false) {
   const item = {
     service,
@@ -440,7 +672,7 @@ function coomerFansCreatorUrl(origin, service, userId, creatorName) {
 function getCoomerFansPostIdentity(rawUrl, expectedService, expectedUserId) {
   try {
     const u = new URL(rawUrl, API.COOMERFANS_ORIGIN);
-    if (!isCoomerFansOrigin(u.origin)) return null;
+    if (!isCoomerFansOrigin(u.toString())) return null;
     const parts = u.pathname.split("/").filter(Boolean);
     const service = String(expectedService || "").toLowerCase();
     if (
@@ -473,7 +705,7 @@ async function fetchCoomerFansCreatorHtml(url) {
   } catch (error) {
     throw new Error("Invalid CoomerFans URL");
   }
-  if (!isCoomerFansOrigin(parsed.origin)) throw new Error("Unexpected CoomerFans URL");
+  if (!isCoomerFansOrigin(parsed.toString())) throw new Error("Unexpected CoomerFans URL");
   const headers = {
     Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9",
@@ -492,12 +724,107 @@ async function fetchCoomerFansCreatorHtml(url) {
   return readLimitedResponseText(resp, 16 * 1024 * 1024, "CoomerFans");
 }
 
+function isHtmlNameCode(code) {
+  return (code >= 48 && code <= 57)
+    || (code >= 65 && code <= 90)
+    || (code >= 97 && code <= 122)
+    || code === 45
+    || code === 58;
+}
+
+function anchorHref(tagText) {
+  let cursor = 1;
+  while (cursor < tagText.length && !/\s/.test(tagText[cursor]) && tagText[cursor] !== ">") cursor++;
+  while (cursor < tagText.length) {
+    while (cursor < tagText.length && /\s/.test(tagText[cursor])) cursor++;
+    if (cursor >= tagText.length || tagText[cursor] === ">") return "";
+    if (tagText[cursor] === "/") {
+      cursor++;
+      continue;
+    }
+
+    const nameStart = cursor;
+    while (cursor < tagText.length && !/[\s"'=<>`/]/.test(tagText[cursor])) cursor++;
+    if (cursor === nameStart) {
+      cursor++;
+      continue;
+    }
+    const name = tagText.slice(nameStart, cursor).toLowerCase();
+    while (cursor < tagText.length && /\s/.test(tagText[cursor])) cursor++;
+
+    let value = "";
+    if (tagText[cursor] === "=") {
+      cursor++;
+      while (cursor < tagText.length && /\s/.test(tagText[cursor])) cursor++;
+      const quote = tagText[cursor] === '"' || tagText[cursor] === "'" ? tagText[cursor++] : "";
+      const valueStart = cursor;
+      if (quote) {
+        while (cursor < tagText.length && tagText[cursor] !== quote) cursor++;
+        value = tagText.slice(valueStart, cursor);
+        if (tagText[cursor] === quote) cursor++;
+      } else {
+        while (cursor < tagText.length && !/[\s"'=<>`]/.test(tagText[cursor])) cursor++;
+        value = tagText.slice(valueStart, cursor);
+      }
+    }
+    if (name === "href") return value.length <= MAX_HTML_URL_LENGTH ? value : "";
+  }
+  return "";
+}
+
+function forEachAnchorHref(input, visitor) {
+  const source = String(input || "");
+  let cursor = 0;
+  while (cursor < source.length) {
+    const start = source.indexOf("<", cursor);
+    if (start < 0) return;
+    const nameStart = start + 1;
+    let nameEnd = nameStart;
+    while (nameEnd < source.length && isHtmlNameCode(source.charCodeAt(nameEnd))) nameEnd++;
+    if (nameEnd - nameStart !== 1 || (source.charCodeAt(nameStart) | 32) !== 97) {
+      cursor = Math.max(nameEnd, nameStart);
+      continue;
+    }
+
+    let quote = "";
+    let end = nameEnd;
+    let restart = -1;
+    const limit = Math.min(source.length, start + MAX_HTML_TAG_LENGTH + 1);
+    for (; end < limit; end++) {
+      const char = source[end];
+      if (quote) {
+        if (char === quote) quote = "";
+        continue;
+      }
+      if (char === '"' || char === "'") quote = char;
+      else if (char === ">") break;
+      else if (char === "<") {
+        restart = end;
+        break;
+      }
+    }
+    if (restart >= 0) {
+      cursor = restart;
+      continue;
+    }
+    if (end >= limit || source[end] !== ">") {
+      cursor = limit;
+      continue;
+    }
+
+    const href = anchorHref(source.slice(start, end + 1));
+    if (href && visitor(href) === false) return;
+    cursor = end + 1;
+  }
+}
+
 async function fetchCoomerFansCreatorItems(origin, service, userId, creatorName) {
   const baseProfile = coomerFansCreatorUrl(origin, service, userId, creatorName);
   const perPage = 50;
   const maxPages = 200;
   const maxRequests = 400;
   const maxConsecutiveFailures = 8;
+  const maxPosts = MAX_CREATOR_POSTS;
   const postMap = new Map();
   let requestCount = 0;
   let consecutiveFailures = 0;
@@ -516,12 +843,10 @@ async function fetchCoomerFansCreatorItems(origin, service, userId, creatorName)
         const html = await fetchCoomerFansCreatorHtml(listUrl);
         fetchedAny = true;
         consecutiveFailures = 0;
-        const linkRe = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi;
-        let match;
-        while ((match = linkRe.exec(html)) !== null) {
-          const href = (match[1] || match[2] || match[3] || "").replace(/&amp;/g, "&");
+        forEachAnchorHref(html, (rawHref) => {
+          const href = rawHref.replace(/&amp;/g, "&");
           const identity = getCoomerFansPostIdentity(href, service, userId);
-          if (!identity || postMap.has(identity.postId)) continue;
+          if (!identity || postMap.has(identity.postId)) return true;
           postMap.set(identity.postId, {
             source: "coomerfans",
             service,
@@ -533,7 +858,8 @@ async function fetchCoomerFansCreatorItems(origin, service, userId, creatorName)
             creatorName,
           });
           foundThisPage++;
-        }
+          return postMap.size < maxPosts;
+        });
         if (foundThisPage > 0) break;
       } catch (err) {
         consecutiveFailures++;
@@ -542,7 +868,8 @@ async function fetchCoomerFansCreatorItems(origin, service, userId, creatorName)
         await delay(Math.min(2000, 200 * consecutiveFailures));
       }
     }
-    if (requestCount >= maxRequests || consecutiveFailures >= maxConsecutiveFailures) break;
+    if (requestCount >= maxRequests || consecutiveFailures >= maxConsecutiveFailures
+        || postMap.size >= maxPosts) break;
     if (!fetchedAny) break;
 
     if (foundThisPage === 0) break;
@@ -603,14 +930,16 @@ function linksFileName(kind, service, userId, qualifier = "") {
   return `${service}_${userId}_${kind}${suffix}_links.txt`;
 }
 
-function runAcceptedTask(label, task, scope, tabId) {
+function runAcceptedTask(label, task, scope, tabId, requestToken) {
   task().catch((err) => {
     console.error(`[Background] ${label} failed`, err);
     broadcastBatchError(scope, err, tabId);
+  }).finally(() => {
+    completeAcceptedRequest(requestToken);
   });
 }
 
-async function fetchCreatorPosts(origin, service, userId) {
+async function fetchCreatorPosts(origin, service, userId, options = {}) {
   const encodedService = encodeURIComponent(service);
   const encodedUserId = encodeURIComponent(userId);
   const headers = {
@@ -628,20 +957,39 @@ async function fetchCreatorPosts(origin, service, userId) {
   );
   const perPage = 50;
   const postMap = new Map();
+  let consecutiveFailures = 0;
+  let retainedBytes = 0;
+  const requestedRetainedBytes = Number(options.maxRetainedBytes);
+  const maxRetainedBytes = Number.isFinite(requestedRetainedBytes) && requestedRetainedBytes > 0
+    ? Math.min(MAX_CREATOR_RETAINED_BYTES, Math.floor(requestedRetainedBytes))
+    : MAX_CREATOR_RETAINED_BYTES;
+  const includePostData = options.includePostData === true;
 
-  for (let offset = 0; offset < postCount; offset += perPage) {
+  for (let offset = 0; offset < postCount && postMap.size < MAX_CREATOR_POSTS; offset += perPage) {
+    let pageData;
     try {
       const url = `${origin}${API.API_PREFIX}/${encodedService}/user/${encodedUserId}/posts?o=${offset}`;
-      const pageData = await handleAPIRequest(url, headers);
-      if (Array.isArray(pageData)) {
-        for (const post of pageData) {
-          if (post && post.id) postMap.set(String(post.id), post);
-        }
-      }
-      await delay(200);
+      pageData = await handleAPIRequest(url, headers);
+      if (!Array.isArray(pageData)) throw new Error("Invalid creator posts response");
+      consecutiveFailures = 0;
     } catch (err) {
+      consecutiveFailures++;
       console.warn("[Background] fetch creator posts page failed", err);
+      if (consecutiveFailures >= 5) break;
+      continue;
     }
+    for (const post of pageData) {
+      if (postMap.size >= MAX_CREATOR_POSTS) break;
+      const projected = projectCreatorPost(post, includePostData);
+      if (!projected || postMap.has(projected.id)) continue;
+      const postBytes = creatorPostRetainedBytes(projected);
+      if (retainedBytes + postBytes > maxRetainedBytes) {
+        throw new Error("Creator posts exceed the 64 MiB retained-data safety limit");
+      }
+      postMap.set(projected.id, projected);
+      retainedBytes += postBytes;
+    }
+    await delay(200);
   }
 
   return Array.from(postMap.values());
@@ -649,7 +997,8 @@ async function fetchCreatorPosts(origin, service, userId) {
 
 async function fetchCreatorPage(origin, service, userId, offset) {
   if (isPawOrigin(origin)) {
-    return fetchPawchiveCreatorPage(service, userId, offset || 0);
+    return (await fetchPawchiveCreatorPage(service, userId, offset || 0))
+      .slice(0, MAX_CREATOR_PAGE_POSTS);
   }
   const headers = {
     Accept: "text/css",
@@ -660,7 +1009,7 @@ async function fetchCreatorPage(origin, service, userId, offset) {
   const url = `${origin}${API.API_PREFIX}/${encodeURIComponent(service)}/user/${encodeURIComponent(userId)}/posts${suffix}`;
   try {
     const pageData = await handleAPIRequest(url, headers);
-    return Array.isArray(pageData) ? pageData : [];
+    return Array.isArray(pageData) ? pageData.slice(0, MAX_CREATOR_PAGE_POSTS) : [];
   } catch (err) {
     console.warn("[Background] creator.pageFetch request failed", err);
     return [];
@@ -691,7 +1040,8 @@ function normalizeSupportedOrigin(value) {
 
 function requiredIdentity(value, label) {
   const normalized = String(value || "").trim();
-  if (!normalized || normalized.length > 512 || /[\0\r\n]/.test(normalized)) {
+  if (!normalized || normalized.length > 512 || /[\x00-\x1f\x7f]/.test(normalized)
+      || UTIL.hasUnpairedSurrogate(normalized, 512)) {
     throw new Error(`Invalid ${label}`);
   }
   return normalized;
@@ -700,7 +1050,8 @@ function requiredIdentity(value, label) {
 function optionalShortString(value, maxLength = 512) {
   if (value === undefined || value === null || value === "") return undefined;
   const normalized = String(value).trim();
-  if (!normalized || normalized.length > maxLength || /[\0\r\n]/.test(normalized)) {
+  if (!normalized || normalized.length > maxLength || /[\x00-\x1f\x7f]/.test(normalized)
+      || UTIL.hasUnpairedSurrogate(normalized, maxLength)) {
     throw new Error("Invalid download metadata");
   }
   return normalized;
@@ -710,10 +1061,13 @@ function normalizeDownloadItem(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Invalid download item");
   }
-  const source = optionalShortString(value.source, 32);
-  if (source && !["default", "pawchive", "coomerfans"].includes(source)) {
+  const declaredSource = optionalShortString(value.source, 32);
+  if (declaredSource && !["default", "pawchive", "coomerfans"].includes(declaredSource)) {
     throw new Error("Unsupported download source");
   }
+  // Pawchive shares the default history namespace. Accept the briefly emitted
+  // legacy label at the RPC boundary without persisting it as a third source.
+  const source = declaredSource === "pawchive" ? "default" : declaredSource;
   const item = {
     service: requiredIdentity(value.service, "service"),
     userId: requiredIdentity(value.userId, "creator id"),
@@ -723,10 +1077,29 @@ function normalizeDownloadItem(value) {
     creatorName: optionalShortString(value.creatorName, 512),
     requestId: normalizeRequestId(value.requestId),
   };
-  if (source === "coomerfans" && !getCoomerFansPostIdentity(item.path, item.service, item.userId)) {
-    throw new Error("Invalid CoomerFans post URL");
+  if (source === "coomerfans") {
+    const identity = getCoomerFansPostIdentity(item.path, item.service, item.userId);
+    if (!identity) throw new Error("Invalid CoomerFans post URL");
+    if (identity.postId !== item.postId) {
+      throw new Error("CoomerFans post URL identity does not match the download item");
+    }
   }
   return item;
+}
+
+function requireDownloadItemSenderMatch(item, sender) {
+  let host;
+  try {
+    host = new URL(getSenderUrl(sender)).hostname.toLowerCase();
+  } catch (error) {
+    throw new Error("Download source does not match the sending site");
+  }
+  const isCoomerFansSender = host === API.COOMERFANS_HOST
+    || host.endsWith(`.${API.COOMERFANS_HOST}`);
+  const matches = isCoomerFansSender
+    ? item.source === "coomerfans"
+    : item.source === undefined || item.source === "default";
+  if (!matches) throw new Error("Download source does not match the sending site");
 }
 
 function normalizePageOffset(value) {
@@ -739,8 +1112,13 @@ function normalizePageOffset(value) {
 }
 
 function normalizeRequestId(value) {
-  const normalized = typeof value === "string" ? value.trim() : "";
-  return normalized && normalized.length <= 128 ? normalized : undefined;
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string") throw new Error("Invalid request id");
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 128 || /[\x00-\x1f\x7f]/.test(normalized)) {
+    throw new Error("Invalid request id");
+  }
+  return normalized;
 }
 
 function resolveOrigin(message, sender) {
@@ -759,13 +1137,23 @@ export function createDownloadHandlers() {
   return {
     startDownload: ({ message, sender, sendResponse }) => {
       let item;
+      let requestRegistration;
       try {
+        requireTrustedWebSender(
+          sender,
+          DOWNLOAD_CONTENT_HOSTS,
+          "Post downloads",
+          { allowSubdomains: true }
+        );
         item = normalizeDownloadItem(message);
+        requireDownloadItemSenderMatch(item, sender);
+        requestRegistration = beginAcceptedRequest("startDownload", item.requestId, sender);
         sendResponse({ success: true, accepted: true });
       } catch (error) {
         sendResponse({ success: false, error: error.message || String(error) });
         return false;
       }
+      if (requestRegistration.duplicate) return false;
 
       (async () => {
         const tabId = getSenderTabId(sender);
@@ -805,6 +1193,8 @@ export function createDownloadHandlers() {
             },
             tabId
           );
+        } finally {
+          completeAcceptedRequest(requestRegistration.token);
         }
       })();
       return false;
@@ -813,11 +1203,19 @@ export function createDownloadHandlers() {
     startDownloadBatch: ({ message, sender, sendResponse }) => {
       let items;
       let scope;
+      let requestRegistration;
       try {
+        requireTrustedWebSender(
+          sender,
+          DOWNLOAD_CONTENT_HOSTS,
+          "Download batches",
+          { allowSubdomains: true }
+        );
         if (!Array.isArray(message.items) || message.items.length === 0 || message.items.length > 5000) {
           throw new Error("Invalid or oversized download batch");
         }
         items = message.items.map(normalizeDownloadItem);
+        for (const item of items) requireDownloadItemSenderMatch(item, sender);
         const first = items[0];
         const service = message.service
           ? requiredIdentity(message.service, "service")
@@ -836,17 +1234,24 @@ export function createDownloadHandlers() {
           linksPostId: optionalShortString(message.linksPostId, 512),
           requestId: normalizeRequestId(message.requestId),
         };
+        requestRegistration = beginAcceptedRequest(
+          "startDownloadBatch",
+          scope.requestId,
+          sender
+        );
         sendResponse({ success: true, accepted: true });
       } catch (error) {
         sendResponse({ success: false, error: error.message || String(error) });
         return false;
       }
+      if (requestRegistration.duplicate) return false;
       const tabId = getSenderTabId(sender);
       runAcceptedTask(
         "startDownloadBatch",
         () => runDownloadBatch(items, sender, scope),
         scope,
-        tabId
+        tabId,
+        requestRegistration.token
       );
       return false;
     },
@@ -855,25 +1260,32 @@ export function createDownloadHandlers() {
       let origin;
       let service;
       let userId;
+      let creatorName;
+      let requestId;
+      let requestRegistration;
       const mode = UTIL.normalizeCreatorFetchMode(message.mode, message.fullMode);
       try {
+        requireExtensionPage(sender, "Creator Fetch");
         origin = normalizeSupportedOrigin(message.origin || API.DEFAULT_ORIGIN);
         service = requiredIdentity(message.service, "service");
         userId = requiredIdentity(message.userId, "creator id");
+        creatorName = optionalShortString(message.creatorName, 512);
+        requestId = normalizeRequestId(message.requestId);
         if (mode === "dms" && !isPawOrigin(origin)) {
           throw new Error("DM fetch is available only for Pawchive creator URLs");
         }
         if (message.source === "coomerfans" && !isCoomerFansOrigin(origin)) {
           throw new Error("Invalid CoomerFans creator origin");
         }
+        requestRegistration = beginAcceptedRequest("creator.fetch", requestId, sender);
         sendResponse({ success: true, accepted: true });
       } catch (error) {
         sendResponse({ success: false, error: error.message || String(error) });
         return false;
       }
+      if (requestRegistration.duplicate) return false;
       const tabId = getSenderTabId(sender);
       runAcceptedTask("creator.fetch", async () => {
-        const { creatorName } = message;
         const scope = {
           service,
           userId,
@@ -884,7 +1296,7 @@ export function createDownloadHandlers() {
           aggregateExternalLinks: true,
           linksFileName: linksFileName("creator", service, userId),
           linksPostId: "creator-links",
-          requestId: normalizeRequestId(message.requestId),
+          requestId,
         };
 
         if (mode === "dms") {
@@ -907,12 +1319,14 @@ export function createDownloadHandlers() {
           return;
         }
 
-        const posts = await fetchCreatorPosts(origin, service, userId);
+        const posts = await fetchCreatorPosts(origin, service, userId, {
+          includePostData: mode === "links",
+        });
         const allItems = posts.map((post) =>
           postToDownloadItem(origin, service, userId, post, mode === "links")
         );
         await runCreatorFetchBatch(allItems, sender, scope);
-      }, { service, userId, requestId: normalizeRequestId(message.requestId) }, tabId);
+      }, { service, userId, requestId }, tabId, requestRegistration.token);
       return false;
     },
 
@@ -921,16 +1335,27 @@ export function createDownloadHandlers() {
       let userId;
       let origin;
       let offset;
+      let requestId;
+      let requestRegistration;
       try {
+        requireTrustedWebSender(
+          sender,
+          DOWNLOAD_CONTENT_HOSTS,
+          "Creator page downloads",
+          { allowSubdomains: true }
+        );
         service = requiredIdentity(message.service, "service");
         userId = requiredIdentity(message.userId, "creator id");
         origin = resolveOrigin(message, sender);
         offset = normalizePageOffset(message.offset);
+        requestId = normalizeRequestId(message.requestId);
+        requestRegistration = beginAcceptedRequest("creator.pageFetch", requestId, sender);
         sendResponse({ success: true, accepted: true });
       } catch (error) {
         sendResponse({ success: false, error: error.message || String(error) });
         return false;
       }
+      if (requestRegistration.duplicate) return false;
       const tabId = getSenderTabId(sender);
       runAcceptedTask("creator.pageFetch", async () => {
         const posts = await fetchCreatorPage(origin, service, userId, offset);
@@ -945,9 +1370,9 @@ export function createDownloadHandlers() {
           aggregateExternalLinks: true,
           linksFileName: linksFileName("page", service, userId, offset),
           linksPostId: `page-links-${offset}`,
-          requestId: normalizeRequestId(message.requestId),
+          requestId,
         });
-      }, { service, userId, requestId: normalizeRequestId(message.requestId) }, tabId);
+      }, { service, userId, requestId }, tabId, requestRegistration.token);
       return false;
     },
   };
