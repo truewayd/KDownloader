@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"truedown/internal/api"
+	"truedown/internal/applog"
 	"truedown/internal/downloader"
 	"truedown/internal/safefile"
 	"truedown/internal/systemupdate"
@@ -56,6 +58,14 @@ func main() {
 	if handled, exitCode := systemupdate.RunHelperIfRequested(os.Args[1:]); handled {
 		os.Exit(exitCode)
 	}
+	if err := run(); err != nil {
+		log.Printf("TrueDown stopped: %v", err)
+		showFatalError(err)
+		os.Exit(1)
+	}
+}
+
+func run() (resultErr error) {
 	base := exeDir()
 	stableAria2 := filepath.Join(base, "aria2c.exe")
 	if _, err := os.Stat(stableAria2); os.IsNotExist(err) {
@@ -63,7 +73,7 @@ func main() {
 	}
 	stableAria2, err := filepath.Abs(stableAria2)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	dataDir := os.Getenv("TRUEDOWN_DATA_DIR")
 	if dataDir == "" {
@@ -73,9 +83,25 @@ func main() {
 	// itself be a junction; managed config helpers validate the leaf entries.
 	dataDir, err = filepath.Abs(dataDir)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	dataDir = filepath.Clean(dataDir)
+	applicationLog, err := applog.Open(dataDir)
+	if err != nil {
+		return err
+	}
+	previousLogWriter := log.Writer()
+	log.SetOutput(io.MultiWriter(applicationLog, previousLogWriter))
+	defer func() {
+		if resultErr != nil {
+			log.Printf("fatal startup/runtime error: %v", resultErr)
+		}
+		if closeErr := applicationLog.Close(); closeErr != nil && resultErr == nil {
+			resultErr = closeErr
+		}
+		log.SetOutput(previousLogWriter)
+	}()
+	log.Printf("TrueDown %s (build %s, commit %s) starting", version, buildNumber, commit)
 	currentBuild, parseErr := strconv.ParseInt(strings.TrimSpace(buildNumber), 10, 64)
 	if parseErr != nil || currentBuild < 0 {
 		currentBuild = 0
@@ -89,7 +115,7 @@ func main() {
 		CurrentCommit:    commit,
 	})
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	downloads := filepath.Join(dataDir, "downloads")
 	database := filepath.Join(dataDir, "truedown.db")
@@ -99,8 +125,41 @@ func main() {
 		os.Getenv("TRUEDOWN_API_TOKEN"),
 	)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
+	tlsCert := strings.TrimSpace(os.Getenv("TRUEDOWN_TLS_CERT"))
+	tlsKey := strings.TrimSpace(os.Getenv("TRUEDOWN_TLS_KEY"))
+	if (tlsCert == "") != (tlsKey == "") {
+		return fmt.Errorf("TRUEDOWN_TLS_CERT and TRUEDOWN_TLS_KEY must be configured together")
+	}
+	tlsEnabled := tlsCert != ""
+	authEnabled, _, _ := auth.Snapshot()
+	addr, err := validateListenAddress(
+		os.Getenv("TRUEDOWN_ADDR"),
+		os.Getenv("TRUEDOWN_ALLOW_REMOTE") == "1",
+		tlsEnabled,
+		authEnabled,
+	)
+	if err != nil {
+		return err
+	}
+	if !loopbackListener([]string{addr}) {
+		auth.LockEnabled()
+	}
+	browserURL := browserURLForAddress(addr, tlsEnabled)
+	instance, alreadyRunning, err := acquireAppInstance(dataDir)
+	if err != nil {
+		return err
+	}
+	if alreadyRunning {
+		instance.Close()
+		log.Printf("another TrueDown instance owns %s; opening its dashboard", dataDir)
+		if os.Getenv("TRUEDOWN_NO_BROWSER") == "" {
+			openBrowser(browserURL)
+		}
+		return nil
+	}
+	defer instance.Close()
 	engineReload := make(chan struct{}, 1)
 	host := &managerHost{}
 	controller := newEngineController(updates, host, func() error {
@@ -126,18 +185,19 @@ func main() {
 	}
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	routes := func(manager *downloader.Manager) http.Handler {
 		mux := http.NewServeMux()
 		api.Register(mux, manager, auth, controller)
+		api.RegisterDiagnostics(mux, applicationLog)
 		mux.Handle("/", http.FileServer(http.FS(sub)))
 		return mux
 	}
 	activeSpec := updates.ActiveEngine()
 	dm, err := buildManager(activeSpec)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	host.configure(dm, activeSpec, buildManager, routes)
 	defer host.stop()
@@ -149,36 +209,16 @@ func main() {
 		log.Printf("Aria2 Next startup failed; retrying with the built-in stable engine: %v", startErr)
 		dm, err = buildManager(activeSpec)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 		host.configure(dm, activeSpec, buildManager, routes)
 		startErr = dm.Start()
 	}
 	if startErr != nil {
 		dm.Stop()
-		log.Fatal(startErr)
+		return startErr
 	}
 
-	tlsCert := strings.TrimSpace(os.Getenv("TRUEDOWN_TLS_CERT"))
-	tlsKey := strings.TrimSpace(os.Getenv("TRUEDOWN_TLS_KEY"))
-	if (tlsCert == "") != (tlsKey == "") {
-		log.Fatal("TRUEDOWN_TLS_CERT and TRUEDOWN_TLS_KEY must be configured together")
-	}
-	tlsEnabled := tlsCert != ""
-	authEnabled, _, _ := auth.Snapshot()
-	addr, err := validateListenAddress(
-		os.Getenv("TRUEDOWN_ADDR"),
-		os.Getenv("TRUEDOWN_ALLOW_REMOTE") == "1",
-		tlsEnabled,
-		authEnabled,
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if !loopbackListener([]string{addr}) {
-		auth.LockEnabled()
-	}
-	browserURL := browserURLForAddress(addr, tlsEnabled)
 	log.Printf("TrueDown listening on %s", addr)
 	if tokenPath := auth.TokenPath(); tokenPath != "" && authEnabled {
 		log.Printf("TrueDown API Key is available from the dashboard and stored in %s", tokenPath)
@@ -244,18 +284,59 @@ func main() {
 		}
 		resetEngineRelaunchCircuitAfterHealthyPeriod()
 	}
+	platform, platformErr := startPlatformApp()
+	if platformErr != nil {
+		log.Printf("start system tray: %v", platformErr)
+	} else if platform != nil {
+		log.Printf("system tray ready")
+	}
+	if platform != nil {
+		defer platform.Close()
+	}
+	platformActions := platform.Actions()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	reloadEngine := false
-	select {
-	case err := <-serverErr:
-		if !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("HTTP server: %v", err)
+
+waitForExit:
+	for {
+		select {
+		case err := <-serverErr:
+			if !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("HTTP server: %v", err)
+			}
+			break waitForExit
+		case <-stop:
+			break waitForExit
+		case <-restart:
+			break waitForExit
+		case <-engineReload:
+			reloadEngine = true
+			break waitForExit
+		case action, ok := <-platformActions:
+			if !ok {
+				platformActions = nil
+				continue
+			}
+			switch action {
+			case platformOpenDashboard:
+				log.Printf("system tray: open dashboard")
+				go openBrowser(browserURL)
+			case platformOpenDownloads:
+				log.Printf("system tray: open downloads")
+				if err := openPlatformPath(downloads); err != nil {
+					log.Printf("open downloads from system tray: %v", err)
+				}
+			case platformOpenLog:
+				log.Printf("system tray: open application log")
+				if err := openPlatformPath(applicationLog.Path()); err != nil {
+					log.Printf("open application log from system tray: %v", err)
+				}
+			case platformExit:
+				log.Printf("system tray: exit requested")
+				break waitForExit
+			}
 		}
-	case <-stop:
-	case <-restart:
-	case <-engineReload:
-		reloadEngine = true
 	}
 	cancelUpdates()
 	<-automaticUpdatesDone
@@ -266,10 +347,14 @@ func main() {
 	}
 	host.stop()
 	if reloadEngine {
+		platform.Close()
+		_ = instance.Close()
 		if err := launchEngineRelaunch(os.Args[1:]); err != nil {
 			log.Printf("reload TrueDown after download-engine recovery failure: %v", err)
 		}
 	}
+	log.Printf("TrueDown stopped cleanly")
+	return nil
 }
 
 func validateListenAddress(value string, allowRemote bool, tlsEnabled ...bool) (string, error) {

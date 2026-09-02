@@ -666,6 +666,7 @@ func inspectEngineBinary(path string) (string, string, error) {
 	output.limit = 128 * 1024
 	cmd.Stdout = &output
 	cmd.Stderr = &output
+	configureHiddenProcess(cmd)
 	if err := cmd.Run(); err != nil {
 		return "", "", fmt.Errorf("run engine version check: %w", err)
 	}

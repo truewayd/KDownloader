@@ -2287,6 +2287,7 @@ func (m *Manager) startAria2() error {
 	cmd.Dir = filepath.Dir(m.aria2Path)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
+	configureManagedProcess(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
 		return fmt.Errorf("start aria2 RPC service: %w", err)

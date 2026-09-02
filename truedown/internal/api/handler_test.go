@@ -12,9 +12,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"truedown/internal/downloader"
 	"truedown/internal/systemupdate"
 )
+
+type testApplicationLog struct {
+	limit int64
+}
+
+func (service *testApplicationLog) ReadTail(limit int64) (string, bool, time.Time, error) {
+	service.limit = limit
+	return "TrueDown started\n", true, time.Date(2026, 9, 3, 1, 2, 3, 0, time.UTC), nil
+}
 
 type testTokenAuth struct {
 	enabled bool
@@ -56,6 +66,38 @@ func (service *testUpdateService) SelectEngine(engine string) (systemupdate.Snap
 func (service *testUpdateService) RequestRestart() error {
 	service.restartCalled = true
 	return nil
+}
+
+func TestApplicationLogEndpointIsBoundedAndReadOnly(t *testing.T) {
+	mux := http.NewServeMux()
+	logs := &testApplicationLog{}
+	RegisterDiagnostics(mux, logs)
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/system/logs", nil))
+	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("log response status=%d cache=%q", response.Code, response.Header().Get("Cache-Control"))
+	}
+	if logs.limit != maxApplicationLogResponseBytes {
+		t.Fatalf("log read limit=%d", logs.limit)
+	}
+	var payload struct {
+		Content   string    `json:"content"`
+		Truncated bool      `json:"truncated"`
+		UpdatedAt time.Time `json:"updatedAt"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Content != "TrueDown started\n" || !payload.Truncated || payload.UpdatedAt.IsZero() {
+		t.Fatalf("unexpected log payload: %+v", payload)
+	}
+
+	postResponse := httptest.NewRecorder()
+	mux.ServeHTTP(postResponse, httptest.NewRequest(http.MethodPost, "/system/logs", nil))
+	if postResponse.Code != http.StatusMethodNotAllowed || postResponse.Header().Get("Allow") != http.MethodGet {
+		t.Fatalf("log POST status=%d allow=%q", postResponse.Code, postResponse.Header().Get("Allow"))
+	}
 }
 
 func (auth *testTokenAuth) Snapshot() (bool, string, bool) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
@@ -346,11 +347,75 @@ func TestBuildScriptGuardsRecursiveDeleteAndCopiesAgainstReparsePoints(t *testin
 	if !strings.Contains(script, "Assert-RegularSourceFile -Root $projectRoot -Path $entry.Source") ||
 		!strings.Contains(script, "[System.IO.File]::Copy") ||
 		!strings.Contains(script, "Assert-NoReparsePath -Root $projectRoot -Path $dist") ||
-		!strings.Contains(script, "Assert-BuildInputs -Root $projectRoot") {
+		!strings.Contains(script, "Assert-BuildInputs -Root $projectRoot") ||
+		!strings.Contains(script, "-H windowsgui") ||
+		!strings.Contains(script, "Assert-WindowsGUISubsystem -Executable $exe") ||
+		!strings.Contains(script, "Assert-ExecutableIcon -Executable $exe -ExpectedIcon $icon") ||
+		!strings.Contains(script, "Assert-ExecutableDPIManifest -Executable $exe -ExpectedManifest $appManifest") {
 		t.Fatal("build input/output paths are not constrained against reparse traversal")
 	}
 	if strings.Contains(script, "$paths = @($current)") {
 		t.Fatal("build script must trust the repository root while checking descendants")
+	}
+}
+
+func TestWindowsManifestDeclaresPerMonitorV2DPI(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("windows", "truedown.manifest"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := string(data)
+	for _, declaration := range []string{
+		`<dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>`,
+		`<dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor</dpiAwareness>`,
+	} {
+		if !strings.Contains(manifest, declaration) {
+			t.Fatalf("Windows manifest is missing %s", declaration)
+		}
+	}
+	generator, err := os.ReadFile(filepath.Join("windows", "generate_icon.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(generator), "-manifest $manifest") {
+		t.Fatal("Windows resource generator does not embed the DPI manifest")
+	}
+}
+
+func TestWindowsIconContainsShellSizes(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("windows", "truedown.ico"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) < 6 || binary.LittleEndian.Uint16(data[0:2]) != 0 || binary.LittleEndian.Uint16(data[2:4]) != 1 {
+		t.Fatal("TrueDown icon has an invalid ICO header")
+	}
+	count := int(binary.LittleEndian.Uint16(data[4:6]))
+	if len(data) < 6+16*count {
+		t.Fatal("TrueDown icon directory is truncated")
+	}
+	want := map[int]bool{16: false, 20: false, 24: false, 32: false, 40: false, 48: false, 64: false, 128: false, 256: false}
+	for index := 0; index < count; index++ {
+		entry := data[6+16*index : 6+16*(index+1)]
+		width := int(entry[0])
+		height := int(entry[1])
+		if width == 0 {
+			width = 256
+		}
+		if height == 0 {
+			height = 256
+		}
+		if width != height {
+			t.Fatalf("TrueDown icon entry is %dx%d, want square", width, height)
+		}
+		if _, ok := want[width]; ok {
+			want[width] = true
+		}
+	}
+	for size, found := range want {
+		if !found {
+			t.Errorf("TrueDown icon is missing the %dx%d shell size", size, size)
+		}
 	}
 }
 

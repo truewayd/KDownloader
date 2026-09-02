@@ -21,6 +21,7 @@ const maxTorrentStartRequestBytes = 6 * 1024 * 1024
 const maxBatchRequestBytes = 64 * 1024
 const maxBatchTaskIDs = 1000
 const maxBrowserIntegrationItems = 256
+const maxApplicationLogResponseBytes = 256 * 1024
 const SessionCookieName = "truedown_session"
 
 // SessionCookieValue encodes the header-safe token into a cookie-safe value.
@@ -40,6 +41,10 @@ type UpdateService interface {
 	InstallNext(context.Context) (systemupdate.Snapshot, error)
 	SelectEngine(string) (systemupdate.Snapshot, error)
 	RequestRestart() error
+}
+
+type ApplicationLogService interface {
+	ReadTail(limit int64) (content string, truncated bool, updatedAt time.Time, err error)
 }
 
 type downloadSourceReq struct {
@@ -724,6 +729,34 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		n := dm.ClearDone()
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write([]byte("OK " + strconv.Itoa(n)))
+	})
+}
+
+func RegisterDiagnostics(mux *http.ServeMux, applicationLog ApplicationLogService) {
+	if applicationLog == nil {
+		return
+	}
+	mux.HandleFunc("/system/logs", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		content, truncated, updatedAt, err := applicationLog.ReadTail(maxApplicationLogResponseBytes)
+		if err != nil {
+			http.Error(w, "failed to read application log", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusOK, struct {
+			Content   string    `json:"content"`
+			Truncated bool      `json:"truncated"`
+			UpdatedAt time.Time `json:"updatedAt"`
+		}{
+			Content:   content,
+			Truncated: truncated,
+			UpdatedAt: updatedAt,
+		})
 	})
 }
 

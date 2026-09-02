@@ -1110,6 +1110,49 @@ h2 {
   max-width: 310px;
 }
 
+.application-log-section {
+  display: grid;
+  gap: 10px;
+}
+
+.application-log-section .settings-section-heading {
+  margin-bottom: 0;
+}
+
+.application-log-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.application-log-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.application-log-output {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 150px;
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid var(--kd-border);
+  border-radius: var(--kd-radius);
+  padding: 10px;
+  background: var(--kd-input);
+  color: var(--kd-text);
+  font-family: var(--kd-mono);
+  font-size: 10px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .setting-toggle {
   display: flex;
   align-items: flex-start;
@@ -1595,6 +1638,15 @@ label {
 		max-width: none;
 		justify-content: flex-start;
 	}
+
+  .application-log-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .application-log-actions {
+    justify-content: flex-start;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

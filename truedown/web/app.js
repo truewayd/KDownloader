@@ -169,6 +169,7 @@ function cacheElements() {
     "cfg-wait",
     "clear-done-btn",
 	"check-truedown-update-btn",
+	"copy-application-log-btn",
     "copy-api-token-btn",
     "download-form",
     "dialog-cancel-btn",
@@ -221,6 +222,7 @@ function cacheElements() {
     "retry-all-btn",
     "resume-queue-btn",
 	"restart-truedown-update-btn",
+	"refresh-application-log-btn",
 	"select-next-engine-btn",
 	"select-stable-engine-btn",
     "settings-btn",
@@ -252,6 +254,8 @@ function cacheElements() {
 	"tracker-upload-multiplier-max",
 	"tracker-upload-multiplier-min",
 	"bt-client-identity",
+	"application-log-output",
+	"application-log-status",
 	"truedown-update-status",
 	"truedown-update-version",
   ].forEach((id) => {
@@ -322,6 +326,8 @@ function bindEvents() {
 	els.moduleList.addEventListener("click", onModuleAction);
   els.autoUpdateTruedown.addEventListener("change", updateTrueDownAutoUpdate);
   els.checkTruedownUpdateBtn.addEventListener("click", checkTrueDownUpdate);
+	els.refreshApplicationLogBtn.addEventListener("click", () => loadApplicationLog(true));
+	els.copyApplicationLogBtn.addEventListener("click", copyApplicationLog);
   els.restartTruedownUpdateBtn.addEventListener("click", restartForTrueDownUpdate);
   els.installNextEngineBtn.addEventListener("click", installNextEngine);
   els.selectStableEngineBtn.addEventListener("click", () => selectDownloadEngine("stable"));
@@ -1121,6 +1127,7 @@ async function openSettingsModal() {
       loadTrackerResearchSettings(),
       loadResolverModules(),
       loadSystemUpdateState(),
+		loadApplicationLog(),
     ]);
   } catch (error) {
     showToast(`刷新服务端设置失败：${error.message}`, "error");
@@ -2235,6 +2242,41 @@ function showModalMsg(text, isError = false) {
 
 function showToast(text, type = "success") {
   trueDownToast?.show(text, type);
+}
+
+async function loadApplicationLog(announce = false) {
+	KDComponents.setBusyState(els.refreshApplicationLogBtn, true);
+	try {
+		const response = await requestJSON("/system/logs");
+		const content = stringValue(response.content).slice(-(256 * 1024));
+		els.applicationLogOutput.textContent = content || "当前还没有应用日志。";
+		const updated = stringValue(response.updatedAt);
+		els.applicationLogStatus.textContent = response.truncated === true
+			? `仅显示最新 256 KiB${updated ? `；更新时间：${formatUpdateTime(updated)}` : ""}。`
+			: `显示当前日志${updated ? `；更新时间：${formatUpdateTime(updated)}` : ""}。`;
+		els.copyApplicationLogBtn.disabled = !content;
+		els.applicationLogOutput.scrollTop = els.applicationLogOutput.scrollHeight;
+		if (announce) showToast("应用日志已刷新。");
+	} catch (error) {
+		els.applicationLogStatus.textContent = `读取应用日志失败：${error.message}`;
+		if (announce) showToast(`读取应用日志失败：${error.message}`, "error");
+	} finally {
+		KDComponents.setBusyState(els.refreshApplicationLogBtn, false);
+	}
+}
+
+async function copyApplicationLog() {
+	KDComponents.setBusyState(els.copyApplicationLogBtn, true);
+	try {
+		const content = els.applicationLogOutput.textContent || "";
+		if (!content || content === "当前还没有应用日志。") throw new Error("当前没有可复制的日志");
+		await writeClipboard(content);
+		showToast("应用日志已复制。");
+	} catch (error) {
+		showToast(`复制应用日志失败：${error.message}`, "error");
+	} finally {
+		KDComponents.setBusyState(els.copyApplicationLogBtn, false);
+	}
 }
 
 async function waitForEngineTransition() {

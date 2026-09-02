@@ -433,9 +433,12 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownHtml, /id="install-next-engine-btn"/);
   assert.match(trueDownHtml, /id="select-stable-engine-btn"/);
   assert.match(trueDownHtml, /id="select-next-engine-btn"/);
+  assert.match(trueDownHtml, /id="application-log-output"[^>]+tabindex="0"/);
+  assert.match(trueDownHtml, /关闭此网页不会中断下载/);
   assert.match(trueDownApp, /requestJSON\("\/system\/update\/check"/);
   assert.match(trueDownApp, /requestJSON\("\/system\/engine\/next"/);
   assert.match(trueDownApp, /requestJSON\("\/system\/engine\/select"/);
+  assert.match(trueDownApp, /requestJSON\("\/system\/logs"/);
   assert.match(trueDownHtml, /href="\/icons\.svg#icon-/);
   assert.match(trueDownHtml, /id="token-auth-enabled"/);
   assert.match(trueDownApp, /const PAGE_SIZE = 100/);
