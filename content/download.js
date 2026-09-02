@@ -124,6 +124,16 @@ function renderDownloadResult(button, result, isCreatorPage) {
   const externalLinks = Array.isArray(result.externalLinks) ? result.externalLinks : [];
   if (externalLinks.length > 0) showExternalLinksModal(externalLinks);
 
+  if (externalLinks.length > 0 && (result.noFiles === true || result.incomplete === true)) {
+    showTransientButtonStatus(
+      button,
+      'SUCCESS',
+      KDI18n.get('externalLinksShown'),
+      isCreatorPage
+    );
+    return;
+  }
+
   if (!result.success) {
     const message = result.error || KDI18n.get('statusFailedDecorated');
     console.error('[Content] downloadComplete error:', message);

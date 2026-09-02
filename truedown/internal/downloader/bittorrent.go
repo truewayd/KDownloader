@@ -32,7 +32,7 @@ type torrentMetainfo struct {
 // AddBitTorrentLink accepts an explicit HTTP(S) metainfo URL or magnet link.
 func (m *Manager) AddBitTorrentLink(link, folder string, headers map[string]string, downloadPage string, opts Aria2Opts) (*Task, bool, error) {
 	if !m.aria2Next {
-		return nil, false, &ValidationError{Message: "BitTorrent downloads require Aria2 Next; select it and restart TrueDown"}
+		return nil, false, &ValidationError{Message: "BitTorrent downloads require Aria2 Next; install and select it first"}
 	}
 	identity := normalizeRequest(link, torrentLinkName(link), folder, m.defaultDir, headers, downloadPage, 0, opts)
 	identity.BitTorrent = &bitTorrentIdentity{Kind: "link", SmartFolder: true}
@@ -47,7 +47,7 @@ func (m *Manager) AddBitTorrentLink(link, folder string, headers map[string]stri
 // AddTorrentMetainfo validates and persists an imported .torrent payload.
 func (m *Manager) AddTorrentMetainfo(data []byte, folder string, opts Aria2Opts) (*Task, bool, error) {
 	if !m.aria2Next {
-		return nil, false, &ValidationError{Message: "importing .torrent files requires Aria2 Next; select it and restart TrueDown"}
+		return nil, false, &ValidationError{Message: "importing .torrent files requires Aria2 Next; install and select it first"}
 	}
 	if len(data) == 0 || len(data) > maxTorrentMetainfoBytes {
 		return nil, false, &ValidationError{Message: "torrent file must be between 1 byte and 4 MiB"}

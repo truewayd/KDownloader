@@ -699,22 +699,23 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
     throw new Error(`Failed to fetch Pawchive post: ${e.message}`);
   }
 
+  const externalLinks = UTIL.filterExternalLinks(
+    UTIL.extractPostExternalLinks(post),
+    await loadExternalLinkFilterConfig()
+  );
+
   if (!isCompletePawchivePost(post)) {
     return {
       success: false,
       skipped: true,
       incomplete: true,
       results: [],
-      externalLinks: [],
+      externalLinks,
       error: 'Pawchive post is incomplete (has_full is false)',
     };
   }
 
   let tasks = buildPawchiveDownloadTasks(post);
-  const externalLinks = UTIL.filterExternalLinks(
-    UTIL.extractPostExternalLinks(post),
-    await loadExternalLinkFilterConfig()
-  );
 
   if (tasks.length === 0) {
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };

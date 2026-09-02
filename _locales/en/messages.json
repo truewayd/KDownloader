@@ -370,6 +370,9 @@
   "externalLinksDescription": {
     "message": "The following external links may require manual download:"
   },
+  "externalLinksShown": {
+    "message": "Links found"
+  },
   "closeAction": {
     "message": "Close"
   },

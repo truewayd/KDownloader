@@ -6,6 +6,8 @@
   const LINKS_DIALOG_TAG = "kd-ui-links-dialog";
   const busyButtons = new WeakMap();
   const componentStyleSheets = new Map();
+  const manualActionControls = new WeakMap();
+  const linksDialogControllers = new WeakMap();
   const HTMLElementBase = globalThis.HTMLElement || class {};
 
   const CONTENT_COMPONENT_STYLES = String.raw`
@@ -28,11 +30,16 @@
       --kd-content-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
       box-sizing: border-box;
       display: inline-block;
+      pointer-events: auto;
+      cursor: pointer;
       font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       letter-spacing: 0;
     }
 
     :host([hidden]) { display: none !important; }
+    :host([disabled]) { cursor: not-allowed; }
+    :host([data-status="SCANNING"]),
+    :host([data-status="SENDING"]) { cursor: progress; }
 
     button {
       box-sizing: border-box;
@@ -154,6 +161,7 @@
       border-color: var(--kd-content-border);
       border-radius: 50%;
       padding: 0;
+      background: var(--kd-content-surface);
       background: color-mix(in srgb, var(--kd-content-surface) 88%, transparent);
       color: var(--kd-content-text);
       box-shadow: var(--kd-content-shadow);
@@ -338,18 +346,303 @@
     if (globalThis.CSSStyleSheet
       && "adoptedStyleSheets" in root
       && typeof CSSStyleSheet.prototype.replaceSync === "function") {
-      let sheet = componentStyleSheets.get(key);
-      if (!sheet) {
-        sheet = new CSSStyleSheet();
-        sheet.replaceSync(cssText);
-        componentStyleSheets.set(key, sheet);
+      try {
+        let sheet = componentStyleSheets.get(key);
+        if (!sheet) {
+          sheet = new CSSStyleSheet();
+          sheet.replaceSync(cssText);
+          componentStyleSheets.set(key, sheet);
+        }
+        root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+        return;
+      } catch (error) {
+        componentStyleSheets.delete(key);
       }
-      root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
-      return;
     }
-    const style = document.createElement("style");
+    const style = (root.ownerDocument || document).createElement("style");
     style.textContent = cssText;
     root.appendChild(style);
+  }
+
+  function initializeManualActionElement(element) {
+    let root = element.shadowRoot;
+    if (!root) root = element.attachShadow({ mode: "open", delegatesFocus: true });
+    let control = root.querySelector("button");
+    if (!control) {
+      appendStyle(root, CONTENT_COMPONENT_STYLES, "action");
+      control = (element.ownerDocument || document).createElement("button");
+      control.type = "button";
+      root.appendChild(control);
+    }
+
+    if (manualActionControls.get(element) === control) return control;
+    manualActionControls.set(element, control);
+    const nativeSetAttribute = element.setAttribute.bind(element);
+    const nativeRemoveAttribute = element.removeAttribute.bind(element);
+    const nativeToggleAttribute = element.toggleAttribute.bind(element);
+    const syncAttribute = (name) => {
+      const value = element.getAttribute(name);
+      if (name === "disabled") {
+        control.disabled = value !== null;
+      } else if (name === "type") {
+        control.type = value || "button";
+      } else if (name === "title" || name.startsWith("aria-")) {
+        if (value === null) control.removeAttribute(name);
+        else control.setAttribute(name, value);
+      }
+    };
+
+    Object.defineProperties(element, {
+      disabled: {
+        configurable: true,
+        get: () => control.disabled,
+        set: (value) => {
+          nativeToggleAttribute("disabled", Boolean(value));
+          control.disabled = Boolean(value);
+        },
+      },
+      type: {
+        configurable: true,
+        get: () => control.type || "button",
+        set: (value) => {
+          nativeSetAttribute("type", value || "button");
+          control.type = value || "button";
+        },
+      },
+      title: {
+        configurable: true,
+        get: () => control.title || "",
+        set: (value) => {
+          nativeSetAttribute("title", String(value ?? ""));
+          control.title = String(value ?? "");
+        },
+      },
+      textContent: {
+        configurable: true,
+        get: () => control.textContent || "",
+        set: (value) => { control.textContent = String(value ?? ""); },
+      },
+      focus: {
+        configurable: true,
+        value: (options) => control.focus(options),
+      },
+      click: {
+        configurable: true,
+        value: () => control.click(),
+      },
+      setAttribute: {
+        configurable: true,
+        value: (name, value) => {
+          nativeSetAttribute(name, value);
+          syncAttribute(String(name));
+        },
+      },
+      removeAttribute: {
+        configurable: true,
+        value: (name) => {
+          nativeRemoveAttribute(name);
+          syncAttribute(String(name));
+        },
+      },
+      toggleAttribute: {
+        configurable: true,
+        value: (name, force) => {
+          const normalizedName = String(name);
+          const result = force === undefined
+            ? nativeToggleAttribute(normalizedName)
+            : nativeToggleAttribute(normalizedName, force);
+          syncAttribute(normalizedName);
+          return result;
+        },
+      },
+    });
+
+    for (const attribute of element.getAttributeNames()) syncAttribute(attribute);
+    return control;
+  }
+
+  function initializeLinksDialogElement(element) {
+    const existing = linksDialogControllers.get(element);
+    if (existing) return existing;
+
+    const ownerDocument = element.ownerDocument || document;
+    let root = element.shadowRoot;
+    if (!root) root = element.attachShadow({ mode: "open", delegatesFocus: true });
+    const state = {
+      closed: true,
+      dialog: null,
+      returnFocus: null,
+    };
+
+    const dispatchClose = () => {
+      const EventConstructor = ownerDocument.defaultView?.CustomEvent || globalThis.CustomEvent;
+      if (typeof EventConstructor === "function") {
+        element.dispatchEvent(new EventConstructor("kd-close"));
+      }
+    };
+    const restoreFocus = () => {
+      const returnFocus = state.returnFocus;
+      state.returnFocus = null;
+      if (returnFocus?.isConnected && typeof returnFocus.focus === "function") {
+        returnFocus.focus({ preventScroll: true });
+      }
+    };
+    const handleKeydown = (event) => {
+      if (state.closed) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        controller.close();
+        return;
+      }
+      if (event.key !== "Tab" || !state.dialog) return;
+      const focusable = Array.from(
+        state.dialog.querySelectorAll("a[href], button:not(:disabled)")
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = root.activeElement;
+      if (!state.dialog.contains(active)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    const controller = {
+      show({
+        title,
+        description,
+        links,
+        closeLabel,
+        returnFocus = ownerDocument.activeElement,
+      }) {
+        ownerDocument.removeEventListener("keydown", handleKeydown);
+        state.closed = true;
+        state.dialog = null;
+        state.returnFocus = null;
+        root.replaceChildren();
+        try {
+          root.adoptedStyleSheets = [];
+        } catch (error) {
+          /* A local style fallback is appended below. */
+        }
+        appendStyle(root, LINKS_DIALOG_STYLES, "links-dialog");
+        state.returnFocus = returnFocus;
+        state.closed = false;
+
+        const overlay = ownerDocument.createElement("div");
+        overlay.className = "overlay";
+        const dialog = ownerDocument.createElement("section");
+        dialog.className = "dialog";
+        dialog.setAttribute("role", "dialog");
+        dialog.setAttribute("aria-modal", "true");
+        dialog.setAttribute("aria-labelledby", "kd-links-title");
+        dialog.setAttribute("aria-describedby", "kd-links-description");
+
+        const heading = ownerDocument.createElement("h3");
+        heading.id = "kd-links-title";
+        heading.textContent = title;
+        const copy = ownerDocument.createElement("p");
+        copy.id = "kd-links-description";
+        copy.textContent = description;
+        const list = ownerDocument.createElement("ul");
+        for (const href of links) {
+          const item = ownerDocument.createElement("li");
+          const anchor = ownerDocument.createElement("a");
+          anchor.href = href;
+          anchor.target = "_blank";
+          anchor.rel = "noopener noreferrer";
+          anchor.textContent = href;
+          item.appendChild(anchor);
+          list.appendChild(item);
+        }
+        const closeButton = ownerDocument.createElement("button");
+        closeButton.type = "button";
+        closeButton.textContent = closeLabel;
+        closeButton.addEventListener("click", () => controller.close());
+        overlay.addEventListener("click", (event) => {
+          if (event.target === overlay) controller.close();
+        });
+
+        dialog.append(heading, copy, list, closeButton);
+        overlay.appendChild(dialog);
+        root.appendChild(overlay);
+        state.dialog = dialog;
+        ownerDocument.addEventListener("keydown", handleKeydown);
+        closeButton.focus({ preventScroll: true });
+      },
+      close() {
+        if (state.closed) return;
+        state.closed = true;
+        ownerDocument.removeEventListener("keydown", handleKeydown);
+        state.dialog = null;
+        element.remove();
+        restoreFocus();
+        dispatchClose();
+      },
+      disconnect() {
+        ownerDocument.removeEventListener("keydown", handleKeydown);
+        if (state.closed) return;
+        state.closed = true;
+        state.dialog = null;
+        restoreFocus();
+        dispatchClose();
+      },
+    };
+    linksDialogControllers.set(element, controller);
+
+    if (typeof element.show !== "function") {
+      Object.defineProperty(element, "show", {
+        configurable: true,
+        value: (options) => controller.show(options),
+      });
+    }
+    if (typeof element.close !== "function") {
+      Object.defineProperty(element, "close", {
+        configurable: true,
+        value: () => controller.close(),
+      });
+    }
+    return controller;
+  }
+
+  function scheduleActionStyleAudit(element, control) {
+    if (typeof requestAnimationFrame !== "function") return;
+    requestAnimationFrame(() => {
+      if (!element.isConnected || !control?.isConnected) return;
+      let style;
+      try {
+        style = getComputedStyle(control);
+      } catch (error) {
+        return;
+      }
+      const backgroundMissing = style.backgroundColor === "rgba(0, 0, 0, 0)"
+        || style.backgroundColor === "transparent";
+      const status = element.getAttribute("data-status");
+      const expectedCursor = status === "SCANNING" || status === "SENDING"
+        ? "progress"
+        : (control.disabled ? "not-allowed" : "pointer");
+      const baseStylesReady = style.display === "inline-flex" && style.cursor === expectedCursor;
+      const variant = element.getAttribute("variant");
+      const overlayStylesReady = variant !== "creator" && variant !== "flag"
+        ? true
+        : style.borderRadius === "50%" && !backgroundMissing;
+      if (baseStylesReady && overlayStylesReady) {
+        return;
+      }
+      const root = element.shadowRoot;
+      if (!root || root.querySelector("style[data-kd-action-fallback]")) return;
+      const fallback = (element.ownerDocument || document).createElement("style");
+      fallback.setAttribute("data-kd-action-fallback", "true");
+      fallback.textContent = CONTENT_COMPONENT_STYLES;
+      root.prepend(fallback);
+    });
   }
 
   class KDActionElement extends HTMLElementBase {
@@ -370,6 +663,7 @@
       for (const name of KDActionElement.observedAttributes) {
         this.#syncAttribute(name, this.getAttribute(name));
       }
+      scheduleActionStyleAudit(this, this.control);
     }
 
     attributeChangedCallback(name, _oldValue, newValue) {
@@ -428,116 +722,59 @@
   class KDLinksDialogElement extends HTMLElementBase {
     constructor() {
       super();
-      this.attachShadow({ mode: "open", delegatesFocus: true });
-      this._closed = true;
-      this._onKeydown = (event) => this.#handleKeydown(event);
+      initializeLinksDialogElement(this);
     }
 
-    show({ title, description, links, closeLabel, returnFocus = document.activeElement }) {
-      const root = this.shadowRoot;
-      root.replaceChildren();
-      root.adoptedStyleSheets = [];
-      appendStyle(root, LINKS_DIALOG_STYLES, "links-dialog");
-      this._returnFocus = returnFocus;
-      this._closed = false;
-
-      const overlay = document.createElement("div");
-      overlay.className = "overlay";
-      const dialog = document.createElement("section");
-      dialog.className = "dialog";
-      dialog.setAttribute("role", "dialog");
-      dialog.setAttribute("aria-modal", "true");
-      dialog.setAttribute("aria-labelledby", "kd-links-title");
-      dialog.setAttribute("aria-describedby", "kd-links-description");
-
-      const heading = document.createElement("h3");
-      heading.id = "kd-links-title";
-      heading.textContent = title;
-      const copy = document.createElement("p");
-      copy.id = "kd-links-description";
-      copy.textContent = description;
-      const list = document.createElement("ul");
-      for (const href of links) {
-        const item = document.createElement("li");
-        const anchor = document.createElement("a");
-        anchor.href = href;
-        anchor.target = "_blank";
-        anchor.rel = "noopener noreferrer";
-        anchor.textContent = href;
-        item.appendChild(anchor);
-        list.appendChild(item);
-      }
-      const closeButton = document.createElement("button");
-      closeButton.type = "button";
-      closeButton.textContent = closeLabel;
-      closeButton.addEventListener("click", () => this.close());
-      overlay.addEventListener("click", (event) => {
-        if (event.target === overlay) this.close();
-      });
-
-      dialog.append(heading, copy, list, closeButton);
-      overlay.appendChild(dialog);
-      root.appendChild(overlay);
-      this._dialog = dialog;
-      this._closeButton = closeButton;
-      document.addEventListener("keydown", this._onKeydown);
-      closeButton.focus({ preventScroll: true });
-    }
-
-    close() {
-      if (this._closed) return;
-      this._closed = true;
-      document.removeEventListener("keydown", this._onKeydown);
-      const returnFocus = this._returnFocus;
-      this._returnFocus = null;
-      this.remove();
-      if (returnFocus?.isConnected && typeof returnFocus.focus === "function") {
-        returnFocus.focus({ preventScroll: true });
-      }
-      this.dispatchEvent(new CustomEvent("kd-close"));
-    }
-
-    disconnectedCallback() {
-      document.removeEventListener("keydown", this._onKeydown);
-      if (this._closed) return;
-      this._closed = true;
-      const returnFocus = this._returnFocus;
-      this._returnFocus = null;
-      if (returnFocus?.isConnected && typeof returnFocus.focus === "function") {
-        returnFocus.focus({ preventScroll: true });
-      }
-      this.dispatchEvent(new CustomEvent("kd-close"));
-    }
-
-    #handleKeydown(event) {
-      if (this._closed) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        this.close();
-        return;
-      }
-      if (event.key !== "Tab" || !this._dialog) return;
-      const focusable = Array.from(this._dialog.querySelectorAll("a[href], button:not(:disabled)"));
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = this.shadowRoot.activeElement;
-      if (!this._dialog.contains(active)) {
-        event.preventDefault();
-        (event.shiftKey ? last : first).focus();
-      } else if (event.shiftKey && active === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && active === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
+    show(options) { linksDialogControllers.get(this)?.show(options); }
+    close() { linksDialogControllers.get(this)?.close(); }
+    disconnectedCallback() { linksDialogControllers.get(this)?.disconnect(); }
   }
 
   if (globalThis.customElements && globalThis.HTMLElement && globalThis.document) {
     if (!customElements.get(ACTION_TAG)) customElements.define(ACTION_TAG, KDActionElement);
     if (!customElements.get(LINKS_DIALOG_TAG)) customElements.define(LINKS_DIALOG_TAG, KDLinksDialogElement);
+  }
+
+  function ensureActionElement(element) {
+    if (!element || element.localName !== ACTION_TAG) {
+      throw new TypeError(`Expected a ${ACTION_TAG} element`);
+    }
+    if (!element.shadowRoot?.querySelector("button")) {
+      try {
+        globalThis.customElements?.upgrade?.(element);
+      } catch (error) {
+        /* Isolated-world nodes are hydrated imperatively below. */
+      }
+    }
+    const control = element.shadowRoot?.querySelector("button")
+      || initializeManualActionElement(element);
+    scheduleActionStyleAudit(element, control);
+    return element;
+  }
+
+  function createActionElement(ownerDocument = document) {
+    return ensureActionElement(ownerDocument.createElement(ACTION_TAG));
+  }
+
+  function ensureLinksDialogElement(element) {
+    if (!element || element.localName !== LINKS_DIALOG_TAG) {
+      throw new TypeError(`Expected a ${LINKS_DIALOG_TAG} element`);
+    }
+    if (typeof element.show !== "function" || typeof element.close !== "function" || !element.shadowRoot) {
+      try {
+        globalThis.customElements?.upgrade?.(element);
+      } catch (error) {
+        /* Isolated-world nodes are hydrated imperatively below. */
+      }
+    }
+    if (typeof element.show !== "function" || typeof element.close !== "function" || !element.shadowRoot) {
+      initializeLinksDialogElement(element);
+    }
+    return element;
+  }
+
+  function createLinksDialogElement(ownerDocument = document) {
+    return ensureLinksDialogElement(ownerDocument.createElement(LINKS_DIALOG_TAG));
   }
 
   async function withBusyButton(button, task) {
@@ -653,9 +890,13 @@
   globalThis.KDComponents = Object.freeze({
     ACTION_TAG,
     LINKS_DIALOG_TAG,
+    createActionElement,
+    createLinksDialogElement,
     createProgress,
     createToast,
     prepareDecorativeIcons,
+    ensureActionElement,
+    ensureLinksDialogElement,
     setBusyState,
     setIconButton,
     setSegmentedValue,

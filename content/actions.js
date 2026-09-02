@@ -131,25 +131,25 @@ function addDownloadAllButton() {
 
 async function renderKemonoDownloadUI(context) {
   if (isCreatorPage()) {
-    document.querySelectorAll(KD_POST_BUTTON_SELECTOR).forEach((element) => element.remove());
+    removeKdElements(KD_POST_BUTTON_SELECTOR);
     await addCreatorButtons(context);
     if (!isRenderCurrent(context)) return;
     addDownloadAllButton();
   } else {
-    document.querySelectorAll([
+    removeKdElements([
       KD_CREATOR_BUTTON_SELECTOR,
       KD_PAGE_FETCH_BUTTON_SELECTOR,
-    ].join(', ')).forEach((element) => element.remove());
+    ].join(', '));
     await addPostButton(context);
   }
 }
 
 function cleanupKemonoDownloadUI() {
-  document.querySelectorAll([
+  removeKdElements([
     KD_CREATOR_BUTTON_SELECTOR,
     KD_POST_BUTTON_SELECTOR,
     KD_PAGE_FETCH_BUTTON_SELECTOR,
-  ].join(', ')).forEach((element) => element.remove());
+  ].join(', '));
 }
 
 function hasKemonoTargets() {

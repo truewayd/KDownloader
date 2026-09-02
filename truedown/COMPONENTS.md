@@ -197,8 +197,13 @@ domains:
   `AnInsomniacy/aria2-next` GitHub Release, verifies SHA-256 and the executable's
   reported NEXT version, then stores it under `<data-dir>/engines/`. Installing
   or updating NEXT never changes the engine preference. The user separately
-  selects NEXT or the built-in stable engine; engine changes require a normal
-  restart.
+  selects NEXT or the built-in stable engine. TrueDown drains active dashboard
+  requests, gracefully stops the old downloader manager, starts the verified
+  target, and restores unfinished tasks from the durable database while the
+  HTTP listener remains available. A failed target startup restores the prior
+  engine. Unexpected engine exits retry the active engine three times before a
+  bounded TrueDown self-reload. Stable selection is rejected while unfinished
+  BitTorrent tasks exist.
 - TrueDown releases include `truedown-update-<build>.json`. The running program
   considers only non-prerelease `truewayd/KDownloader` releases whose tag,
   archive, and manifest names match the build number. The manifest binds the
@@ -223,5 +228,5 @@ the dashboard API:
 - `POST /system/update/check` checks and stages a numbered TrueDown release.
 - `POST /system/update/restart` applies an already staged program update.
 - `POST /system/engine/next` manually installs or updates Aria2 Next.
-- `POST /system/engine/select` selects `stable` or an installed `next` engine
-  for the next launch.
+- `POST /system/engine/select` selects and asynchronously activates `stable` or
+  an installed `next` engine.

@@ -4,6 +4,10 @@ const KD_ACTION_TAG = KDComponents.ACTION_TAG;
 const KD_CREATOR_BUTTON_SELECTOR = `${KD_ACTION_TAG}[variant="creator"][data-batch-download="true"]`;
 const KD_POST_BUTTON_SELECTOR = `${KD_ACTION_TAG}[data-kd-role="post-download"]`;
 const KD_PAGE_FETCH_BUTTON_SELECTOR = `${KD_ACTION_TAG}[data-kd-role="page-fetch"]`;
+const KD_OVERLAY_ACTION_SELECTOR = [
+  `${KD_ACTION_TAG}[variant="creator"]`,
+  `${KD_ACTION_TAG}[variant="flag"]`,
+].join(', ');
 
 const BTN_STATUS = Object.freeze({
   IDLE: { text: KDI18n.get('downloadActionDecorated'), icon: '↓', disabled: false },
@@ -81,7 +85,8 @@ function ensureKdButton(container, selector, options = {}) {
   let button = container.querySelector(selector);
   let isNew = !button;
 
-  if (!button) button = document.createElement(KD_ACTION_TAG);
+  if (!button) button = KDComponents.createActionElement();
+  else KDComponents.ensureActionElement(button);
 
   button.type = 'button';
   button.setAttribute('variant', options.variant || 'action');
@@ -99,10 +104,12 @@ function ensureCreatorDownloadButton(container, path, extraClassNames = []) {
   const existing = findDownloadButtonByPath(container, KD_CREATOR_BUTTON_SELECTOR, path);
   let button = existing;
 
+  ensurePositionContext(container);
+
   if (!button) {
-    button = document.createElement(KD_ACTION_TAG);
+    button = KDComponents.createActionElement();
     container.appendChild(button);
-  }
+  } else KDComponents.ensureActionElement(button);
 
   button.type = 'button';
   button.setAttribute('variant', 'creator');
@@ -130,7 +137,7 @@ function ensurePageFetchButton(container) {
 
 function configureCreatorDownloadButton(button, historyStatus, onDownload) {
   if (!button) return;
-  const downloaded = isHandledDownloadedStatus(historyStatus);
+  const downloaded = historyStatus === 'complete';
   const partial = historyStatus === 'partial';
   const label = downloaded
     ? KDI18n.get('alreadyDownloadedTooltip')
@@ -184,7 +191,7 @@ async function renderPostDownloadButton(context, options = {}) {
       { source }
     );
     if (!isRenderCurrent(context)) return null;
-    if (isHandledDownloadedStatus(historyStatus)) {
+    if (historyStatus === 'complete') {
       updateButtonStatus(button, 'SUCCESS', KDI18n.get('statusDownloadedDecorated'), false);
       button.disabled = true;
       button.setAttribute('aria-disabled', 'true');
@@ -221,10 +228,9 @@ async function renderCreatorDownloadButtons(entries, context, options = {}) {
       entry.path,
       typeof options.getClassNames === 'function' ? options.getClassNames(entry) : []
     );
+    if (options.decorateContainer) options.decorateContainer(container, entry);
     if (isActiveDownloadButton(button)) continue;
 
-    ensurePositionContext(container);
-    if (options.decorateContainer) options.decorateContainer(container, entry);
     configureCreatorDownloadButton(button, historyStatus, () =>
       handleDownload(
         button,
@@ -242,7 +248,34 @@ async function renderCreatorDownloadButtons(entries, context, options = {}) {
 }
 
 function ensurePositionContext(element) {
-  element?.classList.add('kd-position-context');
+  if (!element?.classList) return false;
+  element.classList.add('kd-overlay-container');
+  if (element.classList.contains('kd-position-context')) return true;
+
+  let position = 'static';
+  try {
+    if (typeof getComputedStyle === 'function') {
+      position = getComputedStyle(element).position || 'static';
+    }
+  } catch (error) {
+    position = 'static';
+  }
+  if (position === 'static') element.classList.add('kd-position-context');
+  return true;
+}
+
+function releasePositionContext(element) {
+  if (!element?.classList || element.querySelector?.(KD_OVERLAY_ACTION_SELECTOR)) return;
+  element.classList.remove('kd-overlay-container', 'kd-position-context');
+}
+
+function removeKdElements(selector) {
+  const parents = new Set();
+  document.querySelectorAll(selector).forEach((element) => {
+    if (element.parentElement) parents.add(element.parentElement);
+    element.remove();
+  });
+  parents.forEach(releasePositionContext);
 }
 
 function showExternalLinksModal(links) {
@@ -270,7 +303,7 @@ function showExternalLinksModal(links) {
 
   closeActiveExternalLinksModal?.();
   const previousFocus = document.activeElement;
-  const dialog = document.createElement(KDComponents.LINKS_DIALOG_TAG);
+  const dialog = KDComponents.createLinksDialogElement();
   dialog.id = 'kd-external-links-modal';
   let removalObserver = null;
   const lifecycleController = typeof AbortController === 'function' ? new AbortController() : null;
@@ -293,7 +326,10 @@ function showExternalLinksModal(links) {
   document.body.appendChild(dialog);
   if (typeof MutationObserver === 'function') {
     removalObserver = new MutationObserver(() => {
-      if (!dialog.isConnected) finish();
+      if (!dialog.isConnected) {
+        dialog.close();
+        finish();
+      }
     });
     removalObserver.observe(document.body, { childList: true });
   }

@@ -125,6 +125,15 @@ type activeEngine struct {
 	File    string
 }
 
+// EngineSpec identifies one verified download-engine executable. Paths are
+// consumed only inside TrueDown and are never serialized by the HTTP API.
+type EngineSpec struct {
+	Kind    string
+	Version string
+	Path    string
+	File    string
+}
+
 type availableAppUpdate struct {
 	Version      string
 	Build        int64
@@ -263,6 +272,53 @@ func (m *Manager) EnginePath() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.active.Path
+}
+
+func (m *Manager) ActiveEngine() EngineSpec {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return engineSpec(m.active)
+}
+
+// PreferredEngine resolves and revalidates the saved engine preference. It is
+// used immediately before a live engine transition so a replaced or damaged
+// managed binary cannot be started merely because it was valid at launch.
+func (m *Manager) PreferredEngine() (EngineSpec, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	resolved, err := m.resolveEngineLocked(m.state.EnginePreference)
+	if err != nil {
+		return EngineSpec{}, err
+	}
+	return engineSpec(resolved), nil
+}
+
+// ActivateEngine updates the process-local active engine after the downloader
+// runtime has successfully started the exact verified executable.
+func (m *Manager) ActivateEngine(spec EngineSpec) (Snapshot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	resolved, err := m.resolveEngineLocked(spec.Kind)
+	if err != nil {
+		return m.snapshotLocked(), err
+	}
+	if !sameEngineSpec(spec, engineSpec(resolved)) {
+		return m.snapshotLocked(), fmt.Errorf("active download engine does not match the verified selection")
+	}
+	m.active = resolved
+	m.lastError = ""
+	return m.snapshotLocked(), nil
+}
+
+func (m *Manager) RecordEngineError(err error) Snapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err == nil {
+		m.lastError = ""
+		return m.snapshotLocked()
+	}
+	m.lastError = truncate(err.Error(), 1024)
+	return m.snapshotLocked()
 }
 
 // FallbackToStable keeps the saved NEXT preference but records that the
@@ -463,6 +519,59 @@ func (m *Manager) resolveActiveEngine() {
 		return
 	}
 	m.active = activeEngine{Kind: EngineNext, Version: version, Path: nextPath, File: m.state.NextEngine.File}
+}
+
+func (m *Manager) resolveEngineLocked(kind string) (activeEngine, error) {
+	switch kind {
+	case EngineStable:
+		resolvedKind, version, err := m.inspectEngine(m.stableEnginePath)
+		if err != nil {
+			return activeEngine{}, fmt.Errorf("validate built-in aria2: %w", err)
+		}
+		if resolvedKind != EngineStable {
+			return activeEngine{}, fmt.Errorf("built-in aria2 has unexpected engine kind %q", resolvedKind)
+		}
+		return activeEngine{
+			Kind: EngineStable, Version: version, Path: m.stableEnginePath,
+			File: filepath.Base(m.stableEnginePath),
+		}, nil
+	case EngineNext:
+		if m.state.NextEngine == nil {
+			return activeEngine{}, fmt.Errorf("install an Aria2 Next engine before selecting it")
+		}
+		nextPath, err := m.installedEnginePath(m.state.NextEngine)
+		if err != nil {
+			return activeEngine{}, err
+		}
+		digest, size, err := hashFile(nextPath, maxEngineBytes)
+		if err != nil {
+			return activeEngine{}, fmt.Errorf("validate installed Aria2 Next: %w", err)
+		}
+		if size <= 0 || !strings.EqualFold(digest, m.state.NextEngine.SHA256) {
+			return activeEngine{}, fmt.Errorf("installed Aria2 Next failed its SHA-256 check")
+		}
+		resolvedKind, version, err := m.inspectEngine(nextPath)
+		if err != nil {
+			return activeEngine{}, fmt.Errorf("validate installed Aria2 Next: %w", err)
+		}
+		if resolvedKind != EngineNext || version != m.state.NextEngine.Version {
+			return activeEngine{}, fmt.Errorf("installed Aria2 Next failed its version check")
+		}
+		return activeEngine{
+			Kind: EngineNext, Version: version, Path: nextPath, File: m.state.NextEngine.File,
+		}, nil
+	default:
+		return activeEngine{}, fmt.Errorf("engine must be stable or next")
+	}
+}
+
+func engineSpec(engine activeEngine) EngineSpec {
+	return EngineSpec{Kind: engine.Kind, Version: engine.Version, Path: engine.Path, File: engine.File}
+}
+
+func sameEngineSpec(left, right EngineSpec) bool {
+	return left.Kind == right.Kind && left.Version == right.Version && left.File == right.File &&
+		strings.EqualFold(filepath.Clean(left.Path), filepath.Clean(right.Path))
 }
 
 func (m *Manager) installedEnginePath(engine *installedEngine) (string, error) {

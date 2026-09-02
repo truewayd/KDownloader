@@ -192,7 +192,10 @@ function findDownloadButtonByPath(container, selector, path) {
 function removeStaleDownloadButtons(selector, livePaths) {
   document.querySelectorAll(selector).forEach((btn) => {
     const path = btn.getAttribute('data-path');
-    if (!livePaths.has(path)) btn.remove();
+    if (livePaths.has(path)) return;
+    const parent = btn.parentElement;
+    btn.remove();
+    if (typeof releasePositionContext === 'function') releasePositionContext(parent);
   });
 }
 

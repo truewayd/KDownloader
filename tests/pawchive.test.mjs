@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 const root = path.resolve(import.meta.dirname, '..');
+const backgroundDownloadSource = await readFile(path.join(root, 'background', 'download.js'), 'utf8');
 const asModuleUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const notifications = [];
 
@@ -393,6 +394,20 @@ test('skips incomplete Pawchive posts before creating download tasks', () => {
     has_full: false,
     file: { name: 'partial.jpg', path: '/partial.jpg' },
   }), []);
+
+  const startDownloadSource = backgroundDownloadSource.match(
+    /export async function startPawchiveDownload[\s\S]*?\n}\n\n\/\/ Dispatch/
+  )?.[0];
+  assert.ok(startDownloadSource);
+  assert.ok(
+    startDownloadSource.indexOf('UTIL.extractPostExternalLinks(post)')
+      < startDownloadSource.indexOf('if (!isCompletePawchivePost(post))'),
+    'safe external links must be retained before incomplete media is rejected'
+  );
+  assert.match(
+    startDownloadSource,
+    /if \(!isCompletePawchivePost\(post\)\)[\s\S]*?externalLinks,[\s\S]*?has_full is false/
+  );
 });
 
 test('parses an object for single posts and an array for creator pages', async () => {

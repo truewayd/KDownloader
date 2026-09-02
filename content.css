@@ -3,6 +3,53 @@
   position: relative !important;
 }
 
+.kd-overlay-container {
+  isolation: isolate !important;
+}
+
+/* Shadow DOM protects the control interior, not the custom-element host box. */
+kd-ui-action[variant="creator"],
+kd-ui-action[variant="flag"] {
+  position: absolute !important;
+  top: auto !important;
+  right: 8px !important;
+  bottom: 8px !important;
+  left: auto !important;
+  z-index: 20 !important;
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  align-self: auto !important;
+  justify-self: auto !important;
+  width: 40px !important;
+  min-width: 40px !important;
+  max-width: 40px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  max-height: 40px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  touch-action: manipulation !important;
+  user-select: none !important;
+  vertical-align: top !important;
+}
+
+kd-ui-action[variant="flag"] {
+  width: 36px !important;
+  min-width: 36px !important;
+  max-width: 36px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  max-height: 36px !important;
+}
+
+kd-ui-action[variant="creator"][disabled],
+kd-ui-action[variant="flag"][disabled] {
+  cursor: not-allowed !important;
+}
+
 .kd-coomerfans-post {
   padding-right: 60px;
 }
@@ -15,7 +62,21 @@
   margin: 8px 0 12px;
 }
 
-kd-ui-action,
+kd-ui-action {
+  box-sizing: border-box;
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}
+
+kd-ui-action[disabled] {
+  cursor: not-allowed !important;
+}
+
+kd-ui-action[data-status="SCANNING"],
+kd-ui-action[data-status="SENDING"] {
+  cursor: progress !important;
+}
+
 kd-ui-links-dialog {
   box-sizing: border-box;
 }

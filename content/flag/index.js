@@ -47,7 +47,7 @@
   }
 
   function createFlagIndicator(flag) {
-    const container = document.createElement(KDComponents.ACTION_TAG);
+    const container = KDComponents.createActionElement();
     container.setAttribute("variant", "flag");
     container.type = "button";
     container.setAttribute("data-kd-flag", "true");
@@ -128,10 +128,7 @@
   }
 
   function cleanupFlags() {
-    document.querySelectorAll('[data-kd-flag="true"]').forEach((element) => element.remove());
-    document.querySelectorAll(`${CARD_SELECTOR}.kd-position-context`).forEach((element) => {
-      element.classList.remove("kd-position-context");
-    });
+    removeKdElements('[data-kd-flag="true"]');
   }
 
   function waitForElements(maxAttempts = 20, intervalMs = 300) {

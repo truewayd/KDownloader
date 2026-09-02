@@ -189,14 +189,14 @@ function addPawPageFetchButton() {
 
 async function renderPawActions(context) {
   if (isPawPostPage()) {
-    document.querySelectorAll([
+    removeKdElements([
       KD_CREATOR_BUTTON_SELECTOR,
       KD_PAGE_FETCH_BUTTON_SELECTOR,
       '[data-kd-watch="true"]',
-    ].join(', ')).forEach((element) => element.remove());
+    ].join(', '));
     await addPawPostButton(context);
   } else {
-    document.querySelectorAll(KD_POST_BUTTON_SELECTOR).forEach((element) => element.remove());
+    removeKdElements(KD_POST_BUTTON_SELECTOR);
     await addPawCreatorButtons(context);
     if (!isRenderCurrent(context)) return;
     addPawPageFetchButton();
@@ -205,12 +205,12 @@ async function renderPawActions(context) {
 }
 
 function cleanupPawActions() {
-  document.querySelectorAll([
+  removeKdElements([
     KD_CREATOR_BUTTON_SELECTOR,
     KD_POST_BUTTON_SELECTOR,
     KD_PAGE_FETCH_BUTTON_SELECTOR,
     '[data-kd-watch="true"]',
-  ].join(', ')).forEach((element) => element.remove());
+  ].join(', '));
 }
 
 function hasPawTargets() {

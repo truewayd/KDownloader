@@ -377,8 +377,8 @@ func (module *trackerResearchModule) prepare(rpc ariaRPC) error {
 func (module *trackerResearchModule) inspectSupport(rpc ariaRPC) error {
 	researchRPC, ok := rpc.(trackerResearchRPC)
 	if !ok {
-		module.setSupport(false, errors.New("the active engine does not expose aria2.replaceBtTrackers; select Aria2 Next and restart TrueDown"))
-		return &ValidationError{Message: "tracker research requires Aria2 Next; select it and restart TrueDown"}
+		module.setSupport(false, errors.New("the active engine does not expose aria2.replaceBtTrackers; install and select Aria2 Next"))
+		return &ValidationError{Message: "tracker research requires Aria2 Next; install and select it first"}
 	}
 	supported, err := researchRPC.supportsTrackerResearch()
 	if err != nil {

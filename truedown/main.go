@@ -91,8 +91,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	aria2 := updates.EnginePath()
-	engineStatus := updates.Snapshot().Engine
 	downloads := filepath.Join(dataDir, "downloads")
 	database := filepath.Join(dataDir, "truedown.db")
 	auth, err := newAuthController(
@@ -103,38 +101,63 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dm, err := downloader.NewManagerWithConfig(aria2, downloads, database, downloader.ManagerConfig{
-		Aria2Next:        engineStatus.Active == systemupdate.EngineNext,
-		Aria2NextVersion: engineStatus.ActiveVersion,
+	engineReload := make(chan struct{}, 1)
+	host := &managerHost{}
+	controller := newEngineController(updates, host, func() error {
+		if engineRelaunchAttempt() >= 1 {
+			return fmt.Errorf("automatic TrueDown reload was already attempted during this engine recovery incident")
+		}
+		select {
+		case engineReload <- struct{}{}:
+		default:
+		}
+		return nil
 	})
+	buildManager := func(spec systemupdate.EngineSpec) (*downloader.Manager, error) {
+		return downloader.NewManagerWithConfig(spec.Path, downloads, database, downloader.ManagerConfig{
+			Aria2Next:        spec.Kind == systemupdate.EngineNext,
+			Aria2NextVersion: spec.Version,
+			EngineExit: func(source *downloader.Manager, exitErr error) {
+				if controller != nil {
+					controller.recover(source, exitErr)
+				}
+			},
+		})
+	}
+	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
 		log.Fatal(err)
 	}
+	routes := func(manager *downloader.Manager) http.Handler {
+		mux := http.NewServeMux()
+		api.Register(mux, manager, auth, controller)
+		mux.Handle("/", http.FileServer(http.FS(sub)))
+		return mux
+	}
+	activeSpec := updates.ActiveEngine()
+	dm, err := buildManager(activeSpec)
+	if err != nil {
+		log.Fatal(err)
+	}
+	host.configure(dm, activeSpec, buildManager, routes)
+	defer host.stop()
 	startErr := dm.Start()
-	if startErr != nil && engineStatus.Active == systemupdate.EngineNext && downloader.IsEngineStartError(startErr) {
+	if startErr != nil && activeSpec.Kind == systemupdate.EngineNext && downloader.IsEngineStartError(startErr) {
 		dm.Stop()
-		aria2 = updates.FallbackToStable(startErr)
+		_ = updates.FallbackToStable(startErr)
+		activeSpec = updates.ActiveEngine()
 		log.Printf("Aria2 Next startup failed; retrying with the built-in stable engine: %v", startErr)
-		dm, err = downloader.NewManager(aria2, downloads, database)
+		dm, err = buildManager(activeSpec)
 		if err != nil {
 			log.Fatal(err)
 		}
+		host.configure(dm, activeSpec, buildManager, routes)
 		startErr = dm.Start()
 	}
 	if startErr != nil {
 		dm.Stop()
 		log.Fatal(startErr)
 	}
-	defer dm.Stop()
-
-	mux := http.NewServeMux()
-	api.Register(mux, dm, auth, updates)
-
-	sub, err := fs.Sub(webFS, "web")
-	if err != nil {
-		log.Fatal(err)
-	}
-	mux.Handle("/", http.FileServer(http.FS(sub)))
 
 	tlsCert := strings.TrimSpace(os.Getenv("TRUEDOWN_TLS_CERT"))
 	tlsKey := strings.TrimSpace(os.Getenv("TRUEDOWN_TLS_KEY"))
@@ -162,12 +185,12 @@ func main() {
 	} else if !authEnabled {
 		log.Printf("API Key authentication is disabled; enable it from the dashboard when needed")
 	}
-	if os.Getenv("TRUEDOWN_NO_BROWSER") == "" && !systemupdate.IsUpdateRelaunch() {
+	if os.Getenv("TRUEDOWN_NO_BROWSER") == "" && !systemupdate.IsUpdateRelaunch() && !isEngineRelaunch() {
 		go openBrowser(browserURL)
 	}
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           secureHandler(mux, auth, addr),
+		Handler:           secureHandler(host, auth, addr),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -176,9 +199,12 @@ func main() {
 	}
 	restart := make(chan struct{}, 1)
 	updates.SetRestartCallback(func() error {
-		active := dm.TaskCountByStatus(downloader.StatusQueued) +
-			dm.TaskCountByStatus(downloader.StatusDownloading) +
-			dm.TaskCountByStatus(downloader.StatusPaused)
+		if controller.transitionActive() {
+			return fmt.Errorf("wait for the download-engine transition before restarting TrueDown")
+		}
+		active := host.taskCount(downloader.StatusQueued) +
+			host.taskCount(downloader.StatusDownloading) +
+			host.taskCount(downloader.StatusPaused)
 		if active > 0 {
 			return fmt.Errorf("wait for queued, downloading, and paused tasks before restarting TrueDown")
 		}
@@ -202,9 +228,9 @@ func main() {
 	updateContext, cancelUpdates := context.WithCancel(context.Background())
 	defer cancelUpdates()
 	automaticUpdatesDone := updates.RunAutomatic(updateContext, func() bool {
-		return dm.TaskCountByStatus(downloader.StatusQueued) == 0 &&
-			dm.TaskCountByStatus(downloader.StatusDownloading) == 0 &&
-			dm.TaskCountByStatus(downloader.StatusPaused) == 0
+		return host.taskCount(downloader.StatusQueued) == 0 &&
+			host.taskCount(downloader.StatusDownloading) == 0 &&
+			host.taskCount(downloader.StatusPaused) == 0
 	})
 	select {
 	case err := <-serverErr:
@@ -216,9 +242,11 @@ func main() {
 		if err := systemupdate.SignalHealthyFromEnvironment(); err != nil {
 			log.Printf("update health signal: %v", err)
 		}
+		resetEngineRelaunchCircuitAfterHealthyPeriod()
 	}
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	reloadEngine := false
 	select {
 	case err := <-serverErr:
 		if !errors.Is(err, http.ErrServerClosed) {
@@ -226,6 +254,8 @@ func main() {
 		}
 	case <-stop:
 	case <-restart:
+	case <-engineReload:
+		reloadEngine = true
 	}
 	cancelUpdates()
 	<-automaticUpdatesDone
@@ -233,6 +263,12 @@ func main() {
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("HTTP shutdown: %v", err)
+	}
+	host.stop()
+	if reloadEngine {
+		if err := launchEngineRelaunch(os.Args[1:]); err != nil {
+			log.Printf("reload TrueDown after download-engine recovery failure: %v", err)
+		}
 	}
 }
 

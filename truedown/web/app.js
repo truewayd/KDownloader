@@ -1260,9 +1260,9 @@ function renderTrackerResearchSettings(settings = trackerResearchSettings) {
   if (settings.supportKnown && settings.supported) {
     support = `${engineLabel} 的 ${settings.requiredRPC} RPC 已就绪`;
   } else if (settings.supportKnown && settings.engine === "next") {
-    support = `${engineLabel} 缺少 ${settings.requiredRPC}；官方 NEXT 至少需要 v${settings.minimumNextVersion}，请手动更新 NEXT 后完整重启 TrueDown`;
+    support = `${engineLabel} 缺少 ${settings.requiredRPC}；官方 NEXT 至少需要 v${settings.minimumNextVersion}，请手动更新 NEXT`;
   } else if (settings.supportKnown) {
-    support = `研究模块需要 Aria2 Next v${settings.minimumNextVersion} 或更高版本及 ${settings.requiredRPC}；请安装、选择 NEXT 后完整重启 TrueDown`;
+    support = `研究模块需要 Aria2 Next v${settings.minimumNextVersion} 或更高版本及 ${settings.requiredRPC}；请安装并选择 NEXT`;
   }
   const enableBlocked = !settings.enabled && settings.supportKnown && !settings.supported;
   els.trackerResearchEnabled.disabled = enableBlocked;
@@ -1278,7 +1278,7 @@ function renderTrackerResearchSettings(settings = trackerResearchSettings) {
 
 function bitTorrentIdentityDescription(settings) {
   if (settings.engine !== "next") {
-    return "当前内置稳定版 aria2 不开放 TrueDown 的 BitTorrent 创建接口；选择 Aria2 Next 并完整重启后才会启用 BT。";
+    return "当前内置稳定版 aria2 不开放 TrueDown 的 BitTorrent 创建接口；选择 Aria2 Next 后会自动切换并启用 BT。";
   }
   const version = settings.engineVersion || "当前版本";
   const libraryVersion = KNOWN_NEXT_LIBTORRENT_VERSIONS[settings.engineVersion];
@@ -1875,13 +1875,16 @@ function renderSystemUpdateState() {
   if (engine.restartRequired) {
     const selected = engine.preference === "next"
       ? `NEXT v${engine.nextInstalledVersion || "unknown"}` : "内置稳定内核";
-    engineStatus += ` 已选择 ${selected}，完全退出并重新打开 TrueDown 后生效。`;
+    engineStatus += ` 已选择 ${selected}，正在等待运行期切换。`;
   } else if (engine.nextInstalled) {
     engineStatus += ` 已安装 NEXT v${engine.nextInstalledVersion}，不会自动跟随上游。`;
   } else {
     engineStatus += " 尚未安装 NEXT。";
   }
   if (busy === "next-engine") engineStatus = "正在从 aria2-next 官方 Release 下载、校验并安装 NEXT…";
+  if (busy === "engine-switch") engineStatus = "正在保存任务状态并切换下载内核…";
+  if (busy === "engine-recovery") engineStatus = "下载内核意外退出，正在自动恢复任务…";
+  if (busy === "engine-reload") engineStatus = "内核自动恢复失败，正在重载 TrueDown…";
   els.engineUpdateStatus.textContent = engineStatus;
   els.installNextEngineBtn.textContent = engine.nextInstalled ? "手动更新 NEXT" : "手动安装 NEXT";
   els.installNextEngineBtn.disabled = Boolean(busy);
@@ -1950,7 +1953,7 @@ async function installNextEngine() {
   const action = systemUpdateState?.engine.nextInstalled ? "更新" : "安装";
   const confirmed = await confirmAction({
     title: `手动${action} Aria2 Next`,
-    message: `这会从 AnInsomniacy/aria2-next 的官方 GitHub Release 下载 Windows 内核，核对发布的 SHA-256 和版本后保存到 TrueDown 数据目录。NEXT 不会自动更新，也不会因安装而自动切换；选择 NEXT 后需要完全退出并重新打开 TrueDown。`,
+    message: `这会从 AnInsomniacy/aria2-next 的官方 GitHub Release 下载 Windows 内核，核对发布的 SHA-256 和版本后保存到 TrueDown 数据目录。NEXT 不会自动跟随上游；如果当前已选择 NEXT，验证完成后会自动保存任务状态并切换到新版本。`,
     confirmLabel: `手动${action}`,
   });
   if (!confirmed) return;
@@ -1958,9 +1961,16 @@ async function installNextEngine() {
   try {
     systemUpdateState = normalizeSystemUpdateState(await requestJSON("/system/engine/next", { method: "POST" }));
     renderSystemUpdateState();
-    showToast(systemUpdateState.engine.restartRequired
-      ? "Aria2 Next 已验证并更新；完全退出并重新打开 TrueDown 后生效。"
-      : "Aria2 Next 已验证并安装；需要时再选择“使用 NEXT”并重启 TrueDown。");
+    if (systemUpdateState.busy === "engine-switch") {
+      showToast("Aria2 Next 已验证，正在热切换下载内核…");
+      systemUpdateState = await waitForEngineTransition();
+    }
+    showToast(systemUpdateState.error
+      ? `Aria2 Next 已安装，但运行期切换未完成：${systemUpdateState.error}`
+      : systemUpdateState.engine.active === "next"
+        ? `当前已使用 Aria2 Next${systemUpdateState.engine.activeVersion ? ` v${systemUpdateState.engine.activeVersion}` : ""}。`
+        : "Aria2 Next 已验证并安装；需要时可选择“使用 NEXT”。",
+    systemUpdateState.error ? "error" : "success");
   } catch (error) {
     showToast(`Aria2 Next ${action}失败：${error.message}`, "error");
     await reloadSystemUpdateStateQuietly();
@@ -1980,7 +1990,15 @@ async function selectDownloadEngine(engine) {
       body: JSON.stringify({ engine }),
     }));
     renderSystemUpdateState();
-    showToast(`已选择${engine === "next" ? " Aria2 Next" : "内置稳定内核"}；完全退出并重新打开 TrueDown 后生效。`);
+    if (systemUpdateState.busy === "engine-switch") {
+      showToast(`已选择${engine === "next" ? " Aria2 Next" : "内置稳定内核"}，正在保存任务并切换…`);
+      systemUpdateState = await waitForEngineTransition();
+    }
+    const switched = systemUpdateState.engine.active === engine && !systemUpdateState.engine.restartRequired;
+    showToast(switched
+      ? `已切换到${engine === "next" ? " Aria2 Next" : "内置稳定内核"}。`
+      : `下载内核切换未完成：${systemUpdateState.error || "已恢复原内核"}`,
+    switched ? "success" : "error");
   } catch (error) {
     showToast(`切换下载内核失败：${error.message}`, "error");
     await reloadSystemUpdateStateQuietly();
@@ -2217,6 +2235,25 @@ function showModalMsg(text, isError = false) {
 
 function showToast(text, type = "success") {
   trueDownToast?.show(text, type);
+}
+
+async function waitForEngineTransition() {
+  const deadline = Date.now() + 90_000;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+    try {
+      const state = normalizeSystemUpdateState(await requestJSON("/system/update"));
+      systemUpdateState = state;
+      renderSystemUpdateState();
+      if (!["engine-switch", "engine-recovery", "engine-reload"].includes(state.busy)) {
+        return state;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw new Error(lastError?.message || "等待下载内核切换超时");
 }
 
 function optionalInt(key) {

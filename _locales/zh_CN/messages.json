@@ -370,6 +370,9 @@
   "externalLinksDescription": {
     "message": "以下外部链接可能需要手动下载："
   },
+  "externalLinksShown": {
+    "message": "已找到链接"
+  },
   "closeAction": {
     "message": "关闭"
   },

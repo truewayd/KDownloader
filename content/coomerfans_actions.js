@@ -210,14 +210,14 @@ function addCoomerFansPageFetchButton() {
 
 async function renderCoomerFansActions(context) {
   if (isCoomerFansPostPage()) {
-    document.querySelectorAll([
+    removeKdElements([
       KD_CREATOR_BUTTON_SELECTOR,
       KD_PAGE_FETCH_BUTTON_SELECTOR,
       '.kd-coomerfans-actions',
-    ].join(', ')).forEach((element) => element.remove());
+    ].join(', '));
     await addCoomerFansPostButton(context);
   } else {
-    document.querySelectorAll(KD_POST_BUTTON_SELECTOR).forEach((element) => element.remove());
+    removeKdElements(KD_POST_BUTTON_SELECTOR);
     await addCoomerFansCreatorButtons(context);
     if (!isRenderCurrent(context)) return;
     addCoomerFansPageFetchButton();
@@ -225,12 +225,12 @@ async function renderCoomerFansActions(context) {
 }
 
 function cleanupCoomerFansActions() {
-  document.querySelectorAll([
+  removeKdElements([
     KD_CREATOR_BUTTON_SELECTOR,
     KD_POST_BUTTON_SELECTOR,
     KD_PAGE_FETCH_BUTTON_SELECTOR,
     '.kd-coomerfans-actions',
-  ].join(', ')).forEach((element) => element.remove());
+  ].join(', '));
   document.querySelectorAll('.kd-coomerfans-post').forEach((element) => {
     element.classList.remove('kd-coomerfans-post');
   });

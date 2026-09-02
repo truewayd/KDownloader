@@ -50,6 +50,7 @@ type Aria2Opts struct {
 type ManagerConfig struct {
 	Aria2Next        bool
 	Aria2NextVersion string
+	EngineExit       func(*Manager, error)
 }
 
 type Task struct {
@@ -228,6 +229,7 @@ type Manager struct {
 	wg           sync.WaitGroup
 	stopOnce     sync.Once
 	engineExited atomic.Bool
+	engineExit   func(*Manager, error)
 	lifecycleCtx context.Context
 	cancel       context.CancelFunc
 
@@ -309,6 +311,7 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		done:              make(chan struct{}),
 		lifecycleCtx:      lifecycleCtx,
 		cancel:            cancel,
+		engineExit:        config.EngineExit,
 	}
 	var maxID int64
 	for _, task := range tasks {
@@ -1025,6 +1028,23 @@ func (m *Manager) TaskCountByStatus(status Status) int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.statusCounts[status]
+}
+
+// HasActiveBitTorrent reports whether changing to the stable HTTP-only engine
+// would strand an unfinished Aria2 Next task.
+func (m *Manager) HasActiveBitTorrent() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, task := range m.tasks {
+		if task.Status != StatusQueued && task.Status != StatusDownloading && task.Status != StatusPaused {
+			continue
+		}
+		var identity requestIdentity
+		if task.RequestJSON != "" && json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.BitTorrent != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) summaryLocked() TaskSummary {
@@ -1872,7 +1892,11 @@ func (m *Manager) handleUnexpectedEngineExit(err error) {
 		reason = err.Error()
 	}
 	message := "Download engine stopped unexpectedly; restart TrueDown"
-	log.Printf("aria2 process exited unexpectedly (%s); queued and active tasks require a TrueDown restart", reason)
+	recovering := m.engineExit != nil
+	if recovering {
+		message = "Download engine stopped unexpectedly; TrueDown is recovering it"
+	}
+	log.Printf("aria2 process exited unexpectedly (%s)", reason)
 
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
@@ -1882,9 +1906,17 @@ func (m *Manager) handleUnexpectedEngineExit(err error) {
 		switch task.Status {
 		case StatusQueued, StatusDownloading, StatusPaused:
 			m.releaseAriaSlotLocked(task.ID)
-			m.setStatusLocked(task, StatusError)
-			task.Progress = ""
-			task.Error = message
+			if recovering {
+				if task.Status != StatusPaused {
+					m.setStatusLocked(task, StatusQueued)
+				}
+				task.Progress = message
+				task.Error = ""
+			} else {
+				m.setStatusLocked(task, StatusError)
+				task.Progress = ""
+				task.Error = message
+			}
 			m.touchTaskLocked(task)
 			updates = append(updates, snapshotTaskUpdate(task))
 		}
@@ -1892,6 +1924,9 @@ func (m *Manager) handleUnexpectedEngineExit(err error) {
 	m.mu.Unlock()
 	if err := m.store.UpdateBatch(updates); err != nil {
 		log.Printf("persist %d tasks after aria2 exited: %v", len(updates), err)
+	}
+	if m.engineExit != nil {
+		go m.engineExit(m, err)
 	}
 }
 
@@ -2308,6 +2343,7 @@ func (m *Manager) aria2StartArgs(port int, secret string, runtimeSettings Runtim
 		"--rpc-secret=" + secret,
 		"--dir=" + filepath.ToSlash(m.defaultDir),
 		"--continue=true",
+		"--auto-save-interval=5",
 		fmt.Sprintf("--max-concurrent-downloads=%d", runtimeSettings.ConcurrentDownloads),
 		fmt.Sprintf("--max-overall-download-limit=%d", runtimeSettings.GlobalDownloadLimitBps),
 		"--console-log-level=" + consoleLogLevel,

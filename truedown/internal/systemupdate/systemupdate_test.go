@@ -100,6 +100,14 @@ func TestManualNextInstallPersistsSelection(t *testing.T) {
 	if err != nil || selected.Engine.Preference != EngineNext || !selected.Engine.RestartRequired {
 		t.Fatalf("explicit NEXT selection did not require a restart: snapshot=%+v err=%v", selected.Engine, err)
 	}
+	preferred, err := manager.PreferredEngine()
+	if err != nil || preferred.Kind != EngineNext || preferred.Version != "2.5.6" || preferred.Path == stablePath {
+		t.Fatalf("preferred engine=%+v err=%v", preferred, err)
+	}
+	activated, err := manager.ActivateEngine(preferred)
+	if err != nil || activated.Engine.Active != EngineNext || activated.Engine.RestartRequired {
+		t.Fatalf("runtime NEXT activation=%+v err=%v", activated.Engine, err)
+	}
 	reloaded := newTestManager(t, root, stablePath, Options{
 		NextReleaseURL:        server.URL + "/release",
 		AllowInsecureLoopback: true,

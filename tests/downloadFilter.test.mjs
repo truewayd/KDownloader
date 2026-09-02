@@ -174,6 +174,20 @@ test('extracts provider links from flat and wrapped post embeds', () => {
   ]);
 });
 
+test('extracts links from incomplete Pawchive post content without trusting media fields', () => {
+  const post = {
+    id: '138110910',
+    has_full: false,
+    detail_fetched: true,
+    content: '<p><a href="https://mega.nz/folder/5v9BGS4R#secret">Open folder</a></p>',
+    file: { name: 'untrusted.jpg', path: '/partial.jpg' },
+  };
+
+  assert.deepEqual(util.extractPostExternalLinks(post), [
+    'https://mega.nz/folder/5v9BGS4R#secret',
+  ]);
+});
+
 test('deduplicates extracted links and filters blacklisted domains and subdomains', () => {
   const links = [
     'https://www.patreon.com/posts/1',

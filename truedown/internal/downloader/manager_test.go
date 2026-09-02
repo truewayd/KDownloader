@@ -1218,6 +1218,52 @@ func TestUnexpectedEngineExitFailsActiveTasksAndBlocksRetry(t *testing.T) {
 	}
 }
 
+func TestUnexpectedEngineExitPreservesTasksForConfiguredRecovery(t *testing.T) {
+	stateDir := t.TempDir()
+	exits := make(chan *Manager, 1)
+	m, err := NewManagerWithConfig(
+		"unused",
+		filepath.Join(stateDir, "downloads"),
+		filepath.Join(stateDir, "records.db"),
+		ManagerConfig{EngineExit: func(source *Manager, _ error) { exits <- source }},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	task, _, err := m.AddTask("https://example.test/recover.bin", "recover.bin", "", nil, "", 0, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pausedTask, _, err := m.AddTask("https://example.test/paused.bin", "paused.bin", "", nil, "", 0, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.flushAdmissions(false)
+	m.mu.Lock()
+	m.setStatusLocked(m.tasks[pausedTask.ID], StatusPaused)
+	m.mu.Unlock()
+
+	m.handleUnexpectedEngineExit(errors.New("exit status 2"))
+	recovering, ok := m.GetTask(task.ID)
+	if !ok || recovering.Status != StatusQueued || recovering.Error != "" ||
+		!strings.Contains(recovering.Progress, "recovering") {
+		t.Fatalf("task prepared for recovery=%+v", recovering)
+	}
+	paused, ok := m.GetTask(pausedTask.ID)
+	if !ok || paused.Status != StatusPaused || paused.Error != "" || !strings.Contains(paused.Progress, "recovering") {
+		t.Fatalf("paused task prepared for recovery=%+v", paused)
+	}
+	select {
+	case source := <-exits:
+		if source != m {
+			t.Fatalf("recovery source=%p, want %p", source, m)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("engine recovery callback was not invoked")
+	}
+}
+
 func TestRequiresCleanHTTPRestartIsSpecific(t *testing.T) {
 	if !requiresCleanHTTPRestart("The requested byte range is no longer satisfiable") {
 		t.Fatal("expected Aria2 Next range mismatch to require a clean restart")

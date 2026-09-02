@@ -32,12 +32,12 @@ test("Pawchive UI shares the default history source while preserving history-sta
   assert.match(pawActionsSource, /entries\.push\(\{ article, anchor, path, \.\.\.parsed \}\)/);
   assert.doesNotMatch(pawActionsSource, /source:\s*["']pawchive["']/);
   assert.match(uiSource, /PARTIAL:[^\n]+icon: '!'/);
-  assert.match(uiSource, /isHandledDownloadedStatus\(historyStatus\)/);
+  assert.match(uiSource, /const downloaded = historyStatus === 'complete'/);
   assert.match(downloadSource, /function isPartialDownloadResult\(result\)/);
   assert.match(dbHandlersSource, /statuses,/);
 });
 
-test("creator history buttons distinguish complete, empty, and partial records", () => {
+test("creator history buttons keep empty and partial posts manually retryable", () => {
   const context = vm.createContext({
     document: {},
     findDownloadButtonByPath() {},
@@ -68,8 +68,9 @@ test("creator history buttons distinguish complete, empty, and partial records",
   assert.equal(context.button.disabled, true);
 
   vm.runInContext("configureCreatorDownloadButton(button, 'empty', () => {})", context);
-  assert.equal(context.button.dataset.status, "SUCCESS");
-  assert.equal(context.button.disabled, true);
+  assert.equal(context.button.dataset.status, "IDLE");
+  assert.equal(context.button.disabled, false);
+  assert.equal(typeof context.button.onclick, "function");
 
   vm.runInContext("configureCreatorDownloadButton(button, 'partial', () => {})", context);
   assert.equal(context.button.dataset.status, "PARTIAL");
@@ -110,6 +111,7 @@ test("frontend and background use collision-free downloaded identity keys", asyn
 
 test("download completion dispatched before the ack is not lost", async () => {
   let runtimeListener = null;
+  let shownLinks = [];
   const window = new EventTarget();
   const button = {
     dataset: {},
@@ -145,7 +147,7 @@ test("download completion dispatched before the ack is not lost", async () => {
       return { accepted: true };
     },
     setTimeout,
-    showExternalLinksModal() {},
+    showExternalLinksModal(links) { shownLinks = links; },
     showTransientButtonStatus(target, status) {
       target.dataset.status = status;
       target.disabled = false;
@@ -173,6 +175,15 @@ test("download completion dispatched before the ack is not lost", async () => {
     results: [{ success: true }, { success: false }]
   }, true)`, context);
   assert.equal(button.dataset.status, "PARTIAL");
+  assert.equal(button.disabled, false);
+
+  vm.runInContext(`renderDownloadResult(button, {
+    success: false,
+    incomplete: true,
+    externalLinks: ['https://mega.nz/folder/id#key']
+  }, true)`, context);
+  assert.deepEqual(Array.from(shownLinks), ['https://mega.nz/folder/id#key']);
+  assert.equal(button.dataset.status, "SUCCESS");
   assert.equal(button.disabled, false);
 });
 

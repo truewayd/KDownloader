@@ -64,14 +64,33 @@ keeps its standalone CSS artifact, with token equality enforced by tests.
 `action`, `creator`, or `flag`; state is carried by `data-status`,
 `data-watched`, and `data-flag`. The shadow tree always contains a native
 button, so keyboard and accessibility behavior remain browser-owned.
+Callers create or recover the host through the canonical action factory. It
+first uses the registered Custom Element when Chrome upgrades the node. Chrome
+can leave a content-script-created node unupgraded in an isolated world, so the
+same factory can also hydrate that host imperatively with the same open Shadow
+root, native button, attribute bridge, and canonical styles. It then audits
+connected controls for the expected display and cursor plus the overlay circle
+and background. A failed audit installs the same canonical CSS as a local
+Shadow-root style fallback instead of exposing an unstyled custom element.
 
 `kd-ui-links-dialog` owns URL rendering, backdrop/Escape close, focus trapping,
 focus restoration, motion reduction, and cleanup. Callers validate and bound
-URLs before handing them to the component.
+URLs before handing them to the component, and create it through the canonical
+dialog factory. The dialog uses the same shared controller in upgraded and
+imperatively hydrated hosts, so an isolated-world upgrade failure cannot
+silently suppress the modal or fork its behavior.
 
 `content.css` is intentionally layout-only. It may establish a positioning
 context or host-specific placement, but all visual component CSS lives inside
 the canonical Shadow DOM runtime.
+
+Shadow DOM does not isolate the custom-element host box from third-party page
+CSS. `content.css` therefore owns the authoritative geometry, pointer hit area,
+and cursor for overlay action hosts with scoped, important declarations. The
+shared mount helper preserves containers that already have non-static
+positioning, adds a relative context only to static containers, and releases
+its marker classes when the final overlay action is removed. This keeps route
+swaps and hostile generic site selectors from moving or disabling controls.
 
 ## Change rules
 

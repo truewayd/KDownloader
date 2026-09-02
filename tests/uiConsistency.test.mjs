@@ -19,6 +19,8 @@ const [
   englishMessagesSource,
   chineseMessagesSource,
   contentCss,
+  contentUiSource,
+  helpersSource,
   manifestSource,
   actionsSource,
   pawActionsSource,
@@ -42,6 +44,8 @@ const [
   read("_locales/en/messages.json"),
   read("_locales/zh_CN/messages.json"),
   read("content.css"),
+  read("content/ui.js"),
+  read("content/helpers.js"),
   read("manifest.json"),
   read("content/actions.js"),
   read("content/paw_actions.js"),
@@ -101,15 +105,56 @@ test("injected UI is scoped and site scripts reuse shared renderers", () => {
   assert.match(sharedComponentsSource, /adoptedStyleSheets/);
   assert.match(sharedComponentsSource, /kd-ui-action/);
   assert.match(sharedComponentsSource, /kd-ui-links-dialog/);
+  assert.match(sharedComponentsSource, /function createActionElement\(ownerDocument = document\)/);
+  assert.match(sharedComponentsSource, /function ensureActionElement\(element\)/);
+  assert.match(sharedComponentsSource, /function initializeManualActionElement\(element\)/);
+  assert.match(sharedComponentsSource, /function createLinksDialogElement\(ownerDocument = document\)/);
+  assert.match(sharedComponentsSource, /function ensureLinksDialogElement\(element\)/);
+  assert.match(sharedComponentsSource, /function initializeLinksDialogElement\(element\)/);
+  assert.match(
+    sharedComponentsSource,
+    /element\.shadowRoot\?\.querySelector\("button"\)\s*\|\| initializeManualActionElement\(element\)/
+  );
+  assert.doesNotMatch(sharedComponentsSource, /failed to initialize/);
+  assert.match(sharedComponentsSource, /style\[data-kd-action-fallback\]/);
+  assert.match(
+    sharedComponentsSource,
+    /background:\s*var\(--kd-content-surface\);\s*background:\s*color-mix\(/
+  );
   assert.match(sharedComponentsSource, /@media \(prefers-reduced-motion: reduce\)/);
   assert.doesNotMatch(contentCss, /@keyframes\s+(?:spin|fadeIn)\b/);
   assert.doesNotMatch(contentCss, /transition:\s*all\b/);
+  assert.match(
+    contentCss,
+    /kd-ui-action\[variant="creator"\][\s\S]*?position:\s*absolute\s*!important;[\s\S]*?right:\s*8px\s*!important;[\s\S]*?bottom:\s*8px\s*!important;[\s\S]*?pointer-events:\s*auto\s*!important;[\s\S]*?cursor:\s*pointer\s*!important;/
+  );
+  assert.match(contentCss, /\.kd-overlay-container\s*\{[^}]*isolation:\s*isolate\s*!important;/s);
+  assert.match(
+    contentCss,
+    /kd-ui-action\s*\{[^}]*pointer-events:\s*auto\s*!important;[^}]*cursor:\s*pointer\s*!important;/s
+  );
+  assert.match(sharedComponentsSource, /const expectedCursor = status === "SCANNING"/);
+  assert.match(contentUiSource, /KDComponents\.createLinksDialogElement\(\)/);
+  assert.match(contentUiSource, /if \(!dialog\.isConnected\) \{\s*dialog\.close\(\);\s*finish\(\);/);
+  assert.doesNotMatch(contentUiSource, /document\.createElement\(KDComponents\.LINKS_DIALOG_TAG\)/);
+  assert.match(contentUiSource, /getComputedStyle\(element\)\.position/);
+  assert.match(contentUiSource, /function releasePositionContext\(element\)/);
+  assert.match(contentUiSource, /function removeKdElements\(selector\)/);
+  assert.match(
+    contentUiSource,
+    /function ensureCreatorDownloadButton\([\s\S]{0,320}ensurePositionContext\(container\);[\s\S]{0,160}container\.appendChild\(button\)/
+  );
+  assert.match(contentUiSource, /if \(options\.decorateContainer\)[^\n]+\n\s*if \(isActiveDownloadButton\(button\)\) continue;/);
+  assert.match(helpersSource, /btn\.remove\(\);\s*if \(typeof releasePositionContext/);
+  assert.doesNotMatch(contentUiSource, /document\.createElement\(KD_ACTION_TAG\)/);
+  assert.match(flagSource, /KDComponents\.createActionElement\(\)/);
 
   const siteSources = [actionsSource, pawActionsSource, coomerFansActionsSource];
   for (const source of siteSources) {
     assert.match(source, /renderPostDownloadButton/);
     assert.match(source, /renderCreatorDownloadButtons/);
     assert.match(source, /ensurePageFetchButton/);
+    assert.match(source, /removeKdElements/);
     assert.doesNotMatch(source, /_button_[a-f0-9]+/i);
     assert.doesNotMatch(source, /\.style\.(?:margin|padding|position|transform)/);
   }

@@ -146,6 +146,9 @@ func TestAria2NextStartArgsEnableDurableTorrentVerification(t *testing.T) {
 	}
 	args := manager.aria2StartArgs(15152, "secret", RuntimeSettings{ConcurrentDownloads: 3})
 	joined := strings.Join(args, "\n")
+	if !strings.Contains(joined, "--auto-save-interval=5") {
+		t.Fatalf("engine args do not bound crash recovery loss: %v", args)
+	}
 	for _, expected := range []string{
 		"--state-dir=" + filepath.ToSlash(stateDir),
 		"--check-integrity=true",
