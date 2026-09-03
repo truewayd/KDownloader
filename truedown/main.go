@@ -40,8 +40,8 @@ var (
 //go:embed web
 var webFS embed.FS
 
-// exeDir returns the directory that contains the running executable,
-// so paths like aria2c.exe are resolved correctly regardless of cwd.
+// exeDir returns the directory that contains the running executable so
+// packaged helpers are resolved correctly regardless of cwd.
 func exeDir() string {
 	exe, err := os.Executable()
 	if err != nil {
@@ -67,17 +67,16 @@ func main() {
 
 func run() (resultErr error) {
 	base := exeDir()
-	stableAria2 := filepath.Join(base, "aria2c.exe")
-	if _, err := os.Stat(stableAria2); os.IsNotExist(err) {
-		stableAria2 = filepath.Join(base, "aria2", "aria2c.exe")
-	}
-	stableAria2, err := filepath.Abs(stableAria2)
+	stableAria2, err := resolveStableAria2(base)
 	if err != nil {
 		return err
 	}
 	dataDir := os.Getenv("TRUEDOWN_DATA_DIR")
 	if dataDir == "" {
-		dataDir = base
+		dataDir, err = defaultDataDir(base)
+		if err != nil {
+			return err
+		}
 	}
 	// TRUEDOWN_DATA_DIR is an operator-chosen trusted storage boundary. It may
 	// itself be a junction; managed config helpers validate the leaf entries.
@@ -160,6 +159,10 @@ func run() (resultErr error) {
 		return nil
 	}
 	defer instance.Close()
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
+	lifecycleExit := make(chan struct{}, 1)
 	engineReload := make(chan struct{}, 1)
 	host := &managerHost{}
 	controller := newEngineController(updates, host, func() error {
@@ -191,6 +194,12 @@ func run() (resultErr error) {
 		mux := http.NewServeMux()
 		api.Register(mux, manager, auth, controller)
 		api.RegisterDiagnostics(mux, applicationLog)
+		api.RegisterLifecycle(mux, func() {
+			select {
+			case lifecycleExit <- struct{}{}:
+			default:
+			}
+		})
 		mux.Handle("/", http.FileServer(http.FS(sub)))
 		return mux
 	}
@@ -288,14 +297,12 @@ func run() (resultErr error) {
 	if platformErr != nil {
 		log.Printf("start system tray: %v", platformErr)
 	} else if platform != nil {
-		log.Printf("system tray ready")
+		log.Printf("%s ready", platform.Description())
 	}
 	if platform != nil {
 		defer platform.Close()
 	}
 	platformActions := platform.Actions()
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	reloadEngine := false
 
 waitForExit:
@@ -307,6 +314,9 @@ waitForExit:
 			}
 			break waitForExit
 		case <-stop:
+			break waitForExit
+		case <-lifecycleExit:
+			log.Printf("dashboard: exit requested")
 			break waitForExit
 		case <-restart:
 			break waitForExit

@@ -100,6 +100,23 @@ func TestApplicationLogEndpointIsBoundedAndReadOnly(t *testing.T) {
 	}
 }
 
+func TestLifecycleExitEndpointIsPostOnlyAndSignalsOnce(t *testing.T) {
+	mux := http.NewServeMux()
+	exits := 0
+	RegisterLifecycle(mux, func() { exits++ })
+
+	getResponse := httptest.NewRecorder()
+	mux.ServeHTTP(getResponse, httptest.NewRequest(http.MethodGet, "/system/exit", nil))
+	if getResponse.Code != http.StatusMethodNotAllowed || getResponse.Header().Get("Allow") != http.MethodPost || exits != 0 {
+		t.Fatalf("exit GET status=%d allow=%q exits=%d", getResponse.Code, getResponse.Header().Get("Allow"), exits)
+	}
+	postResponse := httptest.NewRecorder()
+	mux.ServeHTTP(postResponse, httptest.NewRequest(http.MethodPost, "/system/exit", strings.NewReader(`{}`)))
+	if postResponse.Code != http.StatusAccepted || exits != 1 {
+		t.Fatalf("exit POST status=%d exits=%d", postResponse.Code, exits)
+	}
+}
+
 func (auth *testTokenAuth) Snapshot() (bool, string, bool) {
 	return auth.enabled, auth.token, auth.managed
 }

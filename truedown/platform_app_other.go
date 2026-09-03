@@ -8,7 +8,7 @@ import (
 )
 
 func startPlatformApp() (*platformApp, error) {
-	return &platformApp{}, nil
+	return &platformApp{description: "foreground service"}, nil
 }
 
 func openPlatformPath(path string) error {

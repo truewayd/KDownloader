@@ -12,9 +12,17 @@ const (
 )
 
 type platformApp struct {
-	actions   <-chan platformAction
-	closeOnce sync.Once
-	closeFn   func()
+	actions     <-chan platformAction
+	description string
+	closeOnce   sync.Once
+	closeFn     func()
+}
+
+func (app *platformApp) Description() string {
+	if app == nil || app.description == "" {
+		return "platform lifecycle"
+	}
+	return app.description
 }
 
 func (app *platformApp) Actions() <-chan platformAction {

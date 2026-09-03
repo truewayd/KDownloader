@@ -44,7 +44,7 @@
           <div>
             <p class="kd-eyebrow">Downloads</p>
             <h1 id="tasks-title">下载任务</h1>
-            <p class="panel-subtitle">关闭此网页不会中断下载；可从 Windows 托盘重新打开 TrueDown 或安全退出。</p>
+            <p class="panel-subtitle">关闭此网页不会中断下载；Windows 可从托盘重新打开，也可重新访问当前地址并在设置中安全退出。</p>
           </div>
           <div class="panel-actions">
             <button class="kd-button secondary" id="open-downloads-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-folder-open"></use></svg>打开下载目录</button>
@@ -331,13 +331,14 @@
           <section class="settings-section application-log-section" aria-labelledby="settings-application-log-title">
             <div class="settings-section-heading">
               <h3 id="settings-application-log-title">TrueDown 应用日志</h3>
-              <p>显示服务启动、托盘、更新和下载内核管理事件。日志在后端有界轮转，网页一次最多读取最新 256 KiB。</p>
+              <p>显示服务启动、平台生命周期、更新和下载内核管理事件。日志在后端有界轮转，网页一次最多读取最新 256 KiB。</p>
             </div>
             <div class="application-log-toolbar">
               <p class="hint" id="application-log-status" aria-live="polite">打开设置时读取最新日志。</p>
               <div class="application-log-actions">
                 <button class="kd-button secondary compact" id="refresh-application-log-btn" type="button">刷新日志</button>
                 <button class="kd-button secondary compact" id="copy-application-log-btn" type="button" disabled>复制日志</button>
+                <button class="kd-button danger compact" id="exit-truedown-btn" type="button">退出 TrueDown</button>
               </div>
             </div>
             <pre class="application-log-output" id="application-log-output" tabindex="0" aria-label="TrueDown 最新应用日志">正在读取应用日志…</pre>

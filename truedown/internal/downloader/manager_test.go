@@ -156,8 +156,11 @@ func TestWaitForManagedCommandKillsAndReapsTimedOutProcess(t *testing.T) {
 	if !waitForManagedCommand(command, done, 20*time.Millisecond, 2*time.Second) {
 		t.Fatal("timed-out child process was not reaped after kill")
 	}
-	if command.ProcessState == nil || !command.ProcessState.Exited() {
-		t.Fatal("child process has no exited process state")
+	if command.ProcessState == nil {
+		t.Fatal("child process has no reaped process state")
+	}
+	if command.ProcessState.Success() {
+		t.Fatal("timed-out child unexpectedly exited successfully after being killed")
 	}
 }
 

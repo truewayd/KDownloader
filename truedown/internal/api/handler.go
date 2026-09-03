@@ -760,6 +760,21 @@ func RegisterDiagnostics(mux *http.ServeMux, applicationLog ApplicationLogServic
 	})
 }
 
+func RegisterLifecycle(mux *http.ServeMux, requestExit func()) {
+	if requestExit == nil {
+		return
+	}
+	mux.HandleFunc("/system/exit", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		requestExit()
+		writeJSON(w, http.StatusAccepted, map[string]bool{"accepted": true})
+	})
+}
+
 func registerUpdateEndpoints(mux *http.ServeMux, updates UpdateService) {
 	mux.HandleFunc("/system/update", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

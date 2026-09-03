@@ -1,0 +1,98 @@
+name: Cross-platform validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/test-cross-platform.yml"
+      - "background/**"
+      - "content/**"
+      - "popup/**"
+      - "shared/**"
+      - "tests/**"
+      - "truedown/**"
+      - "manifest.json"
+      - "package.json"
+      - "settings.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cross-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repository-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: truedown/go.mod
+          cache: false
+
+      - name: Install aria2 on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y aria2
+
+      - name: Install aria2 on macOS
+        if: runner.os == 'macOS'
+        run: brew install aria2
+
+      - name: Test extension and shared UI contracts
+        run: npm test
+
+      - name: Test TrueDown with native aria2
+        working-directory: truedown
+        env:
+          TRUEDOWN_INTEGRATION: "1"
+        run: go test ./...
+
+      - name: Vet TrueDown
+        working-directory: truedown
+        run: go vet ./...
+
+      - name: Build native package
+        working-directory: truedown
+        run: bash ./build-unix.sh
+
+  package-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: linux, arch: amd64 }
+          - { os: linux, arch: arm64 }
+          - { os: darwin, arch: amd64 }
+          - { os: darwin, arch: arm64 }
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: truedown/go.mod
+          cache: false
+
+      - name: Build package
+        working-directory: truedown
+        run: bash ./build-unix.sh "${{ matrix.target.os }}" "${{ matrix.target.arch }}"

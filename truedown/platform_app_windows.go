@@ -13,7 +13,10 @@ import (
 
 const (
 	trayWindowClass = "TrueDownTrayWindow"
-	trayIconID      = 1
+	trayNotifyID    = 1
+	// rsrc assigns the manifest resource ID 1 and the icon group ID 2 when
+	// both are linked. Keep this distinct from the Shell_NotifyIcon identity.
+	trayIconResourceID = 2
 
 	wmClose           = 0x0010
 	wmCommand         = 0x0111
@@ -155,7 +158,8 @@ func startPlatformApp() (*platformApp, error) {
 		return nil, result.err
 	}
 	return &platformApp{
-		actions: actions,
+		actions:     actions,
+		description: "system tray",
 		closeFn: func() {
 			postMessageW.Call(result.state.window, wmClose, 0, 0)
 			select {
@@ -211,7 +215,7 @@ func createTray(actions chan platformAction) (*trayState, error) {
 	if instance == 0 {
 		return nil, fmt.Errorf("resolve TrueDown module for tray: %w", instanceErr)
 	}
-	icon, _, iconErr := loadImageW.Call(instance, trayIconID, imageIcon, 0, 0, lrDefaultSize)
+	icon, _, iconErr := loadImageW.Call(instance, trayIconResourceID, imageIcon, 0, 0, lrDefaultSize)
 	if icon == 0 {
 		return nil, fmt.Errorf("load TrueDown tray icon: %w", iconErr)
 	}
@@ -255,7 +259,7 @@ func createTray(actions chan platformAction) (*trayState, error) {
 	state.notify = trayNotifyIconData{
 		Size:            uint32(unsafe.Sizeof(trayNotifyIconData{})),
 		Window:          window,
-		ID:              trayIconID,
+		ID:              trayNotifyID,
 		Flags:           nifMessage | nifIcon | nifTip | nifShowTip,
 		CallbackMessage: trayCallback,
 		Icon:            icon,

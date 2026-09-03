@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -17,11 +19,8 @@ func TestManagerHostReloadsStableEngineInProcess(t *testing.T) {
 	if os.Getenv("TRUEDOWN_INTEGRATION") != "1" {
 		t.Skip("set TRUEDOWN_INTEGRATION=1 to run the aria2 integration test")
 	}
-	aria2Path, err := filepath.Abs(filepath.Join("aria2", "aria2c.exe"))
+	aria2Path, err := integrationAria2Path()
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(aria2Path); err != nil {
 		t.Skipf("aria2 executable unavailable: %v", err)
 	}
 	root := t.TempDir()
@@ -78,6 +77,13 @@ func TestManagerHostReloadsStableEngineInProcess(t *testing.T) {
 	if !bytes.Equal(data, payload) {
 		t.Fatalf("reloaded download bytes=%d, want %d", len(data), len(payload))
 	}
+}
+
+func integrationAria2Path() (string, error) {
+	if runtime.GOOS != "windows" {
+		return exec.LookPath("aria2c")
+	}
+	return filepath.Abs(filepath.Join("aria2", "aria2c.exe"))
 }
 
 func waitForManagerStatus(t *testing.T, manager *downloader.Manager, id int64, want downloader.Status, timeout time.Duration) {

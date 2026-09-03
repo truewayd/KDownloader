@@ -13,7 +13,7 @@ loading executable plugins or weakening the download manager's security model.
 ## Lifecycle
 
 The baseline packages in `internal/downloader/module_baselines/` are embedded in
-`TrueDown.exe`. They are always available, including when a user update is
+the TrueDown binary. They are always available, including when a user update is
 missing, corrupt, incompatible, or older than the embedded baseline.
 
 The dashboard's resolver-component cards support three separate actions:
@@ -90,6 +90,8 @@ response or traversal protections, introduce aria2 arguments, or run code.
 - `POST /modules/package` accepts `{ "package": <package-object> }` and returns
   the newly active component description after persistence succeeds.
 - `DELETE /modules/package?id=<module-id>` restores the embedded baseline.
+- `POST /system/exit` requests the same graceful process shutdown used by the
+  Windows tray and Unix signals.
 
 The endpoints use the same origin and `X-Api-Key` protection as other TrueDown
 write APIs.
@@ -192,6 +194,9 @@ domains:
 - Every Windows package contains the reviewed stable `aria2c.exe`. A program
   update replaces only `TrueDown.exe`; it never replaces the packaged stable
   engine, a manually installed NEXT engine, the database, or other data files.
+- Linux and macOS resolve stable aria2 from their package, an explicit
+  `TRUEDOWN_ARIA2_PATH`, the system `PATH`, or standard Homebrew locations.
+  Aria2 Next and program self-update remain Windows-only.
 - Aria2 Next is optional and manual-only. The dashboard downloads the exact
   Windows asset and checksum list from the latest stable
   `AnInsomniacy/aria2-next` GitHub Release, verifies SHA-256 and the executable's

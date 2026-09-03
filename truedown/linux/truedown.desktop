@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=TrueDown
+Comment=Local download manager with a browser dashboard
+Exec=TrueDown
+Icon=truedown
+Terminal=true
+Categories=Network;FileTransfer;
+StartupNotify=false

@@ -194,6 +194,23 @@ public static class TrueDownWindowsResourceReader {
   }
 }
 
+function Assert-TrayIconResource {
+  param([string]$Executable)
+
+  $module = [TrueDownWindowsResourceReader]::LoadLibraryExW($Executable, [IntPtr]::Zero, 0x22)
+  if ($module -eq [IntPtr]::Zero) {
+    throw "Unable to inspect the built executable tray icon"
+  }
+  try {
+    $resource = [TrueDownWindowsResourceReader]::FindResourceW($module, [IntPtr]2, [IntPtr]14)
+    if ($resource -eq [IntPtr]::Zero -or [TrueDownWindowsResourceReader]::SizeofResource($module, $resource) -eq 0) {
+      throw "Built executable does not contain tray icon group resource 2"
+    }
+  } finally {
+    [TrueDownWindowsResourceReader]::FreeLibrary($module) | Out-Null
+  }
+}
+
 function Assert-WindowsGUISubsystem {
   param([string]$Executable)
 
@@ -310,6 +327,7 @@ try {
   Assert-WindowsGUISubsystem -Executable $exe
   Assert-ExecutableIcon -Executable $exe -ExpectedIcon $icon
   Assert-ExecutableDPIManifest -Executable $exe -ExpectedManifest $appManifest
+  Assert-TrayIconResource -Executable $exe
 
   Assert-NoReparsePath -Root $projectRoot -Path $staging
   foreach ($entry in $copySources) {

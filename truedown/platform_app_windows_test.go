@@ -9,6 +9,9 @@ import (
 )
 
 func TestWindowsTrayInteropLayouts(t *testing.T) {
+	if trayNotifyID != 1 || trayIconResourceID != 2 {
+		t.Fatalf("tray IDs notify=%d resource=%d", trayNotifyID, trayIconResourceID)
+	}
 	if size := unsafe.Sizeof(trayMessage{}); size != 48 {
 		t.Fatalf("MSG layout is %d bytes, want 48", size)
 	}

@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -14,11 +16,8 @@ func TestManagerAria2Lifecycle(t *testing.T) {
 	if os.Getenv("TRUEDOWN_INTEGRATION") == "" {
 		t.Skip("set TRUEDOWN_INTEGRATION=1 to run the aria2 integration test")
 	}
-	aria2Path, err := filepath.Abs(filepath.Join("..", "..", "aria2", "aria2c.exe"))
+	aria2Path, err := integrationAria2Path()
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(aria2Path); err != nil {
 		t.Skipf("aria2 executable unavailable: %v", err)
 	}
 
@@ -108,11 +107,8 @@ func TestManagerDetectsUnexpectedAria2ExitForRecovery(t *testing.T) {
 	if os.Getenv("TRUEDOWN_INTEGRATION") == "" {
 		t.Skip("set TRUEDOWN_INTEGRATION=1 to run the aria2 integration test")
 	}
-	aria2Path, err := filepath.Abs(filepath.Join("..", "..", "aria2", "aria2c.exe"))
+	aria2Path, err := integrationAria2Path()
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(aria2Path); err != nil {
 		t.Skipf("aria2 executable unavailable: %v", err)
 	}
 
@@ -159,6 +155,13 @@ func TestManagerDetectsUnexpectedAria2ExitForRecovery(t *testing.T) {
 	if recovering.Error != "" || !strings.Contains(recovering.Progress, "recovering") {
 		t.Fatalf("task after unexpected engine exit=%+v", recovering)
 	}
+}
+
+func integrationAria2Path() (string, error) {
+	if runtime.GOOS != "windows" {
+		return exec.LookPath("aria2c")
+	}
+	return filepath.Abs(filepath.Join("..", "..", "aria2", "aria2c.exe"))
 }
 
 func requireAriaGlobalOption(t *testing.T, m *Manager, name, want string) {

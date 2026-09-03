@@ -351,7 +351,8 @@ func TestBuildScriptGuardsRecursiveDeleteAndCopiesAgainstReparsePoints(t *testin
 		!strings.Contains(script, "-H windowsgui") ||
 		!strings.Contains(script, "Assert-WindowsGUISubsystem -Executable $exe") ||
 		!strings.Contains(script, "Assert-ExecutableIcon -Executable $exe -ExpectedIcon $icon") ||
-		!strings.Contains(script, "Assert-ExecutableDPIManifest -Executable $exe -ExpectedManifest $appManifest") {
+		!strings.Contains(script, "Assert-ExecutableDPIManifest -Executable $exe -ExpectedManifest $appManifest") ||
+		!strings.Contains(script, "Assert-TrayIconResource -Executable $exe") {
 		t.Fatal("build input/output paths are not constrained against reparse traversal")
 	}
 	if strings.Contains(script, "$paths = @($current)") {
@@ -415,6 +416,72 @@ func TestWindowsIconContainsShellSizes(t *testing.T) {
 	for size, found := range want {
 		if !found {
 			t.Errorf("TrueDown icon is missing the %dx%d shell size", size, size)
+		}
+	}
+}
+
+func TestMacIconContainsModernPNGRepresentations(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("macos", "truedown.icns"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) < 8 || string(data[:4]) != "icns" || int(binary.BigEndian.Uint32(data[4:8])) != len(data) {
+		t.Fatal("TrueDown macOS icon has an invalid ICNS header")
+	}
+	want := map[string]bool{"icp4": false, "icp5": false, "icp6": false, "ic07": false, "ic08": false, "ic09": false, "ic10": false}
+	for offset := 8; offset < len(data); {
+		if offset+8 > len(data) {
+			t.Fatal("TrueDown ICNS chunk header is truncated")
+		}
+		kind := string(data[offset : offset+4])
+		length := int(binary.BigEndian.Uint32(data[offset+4 : offset+8]))
+		if length < 16 || offset+length > len(data) {
+			t.Fatalf("TrueDown ICNS chunk %q has invalid length %d", kind, length)
+		}
+		payload := data[offset+8 : offset+length]
+		if len(payload) < 8 || string(payload[1:4]) != "PNG" {
+			t.Fatalf("TrueDown ICNS chunk %q is not PNG-backed", kind)
+		}
+		if _, ok := want[kind]; ok {
+			want[kind] = true
+		}
+		offset += length
+	}
+	for kind, found := range want {
+		if !found {
+			t.Errorf("TrueDown ICNS is missing %s", kind)
+		}
+	}
+}
+
+func TestUnixBuildScriptPackagesLinuxAndMacOS(t *testing.T) {
+	data, err := os.ReadFile("build-unix.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	for _, contract := range []string{
+		"linux|darwin", "amd64|arm64", "CGO_ENABLED=0", "TrueDown.app",
+		"macos/truedown.icns", "linux/truedown.desktop", "TRUEDOWN_VERSION",
+	} {
+		if !strings.Contains(script, contract) {
+			t.Errorf("Unix build script is missing %q", contract)
+		}
+	}
+}
+
+func TestWSL2PreparationBuildsApplicationAndTestBinaries(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("tools", "prepare-wsl-tests.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	for _, contract := range []string{
+		`$env:CGO_ENABLED = "0"`, `$env:GOOS = "linux"`, `$env:GOARCH = "amd64"`,
+		"go build -trimpath", "go test -c", "ReparsePoint", "dist", "wsl2",
+	} {
+		if !strings.Contains(script, contract) {
+			t.Errorf("WSL2 preparation script is missing %q", contract)
 		}
 	}
 }

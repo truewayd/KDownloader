@@ -100,10 +100,99 @@ function Write-MultiSizeIcon {
   }
 }
 
+function Write-BigEndianUInt32 {
+  param(
+    [System.IO.BinaryWriter]$Writer,
+    [uint32]$Value
+  )
+  $bytes = [System.BitConverter]::GetBytes($Value)
+  if ([System.BitConverter]::IsLittleEndian) {
+    [System.Array]::Reverse($bytes)
+  }
+  $Writer.Write($bytes)
+}
+
+function Write-MacIcon {
+  param(
+    [string]$SourcePng,
+    [string]$Destination
+  )
+
+  Add-Type -AssemblyName System.Drawing
+  $entries = [ordered]@{
+    icp4 = 16
+    icp5 = 32
+    icp6 = 64
+    ic07 = 128
+    ic08 = 256
+    ic09 = 512
+    ic10 = 1024
+  }
+  $chunks = [System.Collections.Generic.List[object]]::new()
+  $source = [System.Drawing.Bitmap]::FromFile($SourcePng)
+  try {
+    foreach ($entry in $entries.GetEnumerator()) {
+      $size = [int]$entry.Value
+      $bitmap = [System.Drawing.Bitmap]::new(
+        $size,
+        $size,
+        [System.Drawing.Imaging.PixelFormat]::Format32bppArgb
+      )
+      try {
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        try {
+          $graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
+          $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+          $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+          $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+          $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+          $graphics.DrawImage($source, 0, 0, $size, $size)
+        } finally {
+          $graphics.Dispose()
+        }
+        $imageStream = [System.IO.MemoryStream]::new()
+        try {
+          $bitmap.Save($imageStream, [System.Drawing.Imaging.ImageFormat]::Png)
+          $chunks.Add([pscustomobject]@{ Type = [string]$entry.Key; Data = $imageStream.ToArray() })
+        } finally {
+          $imageStream.Dispose()
+        }
+      } finally {
+        $bitmap.Dispose()
+      }
+    }
+  } finally {
+    $source.Dispose()
+  }
+
+  [uint32]$totalLength = 8
+  foreach ($chunk in $chunks) {
+    $totalLength += [uint32](8 + $chunk.Data.Length)
+  }
+  $stream = [System.IO.MemoryStream]::new()
+  $writer = [System.IO.BinaryWriter]::new($stream)
+  try {
+    $writer.Write([System.Text.Encoding]::ASCII.GetBytes("icns"))
+    Write-BigEndianUInt32 -Writer $writer -Value $totalLength
+    foreach ($chunk in $chunks) {
+      $writer.Write([System.Text.Encoding]::ASCII.GetBytes($chunk.Type))
+      Write-BigEndianUInt32 -Writer $writer -Value ([uint32](8 + $chunk.Data.Length))
+      $writer.Write([byte[]]$chunk.Data)
+    }
+    $writer.Flush()
+    [System.IO.File]::WriteAllBytes($Destination, $stream.ToArray())
+  } finally {
+    $writer.Dispose()
+    $stream.Dispose()
+  }
+}
+
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $sourceSvg = Join-Path $projectRoot "web\truedown-logo.svg"
 $targetIcon = Join-Path $PSScriptRoot "truedown.ico"
 $manifest = Join-Path $PSScriptRoot "truedown.manifest"
+$macIconDirectory = Join-Path $projectRoot "macos"
+$targetMacIcon = Join-Path $macIconDirectory "truedown.icns"
 $targetResource = Join-Path $projectRoot "resource_windows_amd64.syso"
 if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
   throw "TrueDown Windows manifest is required"
@@ -142,8 +231,10 @@ try {
   }
 
   $stagedIcon = Join-Path $temporaryRoot "truedown.ico"
+  $stagedMacIcon = Join-Path $temporaryRoot "truedown.icns"
   $stagedResource = Join-Path $temporaryRoot "resource_windows_amd64.syso"
   Write-MultiSizeIcon -SourcePng $renderedPng -Destination $stagedIcon -WorkingDirectory $temporaryRoot
+  Write-MacIcon -SourcePng $renderedPng -Destination $stagedMacIcon
 
   Push-Location $projectRoot
   try {
@@ -156,8 +247,10 @@ try {
   }
 
   [System.IO.File]::Copy($stagedIcon, $targetIcon, $true)
+  [System.IO.Directory]::CreateDirectory($macIconDirectory) | Out-Null
+  [System.IO.File]::Copy($stagedMacIcon, $targetMacIcon, $true)
   [System.IO.File]::Copy($stagedResource, $targetResource, $true)
-  Write-Host "Updated $targetIcon and $targetResource"
+  Write-Host "Updated $targetIcon, $targetMacIcon, and $targetResource"
 } finally {
   if (Test-Path -LiteralPath $temporaryRoot) {
     if (-not $temporaryRoot.StartsWith($temporaryPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
