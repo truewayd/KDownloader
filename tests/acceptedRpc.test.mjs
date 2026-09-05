@@ -11,7 +11,10 @@ globalThis.chrome = {
   runtime: {
     id: "test-extension",
     lastError: null,
-    sendMessage(_payload, callback) { callback?.(); },
+    sendMessage(payload, callback) {
+      globalThis.__acceptedTabMessages?.push(payload);
+      callback?.();
+    },
   },
   tabs: {
     sendMessage(_tabId, payload, callback) {
@@ -37,8 +40,8 @@ const utilUrl = asModuleUrl(`
     hasUnpairedSurrogate() { return false; },
     normalizeCreatorFetchMode() { return globalThis.__acceptedCreatorMode || "default"; },
     extractExternalLinks() { return []; },
-    extractPostExternalLinks() { return []; },
-    filterExternalLinks() { return []; },
+    extractPostExternalLinks(post) { return post?.content ? [post.content] : []; },
+    filterExternalLinks(links) { return links; },
   };
   export default UTIL;
 `);
@@ -50,8 +53,9 @@ const networkUrl = asModuleUrl(`
   export async function readLimitedResponseText(response) { return response.text(); }
 `);
 const downloadUrl = asModuleUrl(`
-  export async function startFullDownload(_service, _userId, postId) {
+  export async function startFullDownload(_service, _userId, postId, _path, senderUrl) {
     globalThis.__acceptedStartCalls++;
+    globalThis.__acceptedDownloadOrigins?.push(senderUrl);
     await Promise.resolve();
     if (typeof globalThis.__acceptedFallbackFactory === "function") {
       return globalThis.__acceptedFallbackFactory(postId);
@@ -62,15 +66,16 @@ const downloadUrl = asModuleUrl(`
   export async function startCoomerFansDownload() { return startFullDownload(); }
   export async function dispatchExternalLinksTextTask(entries) {
     globalThis.__acceptedDispatchedLinkCount = entries.length;
+    if (globalThis.__acceptedLinkDispatch) return globalThis.__acceptedLinkDispatch(entries);
     return { success: true, skipped: true };
   }
   export async function dispatchTextDownloadTask() { return { success: true }; }
   export async function runSequentialDownloads() { return { successCount: 0, results: [] }; }
 `);
 const pawchiveUrl = asModuleUrl(`
-  export async function fetchAllPawchiveCreatorPosts() { return []; }
+  export async function fetchAllPawchiveCreatorPosts() { return globalThis.__acceptedPawPosts || []; }
   export async function fetchPawchiveDms() { return { url: "", messages: [] }; }
-  export async function fetchPawchiveCreatorPage() { return []; }
+  export async function fetchPawchiveCreatorPage() { return globalThis.__acceptedPawPosts || []; }
   export function formatPawchiveDmsText() { return "empty"; }
   export function isCompletePawchivePost() { return true; }
 `);
@@ -81,10 +86,12 @@ const dbUrl = asModuleUrl(`
     globalThis.__acceptedCheckedBatchSizes.push(items.length);
     return Object.fromEntries(items.map((item) => [
       downloadedItemKey(item.service, item.userId, item.postId, item.source),
-      true,
+      !globalThis.__acceptedUnprocessed,
     ]));
   }
-  export async function markDownloaded() {}
+  export async function markDownloaded() {
+    if (globalThis.__acceptedHistoryError) throw new Error(globalThis.__acceptedHistoryError);
+  }
   export async function markMultipleDownloaded() {}
 `);
 const progressUrl = asModuleUrl(`
@@ -378,7 +385,7 @@ test("fallback batch overflow preserves the first 5,000 tasks instead of invalid
       5000
     );
     const failures = globalThis.__acceptedTabMessages.filter(
-      (message) => message.action === "downloadComplete" && message.requestId === requestId
+      (message) => message.action === "downloadComplete" && !message.batch && message.requestId === requestId
     );
     assert.equal(failures.length, 1);
     assert.match(failures[0].result.error, /5,000 task or 8 MiB/);
@@ -459,4 +466,261 @@ test("CoomerFans listing anchor parsing is linear, bounded, and attribute-aware"
   );
   assert.deepEqual(hrefs, ["/p/one/creator/fansly"]);
   assert.doesNotMatch(handlerSource, /linkRe\s*=\s*\/<a\\b\[\^>\]\*/);
+});
+
+async function waitForBatchCompletion(requestId) {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const message = globalThis.__acceptedTabMessages?.find(
+      (value) => value.action === "downloadComplete" && value.batch && value.requestId === requestId
+    );
+    if (message) return message;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail("Batch did not emit its terminal completion");
+}
+
+test("popup creator downloads preserve the validated Coomer origin for each post", async () => {
+  globalThis.__acceptedTabMessages = [];
+  globalThis.__acceptedDownloadOrigins = [];
+  globalThis.__acceptedUnprocessed = true;
+  globalThis.__acceptedApiResponse = (url) => url.endsWith('/profile')
+    ? { post_count: 1 }
+    : [{ id: 'post-1' }];
+  const requestId = `coomer-origin:${crypto.randomUUID()}`;
+  try {
+    createDownloadHandlers()['creator.fetch']({
+      message: { service: 'onlyfans', userId: 'creator', origin: 'https://coomer.st', requestId },
+      sender: { url: 'chrome-extension://test-extension/popup/popup.html' },
+      sendResponse() {},
+    });
+    assert.equal((await waitForBatchCompletion(requestId)).result.success, true);
+    assert.deepEqual(globalThis.__acceptedDownloadOrigins, ['https://coomer.st']);
+  } finally {
+    globalThis.__acceptedApiResponse = null;
+    globalThis.__acceptedUnprocessed = false;
+    globalThis.__acceptedDownloadOrigins = null;
+    globalThis.__acceptedTabMessages = null;
+  }
+});
+
+test("empty creator batches emit a successful terminal response with their request id", async () => {
+  globalThis.__acceptedTabMessages = [];
+  globalThis.__acceptedApiResponse = () => [];
+  const requestId = `empty-page:${crypto.randomUUID()}`;
+  try {
+    createDownloadHandlers()["creator.pageFetch"]({
+      message: { service: "patreon", userId: "creator", requestId },
+      sender: { url: "https://kemono.cr/patreon/user/creator", tab: { id: 30 } },
+      sendResponse() {},
+    });
+    const terminal = await waitForBatchCompletion(requestId);
+    assert.deepEqual(terminal.result, { success: true, totalCount: 0, successCount: 0, failedCount: 0 });
+  } finally {
+    globalThis.__acceptedApiResponse = null;
+    globalThis.__acceptedTabMessages = null;
+  }
+});
+
+test("creator page request failures cannot masquerade as successful empty downloads", async (t) => {
+  t.mock.method(console, "error", () => {});
+  globalThis.__acceptedTabMessages = [];
+  globalThis.__acceptedApiResponse = () => { throw new Error("HTTP 503"); };
+  const requestId = `failed-page:${crypto.randomUUID()}`;
+  try {
+    createDownloadHandlers()["creator.pageFetch"]({
+      message: { service: "patreon", userId: "creator", requestId },
+      sender: { url: "https://kemono.cr/patreon/user/creator", tab: { id: 31 } },
+      sendResponse() {},
+    });
+    const terminal = await waitForBatchCompletion(requestId);
+    assert.equal(terminal.result.success, false);
+    assert.match(terminal.result.error, /HTTP 503/);
+    globalThis.__acceptedApiResponse = () => ({ error: "invalid page" });
+    const invalidId = `invalid-page:${crypto.randomUUID()}`;
+    createDownloadHandlers()["creator.pageFetch"]({
+      message: { service: "patreon", userId: "creator", requestId: invalidId },
+      sender: { url: "https://kemono.cr/patreon/user/creator", tab: { id: 31 } },
+      sendResponse() {},
+    });
+    assert.match((await waitForBatchCompletion(invalidId)).result.error, /Invalid creator posts response/);
+  } finally {
+    globalThis.__acceptedApiResponse = null;
+    globalThis.__acceptedTabMessages = null;
+  }
+});
+
+test("creator pagination rejects an interrupted result instead of silently omitting a page", async () => {
+  globalThis.__acceptedApiResponse = (url) => {
+    if (url.includes("/profile")) return { post_count: 100 };
+    if (url.includes("o=50")) throw new Error("HTTP 503");
+    return [{ id: "post-1" }];
+  };
+  try {
+    await assert.rejects(fetchCreatorPosts("https://kemono.cr", "patreon", "creator"), /offset 50: HTTP 503/);
+  } finally {
+    globalThis.__acceptedApiResponse = null;
+  }
+});
+
+test("creator fetch rejects a malformed profile instead of declaring zero posts", async () => {
+  for (const postCount of [undefined, -1, 2.5, "100", Infinity]) {
+    globalThis.__acceptedApiResponse = () => ({ post_count: postCount });
+    try {
+      await assert.rejects(fetchCreatorPosts("https://kemono.cr", "patreon", "creator"), /Invalid creator profile post count/);
+    } finally {
+      globalThis.__acceptedApiResponse = null;
+    }
+  }
+});
+
+test("CoomerFans creator fetch reports failure when every listing route is unavailable", async (t) => {
+  t.mock.method(console, "error", () => {});
+  t.mock.method(console, "warn", () => {});
+  t.mock.method(globalThis, "fetch", async () => ({ ok: false, status: 503, statusText: "Unavailable" }));
+  globalThis.__acceptedTabMessages = [];
+  const requestId = `coomer-list-failure:${crypto.randomUUID()}`;
+  try {
+    createDownloadHandlers()["creator.fetch"]({
+      message: { service: "fansly", userId: "creator", origin: "https://coomerfans.com", requestId },
+      sender: { url: "chrome-extension://test-extension/popup/popup.html" },
+      sendResponse() {},
+    });
+    // The supported listing alternatives each retain their bounded retry delay.
+    await new Promise((resolve) => setTimeout(resolve, 1250));
+    const terminal = await waitForBatchCompletion(requestId);
+    assert.equal(terminal.result.success, false);
+    assert.match(terminal.result.error, /Failed to fetch CoomerFans creator page 1:.*503/);
+  } finally {
+    globalThis.__acceptedTabMessages = null;
+  }
+});
+
+test("batch completion waits for links TXT dispatch and reports its failure", async (t) => {
+  t.mock.method(console, "error", () => {});
+  globalThis.__acceptedTabMessages = [];
+  globalThis.__acceptedExternalLinks = ["https://example.com/item"];
+  let releaseDispatch;
+  let dispatchStarted = false;
+  const dispatch = new Promise((resolve) => { releaseDispatch = resolve; });
+  globalThis.__acceptedLinkDispatch = () => { dispatchStarted = true; return dispatch; };
+  const requestId = `txt-failure:${crypto.randomUUID()}`;
+  try {
+    createDownloadHandlers().startDownloadBatch({
+      message: {
+        items: [{ service: "patreon", userId: "creator", postId: "one" }],
+        aggregateExternalLinks: true,
+        requestId,
+      },
+      sender: { url: "https://kemono.cr/patreon/user/creator", tab: { id: 32 } },
+      sendResponse() {},
+    });
+    for (let attempt = 0; attempt < 200 && !dispatchStarted; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.equal(dispatchStarted, true);
+    assert.equal(globalThis.__acceptedTabMessages.some((message) => message.batch && message.action === "downloadComplete"), false);
+    releaseDispatch({ success: false, error: "Download blocked" });
+    const terminal = await waitForBatchCompletion(requestId);
+    assert.equal(terminal.result.success, false);
+    assert.match(terminal.result.error, /Download blocked/);
+  } finally {
+    releaseDispatch({ success: true });
+    globalThis.__acceptedLinkDispatch = null;
+    globalThis.__acceptedExternalLinks = null;
+    globalThis.__acceptedTabMessages = null;
+  }
+});
+
+test("Pawchive Links only mode includes links from incomplete posts without media dispatch", async () => {
+  globalThis.__acceptedTabMessages = [];
+  globalThis.__acceptedCreatorMode = "links";
+  globalThis.__acceptedPawPosts = [{ id: "partial", has_full: false, content: "https://example.com/project.zip" }];
+  globalThis.__acceptedDispatchedLinkCount = 0;
+  const starts = globalThis.__acceptedStartCalls;
+  const requestId = `incomplete-links:${crypto.randomUUID()}`;
+  try {
+    createDownloadHandlers()["creator.fetch"]({
+      message: { service: "patreon", userId: "creator", origin: "https://pawchive.pw", mode: "links", requestId },
+      sender: { url: "chrome-extension://test-extension/popup/popup.html" },
+      sendResponse() {},
+    });
+    const terminal = await waitForBatchCompletion(requestId);
+    assert.equal(terminal.result.success, true);
+    assert.equal(terminal.result.totalCount, 1);
+    assert.equal(globalThis.__acceptedDispatchedLinkCount, 1);
+    assert.equal(globalThis.__acceptedStartCalls, starts);
+  } finally {
+    globalThis.__acceptedCreatorMode = null;
+    globalThis.__acceptedPawPosts = null;
+    globalThis.__acceptedTabMessages = null;
+  }
+});
+
+test("partially successful post batches expose post-level terminal failure counts", async () => {
+  globalThis.__acceptedTabMessages = [];
+  globalThis.__acceptedFallbackFactory = (postId) => postId === "complete"
+    ? { success: true, noFiles: true, results: [] }
+    : { success: true, results: [{ success: true }, { success: false }] };
+  const requestId = `partial-batch:${crypto.randomUUID()}`;
+  try {
+    createDownloadHandlers().startDownloadBatch({
+      message: {
+        items: ["complete", "partial"].map((postId) => ({ service: "patreon", userId: "creator", postId })),
+        requestId,
+      },
+      sender: { url: "https://kemono.cr/patreon/user/creator", tab: { id: 33 } },
+      sendResponse() {},
+    });
+    assert.deepEqual((await waitForBatchCompletion(requestId)).result, {
+      success: false, totalCount: 2, successCount: 1, failedCount: 1,
+    });
+  } finally {
+    globalThis.__acceptedFallbackFactory = null;
+    globalThis.__acceptedTabMessages = null;
+  }
+});
+
+test("Pawchive DM exports emit a correlated terminal success", async () => {
+  globalThis.__acceptedTabMessages = [];
+  globalThis.__acceptedCreatorMode = "dms";
+  const requestId = `dm-completion:${crypto.randomUUID()}`;
+  try {
+    createDownloadHandlers()["creator.fetch"]({
+      message: { service: "patreon", userId: "creator", origin: "https://pawchive.pw", mode: "dms", requestId },
+      sender: { url: "chrome-extension://test-extension/popup/popup.html" },
+      sendResponse() {},
+    });
+    assert.deepEqual((await waitForBatchCompletion(requestId)).result, {
+      success: true, totalCount: 1, successCount: 1, failedCount: 0,
+    });
+  } finally {
+    globalThis.__acceptedCreatorMode = null;
+    globalThis.__acceptedTabMessages = null;
+  }
+});
+
+test("single-post completion reports history persistence failures and preserves links", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  globalThis.__acceptedTabMessages = [];
+  globalThis.__acceptedHistoryError = "IndexedDB unavailable";
+  globalThis.__acceptedExternalLinks = ["https://example.com/project.zip"];
+  const requestId = `history-failure:${crypto.randomUUID()}`;
+  try {
+    createDownloadHandlers().startDownload({
+      message: { service: "patreon", userId: "creator", postId: "one", requestId },
+      sender: { url: "https://kemono.cr/patreon/user/creator/post/one", tab: { id: 34 } },
+      sendResponse() {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const terminal = globalThis.__acceptedTabMessages.find(
+      (message) => message.action === "downloadComplete" && message.requestId === requestId
+    );
+    assert.equal(terminal.result.success, false);
+    assert.match(terminal.result.error, /saving download history failed/);
+    assert.deepEqual(terminal.result.externalLinks, ["https://example.com/project.zip"]);
+  } finally {
+    globalThis.__acceptedHistoryError = null;
+    globalThis.__acceptedExternalLinks = null;
+    globalThis.__acceptedTabMessages = null;
+  }
 });

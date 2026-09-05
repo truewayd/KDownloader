@@ -194,6 +194,7 @@ function notifyContentUpdate() {
             "https://*.kemono.cr/*",
             "https://coomerfans.com/*",
             "https://*.coomerfans.com/*",
+            "https://pawchive.pw/*",
         ],
     }, (tabs) => {
         const runtimeError = chrome.runtime.lastError;
@@ -201,7 +202,9 @@ function notifyContentUpdate() {
         tabs.forEach((tab) => {
             if (!Number.isInteger(tab?.id)) return;
             try {
-                chrome.tabs.sendMessage(tab.id, { action: "updateUI" });
+                chrome.tabs.sendMessage(tab.id, { action: "updateUI" }, () => {
+                    void chrome.runtime.lastError;
+                });
             } catch (_) { }
         });
     });

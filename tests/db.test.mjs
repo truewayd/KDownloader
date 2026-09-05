@@ -1057,6 +1057,24 @@ test("history imports require valid timezone-qualified ISO timestamps", async ()
   );
 });
 
+test("import session RPCs cannot address the active history metadata pointer", async () => {
+  const db = await loadDBModule();
+  await db.importDB(importPayload([record()]));
+  const before = await db.beginHistoryExport();
+  for (const operation of [
+    () => db.abortImportSession("__active_generation__"),
+    () => db.commitImportSession("__active_generation__"),
+    () => db.appendImportChunk("__active_generation__", [record()]),
+    () => db.getImportSessionStatus("__active_generation__"),
+  ]) {
+    await assert.rejects(operation(), /Invalid import session id/);
+  }
+  const after = await db.beginHistoryExport();
+  assert.equal(after.generation, before.generation);
+  assert.equal(after.revision, before.revision);
+  assert.deepEqual(JSON.parse(await db.exportDB()).records, [record()]);
+});
+
 test("history identities reject lone UTF-16 surrogates and preserve valid pairs", async () => {
   const db = await loadDBModule();
   for (const postId of ["\ud800", "\udc00", "left\ud800right", "left\udc00right"]) {

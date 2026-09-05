@@ -12,6 +12,14 @@ import {
 } from './constants.js';
 import { hasUnpairedSurrogate } from './util.js';
 
+let configMutationQueue = Promise.resolve();
+
+function withConfigMutation(task) {
+  const run = configMutationQueue.then(task, task);
+  configMutationQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 export function getDefaultWatchConfig() {
   return { intervalMinutes: 30, checkMode: 'batch' };
 }
@@ -96,7 +104,11 @@ export async function loadWatchConfig() {
   };
 }
 
-export async function saveWatchConfig(cfg) {
+export function saveWatchConfig(cfg) {
+  return withConfigMutation(() => writeWatchConfig(cfg));
+}
+
+async function writeWatchConfig(cfg) {
   const current = await loadWatchConfig();
   const next = {
     intervalMinutes: boundedInteger(cfg && cfg.intervalMinutes, current.intervalMinutes, 1, 10080),
@@ -131,7 +143,13 @@ function normalizeBackendConfig(cfg, fallback = getDefaultBackendConfig()) {
   };
 }
 
-export async function loadBackendConfig() {
+export function loadBackendConfig() {
+  // A legacy read may migrate secrets. Serialize it with saves and defaults so
+  // its older snapshot cannot overwrite a newly saved key or configuration.
+  return withConfigMutation(readBackendConfig);
+}
+
+async function readBackendConfig() {
   const [synced, local] = await Promise.all([
     chrome.storage.sync.get(BACKEND_CONFIG_KEY),
     chrome.storage.local.get(BACKEND_SECRETS_KEY),
@@ -160,8 +178,12 @@ export async function loadBackendConfig() {
   return config;
 }
 
-export async function saveBackendConfig(cfg) {
-  const current = await loadBackendConfig();
+export function saveBackendConfig(cfg) {
+  return withConfigMutation(() => writeBackendConfig(cfg));
+}
+
+async function writeBackendConfig(cfg) {
+  const current = await readBackendConfig();
   const input = cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? { ...cfg } : {};
   if (Object.hasOwn(input, 'apiKey')) {
     input.apiKey = validatedHeaderSecret(input.apiKey, 'API Key', { apiKey: true });
@@ -232,7 +254,11 @@ export function getDefaultGistConfig() {
   return { enabled: false, token: '', gistId: '' };
 }
 
-export async function restoreDefaultConfigs() {
+export function restoreDefaultConfigs() {
+  return withConfigMutation(writeDefaultConfigs);
+}
+
+async function writeDefaultConfigs() {
   const configs = {
     backend: getDefaultBackendConfig(),
     downloadRules: getDefaultDownloadRulesConfig(),
@@ -270,7 +296,11 @@ export async function loadDownloadRulesConfig() {
   };
 }
 
-export async function saveDownloadRulesConfig(cfg) {
+export function saveDownloadRulesConfig(cfg) {
+  return withConfigMutation(() => writeDownloadRulesConfig(cfg));
+}
+
+async function writeDownloadRulesConfig(cfg) {
   const next = {
     enabled: !!(cfg && cfg.enabled),
     excludedExtensions: normalizeExcludedExtensions(cfg && cfg.excludedExtensions),
@@ -290,7 +320,11 @@ export async function loadExternalLinkFilterConfig() {
   };
 }
 
-export async function saveExternalLinkFilterConfig(cfg) {
+export function saveExternalLinkFilterConfig(cfg) {
+  return withConfigMutation(() => writeExternalLinkFilterConfig(cfg));
+}
+
+async function writeExternalLinkFilterConfig(cfg) {
   const next = {
     mode: cfg && cfg.mode === 'disabled' ? 'disabled' : 'blacklist',
     blacklist: normalizeExternalLinkBlacklist(cfg && cfg.blacklist),
@@ -299,7 +333,11 @@ export async function saveExternalLinkFilterConfig(cfg) {
   return next;
 }
 
-export async function loadGistConfig() {
+export function loadGistConfig() {
+  return withConfigMutation(readGistConfig);
+}
+
+async function readGistConfig() {
   const [synced, local] = await Promise.all([
     chrome.storage.sync.get(GIST_CONFIG_KEY),
     chrome.storage.local.get(GIST_SECRETS_KEY),
@@ -325,8 +363,12 @@ export async function loadGistConfig() {
   return config;
 }
 
-export async function saveGistConfig(cfg) {
-  const current = await loadGistConfig();
+export function saveGistConfig(cfg) {
+  return withConfigMutation(() => writeGistConfig(cfg));
+}
+
+async function writeGistConfig(cfg) {
+  const current = await readGistConfig();
   const input = cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? { ...cfg } : {};
   if (Object.hasOwn(input, 'token')) {
     input.token = validatedHeaderSecret(input.token, 'Gist token');

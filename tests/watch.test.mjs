@@ -128,6 +128,39 @@ test('Watch profile requests use a dedicated 256 KiB response limit', () => {
   assert.match(watchSource, /maxResponseBytes: MAX_PROFILE_RESPONSE_BYTES/);
 });
 
+test('concurrent Watch schedules preserve the latest interval after a slow clear', async (t) => {
+  const started = deferred();
+  const gate = deferred();
+  let clears = 0;
+  t.mock.method(watchChrome.alarms, 'clear', async () => {
+    if (++clears === 1) { started.resolve(); await gate.promise; }
+    return true;
+  });
+  const first = watch.configureWatchAlarm({ intervalMinutes: 15 });
+  await started.promise;
+  const second = watch.configureWatchAlarm({ intervalMinutes: 60 });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(clears, 1);
+  } finally {
+    gate.resolve();
+    await Promise.all([first, second]);
+  }
+  assert.deepEqual(alarms.filter((entry) => entry.action === 'create').map(
+    (entry) => entry.options.periodInMinutes
+  ), [15, 60]);
+});
+
+test('Watch scheduling reports alarm persistence errors and recovers for the next save', async (t) => {
+  let creations = 0;
+  t.mock.method(watchChrome.alarms, 'create', async () => {
+    if (++creations === 1) throw new Error('alarm persistence failed');
+  });
+  await assert.rejects(watch.configureWatchAlarm({ intervalMinutes: 15 }), /alarm persistence failed/);
+  await watch.configureWatchAlarm({ intervalMinutes: 60 });
+  assert.equal(creations, 2);
+});
+
 beforeEach(() => {
   globalThis.chrome = watchChrome;
   globalThis.fetch = watchFetch;

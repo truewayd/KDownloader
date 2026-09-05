@@ -11,6 +11,7 @@ function createContext({ invalidationMode = "throw" } = {}) {
   let sendCount = 0;
   let observerDisconnected = false;
   let observerCallback = null;
+  const messageListeners = new Set();
   const window = new EventTarget();
   const document = new EventTarget();
   document.readyState = "complete";
@@ -31,6 +32,10 @@ function createContext({ invalidationMode = "throw" } = {}) {
   const runtime = {
     id: "test-extension",
     lastError: null,
+    onMessage: {
+      addListener(listener) { messageListeners.add(listener); },
+      removeListener(listener) { messageListeners.delete(listener); },
+    },
     sendMessage(message, callback) {
       sendCount += 1;
       if (invalidationMode === "silent") return;
@@ -85,6 +90,8 @@ function createContext({ invalidationMode = "throw" } = {}) {
     get observerDisconnected() { return observerDisconnected; },
     get sendCount() { return sendCount; },
     emitMutations(mutations) { observerCallback?.(mutations); },
+    emitMessage(message) { messageListeners.forEach((listener) => listener(message)); },
+    get messageListenerCount() { return messageListeners.size; },
     warnings,
   };
 }
@@ -108,6 +115,23 @@ test("invalidated extension context is terminal and emits one stop signal", asyn
 
   assert.equal(harness.sendCount, 1);
   assert.equal(invalidatedEvents, 1);
+});
+
+test("the shared router refreshes every registered site UI after history notifications and releases its listener", async () => {
+  const harness = createContext();
+  let renders = 0;
+  harness.context.renderFixture = () => { renders++; };
+  vm.runInContext(helpersSource, harness.context);
+  vm.runInContext("CONFIG.INIT_DELAY = 0", harness.context);
+  vm.runInContext(routerSource, harness.context);
+  vm.runInContext("window.KDRouteWatcher.register({ name: 'history', render: renderFixture })", harness.context);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(renders, 1);
+  harness.emitMessage({ action: "updateUI" });
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  assert.equal(renders, 2);
+  harness.context.window.dispatchEvent(new Event("kd:extensioncontextinvalidated"));
+  assert.equal(harness.messageListenerCount, 0);
 });
 
 test("runtime.lastError invalidation also bypasses retries", async () => {

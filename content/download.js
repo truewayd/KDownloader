@@ -28,7 +28,7 @@ function pruneActiveDownloadRequests() {
   }
 }
 
-function registerActiveDownloadRequest({ requestId, button, timeoutMs, onMessage, onTimeout }) {
+function registerActiveDownloadRequest({ requestId, button, timeoutMs, onMessage, onTimeout, onCancel }) {
   pruneActiveDownloadRequests();
   if (activeDownloadRequests.size >= MAX_ACTIVE_DOWNLOAD_REQUESTS) {
     throw new Error('Too many active download requests');
@@ -53,6 +53,10 @@ function registerActiveDownloadRequest({ requestId, button, timeoutMs, onMessage
       }, timeoutMs);
     },
     onMessage,
+    cancel() {
+      entry.cleanup();
+      onCancel?.();
+    },
   };
 
   activeDownloadRequests.set(requestId, entry);
@@ -78,7 +82,7 @@ function dispatchDownloadMessage(message) {
 }
 
 function clearActiveDownloadRequests() {
-  for (const entry of Array.from(activeDownloadRequests.values())) entry.cleanup();
+  for (const entry of Array.from(activeDownloadRequests.values())) entry.cancel();
 }
 
 chrome.runtime.onMessage.addListener(dispatchDownloadMessage);
@@ -171,12 +175,8 @@ function renderDownloadResult(button, result, isCreatorPage) {
     return;
   }
 
-  if (isCreatorPage && hasUsefulResult) {
+  if (isCreatorPage && hasUsefulResult && result.noFiles !== true) {
     updateButtonStatus(button, 'SUCCESS', noFilesText, true);
-    if (result.noFiles === true) {
-      button.title = KDI18n.get('noDownloadableFiles');
-      button.setAttribute('aria-label', button.title);
-    }
     button.disabled = true;
     button.setAttribute('aria-disabled', 'true');
     return;
@@ -205,6 +205,10 @@ async function handleDownload(
       requestId,
       button,
       timeoutMs: DOWNLOAD_WATCHDOG_MS,
+      onCancel: () => {
+        finished = true;
+        updateButtonStatus(button, 'IDLE', null, isCreatorPage);
+      },
       onTimeout: () => {
         if (finished || button.dataset.status !== 'SENDING') return;
         finished = true;
@@ -321,17 +325,20 @@ async function runPageFetchWithProgress(options) {
     }
   };
 
-  const maybeFinish = () => {
+  const finishBatch = (result) => {
+    if (Number.isSafeInteger(result.totalCount) && result.totalCount >= 0) total = result.totalCount;
+    if (Number.isSafeInteger(result.successCount) && result.successCount >= 0) successCount = result.successCount;
+    if (result.error || (result.success === false && successCount === 0)) {
+      finish('ERROR', result.error ? `× ${result.error}` : KDI18n.get('statusFailedDecorated'), false);
+      return;
+    }
     if (total === 0) {
       finish('SUCCESS', KDI18n.get('statusAllDoneDecorated'), false);
-      return true;
+      return;
     }
-    if (total && completed >= total) {
-      if (successCount > 0) finish('SUCCESS', `✓ ${successCount}/${total}`, true);
-      else finish('ERROR', KDI18n.get('statusFailedDecorated'), false);
-      return true;
-    }
-    return false;
+    if (total && successCount === total) finish('SUCCESS', `✓ ${successCount}/${total}`, true);
+    else if (successCount > 0) finish('PARTIAL', `! ${successCount}/${total ?? '?'}`, false);
+    else finish('ERROR', KDI18n.get('statusFailedDecorated'), false);
   };
 
   const onBatchMessage = (message, activeEntry) => {
@@ -345,14 +352,19 @@ async function runPageFetchWithProgress(options) {
     }
     activeEntry.resetWatchdog();
 
-    if (message.action === 'downloadProgress' && message.batch) {
+    if (message.action === 'downloadProgress') {
+      if (!message.batch) return;
       if (Number.isFinite(message.totalCount) && message.totalCount >= 0) total = message.totalCount;
       if (typeof renderProgress === 'function') {
         renderProgress({ btn, message, state: state(), finish });
       } else {
         btn.textContent = KDI18n.get('sendingCount', [message.sentCount || 0, total ?? '?']);
       }
-      maybeFinish();
+      return;
+    }
+
+    if (message.batch) {
+      finishBatch(message.result || {});
       return;
     }
 
@@ -370,7 +382,6 @@ async function runPageFetchWithProgress(options) {
     } else {
       btn.textContent = KDI18n.get('ackCount', [completed, total ?? '?']);
     }
-    maybeFinish();
   };
 
   try {
@@ -380,6 +391,10 @@ async function runPageFetchWithProgress(options) {
       timeoutMs,
       onMessage: onBatchMessage,
       onTimeout: () => finish('ERROR', `× ${KDI18n.get('errorTimeout')}`, false),
+      onCancel: () => {
+        finished = true;
+        updateButtonStatus(btn, 'IDLE', resetText, false);
+      },
     });
   } catch (error) {
     finish('ERROR', `× ${getErrorMessage(error)}`, false);

@@ -243,16 +243,6 @@ function hasCoomerFansTargets() {
   return !!document.querySelector(COOMERFANS_TARGET_SELECTOR);
 }
 
-chrome.runtime.onMessage.addListener((message) => {
-  if (!message) return;
-  if (message.action === "updateUI") {
-    if (window.KDRouteWatcher) window.KDRouteWatcher.schedule("updateUI", 100);
-    else renderCoomerFansActions().catch((error) => {
-      console.warn("[Content] updateUI render failed", error);
-    });
-  }
-});
-
 if (window.KDRouteWatcher) {
   window.KDRouteWatcher.register({
     name: "coomerfans-download-actions",

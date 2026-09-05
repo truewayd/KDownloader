@@ -218,23 +218,26 @@ async function getDownloadedStatusMap(items) {
   if (validItems.length === 0) return new Map();
 
   try {
-    const response = await safeSendMessage(
-      { action: 'checkDownloadedMany', items: validItems },
-      8000,
-      { retries: 2, retryDelay: 300 }
-    );
-    const rawStatuses = response && response.statuses ? response.statuses : {};
-    const rawDownloaded = response && response.downloaded ? response.downloaded : {};
     const statuses = new Map();
-    for (const item of validItems) {
-      const key = downloadedKey(item.service, item.userId, item.postId, item.source);
-      const status = rawStatuses[key];
-      statuses.set(
-        key,
-        ['complete', 'partial', 'empty'].includes(status)
-          ? status
-          : (rawDownloaded[key] ? 'complete' : null)
+    for (let offset = 0; offset < validItems.length; offset += 500) {
+      const batch = validItems.slice(offset, offset + 500);
+      const response = await safeSendMessage(
+        { action: 'checkDownloadedMany', items: batch },
+        8000,
+        { retries: 2, retryDelay: 300 }
       );
+      const rawStatuses = response && response.statuses ? response.statuses : {};
+      const rawDownloaded = response && response.downloaded ? response.downloaded : {};
+      for (const item of batch) {
+        const key = downloadedKey(item.service, item.userId, item.postId, item.source);
+        const status = rawStatuses[key];
+        statuses.set(
+          key,
+          ['complete', 'partial', 'empty'].includes(status)
+            ? status
+            : (rawDownloaded[key] ? 'complete' : null)
+        );
+      }
     }
     return statuses;
   } catch (error) {

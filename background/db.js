@@ -177,7 +177,8 @@ function normalizedIsoTimestamp(value, label) {
 }
 
 function normalizedImportSessionId(value) {
-  if (typeof value !== "string" || !value || value.length > 128 || /[\0-\x1f\x7f]/.test(value)) {
+  if (typeof value !== "string" || !value || value === ACTIVE_GENERATION_ID
+      || value.length > 128 || /[\0-\x1f\x7f]/.test(value)) {
     throw new Error("Invalid import session id");
   }
   return value;

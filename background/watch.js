@@ -27,6 +27,7 @@ const MAX_ICON_DATA_URI_LENGTH = Math.ceil(MAX_NOTIFICATION_ICON_BYTES * 4 / 3) 
 const WATCH_TIMESTAMP_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(?:Z|([+-])(\d{2}):(\d{2}))?$/i;
 
 let mutationQueue = Promise.resolve();
+let alarmMutationQueue = Promise.resolve();
 let activeCheck = null;
 const watchStateIntents = new Map();
 
@@ -638,9 +639,15 @@ export function runWatchCheck(options = {}) {
   return activeCheck;
 }
 
-export async function configureWatchAlarm(config) {
+export function configureWatchAlarm(config) {
+  const run = alarmMutationQueue.then(() => scheduleWatchAlarm(config));
+  alarmMutationQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+async function scheduleWatchAlarm(config) {
   const resolved = config || await loadWatchConfig();
   const interval = Math.max(1, Math.floor(Number(resolved.intervalMinutes) || 30));
   await chrome.alarms.clear(WATCH_ALARM);
-  chrome.alarms.create(WATCH_ALARM, { delayInMinutes: interval, periodInMinutes: interval });
+  await chrome.alarms.create(WATCH_ALARM, { delayInMinutes: interval, periodInMinutes: interval });
 }

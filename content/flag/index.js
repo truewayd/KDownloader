@@ -4,15 +4,21 @@
 
   const FLAG_SELECTOR = `${KDComponents.ACTION_TAG}[variant="flag"][data-kd-flag="true"]`;
   const CARD_SELECTOR = "a.fancy-link.fancy-link--kemono.user-card";
+  let flagStateSequence = 0;
 
   async function getCreatorFlagsMany(items) {
     try {
-      const response = await safeSendMessage(
-        { action: "flag.getMany", items },
-        5000,
-        { retries: 2, retryDelay: 300 }
-      );
-      return response?.flags && typeof response.flags === "object" ? response.flags : null;
+      const flags = Object.create(null);
+      for (let offset = 0; offset < items.length; offset += 500) {
+        const response = await safeSendMessage(
+          { action: "flag.getMany", items: items.slice(offset, offset + 500) },
+          5000,
+          { retries: 2, retryDelay: 300 }
+        );
+        if (!response?.flags || typeof response.flags !== "object") return null;
+        Object.assign(flags, response.flags);
+      }
+      return flags;
     } catch (e) {
       if (isExtensionContextInvalidatedError(e)) throw e;
       console.warn("[KD Flag] failed to get flags", e);
@@ -36,6 +42,7 @@
   }
 
   function updateFlagIndicator(container, flag) {
+    container.dataset.kdFlagVersion = String(++flagStateSequence);
     container.dataset.flag = flag === true ? "true" : "false";
     const label = flag === true
       ? KDI18n.get("flagSavedTooltip")
@@ -58,6 +65,7 @@
   async function handleFlagClick(event, service, userId, container) {
     event.preventDefault();
     event.stopPropagation();
+    if (container.disabled) return;
 
     const nextFlag = container.dataset.flag !== "true";
     KDComponents.setBusyState(container, true);
@@ -84,6 +92,7 @@
     if (!identity) return;
     const existing = cardElement.querySelector(FLAG_SELECTOR);
     if (existing?.dataset.kdIdentity === identity.key) {
+      KDComponents.ensureActionElement(existing);
       if (existing.getAttribute("aria-busy") !== "true") updateFlagIndicator(existing, flag);
       return;
     }
@@ -101,6 +110,10 @@
 
   async function processCreatorCards(context) {
     const cards = Array.from(document.querySelectorAll(CARD_SELECTOR));
+    const flagStates = new Map(cards.map((card) => {
+      const indicator = card.querySelector(FLAG_SELECTOR);
+      return [card, indicator?.dataset.kdFlagVersion];
+    }));
     const uniqueIdentities = new Map();
     for (const identity of cards.map(getCardIdentity).filter(Boolean)) {
       uniqueIdentities.set(identity.key, identity);
@@ -112,6 +125,7 @@
     if (!isRenderCurrent(context) || !isFavoritesArtistsPage()) return;
     for (const card of cards) {
       if (!card.isConnected) continue;
+      if (card.querySelector(FLAG_SELECTOR)?.dataset.kdFlagVersion !== flagStates.get(card)) continue;
       const identity = getCardIdentity(card);
       if (!identity) continue;
       addFlagToCard(card, flags[identity.key]);

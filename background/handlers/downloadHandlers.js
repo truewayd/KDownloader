@@ -15,7 +15,6 @@ import {
   fetchPawchiveDms,
   fetchPawchiveCreatorPage,
   formatPawchiveDmsText,
-  isCompletePawchivePost,
 } from "../pawchive.js";
 import {
   checkDownloadedMany,
@@ -138,7 +137,7 @@ async function runSingleDownload(item, sender, tabId) {
     item.userId,
     item.postId,
     item.path,
-    senderUrl,
+    item.origin || senderUrl,
     tabId,
     item.requestId
   );
@@ -367,6 +366,7 @@ async function runLinksOnlyBatch(items, sender, scope = {}) {
   const externalLinkEntries = createExternalLinkAccumulator();
   const filterConfig = await loadExternalLinkFilterConfig();
   let processed = 0;
+  let successful = 0;
 
   registerBatch(batchId, total);
   try {
@@ -376,6 +376,7 @@ async function runLinksOnlyBatch(items, sender, scope = {}) {
         const links = await extractItemExternalLinks(item, filterConfig);
         collectExternalLinkEntries(externalLinkEntries, item, { externalLinks: links }, getSenderUrl(sender));
         updateAcked(batchId, 1);
+        successful++;
       } catch (error) {
         console.warn("[Background] creator links-only extraction failed", item.postId, error);
       }
@@ -389,8 +390,9 @@ async function runLinksOnlyBatch(items, sender, scope = {}) {
       fileName: scope.linksFileName,
     });
     if (!linkResult.success && !linkResult.skipped) {
-      console.warn("[Background] external links TXT Chrome download failed", linkResult.error || linkResult.results);
+      throw new Error(linkResult.error || "External links TXT download failed");
     }
+    return { success: successful === total, totalCount: total, successCount: successful };
   } finally {
     completeBatch(batchId);
   }
@@ -419,9 +421,11 @@ async function runDownloadBatch(items, sender, scope = {}) {
   const historyRecords = [];
   const fallbackRequests = [];
   const fallbackBudget = { requests: 0, tasks: 0, externalLinks: 0, bytes: 0 };
+  let historyError;
   const externalLinkEntries = createExternalLinkAccumulator();
   const batchId = createBatchId();
   let processed = 0;
+  let successful = 0;
   const progressScope = {
     service: scope.service || (items[0] && items[0].service),
     userId: scope.userId || (items[0] && items[0].userId),
@@ -431,7 +435,7 @@ async function runDownloadBatch(items, sender, scope = {}) {
   registerBatch(batchId, total);
   try {
     broadcastBatchProgress(progressScope, 0, total, tabId);
-    if (total === 0) return;
+    if (total === 0) return { success: true, totalCount: 0, successCount: 0 };
 
     for (const item of items) {
       try {
@@ -462,6 +466,11 @@ async function runDownloadBatch(items, sender, scope = {}) {
         } else {
           broadcastComplete(item, result, tabId, scope.requestId);
           const historyRecord = buildDownloadHistoryRecord(item, result);
+          if ((historyRecord && historyRecord.status !== "partial")
+              || (result?.success === true
+                && (result.alreadyDownloaded === true || result.skippedByFilter === true))) {
+            successful++;
+          }
           if (historyRecord) {
             historyRecords.push(historyRecord);
             if (historyRecord.status !== "partial") updateAcked(batchId, 1);
@@ -490,6 +499,7 @@ async function runDownloadBatch(items, sender, scope = {}) {
         await markMultipleDownloaded(historyRecords);
       } catch (err) {
         console.warn("[Background] markMultipleDownloaded failed", err);
+        historyError = new Error("Downloads were dispatched, but saving download history failed", { cause: err });
       }
     }
     if (fallbackRequests.length > 0) {
@@ -505,22 +515,20 @@ async function runDownloadBatch(items, sender, scope = {}) {
       }
     }
     if (scope.aggregateExternalLinks === true && externalLinkEntries.entries.length > 0) {
-      try {
-        const linkResult = await dispatchExternalLinksTextTask(externalLinkEntries.entries, {
-          fileName: scope.linksFileName,
-          origin: scope.origin,
-          referer: scope.referer,
-          service: progressScope.service,
-          userId: progressScope.userId,
-          postId: scope.linksPostId,
-        });
-        if (!linkResult.success && !linkResult.skipped) {
-          console.warn("[Background] external links TXT Chrome download failed", linkResult.error || linkResult.results);
-        }
-      } catch (err) {
-        console.warn("[Background] external links TXT task failed", err);
+      const linkResult = await dispatchExternalLinksTextTask(externalLinkEntries.entries, {
+        fileName: scope.linksFileName,
+        origin: scope.origin,
+        referer: scope.referer,
+        service: progressScope.service,
+        userId: progressScope.userId,
+        postId: scope.linksPostId,
+      });
+      if (!linkResult.success && !linkResult.skipped) {
+        throw new Error(linkResult.error || "External links TXT download failed");
       }
     }
+    if (historyError) throw historyError;
+    return { success: successful === total, totalCount: total, successCount: successful };
   } finally {
     completeBatch(batchId);
   }
@@ -575,6 +583,8 @@ async function completeNativeFallbackRequest(request, shouldContinue) {
         await markDownloaded(historyRecord);
       } catch (error) {
         console.warn("[Background] native fallback history write failed", error);
+        result.success = false;
+        result.error = "Downloads were dispatched, but saving download history failed";
       }
     }
     broadcastComplete(request.item, result, request.tabId);
@@ -836,6 +846,7 @@ async function fetchCoomerFansCreatorItems(origin, service, userId, creatorName)
 
     let fetchedAny = false;
     let foundThisPage = 0;
+    let lastError;
     for (const listUrl of candidates) {
       if (requestCount >= maxRequests) break;
       try {
@@ -862,15 +873,18 @@ async function fetchCoomerFansCreatorItems(origin, service, userId, creatorName)
         });
         if (foundThisPage > 0) break;
       } catch (err) {
+        lastError = err;
         consecutiveFailures++;
         console.warn("[Background] fetch CoomerFans listing failed", listUrl, err);
         if (consecutiveFailures >= maxConsecutiveFailures) break;
         await delay(Math.min(2000, 200 * consecutiveFailures));
       }
     }
+    if (!fetchedAny) {
+      throw new Error(`Failed to fetch CoomerFans creator page ${pageIdx}: ${lastError?.message || "No listing response"}`, { cause: lastError });
+    }
     if (requestCount >= maxRequests || consecutiveFailures >= maxConsecutiveFailures
         || postMap.size >= maxPosts) break;
-    if (!fetchedAny) break;
 
     if (foundThisPage === 0) break;
     await delay(200);
@@ -889,15 +903,14 @@ async function filterUndownloaded(items) {
 
 async function runFilteredDownloadBatch(allItems, sender, scope = {}) {
   const items = scope.fullMode === true ? allItems : await filterUndownloaded(allItems);
-  await runDownloadBatch(items, sender, scope);
+  return runDownloadBatch(items, sender, scope);
 }
 
 async function runCreatorFetchBatch(allItems, sender, scope = {}) {
   if (scope.mode === "links") {
-    await runLinksOnlyBatch(allItems, sender, scope);
-    return;
+    return runLinksOnlyBatch(allItems, sender, scope);
   }
-  await runFilteredDownloadBatch(allItems, sender, scope);
+  return runFilteredDownloadBatch(allItems, sender, scope);
 }
 
 async function runPawchiveDmsFetch(service, userId, sender, scope) {
@@ -920,6 +933,7 @@ async function runPawchiveDmsFetch(service, userId, sender, scope) {
     updateAcked(batchId, 1);
     updateProcessed(batchId, 1);
     broadcastBatchProgress(scope, 1, 1, tabId);
+    return { success: true, totalCount: 1, successCount: 1 };
   } finally {
     completeBatch(batchId);
   }
@@ -931,9 +945,18 @@ function linksFileName(kind, service, userId, qualifier = "") {
 }
 
 function runAcceptedTask(label, task, scope, tabId, requestToken) {
-  task().catch((err) => {
+  const complete = (result) => safeBroadcast({
+    action: "downloadComplete",
+    batch: true,
+    requestId: scope.requestId,
+    service: scope.service,
+    userId: scope.userId,
+    result: projectDownloadResultForBroadcast(result),
+  }, tabId);
+  Promise.resolve().then(task).then(complete, (err) => {
     console.error(`[Background] ${label} failed`, err);
     broadcastBatchError(scope, err, tabId);
+    complete({ success: false, error: err && err.message ? err.message : String(err) });
   }).finally(() => {
     completeAcceptedRequest(requestToken);
   });
@@ -949,15 +972,12 @@ async function fetchCreatorPosts(origin, service, userId, options = {}) {
   };
   const profileUrl = `${origin}${API.API_PREFIX}/${encodedService}/user/${encodedUserId}/profile`;
   const profile = await handleAPIRequest(profileUrl, headers);
-  const postCount = Math.min(
-    10000,
-    profile && Number.isFinite(profile.post_count)
-      ? Math.max(0, Math.floor(profile.post_count))
-      : 0
-  );
+  if (!profile || !Number.isSafeInteger(profile.post_count) || profile.post_count < 0) {
+    throw new Error("Invalid creator profile post count");
+  }
+  const postCount = Math.min(MAX_CREATOR_POSTS, profile.post_count);
   const perPage = 50;
   const postMap = new Map();
-  let consecutiveFailures = 0;
   let retainedBytes = 0;
   const requestedRetainedBytes = Number(options.maxRetainedBytes);
   const maxRetainedBytes = Number.isFinite(requestedRetainedBytes) && requestedRetainedBytes > 0
@@ -971,12 +991,8 @@ async function fetchCreatorPosts(origin, service, userId, options = {}) {
       const url = `${origin}${API.API_PREFIX}/${encodedService}/user/${encodedUserId}/posts?o=${offset}`;
       pageData = await handleAPIRequest(url, headers);
       if (!Array.isArray(pageData)) throw new Error("Invalid creator posts response");
-      consecutiveFailures = 0;
     } catch (err) {
-      consecutiveFailures++;
-      console.warn("[Background] fetch creator posts page failed", err);
-      if (consecutiveFailures >= 5) break;
-      continue;
+      throw new Error(`Failed to fetch creator posts at offset ${offset}: ${err.message || String(err)}`, { cause: err });
     }
     for (const post of pageData) {
       if (postMap.size >= MAX_CREATOR_POSTS) break;
@@ -1007,13 +1023,9 @@ async function fetchCreatorPage(origin, service, userId, offset) {
   };
   const suffix = offset ? `?o=${offset}` : "";
   const url = `${origin}${API.API_PREFIX}/${encodeURIComponent(service)}/user/${encodeURIComponent(userId)}/posts${suffix}`;
-  try {
-    const pageData = await handleAPIRequest(url, headers);
-    return Array.isArray(pageData) ? pageData.slice(0, MAX_CREATOR_PAGE_POSTS) : [];
-  } catch (err) {
-    console.warn("[Background] creator.pageFetch request failed", err);
-    return [];
-  }
+  const pageData = await handleAPIRequest(url, headers);
+  if (!Array.isArray(pageData)) throw new Error("Invalid creator posts response");
+  return pageData.slice(0, MAX_CREATOR_PAGE_POSTS);
 }
 
 function isPawOrigin(origin) {
@@ -1181,6 +1193,8 @@ export function createDownloadHandlers() {
               await markDownloaded(historyRecord);
             } catch (err) {
               console.warn("[Background] markDownloaded failed", err);
+              result.success = false;
+              result.error = "Downloads were dispatched, but saving download history failed";
             }
           }
           broadcastComplete(item, result, tabId);
@@ -1300,23 +1314,18 @@ export function createDownloadHandlers() {
         };
 
         if (mode === "dms") {
-          await runPawchiveDmsFetch(service, userId, sender, scope);
-          return;
+          return runPawchiveDmsFetch(service, userId, sender, scope);
         }
 
         if (message.source === "coomerfans" || isCoomerFansOrigin(origin)) {
           const allItems = await fetchCoomerFansCreatorItems(origin, service, userId, creatorName);
-          await runCreatorFetchBatch(allItems, sender, scope);
-          return;
+          return runCreatorFetchBatch(allItems, sender, scope);
         }
 
         if (isPawOrigin(origin)) {
           const posts = await fetchAllPawchiveCreatorPosts(service, userId);
-          const allItems = posts
-            .filter(isCompletePawchivePost)
-            .map((post) => pawPostToDownloadItem(service, userId, post));
-          await runCreatorFetchBatch(allItems, sender, scope);
-          return;
+          const allItems = posts.map((post) => pawPostToDownloadItem(service, userId, post));
+          return runCreatorFetchBatch(allItems, sender, scope);
         }
 
         const posts = await fetchCreatorPosts(origin, service, userId, {
@@ -1325,7 +1334,7 @@ export function createDownloadHandlers() {
         const allItems = posts.map((post) =>
           postToDownloadItem(origin, service, userId, post, mode === "links")
         );
-        await runCreatorFetchBatch(allItems, sender, scope);
+        return runCreatorFetchBatch(allItems, sender, scope);
       }, { service, userId, requestId }, tabId, requestRegistration.token);
       return false;
     },
@@ -1360,9 +1369,9 @@ export function createDownloadHandlers() {
       runAcceptedTask("creator.pageFetch", async () => {
         const posts = await fetchCreatorPage(origin, service, userId, offset);
         const allItems = isPawOrigin(origin)
-          ? posts.filter(isCompletePawchivePost).map((post) => pawPostToDownloadItem(service, userId, post))
+          ? posts.map((post) => pawPostToDownloadItem(service, userId, post))
           : posts.filter((post) => post && post.id).map((post) => postToDownloadItem(origin, service, userId, post));
-        await runFilteredDownloadBatch(allItems, sender, {
+        return runFilteredDownloadBatch(allItems, sender, {
           service,
           userId,
           origin,

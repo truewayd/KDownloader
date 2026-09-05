@@ -74,3 +74,32 @@ test('surfaces authentication and endpoint failures without hiding the status', 
     /HTTP 401.*API Key is required/,
   );
 });
+
+test('concurrent rule syncs preserve save order across a slow backend response', async () => {
+  let releaseFirst;
+  let firstStarted;
+  const started = new Promise((resolve) => { firstStarted = resolve; });
+  const gate = new Promise((resolve) => { releaseFirst = resolve; });
+  const applied = [];
+  globalThis.fetch = async (_url, options) => {
+    const rule = JSON.parse(options.body).excludedExtensions[0];
+    if (rule === '.psd') { firstStarted(); await gate; }
+    applied.push(rule);
+    return { ok: true, async text() { return '{}'; } };
+  };
+  const first = syncDownloadRulesToTrueDown({ syncToTrueDown: true, excludedExtensions: ['.psd'] });
+  await started;
+  const second = syncDownloadRulesToTrueDown({ syncToTrueDown: true, excludedExtensions: ['.clip'] });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(applied, []);
+  releaseFirst();
+  await Promise.all([first, second]);
+  assert.deepEqual(applied, ['.psd', '.clip']);
+});
+
+test('a rejected rule sync does not block the next persisted configuration', async () => {
+  globalThis.fetch = async () => { throw new Error('backend unavailable'); };
+  await assert.rejects(syncDownloadRulesToTrueDown({ syncToTrueDown: true }), /backend unavailable/);
+  globalThis.fetch = async () => ({ ok: true, async text() { return '{}'; } });
+  assert.deepEqual(await syncDownloadRulesToTrueDown({ syncToTrueDown: true }), { state: 'synced' });
+});

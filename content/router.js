@@ -32,6 +32,9 @@
     }
     state.listenerController?.abort();
     state.listenerController = null;
+    try {
+      chrome.runtime.onMessage?.removeListener(onRuntimeMessage);
+    } catch { }
     const patch = state.historyPatch;
     if (patch) {
       if (history.pushState === patch.pushState) history.pushState = patch.originalPushState;
@@ -218,6 +221,7 @@
     state.listenerController = typeof AbortController === "function" ? new AbortController() : null;
     const signal = state.listenerController?.signal;
     patchHistory();
+    chrome.runtime.onMessage?.addListener(onRuntimeMessage);
     window.addEventListener(EXTENSION_CONTEXT_INVALIDATED_EVENT, stop, { once: true, signal });
 
     window.addEventListener("kd:locationchange", () => schedule("history", 220), { signal });
@@ -250,6 +254,10 @@
       ensureObserver();
       schedule("start", getInitDelay());
     }
+  }
+
+  function onRuntimeMessage(message) {
+    if (message?.action === "updateUI") schedule("updateUI", 100);
   }
 
   function register(handler) {

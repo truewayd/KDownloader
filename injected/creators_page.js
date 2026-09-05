@@ -12,6 +12,7 @@
 
   let dbPromise = null;
   let dbInstance = null;
+  let dbOpenSequence = 0;
   let overrideEnabled = false;
   let stateReceived = false;
   let stateRequestTimer = 0;
@@ -21,6 +22,7 @@
   function openDB() {
     if (dbInstance) return Promise.resolve(dbInstance);
     if (dbPromise) return dbPromise;
+    const sequence = ++dbOpenSequence;
     dbPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, 1);
       request.onupgradeneeded = () => {
@@ -30,20 +32,27 @@
         }
       };
       request.onsuccess = () => {
-        dbInstance = request.result;
-        dbInstance.onclose = () => {
+        const db = request.result;
+        if (sequence !== dbOpenSequence) {
+          db.close();
+          reject(new Error('Creator cache connection closed'));
+          return;
+        }
+        dbInstance = db;
+        const release = () => {
+          if (dbInstance !== db) return;
           dbInstance = null;
           dbPromise = null;
         };
-        dbInstance.onversionchange = () => {
-          dbInstance.close();
-          dbInstance = null;
-          dbPromise = null;
+        db.onclose = release;
+        db.onversionchange = () => {
+          db.close();
+          release();
         };
-        resolve(dbInstance);
+        resolve(db);
       };
       request.onerror = () => {
-        dbPromise = null;
+        if (sequence === dbOpenSequence) dbPromise = null;
         reject(request.error || new Error('indexedDB open failed'));
       };
     });
@@ -52,6 +61,9 @@
 
   function closeDB() {
     stateSequence++;
+    dbOpenSequence++;
+    overrideEnabled = false;
+    stateReceived = false;
     if (stateRequestTimer) clearInterval(stateRequestTimer);
     stateRequestTimer = 0;
     const pending = dbPromise;
@@ -136,6 +148,9 @@
   }
 
   window.addEventListener('pagehide', closeDB);
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted) requestState();
+  });
   window.addEventListener('message', (event) => {
     if (event.source !== window || event.origin !== location.origin) return;
     const message = event.data?.message;
@@ -241,6 +256,8 @@
   XHR.prototype.open = function (method, url, asyncFlag) {
     clearSyntheticProperties(this);
     const result = originalOpen.apply(this, arguments);
+    const previous = requestMeta.get(this);
+    if (previous) previous.aborted = true;
     requestMeta.set(this, {
       method: String(method || 'GET').toUpperCase(),
       url,
@@ -271,22 +288,28 @@
 
     meta.pending = true;
     const interceptionSequence = stateSequence;
+    const isCurrent = () => requestMeta.get(xhr) === meta && !meta.aborted;
     const sendOriginal = () => {
-      if (meta.aborted || meta.dispatched) return;
+      if (!isCurrent() || meta.dispatched) return;
       meta.pending = false;
       meta.dispatched = true;
       originalSend.call(xhr, body);
     };
     readCache().then((cached) => {
+      if (!isCurrent()) return;
       if (!overrideEnabled || interceptionSequence !== stateSequence || !cached?.data) {
         sendOriginal();
         return;
       }
-      if (meta.aborted) return;
       const responseText = JSON.stringify(cached.data);
       const response = xhr.responseType === 'json' ? cached.data : responseText;
       try {
         xhr.dispatchEvent(new ProgressEvent('loadstart'));
+        if (!isCurrent()) return;
+        if (!overrideEnabled || interceptionSequence !== stateSequence) {
+          sendOriginal();
+          return;
+        }
         Object.defineProperties(xhr, {
           readyState: { configurable: true, get: () => 4 },
           status: { configurable: true, get: () => 200 },
@@ -307,7 +330,9 @@
         meta.dispatched = true;
         meta.syntheticComplete = true;
         xhr.dispatchEvent(new Event('readystatechange'));
+        if (!isCurrent()) return;
         xhr.dispatchEvent(new ProgressEvent('load', { loaded: responseText.length, total: responseText.length }));
+        if (!isCurrent()) return;
         xhr.dispatchEvent(new ProgressEvent('loadend', { loaded: responseText.length, total: responseText.length }));
       } catch (error) {
         sendOriginal();

@@ -2,8 +2,16 @@ import { loadBackendConfig } from './config.js';
 import { readLimitedResponseText } from './network.js';
 
 const RULE_SYNC_TIMEOUT_MS = 15 * 1000;
+let ruleSyncQueue = Promise.resolve();
 
-export async function syncDownloadRulesToTrueDown(rules, configuredBackend) {
+export function syncDownloadRulesToTrueDown(rules, configuredBackend) {
+  // Preserve persisted save order even when an earlier backend request is slow.
+  const run = ruleSyncQueue.then(() => performRuleSync(rules, configuredBackend));
+  ruleSyncQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+async function performRuleSync(rules, configuredBackend) {
   if (!rules?.syncToTrueDown) return { state: 'disabled' };
   const backend = configuredBackend || await loadBackendConfig();
   if (!backend.enabled) return { state: 'skipped', reason: 'backend-disabled' };

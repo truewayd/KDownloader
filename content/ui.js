@@ -19,6 +19,7 @@ const BTN_STATUS = Object.freeze({
 });
 
 let kdButtonResetSequence = 0;
+let kdButtonStateSequence = 0;
 let closeActiveExternalLinksModal = null;
 const MAX_BUTTON_TEXT_LENGTH = 240;
 const MAX_EXTERNAL_LINKS = 500;
@@ -37,6 +38,7 @@ function updateButtonStatus(btn, statusKey, customText = null, isCreatorPage = f
 
   const label = boundedDisplayText(customText || status.text, status.text);
   delete btn.dataset.kdResetToken;
+  btn.dataset.kdStateVersion = String(++kdButtonStateSequence);
   btn.dataset.status = statusKey;
   btn.disabled = status.disabled;
   btn.setAttribute('aria-disabled', String(status.disabled));
@@ -122,11 +124,14 @@ function ensureCreatorDownloadButton(container, path, extraClassNames = []) {
 }
 
 function ensurePageFetchButton(container) {
+  const previous = container?.querySelector(KD_PAGE_FETCH_BUTTON_SELECTOR);
+  if (previous && previous.dataset.kdPageIdentity !== location.href) previous.remove();
   const { button } = ensureKdButton(container, KD_PAGE_FETCH_BUTTON_SELECTOR, {
     classNames: ['kd-page-fetch-button'],
     attributes: { 'data-batch-download': 'true', 'data-kd-role': 'page-fetch' },
   });
   if (!button) return null;
+  button.dataset.kdPageIdentity = location.href;
   if (!button.dataset.kdInitialized) {
     button.textContent = KDI18n.get('pageFetchAction');
     button.title = KDI18n.get('pageFetchTooltip');
@@ -166,6 +171,9 @@ async function renderPostDownloadButton(context, options = {}) {
   } = options;
   if (!container || !parsed?.service || !parsed?.userId || !parsed?.postId) return null;
 
+  const previous = container.querySelector(KD_POST_BUTTON_SELECTOR);
+  if (previous && previous.dataset.path !== path) previous.remove();
+
   const { button, isNew } = ensureKdButton(container, KD_POST_BUTTON_SELECTOR, {
     classNames: ['kd-download-button', ...classNames],
     attributes: { 'data-batch-download': 'true', 'data-kd-role': 'post-download' },
@@ -184,13 +192,15 @@ async function renderPostDownloadButton(context, options = {}) {
 
   if (!isActiveDownloadButton(button)) {
     updateButtonStatus(button, 'IDLE', null, false);
+    const stateVersion = button.dataset.kdStateVersion;
     const historyStatus = await getPostDownloadedStatus(
       parsed.service,
       parsed.userId,
       parsed.postId,
       { source }
     );
-    if (!isRenderCurrent(context)) return null;
+    if (!isRenderCurrent(context) || button.dataset.path !== path) return null;
+    if (button.dataset.kdStateVersion !== stateVersion) return button;
     if (historyStatus === 'complete') {
       updateButtonStatus(button, 'SUCCESS', KDI18n.get('statusDownloadedDecorated'), false);
       button.disabled = true;
@@ -209,6 +219,14 @@ async function renderPostDownloadButton(context, options = {}) {
 
 async function renderCreatorDownloadButtons(entries, context, options = {}) {
   const normalizedEntries = Array.isArray(entries) ? entries : [];
+  const buttonStates = new Map();
+  for (const entry of normalizedEntries) {
+    const container = typeof options.getContainer === 'function'
+      ? options.getContainer(entry)
+      : (entry.article || entry.postEl);
+    const button = container && findDownloadButtonByPath(container, KD_CREATOR_BUTTON_SELECTOR, entry.path);
+    if (button) buttonStates.set(button, button.dataset.kdStateVersion);
+  }
   const downloaded = await getDownloadedStatusMap(normalizedEntries);
   if (!isRenderCurrent(context)) return;
 
@@ -216,7 +234,7 @@ async function renderCreatorDownloadButtons(entries, context, options = {}) {
     const container = typeof options.getContainer === 'function'
       ? options.getContainer(entry)
       : (entry.article || entry.postEl);
-    if (!container || !entry.path) continue;
+    if (!container || container.isConnected === false || !entry.path) continue;
 
     const source = typeof options.getSource === 'function'
       ? options.getSource(entry)
@@ -230,6 +248,7 @@ async function renderCreatorDownloadButtons(entries, context, options = {}) {
     );
     if (options.decorateContainer) options.decorateContainer(container, entry);
     if (isActiveDownloadButton(button)) continue;
+    if (buttonStates.has(button) && buttonStates.get(button) !== button.dataset.kdStateVersion) continue;
 
     configureCreatorDownloadButton(button, historyStatus, () =>
       handleDownload(

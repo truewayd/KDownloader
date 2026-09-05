@@ -35,6 +35,58 @@ const {
   saveGistConfig,
 } = await import("../background/config.js");
 
+function useMemoryStorage(t, initial = {}) {
+  const data = { local: structuredClone(initial.local || {}), sync: structuredClone(initial.sync || {}) };
+  for (const area of ["local", "sync"]) {
+    t.mock.method(chrome.storage[area], "get", async (key) => ({ [key]: structuredClone(data[area][key]) }));
+    t.mock.method(chrome.storage[area], "set", async (values) => {
+      Object.assign(data[area], structuredClone(values));
+    });
+  }
+  return data;
+}
+
+test("concurrent partial backend and Gist saves preserve each other's fields and secrets", async (t) => {
+  const data = useMemoryStorage(t);
+  await Promise.all([
+    saveBackendConfig({ enabled: true, apiKey: "x".repeat(32) }),
+    saveBackendConfig({ concurrency: 6 }),
+    saveGistConfig({ enabled: true, token: "new-token" }),
+    saveGistConfig({ gistId: "new-gist-id" }),
+  ]);
+  assert.equal(data.sync.backendConfig.enabled, true);
+  assert.equal(data.sync.backendConfig.concurrency, 6);
+  assert.equal(data.local.backendSecrets.apiKey, "x".repeat(32));
+  assert.deepEqual(data.sync.gistConfig, { enabled: true, gistId: "new-gist-id" });
+  assert.deepEqual(data.local.gistSecrets, { token: "new-token" });
+  assert.equal(Object.hasOwn(data.sync.backendConfig, "apiKey"), false);
+  assert.equal(Object.hasOwn(data.sync.gistConfig, "token"), false);
+});
+
+test("an in-flight legacy secret migration cannot undo a later restore defaults", async (t) => {
+  const data = useMemoryStorage(t, {
+    sync: { backendConfig: { enabled: true, apiKey: "a".repeat(32) } },
+  });
+  let releaseRead;
+  let readStarted;
+  const started = new Promise((resolve) => { readStarted = resolve; });
+  const gate = new Promise((resolve) => { releaseRead = resolve; });
+  t.mock.method(chrome.storage.local, "get", async (key) => {
+    const snapshot = { [key]: structuredClone(data.local[key]) };
+    readStarted();
+    await gate;
+    return snapshot;
+  });
+  const migration = loadBackendConfig();
+  await started;
+  const reset = restoreDefaultConfigs();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  releaseRead();
+  await Promise.all([migration, reset]);
+  assert.equal(data.sync.backendConfig.enabled, false);
+  assert.deepEqual(data.local.backendSecrets, { apiKey: "", gopeedToken: "" });
+});
+
 test("legacy synced secrets migrate to local storage on first read", async () => {
   syncWrites.length = 0;
   localWrites.length = 0;
