@@ -40,6 +40,7 @@
   --kd-radius: 8px;
   --kd-motion-fast: 140ms;
   --kd-motion-base: 180ms;
+  --kd-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --topbar-height: 64px;
 }
 
@@ -53,7 +54,7 @@
     --kd-border-strong: rgba(47, 69, 69, 0.24);
     --kd-text: #202b2b;
     --kd-muted: #5e6f6f;
-    --kd-subtle: #7a8989;
+    --kd-subtle: #607171;
     --kd-accent: #487a7a;
     --kd-accent-hover: #3c6868;
     --kd-accent-soft: rgba(72, 122, 122, 0.14);
@@ -74,6 +75,7 @@
     --kd-error-border: rgba(176, 69, 58, 0.36);
     --kd-error-bg: rgba(255, 239, 234, 0.98);
     --kd-error-text: #8b3326;
+    --kd-warning: #8b5e20;
     --kd-danger-border: rgba(176, 69, 58, 0.24);
     --kd-danger-button-border: rgba(176, 69, 58, 0.46);
     --kd-danger-button-bg: rgba(176, 69, 58, 0.1);
@@ -105,6 +107,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -190,14 +193,14 @@ code {
     transform 80ms ease;
 }
 
-.kd-button:hover,
-.kd-icon-button:hover {
+.kd-button:hover:not(:disabled),
+.kd-icon-button:hover:not(:disabled) {
   border-color: var(--kd-secondary-hover-border);
   background: var(--kd-secondary-hover);
 }
 
-.kd-button:active,
-.kd-icon-button:active {
+.kd-button:active:not(:disabled),
+.kd-icon-button:active:not(:disabled) {
   transform: translateY(1px);
 }
 
@@ -205,6 +208,7 @@ code {
 .kd-icon-button:focus-visible,
 .kd-input:focus-visible,
 .kd-select:focus-visible,
+input[type="checkbox"]:focus-visible,
 .text-button:focus-visible,
 .task-link:focus-visible,
 .sort-button:focus-visible,
@@ -227,14 +231,9 @@ code {
   color: var(--kd-button-text);
 }
 
-.kd-button.primary:hover {
+.kd-button.primary:hover:not(:disabled) {
   border-color: var(--kd-accent-hover);
   background: var(--kd-accent-hover);
-}
-
-.kd-button.secondary {
-  background: var(--kd-surface-raised);
-  color: var(--kd-text);
 }
 
 .kd-button.danger {
@@ -243,7 +242,7 @@ code {
   color: var(--kd-danger-button-text);
 }
 
-.kd-button.danger:hover {
+.kd-button.danger:hover:not(:disabled) {
   border-color: var(--kd-danger-button-hover-border);
   background: var(--kd-danger-button-hover-bg);
 }
@@ -257,6 +256,12 @@ code {
 .kd-icon-button {
   width: var(--kd-control-height);
   padding: 0;
+}
+
+.kd-button[aria-busy="true"],
+.kd-icon-button[aria-busy="true"],
+input[type="checkbox"][aria-busy="true"] {
+  cursor: progress;
 }
 
 .kd-input,
@@ -277,7 +282,14 @@ textarea {
 }
 
 .kd-select {
-  min-height: var(--kd-control-height);
+  height: var(--kd-control-height);
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--kd-muted) 50%),
+    linear-gradient(135deg, var(--kd-muted) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 15px, calc(100% - 11px) 15px;
+  background-repeat: no-repeat;
+  background-size: 5px 5px, 5px 5px;
   padding: 0 30px 0 10px;
 }
 
@@ -290,7 +302,7 @@ textarea.kd-input {
   height: auto;
   padding: 9px 10px;
   resize: vertical;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--kd-mono);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -306,7 +318,7 @@ textarea::placeholder {
 input:focus,
 textarea:focus {
   border-color: var(--kd-button-border);
-  background: var(--kd-input-focus);
+  background-color: var(--kd-input-focus);
   box-shadow: 0 0 0 3px var(--kd-accent-soft);
 }
 
@@ -315,9 +327,10 @@ textarea:focus {
 }
 
 input:disabled,
+select:disabled,
 textarea:disabled {
   cursor: not-allowed;
-  background: var(--kd-surface-raised);
+  background-color: var(--kd-surface-raised);
   color: var(--kd-subtle);
 }
 
@@ -735,7 +748,7 @@ h2 {
 
 .task-link,
 .progress-line {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--kd-mono);
   font-size: 12px;
 }
 
@@ -1165,6 +1178,7 @@ h2 {
 }
 
 .setting-toggle input {
+  flex: 0 0 auto;
   width: 16px;
   height: 16px;
   margin: 1px 0 0;
@@ -1342,11 +1356,14 @@ label {
   flex-direction: column;
 }
 
-.modal-header {
+.modal-header,
+.modal-footer {
   flex: 0 0 auto;
 }
 
 .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 15px;
 }
@@ -1609,8 +1626,9 @@ label {
   .modal,
   .modal form {
     width: 100%;
-    min-height: 100dvh;
-    max-height: none;
+    height: 100dvh;
+    min-height: 0;
+    max-height: 100dvh;
     border: 0;
     border-radius: 0;
   }

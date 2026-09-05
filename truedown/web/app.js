@@ -75,6 +75,7 @@ const statusMeta = {
 const els = {};
 const selectedTaskIDs = new Set();
 const taskStatusByID = new Map();
+const activeTaskActions = new Set();
 const pageETags = new Map();
 let trueDownToast = null;
 let pollTimer = 0;
@@ -89,6 +90,8 @@ let currentSearch = "";
 let currentSort = "status";
 let currentSortOrder = "asc";
 let loadTasksPromise = null;
+let taskRefreshRequested = false;
+let renderedTaskPageURL = "";
 let lastTaskRenderSignature = "";
 let modalReturnFocus = null;
 let apiToken = readSessionToken();
@@ -293,11 +296,7 @@ function bindEvents() {
 
   els.downloadForm.addEventListener("submit", submitTask);
   els.mDropboxMode.addEventListener("change", updateDropboxOptions);
-  els.refreshTasksBtn.addEventListener("click", async () => {
-    await loadTasks({ force: true });
-    showToast("任务列表已刷新。");
-    schedulePoll();
-  });
+  els.refreshTasksBtn.addEventListener("click", refreshTasks);
   els.retryAllBtn.addEventListener("click", requeueAllErrorTasks);
   els.pauseQueueBtn.addEventListener("click", () => runQueueAction("pause"));
   els.resumeQueueBtn.addEventListener("click", () => runQueueAction("resume"));
@@ -372,11 +371,18 @@ function onDocumentKeydown(event) {
   if (event.key !== "Tab") return;
   const focusable = [...activeOverlay.querySelectorAll(
     'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
-  )].filter((element) => element.getClientRects().length > 0);
-  if (!focusable.length) return;
+  )].filter((element) => element.getClientRects().length > 0 && !element.closest("[inert]"));
+  if (!focusable.length) {
+    event.preventDefault();
+    activeOverlay.focus();
+    return;
+  }
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
+  if (!focusable.includes(document.activeElement)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  } else if (event.shiftKey && document.activeElement === first) {
     event.preventDefault();
     last.focus();
   } else if (!event.shiftKey && document.activeElement === last) {
@@ -386,6 +392,7 @@ function onDocumentKeydown(event) {
 }
 
 function openModal(mode = "single") {
+  if (els.downloadForm.inert) return;
   modalMode = mode;
   modalReturnFocus = document.activeElement;
   const isBatch = mode === "batch";
@@ -409,7 +416,7 @@ function openModal(mode = "single") {
   els.overlay.setAttribute("aria-hidden", "false");
   els.overlay.removeAttribute("inert");
   document.body.classList.add("modal-open");
-  window.setTimeout(() => els.mLink.focus(), 80);
+  els.mLink.focus();
 }
 
 function updateDropboxOptions() {
@@ -443,7 +450,7 @@ function closeModal() {
   els.overlay.classList.remove("open");
   els.overlay.setAttribute("aria-hidden", "true");
   els.overlay.setAttribute("inert", "");
-  document.body.classList.remove("modal-open");
+  syncModalScrollLock();
   showModalMsg("");
   if (modalReturnFocus instanceof HTMLElement && modalReturnFocus.isConnected) {
     modalReturnFocus.focus();
@@ -480,7 +487,7 @@ function showDialog({
   els.dialogOverlay.setAttribute("aria-hidden", "false");
   els.dialogOverlay.removeAttribute("inert");
   document.body.classList.add("modal-open");
-  window.setTimeout(() => (dialogHasInput ? els.dialogInput : els.dialogConfirmBtn).focus(), 80);
+  (dialogHasInput ? els.dialogInput : danger ? els.dialogCancelBtn : els.dialogConfirmBtn).focus();
   return new Promise((resolve) => { dialogResolver = resolve; });
 }
 
@@ -509,7 +516,7 @@ function settleDialog(value) {
   els.dialogOverlay.classList.remove("open");
   els.dialogOverlay.setAttribute("aria-hidden", "true");
   els.dialogOverlay.setAttribute("inert", "");
-  document.body.classList.remove("modal-open");
+  syncModalScrollLock();
   if (dialogReturnFocus instanceof HTMLElement && dialogReturnFocus.isConnected) {
     dialogReturnFocus.focus();
   }
@@ -521,8 +528,14 @@ function confirmAction(options) {
   return showDialog(options);
 }
 
+function syncModalScrollLock() {
+  document.body.classList.toggle("modal-open", [els.overlay, els.settingsOverlay, els.dialogOverlay]
+    .some((overlay) => overlay.classList.contains("open")));
+}
+
 async function submitTask(event) {
   event.preventDefault();
+  if (els.downloadForm.inert) return;
   const torrentFile = els.mTorrentFile.files?.[0] || null;
   let links;
   try {
@@ -583,9 +596,10 @@ async function submitTask(event) {
         }),
       });
       await loadTasks({ force: true });
-      showModalMsg(result.includes("DUPLICATE") ? "已复用现有 Torrent 任务" : "Torrent 任务已创建");
+      const message = result.includes("DUPLICATE") ? "已复用现有 Torrent 任务" : "Torrent 任务已创建";
       els.mTorrentFile.value = "";
-      window.setTimeout(closeModal, 700);
+      closeModal();
+      showToast(message);
       return;
     }
     const outcomes = await mapLimitSettled(links, 8, (link) =>
@@ -612,11 +626,12 @@ async function submitTask(event) {
     const summary = duplicateCount
       ? `已接收 ${created.length} 项，其中 ${duplicateCount} 项复用原记录并检查更新`
       : `已创建 ${created.length} 个任务`;
-    showModalMsg(links.length === 1
+    const message = links.length === 1
       ? formatStartOutcome(created[0], duplicateCount > 0)
-      : summary);
+      : summary;
     els.mLink.value = "";
-    window.setTimeout(closeModal, 700);
+    closeModal();
+    showToast(message);
   } catch (error) {
     showModalMsg(`创建失败：${error.message}`, true);
   } finally {
@@ -626,6 +641,8 @@ async function submitTask(event) {
 }
 
 function setSubmitting(isSubmitting) {
+  els.downloadForm.inert = isSubmitting;
+  els.downloadForm.setAttribute("aria-busy", String(isSubmitting));
   KDComponents.setBusyState(els.submitTaskBtn, isSubmitting);
   els.submitTaskBtn.textContent = isSubmitting ? "提交中..." : (modalMode === "batch" ? "批量开始" : "开始下载");
 }
@@ -655,7 +672,7 @@ function buildOpts(prefix) {
   const extraFromModal = lines(`${prefix}Extra`);
   return {
     connections: optionalInt(`${prefix}Conns`) || downloadSettings.connections,
-    maxSpeedBps: optionalInt(`${prefix}Speed`) || settingsSpeedBps(),
+    maxSpeedBps: optionalIntAllowZero(`${prefix}Speed`, settingsSpeedBps()),
     maxTries: optionalInt(`${prefix}Tries`) || downloadSettings.maxTries,
     retryWait: optionalInt(`${prefix}Wait`) || downloadSettings.retryWait,
     extraArgs: extraFromModal.length ? extraFromModal : settingsExtraArgs(),
@@ -672,7 +689,8 @@ async function onTaskAction(event) {
     return;
   }
   if (!Number.isSafeInteger(id) || id <= 0) return;
-  KDComponents.setBusyState(button, true);
+  if (activeTaskActions.has(id)) return;
+  setTaskActionBusy(id, true);
   try {
     if (action === "requeue") {
       const task = currentTasks.find((candidate) => candidate.id === id);
@@ -703,27 +721,36 @@ async function onTaskAction(event) {
         danger: true,
       })) return;
       await runTaskAction("remove", id, "任务已移除。");
-      selectedTaskIDs.delete(id);
-      taskStatusByID.delete(id);
     }
+  } catch (error) {
+    showToast(`操作失败：${error.message}`, "error");
   } finally {
-    KDComponents.setBusyState(button, false);
+    setTaskActionBusy(id, false);
   }
 }
 
 async function runTaskAction(action, id, successMessage) {
-  try {
-    const result = await requestJSON("/tasks/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, ids: [id] }),
-    });
-    if (result.failed?.length) throw new Error(result.failed[0].error || "操作失败");
-    showToast(successMessage);
-    await loadTasks({ force: true });
-  } catch (error) {
-    showToast(`操作失败：${error.message}`, "error");
+  const result = await requestJSON("/tasks/batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ids: [id] }),
+  });
+  if (result.failed?.length) throw new Error(result.failed[0].error || "操作失败");
+  if (action === "remove") {
+    selectedTaskIDs.delete(id);
+    taskStatusByID.delete(id);
+    syncSelectionControls();
   }
+  showToast(successMessage);
+  await loadTasks({ force: true });
+}
+
+function setTaskActionBusy(id, busy) {
+  if (busy) activeTaskActions.add(id);
+  else activeTaskActions.delete(id);
+  els.tasksContainer.querySelectorAll("button[data-id]").forEach((control) => {
+    if (Number(control.dataset.id) === id) KDComponents.setBusyState(control, busy);
+  });
 }
 
 function onTaskSelection(event) {
@@ -905,28 +932,28 @@ function schedulePoll() {
 
 async function loadTasks({ force = false } = {}) {
   if (loadTasksPromise) {
-    await loadTasksPromise;
-    if (force) await loadTasks({ force: true });
-    return;
+    if (force) taskRefreshRequested = true;
+    return loadTasksPromise;
   }
   loadTasksPromise = (async () => {
     try {
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const params = new URLSearchParams({
-          limit: String(PAGE_SIZE),
-          offset: String(currentOffset),
-          status: currentFilter,
-          sort: currentSort,
-          order: currentSortOrder,
-        });
-        if (currentSearch) params.set("search", currentSearch);
-        const url = `/tasks?${params}`;
+      while (true) {
+        taskRefreshRequested = false;
+        const url = taskPageURL();
         const headers = {};
-        if (!force && pageETags.has(url)) headers["If-None-Match"] = pageETags.get(url);
+        // Validators only save work when the corresponding body is still displayed.
+        if (!force && renderedTaskPageURL === url && pageETags.has(url)) {
+          headers["If-None-Match"] = pageETags.get(url);
+        }
         const response = await apiFetch(url, { headers });
-        if (response.status === 304) return;
+        if (url !== taskPageURL()) continue;
+        if (response.status === 304) {
+          if (taskRefreshRequested) { force = true; continue; }
+          return true;
+        }
         if (!response.ok) throw new Error(await response.text());
         const page = await response.json();
+        if (url !== taskPageURL()) continue;
         if (!page || !Array.isArray(page.tasks) || !page.summary) throw new Error("任务列表响应无效");
         const etag = response.headers.get("ETag");
         if (etag) rememberPageETag(url, etag);
@@ -938,21 +965,49 @@ async function loadTasks({ force = false } = {}) {
           continue;
         }
         renderTasks(page.tasks);
+        renderedTaskPageURL = url;
         updateMetrics(currentSummary);
         updatePagination();
-        return;
+        if (taskRefreshRequested) { force = true; continue; }
+        return true;
       }
     } catch (error) {
       console.error("loadTasks:", error);
       showToast(`加载任务失败：${error.message}`, "error");
+      return false;
     } finally {
       loadTasksPromise = null;
     }
   })();
-  await loadTasksPromise;
+  return loadTasksPromise;
+}
+
+async function refreshTasks() {
+  if (els.refreshTasksBtn.getAttribute("aria-busy") === "true") return;
+  KDComponents.setBusyState(els.refreshTasksBtn, true);
+  try {
+    if (await loadTasks({ force: true })) showToast("任务列表已刷新。");
+  } finally {
+    KDComponents.setBusyState(els.refreshTasksBtn, false);
+    schedulePoll();
+  }
+}
+
+function taskPageURL() {
+  const params = new URLSearchParams({
+    limit: String(PAGE_SIZE),
+    offset: String(currentOffset),
+    status: currentFilter,
+    sort: currentSort,
+    order: currentSortOrder,
+  });
+  if (currentSearch) params.set("search", currentSearch);
+  return `/tasks?${params}`;
 }
 
 function renderTasks(tasks) {
+  const focused = document.activeElement;
+  const focusKey = els.tasksContainer.contains(focused) ? taskControlKey(focused) : "";
   for (const id of taskStatusByID.keys()) {
     if (!selectedTaskIDs.has(id)) taskStatusByID.delete(id);
   }
@@ -977,6 +1032,7 @@ function renderTasks(tasks) {
   if (!currentTasks.length) {
     els.tasksContainer.innerHTML = emptyMarkup();
     syncSelectionControls();
+    if (focusKey) els.taskSearch.focus({ preventScroll: true });
     return;
   }
   const rows = currentTasks.map((task, index) => taskRow(task, index)).join("");
@@ -994,6 +1050,21 @@ function renderTasks(tasks) {
       <tbody>${rows}</tbody>
     </table>`;
   syncSelectionControls();
+  if (focusKey) {
+    const controls = Array.from(els.tasksContainer.querySelectorAll("button, input"));
+    const nextFocus = controls.find((control) => taskControlKey(control) === focusKey)
+      || els.tasksContainer.querySelector("[data-select-page]");
+    nextFocus?.focus({ preventScroll: true });
+  }
+}
+
+function taskControlKey(control) {
+  if (!control?.dataset) return "";
+  if (control.dataset.sortField) return `sort:${control.dataset.sortField}`;
+  if (control.dataset.selectPage !== undefined) return "page";
+  const taskID = control.closest("[data-task-id]")?.dataset.taskId;
+  if (!taskID) return "";
+  return JSON.stringify([taskID, control.dataset.action || "select"]);
 }
 
 function rememberPageETag(url, etag) {
@@ -1066,11 +1137,12 @@ function formatTaskError(task) {
 }
 
 function actionButton(action, id, label, danger = false, icon = "file") {
-  return `<button class="text-button icon-only${danger ? " text-button-danger" : ""}" type="button" data-action="${action}" data-id="${id}" aria-label="${label}" title="${label}">${iconMarkup(icon)}</button>`;
+  const busy = activeTaskActions.has(id) ? ' disabled aria-busy="true" aria-disabled="true"' : "";
+  return `<button class="text-button icon-only${danger ? " text-button-danger" : ""}" type="button" data-action="${action}" data-id="${id}" aria-label="${label}" title="${label}"${busy}>${iconMarkup(icon)}</button>`;
 }
 
 function iconMarkup(name) {
-  return `<svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-${name}"></use></svg>`;
+  return `<svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-${name}"></use></svg>`;
 }
 
 function syncSelectionControls() {
@@ -1089,10 +1161,10 @@ function updateMetrics(summary) {
   els.taskCount.textContent = summary.total;
   els.activeCount.textContent = summary.queued + summary.downloading;
   els.errorCount.textContent = summary.error;
-  els.retryAllBtn.disabled = summary.error === 0;
+  els.retryAllBtn.disabled = summary.error === 0 || els.retryAllBtn.getAttribute("aria-busy") === "true";
   els.clearDoneBtn.disabled = summary.done === 0;
-  els.pauseQueueBtn.disabled = summary.queued + summary.downloading === 0;
-  els.resumeQueueBtn.disabled = summary.paused === 0;
+  els.pauseQueueBtn.disabled = summary.queued + summary.downloading === 0 || els.pauseQueueBtn.getAttribute("aria-busy") === "true";
+  els.resumeQueueBtn.disabled = summary.paused === 0 || els.resumeQueueBtn.getAttribute("aria-busy") === "true";
 }
 
 function updatePagination() {
@@ -1121,9 +1193,12 @@ function emptyMarkup() {
 }
 
 async function openSettingsModal() {
+  if (els.settingsForm.inert || els.settingsBtn.getAttribute("aria-busy") === "true"
+    || els.settingsOverlay.classList.contains("open")) return;
+  KDComponents.setBusyState(els.settingsBtn, true);
   settingsReturnFocus = document.activeElement;
   try {
-    await Promise.all([
+    const results = await Promise.allSettled([
       loadServerDownloadRules(),
       loadServerRuntimeSettings(),
       loadTrackerResearchSettings(),
@@ -1131,8 +1206,12 @@ async function openSettingsModal() {
       loadSystemUpdateState(),
 		loadApplicationLog(),
     ]);
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure) throw failure.reason;
   } catch (error) {
     showToast(`刷新服务端设置失败：${error.message}`, "error");
+  } finally {
+    KDComponents.setBusyState(els.settingsBtn, false);
   }
   renderDownloadSettings();
 	renderResolverModules();
@@ -1140,7 +1219,7 @@ async function openSettingsModal() {
   els.settingsOverlay.setAttribute("aria-hidden", "false");
   els.settingsOverlay.removeAttribute("inert");
   document.body.classList.add("modal-open");
-  window.setTimeout(() => els.cfgFolder.focus(), 80);
+  els.cfgFolder.focus();
 }
 
 function closeSettingsModal() {
@@ -1148,7 +1227,7 @@ function closeSettingsModal() {
   els.settingsOverlay.classList.remove("open");
   els.settingsOverlay.setAttribute("aria-hidden", "true");
   els.settingsOverlay.setAttribute("inert", "");
-  document.body.classList.remove("modal-open");
+  syncModalScrollLock();
   if (settingsReturnFocus instanceof HTMLElement && settingsReturnFocus.isConnected) {
     settingsReturnFocus.focus();
   }
@@ -1166,8 +1245,8 @@ function loadDownloadSettings() {
       speed: boundedNumber(stored.speed, 0, 1 << 30, DEFAULT_DOWNLOAD_SETTINGS.speed),
       speedUnit: [1024, 1048576, 1073741824].includes(Number(stored.speedUnit))
         ? Number(stored.speedUnit) : DEFAULT_DOWNLOAD_SETTINGS.speedUnit,
-      maxTries: boundedInt(stored.maxTries, 0, 100, DEFAULT_DOWNLOAD_SETTINGS.maxTries),
-      retryWait: boundedInt(stored.retryWait, 0, 3600, DEFAULT_DOWNLOAD_SETTINGS.retryWait),
+      maxTries: boundedInt(stored.maxTries, 1, 100, DEFAULT_DOWNLOAD_SETTINGS.maxTries),
+      retryWait: boundedInt(stored.retryWait, 1, 3600, DEFAULT_DOWNLOAD_SETTINGS.retryWait),
       proxy: stringValue(stored.proxy),
       userAgent: stringValue(stored.userAgent),
       referer: stringValue(stored.referer),
@@ -1311,6 +1390,11 @@ function syncTrackerSeedControls() {
 
 async function saveDownloadSettings(event) {
   event.preventDefault();
+  if (els.settingsForm.inert) return;
+  const previousFocus = document.activeElement;
+  const saveButton = els.settingsForm.querySelector('button[type="submit"]');
+  els.settingsForm.inert = true;
+  KDComponents.setBusyState(saveButton, true);
   try {
     parseHeaders(els.cfgHeaders.value);
     const speed = Number(els.cfgSpeed.value || 0);
@@ -1331,8 +1415,8 @@ async function saveDownloadSettings(event) {
       connections: optionalInt("cfgConns") || DEFAULT_DOWNLOAD_SETTINGS.connections,
       speed,
       speedUnit,
-      maxTries: optionalIntAllowZero("cfgTries", DEFAULT_DOWNLOAD_SETTINGS.maxTries),
-      retryWait: optionalIntAllowZero("cfgWait", DEFAULT_DOWNLOAD_SETTINGS.retryWait),
+      maxTries: optionalInt("cfgTries") || DEFAULT_DOWNLOAD_SETTINGS.maxTries,
+      retryWait: optionalInt("cfgWait") || DEFAULT_DOWNLOAD_SETTINGS.retryWait,
       proxy: els.cfgProxy.value.trim(),
       userAgent: els.cfgUserAgent.value.trim(),
       referer: els.cfgReferer.value.trim(),
@@ -1366,7 +1450,7 @@ async function saveDownloadSettings(event) {
       });
       if (!acknowledgedRisk) return;
     }
-    const [savedRules, savedRuntimeSettings, savedTrackerResearchSettings] = await Promise.all([
+    const results = await Promise.allSettled([
       requestJSON("/settings/download-rules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1383,15 +1467,27 @@ async function saveDownloadSettings(event) {
         body: JSON.stringify({ ...nextTrackerResearchSettings, acknowledgedRisk }),
       }),
     ]);
+    if (results[0].status === "fulfilled") downloadRules = normalizeServerDownloadRules(results[0].value);
+    if (results[1].status === "fulfilled") runtimeSettings = normalizeServerRuntimeSettings(results[1].value);
+    if (results[2].status === "fulfilled") trackerResearchSettings = normalizeTrackerResearchSettings(results[2].value);
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure) {
+      const savedCount = results.filter((result) => result.status === "fulfilled").length;
+      showToast(`${savedCount ? "部分服务端设置已保存" : "设置未保存"}：${failure.reason?.message || failure.reason}`, "error");
+      return;
+    }
     localStorage.setItem(DOWNLOAD_DEFAULTS_KEY, JSON.stringify(nextSettings));
     downloadSettings = nextSettings;
-    downloadRules = normalizeServerDownloadRules(savedRules);
-    runtimeSettings = normalizeServerRuntimeSettings(savedRuntimeSettings);
-    trackerResearchSettings = normalizeTrackerResearchSettings(savedTrackerResearchSettings);
     closeSettingsModal();
     showToast("下载器默认设置已保存。");
   } catch (error) {
     showToast(`设置未保存：${error.message}`, "error");
+  } finally {
+    els.settingsForm.inert = false;
+    KDComponents.setBusyState(saveButton, false);
+    if (previousFocus?.isConnected && els.settingsOverlay.classList.contains("open")) {
+      previousFocus.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -2238,6 +2334,9 @@ async function writeClipboard(text) {
 }
 
 function showModalMsg(text, isError = false) {
+  els.modalMsg.setAttribute("role", isError ? "alert" : "status");
+  els.modalMsg.setAttribute("aria-live", isError ? "assertive" : "polite");
+  els.modalMsg.setAttribute("aria-atomic", "true");
   els.modalMsg.textContent = text;
   els.modalMsg.classList.toggle("err", isError);
 }

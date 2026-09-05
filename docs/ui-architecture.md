@@ -25,6 +25,7 @@ semantics.
 
 - busy-button concurrency and state restoration;
 - toast lifecycle;
+- asynchronous native confirmation dialogs for extension-owned pages;
 - progress rendering;
 - segmented-control state;
 - icon accessibility normalization;
@@ -57,6 +58,26 @@ Owned documents use the shared `kd-*` vocabulary:
 Page CSS may define layout, density, and responsive placement. It must not
 redefine the shared extension-page tokens or component behavior. TrueDown
 keeps its standalone CSS artifact, with token equality enforced by tests.
+
+The form controls share font inheritance, selector arrows, focus rings, and
+disabled/hover behavior. Select arrows survive focus and disabled states;
+checkboxes keep a visible keyboard focus indicator. Compact dashboard buttons
+and the 360px popup retain their deliberate density. Progress track/fill visuals
+belong to `shared/ui.css`; popup CSS controls their placement only.
+
+Extension pages request confirmations through `KDUI.confirmAction`, which
+creates a text-only native `dialog` with the shared palette and buttons. The
+browser owns modality, and the shared controller explicitly contains Tab and
+Shift+Tab focus within the dialog. Cancel receives initial focus;
+Escape, backdrop clicks, and the cancel button resolve `false`. Closing restores
+focus after the caller can release its busy control. TrueDown keeps its existing
+accessible dashboard modal for confirmations and token entry.
+
+Busy helpers update `aria-busy` and `aria-disabled` together. `withBusyButton`
+restores both prior attributes once overlapping operations have settled;
+`setBusyState` can temporarily announce `busyLabel` without replacing visible
+button text. Native control disabled state remains the source of truth when a
+caller manages availability itself.
 
 ### Shadow DOM
 

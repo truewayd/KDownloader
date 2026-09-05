@@ -10,6 +10,9 @@ body {
 }
 
 body {
+  display: flex;
+  flex-direction: column;
+  max-height: 600px;
   margin: 0;
   overflow: hidden;
   background: var(--kd-bg);
@@ -27,6 +30,7 @@ body::-webkit-scrollbar,
 
 .popup-topbar {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -68,12 +72,15 @@ body::-webkit-scrollbar,
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
   height: auto;
   max-height: none;
+  overflow-y: auto;
   padding: 10px 12px 12px;
 }
 
 .kd-panel {
+  flex-shrink: 0;
   padding: 11px;
 }
 
@@ -144,6 +151,7 @@ body::-webkit-scrollbar,
 
 .kd-progress {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   min-height: 42px;
   border-bottom: 1px solid var(--kd-border);
@@ -163,22 +171,11 @@ body::-webkit-scrollbar,
   color: var(--kd-muted);
   font-size: 12px;
   font-weight: 650;
+  overflow-wrap: anywhere;
 }
 
 .kd-progress-track {
   flex: 1;
-  height: 8px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--kd-border);
-}
-
-.kd-progress-fill {
-  width: 0%;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--kd-accent);
-  transition: width var(--kd-motion-base) linear;
 }
 
 .kd-toast {

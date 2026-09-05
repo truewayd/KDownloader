@@ -74,6 +74,7 @@
     sendMessage,
     createProgress: KDComponents.createProgress,
     withBusyButton: KDComponents.withBusyButton,
+    confirmAction: KDComponents.confirmAction,
     createToast: KDComponents.createToast,
     setIconButton: KDComponents.setIconButton,
     setSegmentedValue: KDComponents.setSegmentedValue,

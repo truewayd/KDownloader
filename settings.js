@@ -3,7 +3,7 @@ const t = (key, substitutions, fallback) => KDI18n.get(key, substitutions, fallb
 KDI18n.localize();
 
 const sendMessage = (...args) => KDUI.sendMessage(...args);
-const withBusyButton = KDUI.withBusyButton;
+const withBusyButton = (...args) => withSettingsOperation(...args);
 const settingsToast = KDUI.createToast($("toast"), { statusElement: $("save-status") });
 
 let backendType = "abdm";
@@ -13,6 +13,22 @@ const MAX_WATCH_STORAGE_BYTES = 4 * 1024 * 1024;
 const MAX_WATCH_IMPORT_FILE_BYTES = MAX_WATCH_STORAGE_BYTES + 1024;
 let settingsLoaded = false;
 let settingsRequestSequence = 0;
+let settingsOperationPending = false;
+
+async function withSettingsOperation(button, task) {
+  if (settingsOperationPending) return;
+  settingsOperationPending = true;
+  const previousFocus = document.activeElement;
+  const sections = Array.from(document.querySelectorAll('.settings-grid, .action-bar'), (element) => [element, element.inert]);
+  sections.forEach(([element]) => { element.inert = true; });
+  try {
+    return await KDUI.withBusyButton(button, task);
+  } finally {
+    sections.forEach(([element, wasInert]) => { element.inert = wasInert; });
+    settingsOperationPending = false;
+    if (previousFocus?.isConnected && typeof previousFocus.focus === 'function') previousFocus.focus({ preventScroll: true });
+  }
+}
 
 function createSettingsRequestId() {
   try {
@@ -29,7 +45,9 @@ function isCurrentLoad(generation) {
 
 function setSaveAvailable(available) {
   const button = $("save-settings");
-  if (button) button.disabled = !available;
+  if (!button) return;
+  button.disabled = !available;
+  button.setAttribute("aria-disabled", String(!available));
 }
 
 function showToast(message, type = "success") {
@@ -37,7 +55,9 @@ function showToast(message, type = "success") {
 }
 
 function numberValue(id, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) {
-  const value = Number($(id)?.value);
+  const raw = $(id)?.value;
+  if (raw == null || raw.trim() === "") return fallback;
+  const value = Number(raw);
   if (!Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, Math.floor(value)));
 }
@@ -122,6 +142,10 @@ function formatDate(value) {
 async function loadBackend(generation) {
   const { config } = await sendMessage({ action: "backend.getConfig" });
   if (!isCurrentLoad(generation)) return;
+  renderBackendConfig(config);
+}
+
+function renderBackendConfig(config) {
   setValue("backend-enabled", config.enabled);
   setBackendType(config.backendType);
   setValue("backend-protocol", config.protocol);
@@ -155,12 +179,17 @@ async function saveBackend() {
     gopeedPort: numberValue("gopeed-port", 9999, 1, 65535),
     gopeedToken: headerSecretValue("gopeed-token"),
   };
-  await sendMessage({ action: "backend.setConfig", config });
+  const response = await sendMessage({ action: "backend.setConfig", config });
+  renderBackendConfig(response.config);
 }
 
 async function loadDownloadRules(generation) {
   const { config } = await sendMessage({ action: "downloadRules.getConfig" });
   if (!isCurrentLoad(generation)) return;
+  renderDownloadRulesConfig(config);
+}
+
+function renderDownloadRulesConfig(config) {
   setValue("download-filter-enabled", config.enabled);
   setValue("download-filter-sync-truedown", config.syncToTrueDown);
   const selected = new Set(config.excludedExtensions || []);
@@ -175,7 +204,7 @@ async function saveDownloadRules() {
     document.querySelectorAll("[data-download-extension]:checked"),
     (input) => input.value
   );
-  return sendMessage({
+  const response = await sendMessage({
     action: "downloadRules.setConfig",
     config: {
       enabled: !!$("download-filter-enabled")?.checked,
@@ -183,11 +212,17 @@ async function saveDownloadRules() {
       syncToTrueDown: !!$("download-filter-sync-truedown")?.checked,
     },
   }, 20000);
+  renderDownloadRulesConfig(response.config);
+  return response;
 }
 
 async function loadExternalLinkFilter(generation) {
   const { config } = await sendMessage({ action: "externalLinkFilter.getConfig" });
   if (!isCurrentLoad(generation)) return;
+  renderExternalLinkFilterConfig(config);
+}
+
+function renderExternalLinkFilterConfig(config) {
   setValue("external-link-filter-mode", config.mode);
   setValue("external-link-filter-blacklist", (config.blacklist || []).join("\n"));
   updateExternalLinkFilterVisibility();
@@ -198,13 +233,14 @@ async function saveExternalLinkFilter() {
     .split(/[\r\n,]+/)
     .map((value) => value.trim())
     .filter(Boolean);
-  await sendMessage({
+  const { config } = await sendMessage({
     action: "externalLinkFilter.setConfig",
     config: {
       mode: $("external-link-filter-mode")?.value === "disabled" ? "disabled" : "blacklist",
       blacklist,
     },
   });
+  renderExternalLinkFilterConfig(config);
 }
 
 async function loadWatch(generation = settingsLoadGeneration) {
@@ -222,13 +258,15 @@ async function loadWatch(generation = settingsLoadGeneration) {
 }
 
 async function saveWatch() {
-  await sendMessage({
+  const { config } = await sendMessage({
     action: "watch.setConfig",
     config: {
       intervalMinutes: numberValue("watch-interval", 30, 1, 10080),
       checkMode: watchMode,
     },
   });
+  setValue("watch-interval", config.intervalMinutes);
+  setWatchMode(config.checkMode);
 }
 
 async function exportWatchList() {
@@ -250,7 +288,13 @@ async function importWatchList(file) {
   if (file.size > MAX_WATCH_IMPORT_FILE_BYTES) {
     throw new Error("Watch import file exceeds the transport safety limit");
   }
-  const confirmed = confirm(t("watchImportConfirm"));
+  const confirmed = await KDUI.confirmAction({
+    title: t("watchTitle"),
+    message: t("watchImportConfirm"),
+    confirmLabel: t("importAction"),
+    cancelLabel: t("cancelAction"),
+    danger: true,
+  });
   if (!confirmed) return false;
   const data = JSON.parse(await file.text());
   await sendMessage({ action: "watch.import", data });
@@ -261,13 +305,17 @@ async function importWatchList(file) {
 async function loadGist(generation) {
   const { config } = await sendMessage({ action: "gist.getConfig" });
   if (!isCurrentLoad(generation)) return;
+  renderGistConfig(config);
+}
+
+function renderGistConfig(config) {
   setValue("gist-enabled", config.enabled);
   setValue("gist-token", config.token);
   setValue("gist-id", config.gistId);
 }
 
 async function saveGist() {
-  await sendMessage({
+  const { config } = await sendMessage({
     action: "gist.setConfig",
     config: {
       enabled: !!$("gist-enabled")?.checked,
@@ -275,6 +323,7 @@ async function saveGist() {
       gistId: ($("gist-id")?.value || "").trim(),
     },
   });
+  renderGistConfig(config);
 }
 
 async function loadCreatorSummary(generation = settingsLoadGeneration) {
@@ -341,13 +390,16 @@ async function saveAll() {
     try {
       $("save-status").textContent = t("statusSaving");
       await saveBackend();
-      const [downloadRulesResult] = await Promise.all([
+      const results = await Promise.allSettled([
         saveDownloadRules(),
         saveExternalLinkFilter(),
         saveWatch(),
         saveGist(),
         saveCreators(),
       ]);
+      const failure = results.find((result) => result.status === 'rejected');
+      if (failure) throw failure.reason;
+      const downloadRulesResult = results[0].value;
       if (downloadRulesResult?.sync?.state === "failed") {
         showToast(`${t("settingsSavedTrueDownSyncFailed")} ${downloadRulesResult.sync.error}`, "error");
       } else {
@@ -356,14 +408,18 @@ async function saveAll() {
     } catch (err) {
       console.error("[Settings] save failed", err);
       showToast(err.message || "Save failed", "error");
-    } finally {
-      if (settingsLoaded) $("save-status").textContent = t("statusIdle");
     }
   });
 }
 
 async function restoreDefaults(button) {
-  const confirmed = confirm(t("restoreDefaultsConfirm"));
+  const confirmed = await KDUI.confirmAction({
+    title: t("restoreDefaultsAction"),
+    message: t("restoreDefaultsConfirm"),
+    confirmLabel: t("restoreDefaultsAction"),
+    cancelLabel: t("cancelAction"),
+    danger: true,
+  });
   if (!confirmed) return;
 
   await withBusyButton(button, async () => {
@@ -437,7 +493,7 @@ function bindEvents() {
   $("watch-import")?.addEventListener("click", () => $("watch-import-file")?.click());
   $("watch-import-file")?.addEventListener("change", async (event) => {
     try {
-      const imported = await importWatchList(event.target.files?.[0]);
+      const imported = await withSettingsOperation($('watch-import'), () => importWatchList(event.target.files?.[0]));
       if (imported) showToast(t("watchImported"));
     } catch (err) {
       showToast(err.message || "Import failed", "error");
@@ -485,9 +541,16 @@ function bindEvents() {
     });
   });
   $("clear-history")?.addEventListener("click", async (event) => {
-    const confirmed = confirm(t("clearHistoryConfirm"));
+    const button = event.currentTarget;
+    const confirmed = await KDUI.confirmAction({
+      title: t("clearLocalHistoryTitle"),
+      message: t("clearHistoryConfirm"),
+      confirmLabel: t("clearHistoryAction"),
+      cancelLabel: t("cancelAction"),
+      danger: true,
+    });
     if (!confirmed) return;
-    await withBusyButton(event.currentTarget, async () => {
+    await withBusyButton(button, async () => {
       try {
         await sendMessage({ action: "db.clear" });
         showToast(t("historyCleared"));
@@ -499,4 +562,4 @@ function bindEvents() {
 }
 
 bindEvents();
-loadAll();
+withSettingsOperation(null, loadAll);

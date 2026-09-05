@@ -16,6 +16,8 @@ const [
   flagSource,
   popupSource,
   dbHandlersSource,
+  trueDownSource,
+  settingsSource,
 ] = await Promise.all([
   read("content/helpers.js"),
   read("content/download.js"),
@@ -25,7 +27,501 @@ const [
   read("content/flag/index.js"),
   read("popup/popup.js"),
   read("background/handlers/dbHandlers.js"),
+  read("truedown/web/app.js"),
+  read("settings.js"),
 ]);
+
+function declaration(source, name) {
+  const found = source.match(new RegExp(`(?:async )?function ${name}\\([^]*?\\n\\}`));
+  assert.ok(found, `${name} is available for behavior tests`);
+  return found[0];
+}
+
+function testButton() {
+  return {
+    dataset: {},
+    disabled: false,
+    isConnected: true,
+    setAttribute(name, value) { this[name] = String(value); },
+    getAttribute(name) { return this[name] ?? null; },
+    removeAttribute(name) { delete this[name]; },
+  };
+}
+
+function createDownloadHarness() {
+  let listener;
+  let request;
+  const button = testButton();
+  const context = vm.createContext({
+    button,
+    chrome: { runtime: { onMessage: { addListener(value) { listener = value; } } } },
+    console: { error() {}, warn() {} },
+    EXTENSION_CONTEXT_INVALIDATED_EVENT: "kd:extensioncontextinvalidated",
+    getErrorMessage: (error) => error?.message || String(error),
+    KDI18n: { get: (key) => key },
+    Map,
+    safeSendMessage: async (message) => { request = message; return { accepted: true }; },
+    setTimeout,
+    clearTimeout,
+    showExternalLinksModal() {},
+    showTransientButtonStatus(target, status, label) {
+      target.dataset.status = status;
+      target.textContent = label;
+      target.disabled = false;
+    },
+    updateButtonStatus(target, status, label) {
+      target.dataset.status = status;
+      target.textContent = label;
+      target.disabled = status === "SENDING" || status === "SCANNING";
+    },
+    window: new EventTarget(),
+  });
+  vm.runInContext(downloadSource, context);
+  return {
+    context,
+    button,
+    emit(message) { listener({ requestId: request.requestId, service: "patreon", userId: "42", ...message }); },
+    close() { vm.runInContext("clearActiveDownloadRequests()", context); },
+  };
+}
+
+test("page fetch ignores per-post progress and waits for the final batch result", async () => {
+  const harness = createDownloadHarness();
+  try {
+    await vm.runInContext(`runPageFetchWithProgress({
+      btn: button, service: 'patreon', userId: '42', total: 1,
+      requestMessage: { action: 'creator.pageFetch' },
+    })`, harness.context);
+    harness.emit({ action: "downloadProgress", postId: "p1", progress: 50 });
+    assert.equal(harness.button.dataset.status, "SENDING");
+    harness.emit({ action: "downloadComplete", postId: "p1", result: { success: true } });
+    assert.equal(harness.button.dataset.status, "SENDING", "TXT export and history writes may still fail");
+    harness.emit({ action: "downloadComplete", batch: true, result: {
+      success: false, error: "TXT export failed", totalCount: 1, successCount: 1,
+    } });
+    assert.equal(harness.button.dataset.status, "ERROR");
+    assert.equal(harness.button.disabled, false);
+    assert.equal(vm.runInContext("activeDownloadRequests.size", harness.context), 0);
+  } finally { harness.close(); }
+});
+
+test("page fetch keeps partially successful batches retryable", async () => {
+  const harness = createDownloadHarness();
+  try {
+    await vm.runInContext(`runPageFetchWithProgress({
+      btn: button, service: 'patreon', userId: '42', total: 2,
+      requestMessage: { action: 'creator.pageFetch' },
+    })`, harness.context);
+    harness.emit({ action: "downloadComplete", batch: true, result: {
+      success: false, totalCount: 2, successCount: 1, failedCount: 1,
+    } });
+    assert.equal(harness.button.dataset.status, "PARTIAL");
+    assert.equal(harness.button.disabled, false);
+  } finally { harness.close(); }
+});
+
+test("creator cards remain retryable after a no-files response", () => {
+  const harness = createDownloadHarness();
+  vm.runInContext("renderDownloadResult(button, { success: true, noFiles: true }, true)", harness.context);
+  assert.equal(harness.button.dataset.status, "SUCCESS");
+  assert.equal(harness.button.disabled, false);
+});
+
+test("pagehide releases download controls and a late acknowledgement cannot lock a restored page", async () => {
+  for (const batch of [false, true]) {
+    const harness = createDownloadHarness();
+    let acknowledge;
+    harness.context.safeSendMessage = () => new Promise((resolve) => { acknowledge = resolve; });
+    try {
+      const pending = vm.runInContext(batch
+        ? `runPageFetchWithProgress({ btn: button, service: 'patreon', userId: '42', requestMessage: { action: 'creator.pageFetch' } })`
+        : `handleDownload(button, 'patreon', '42', '99', '/patreon/user/42/post/99')`, harness.context);
+      harness.context.window.dispatchEvent(new Event("pagehide"));
+      assert.equal(harness.button.disabled, false);
+      assert.equal(harness.button.dataset.status, "IDLE");
+      assert.equal(vm.runInContext("activeDownloadRequests.size", harness.context), 0);
+      acknowledge({ accepted: true });
+      await pending;
+      assert.equal(harness.button.dataset.status, "IDLE");
+    } finally { harness.close(); }
+  }
+});
+
+test("pending post history reads cannot replace a newer download state", async () => {
+  for (const status of ["SENDING", "PARTIAL", "SUCCESS"]) {
+    let resolveHistory;
+    const button = testButton();
+    button.dataset.path = "/patreon/user/42/post/99";
+    const context = vm.createContext({
+      button,
+      container: { querySelector: () => button },
+      getPostDownloadedStatus: () => new Promise((resolve) => { resolveHistory = resolve; }),
+      isActiveDownloadButton: (target) => target.dataset.status === "SENDING",
+      isRenderCurrent: () => true,
+      KDI18n: { get: (key) => key },
+      KDComponents: { ACTION_TAG: "kd-ui-action", setBusyState() {} },
+      location: { pathname: button.dataset.path },
+    });
+    vm.runInContext(uiSource, context);
+    vm.runInContext("ensureKdButton = () => ({ button, isNew: false })", context);
+    const pending = vm.runInContext(`renderPostDownloadButton(null, {
+      container, parsed: { service: 'patreon', userId: '42', postId: '99' },
+    })`, context);
+    vm.runInContext(`updateButtonStatus(button, '${status}')`, context);
+    resolveHistory("complete");
+    await pending;
+    assert.equal(button.dataset.status, status);
+    assert.equal(button.disabled, status === "SENDING");
+  }
+});
+
+test("pending creator history reads preserve a download completed during the lookup", async () => {
+  let resolveHistory;
+  const button = testButton();
+  const context = vm.createContext({
+    button,
+    entries: [{ article: {}, path: '/patreon/user/42/post/99', service: 'patreon', userId: '42', postId: '99' }],
+    findDownloadButtonByPath: () => button,
+    getDownloadedStatusMap: () => new Promise((resolve) => { resolveHistory = resolve; }),
+    downloadedKey: () => 'key',
+    isActiveDownloadButton: () => false,
+    isRenderCurrent: () => true,
+    KDI18n: { get: (key) => key },
+    KDComponents: { ACTION_TAG: 'kd-ui-action', setBusyState() {} },
+  });
+  vm.runInContext(uiSource, context);
+  vm.runInContext("ensureCreatorDownloadButton = () => button; updateButtonStatus(button, 'IDLE')", context);
+  const pending = vm.runInContext("renderCreatorDownloadButtons(entries)", context);
+  vm.runInContext("updateButtonStatus(button, 'PARTIAL')", context);
+  resolveHistory(new Map());
+  await pending;
+  assert.equal(button.dataset.status, 'PARTIAL');
+});
+
+test("pending favorites reads cannot revert a completed flag toggle", async () => {
+  let resolveFlags;
+  const button = testButton();
+  button.dataset.kdFlagVersion = 'initial';
+  button.dataset.flag = 'false';
+  const card = {
+    isConnected: true,
+    querySelector: () => button,
+    getAttribute: (name) => name === 'data-service' ? 'patreon' : '42',
+  };
+  const context = vm.createContext({
+    button,
+    console,
+    document: { querySelectorAll: () => [card] },
+    isRenderCurrent: () => true,
+    KDI18n: { get: (key) => key },
+    KDComponents: { ACTION_TAG: 'kd-ui-action', setBusyState: (target, busy) => { target.disabled = busy; } },
+    safeSendMessage: (message) => message.action === 'flag.getMany'
+      ? new Promise((resolve) => { resolveFlags = resolve; })
+      : Promise.resolve({ flag: message.value }),
+    window: { location: { pathname: '/patreon/account/favorites/artists' }, KDRouteWatcher: { register() {} } },
+  });
+  vm.runInContext(flagSource.replace('  function isFavoritesArtistsPage()', `
+    globalThis.testFlags = { processCreatorCards, handleFlagClick };
+    function isFavoritesArtistsPage()`), context);
+  const pending = context.testFlags.processCreatorCards();
+  await context.testFlags.handleFlagClick({ preventDefault() {}, stopPropagation() {} }, 'patreon', '42', button);
+  resolveFlags({ flags: { '["patreon","42"]': false } });
+  await pending;
+  assert.equal(button.dataset.flag, 'true');
+  assert.equal(button.disabled, false);
+});
+
+test("large creator and post lists keep history RPCs bounded while merging every returned identity", async () => {
+  const batches = [];
+  const context = vm.createContext({
+    console,
+    window: { KDRouteWatcher: { register() {} } },
+    KDComponents: { ACTION_TAG: "kd-ui-action" },
+    safeSendMessage: async (message) => {
+      batches.push(message.items.length);
+      const pairs = message.items.map((item) => [message.action === "flag.getMany"
+        ? JSON.stringify([item.service, item.userId])
+        : JSON.stringify(["default", item.service, item.userId, item.postId]), true]);
+      return message.action === "flag.getMany" ? { flags: Object.fromEntries(pairs) } : { downloaded: Object.fromEntries(pairs) };
+    },
+  });
+  vm.runInContext(flagSource.replace("  function isFavoritesArtistsPage()", `
+    globalThis.getFlagFixture = getCreatorFlagsMany;
+    function isFavoritesArtistsPage()`), context);
+  vm.runInContext(["getDownloadedStatusMap", "downloadedKey"].map((name) => declaration(helpersSource, name)).join("\n"), context);
+  const items = Array.from({ length: 1001 }, (_, index) => ({ service: "patreon", userId: String(index), postId: "post" }));
+  const flags = await context.getFlagFixture(items);
+  const statuses = await context.getDownloadedStatusMap(items);
+  assert.deepEqual(batches, [500, 500, 1, 500, 500, 1]);
+  assert.equal(Object.keys(flags).length, 1001);
+  assert.equal(statuses.size, 1001);
+  assert.equal(statuses.get('["default","patreon","1000","post"]'), "complete");
+});
+
+test("history-change notifications include Pawchive and consume absent content receiver errors", () => {
+  let patterns;
+  let notifications = 0;
+  let consumedErrors = 0;
+  const context = vm.createContext({
+    chrome: {
+      runtime: { get lastError() { consumedErrors++; return null; } },
+      tabs: {
+        query(options, callback) { patterns = options.url; callback([{ id: 1 }]); },
+        sendMessage(id, message, callback) { assert.equal(id, 1); assert.equal(message.action, "updateUI"); notifications++; callback(); },
+      },
+    },
+  });
+  vm.runInContext(declaration(popupSource, "notifyContentUpdate"), context);
+  context.notifyContentUpdate();
+  assert.ok(patterns.includes("https://pawchive.pw/*"));
+  assert.equal(notifications, 1);
+  assert.equal(consumedErrors, 2);
+});
+
+function createTaskPageHarness(fetchPage) {
+  const rendered = [];
+  const context = vm.createContext({
+    apiFetch: fetchPage,
+    console: { error() {} },
+    URLSearchParams,
+    renderTasks: (tasks) => rendered.push(tasks),
+    updateMetrics() {},
+    updatePagination() {},
+    showToast() {},
+  });
+  vm.runInContext(`
+    const PAGE_SIZE = 100;
+    const MAX_PAGE_ETAGS = 128;
+    const pageETags = new Map();
+    let currentOffset = 0, currentTotal = 0;
+    let currentFilter = 'all', currentSearch = '', currentSort = 'status', currentSortOrder = 'asc';
+    let currentSummary = {}, loadTasksPromise = null, taskRefreshRequested = false, renderedTaskPageURL = '';
+    ${["loadTasks", "taskPageURL", "rememberPageETag", "normalizeSummary", "emptySummary", "safeCount"].map((name) => declaration(trueDownSource, name)).join("\n")}
+  `, context);
+  return { context, rendered };
+}
+
+function taskPage(id, total = 300) {
+  return {
+    status: 200,
+    ok: true,
+    headers: new Headers({ ETag: `"page-${id}"` }),
+    json: async () => ({ tasks: [{ id }], total, summary: { total } }),
+  };
+}
+
+test("TrueDown fetches a body when navigating back to a page whose validator was cached", async () => {
+  const calls = [];
+  const harness = createTaskPageHarness(async (url, options) => {
+    calls.push({ url, headers: options.headers });
+    if (options.headers["If-None-Match"]) return { status: 304 };
+    return taskPage(Number(new URLSearchParams(url.split("?")[1]).get("offset")) + 1);
+  });
+  await vm.runInContext("loadTasks()", harness.context);
+  await vm.runInContext("currentOffset = 100; loadTasks()", harness.context);
+  await vm.runInContext("currentOffset = 0; loadTasks()", harness.context);
+  assert.deepEqual(harness.rendered.map((tasks) => tasks[0].id), [1, 101, 1]);
+  assert.equal(calls[2].headers["If-None-Match"], undefined);
+  await vm.runInContext("loadTasks()", harness.context);
+  assert.equal(calls[3].headers["If-None-Match"], '"page-1"', "unchanged visible pages retain conditional polling");
+});
+
+test("TrueDown discards in-flight pages after search changes and coalesces refreshes", async () => {
+  let resolveFirst;
+  const calls = [];
+  const harness = createTaskPageHarness(async (url) => {
+    calls.push(url);
+    if (calls.length === 1) return new Promise((resolve) => { resolveFirst = resolve; });
+    return taskPage(99);
+  });
+  const first = vm.runInContext("loadTasks()", harness.context);
+  const subsequent = vm.runInContext(`currentSearch = 'new'; Promise.all([
+    loadTasks({ force: true }), loadTasks({ force: true }), loadTasks(),
+  ])`, harness.context);
+  resolveFirst(taskPage(1));
+  await Promise.all([first, subsequent]);
+  assert.deepEqual(harness.rendered.map((tasks) => tasks[0].id), [99]);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1], /search=new/);
+});
+
+test("TrueDown polling preserves pending queue and retry controls", () => {
+  const els = Object.fromEntries([
+    "taskCount", "activeCount", "errorCount", "retryAllBtn", "clearDoneBtn", "pauseQueueBtn", "resumeQueueBtn",
+  ].map((name) => [name, testButton()]));
+  for (const name of ["retryAllBtn", "pauseQueueBtn", "resumeQueueBtn"]) els[name].setAttribute("aria-busy", "true");
+  const context = vm.createContext({ els });
+  vm.runInContext(declaration(trueDownSource, "updateMetrics"), context);
+  vm.runInContext("updateMetrics({ total: 4, queued: 1, downloading: 1, paused: 1, error: 1, done: 1 })", context);
+  for (const name of ["retryAllBtn", "pauseQueueBtn", "resumeQueueBtn"]) assert.equal(els[name].disabled, true);
+});
+
+test("settings operations freeze edits and exclude overlapping save or restore calls", async () => {
+  let release;
+  let writes = 0;
+  let focused = 0;
+  const sections = [{ inert: false }, { inert: false }];
+  const context = vm.createContext({
+    document: {
+      activeElement: { isConnected: true, focus() { focused += 1; } },
+      querySelectorAll: () => sections,
+    },
+    KDUI: { withBusyButton: async (_button, task) => task() },
+  });
+  vm.runInContext(`let settingsOperationPending = false; ${declaration(settingsSource, 'withSettingsOperation')}`, context);
+  const pending = context.withSettingsOperation(null, () => new Promise((resolve) => { release = resolve; }));
+  assert.ok(sections.every((element) => element.inert));
+  await context.withSettingsOperation(null, () => { writes += 1; });
+  assert.equal(writes, 0);
+  release();
+  await pending;
+  assert.ok(sections.every((element) => !element.inert));
+  assert.equal(focused, 1);
+  await context.withSettingsOperation(null, () => { writes += 1; });
+  assert.equal(writes, 1);
+});
+
+test("settings display normalized values only after persistence succeeds", async () => {
+  let finish;
+  const controls = {
+    'external-link-filter-mode': { value: 'blacklist' },
+    'external-link-filter-blacklist': { value: 'EXAMPLE.com, example.com' },
+  };
+  const context = vm.createContext({
+    $: (id) => controls[id],
+    setValue: (id, value) => { controls[id].value = value; },
+    updateExternalLinkFilterVisibility() {},
+    sendMessage: () => new Promise((resolve, reject) => { finish = { resolve, reject }; }),
+  });
+  vm.runInContext([
+    declaration(settingsSource, 'saveExternalLinkFilter'),
+    declaration(settingsSource, 'renderExternalLinkFilterConfig'),
+  ].join('\n'), context);
+  const pending = context.saveExternalLinkFilter();
+  assert.equal(controls['external-link-filter-blacklist'].value, 'EXAMPLE.com, example.com');
+  finish.resolve({ config: { mode: 'blacklist', blacklist: ['example.com'] } });
+  await pending;
+  assert.equal(controls['external-link-filter-blacklist'].value, 'example.com');
+
+  controls['external-link-filter-blacklist'].value = 'unsaved.example';
+  const rejected = context.saveExternalLinkFilter();
+  finish.reject(new Error('storage write failed'));
+  await assert.rejects(rejected, /storage write failed/);
+  assert.equal(controls['external-link-filter-blacklist'].value, 'unsaved.example');
+});
+
+test("settings blank numeric controls use their defaults and preserve explicit zero", () => {
+  const control = { value: '' };
+  const context = vm.createContext({ $: () => control });
+  vm.runInContext(declaration(settingsSource, 'numberValue'), context);
+  assert.equal(context.numberValue('port', 15151, 1, 65535), 15151);
+  control.value = '0';
+  assert.equal(context.numberValue('retries', 3, 0, 10), 0);
+  control.value = '12';
+  assert.equal(context.numberValue('retries', 3, 0, 10), 10);
+});
+
+test("settings keep save success and failure visible after the busy state ends", async () => {
+  let failure = null;
+  const status = { textContent: '' };
+  const context = vm.createContext({
+    $: () => status,
+    settingsLoaded: true,
+    t: (key) => key,
+    withBusyButton: (_button, task) => task(),
+    saveBackend: async () => { if (failure) throw failure; },
+    saveDownloadRules: async () => ({ sync: { state: 'success' } }),
+    saveExternalLinkFilter: async () => {},
+    saveWatch: async () => {},
+    saveGist: async () => {},
+    saveCreators: async () => {},
+    showToast: (message) => { status.textContent = message; },
+    console: { error() {} },
+  });
+  vm.runInContext(declaration(settingsSource, 'saveAll'), context);
+  await context.saveAll();
+  assert.equal(status.textContent, 'settingsSaved');
+  failure = new Error('Storage unavailable');
+  await context.saveAll();
+  assert.equal(status.textContent, 'Storage unavailable');
+});
+
+test("Watch import waits for the shared confirmation and cancel preserves the current list", async () => {
+  let answer;
+  let reads = 0;
+  let writes = 0;
+  let reloaded = 0;
+  const file = { size: 2, text: async () => { reads += 1; return '{}'; } };
+  const context = vm.createContext({
+    MAX_WATCH_IMPORT_FILE_BYTES: 1024,
+    t: (key) => key,
+    KDUI: { confirmAction: () => new Promise((resolve) => { answer = resolve; }) },
+    sendMessage: async () => { writes += 1; },
+    loadWatch: async () => { reloaded += 1; },
+  });
+  vm.runInContext(declaration(settingsSource, 'importWatchList'), context);
+  const canceled = context.importWatchList(file);
+  assert.equal(reads, 0);
+  assert.equal(writes, 0);
+  answer(false);
+  assert.equal(await canceled, false);
+  assert.equal(writes, 0);
+  const confirmed = context.importWatchList(file);
+  answer(true);
+  assert.equal(await confirmed, true);
+  assert.equal(reads, 1);
+  assert.equal(writes, 1);
+  assert.equal(reloaded, 1);
+});
+
+test("TrueDown settings exclude duplicate submissions and wait for every write after failure", async () => {
+  const controls = new Map();
+  const saveButton = testButton();
+  const els = new Proxy({}, { get(_target, key) {
+    if (!controls.has(key)) controls.set(key, { value: '', checked: false, inert: false, querySelector: () => saveButton });
+    return controls.get(key);
+  } });
+  const pendingWrites = [];
+  const messages = [];
+  const context = vm.createContext({
+    els,
+    document: { querySelectorAll: () => [] },
+    MAX_SPEED_BPS: 2 ** 50,
+    DEFAULT_DOWNLOAD_SETTINGS: { connections: 16, maxTries: 5, retryWait: 3 },
+    DEFAULT_RUNTIME_SETTINGS: { concurrentDownloads: 3 },
+    parseHeaders() {},
+    optionalInt: () => 0,
+    optionalIntAllowZero: (_name, fallback) => fallback,
+    readTrackerResearchForm: () => ({ enabled: false }),
+    downloadRules: { enabled: false },
+    runtimeSettings: { concurrentDownloads: 3 },
+    trackerResearchSettings: { enabled: false },
+    normalizeServerDownloadRules: (value) => value,
+    normalizeServerRuntimeSettings: (value) => value,
+    normalizeTrackerResearchSettings: (value) => value,
+    requestJSON: () => new Promise((resolve, reject) => pendingWrites.push({ resolve, reject })),
+    showToast(message) { messages.push(message); },
+    KDComponents: { setBusyState: (button, busy) => { button.disabled = busy; } },
+  });
+  vm.runInContext(declaration(trueDownSource, 'saveDownloadSettings'), context);
+  const first = context.saveDownloadSettings({ preventDefault() {} });
+  await context.saveDownloadSettings({ preventDefault() {} });
+  assert.equal(pendingWrites.length, 3);
+  assert.equal(els.settingsForm.inert, true);
+  pendingWrites[0].reject(new Error('backend rejected setting'));
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(els.settingsForm.inert, true, 'another submission must not race remaining writes');
+  pendingWrites[1].resolve({ concurrentDownloads: 8 });
+  pendingWrites[2].resolve({ enabled: false, minimumLeechers: 7 });
+  await first;
+  assert.equal(els.settingsForm.inert, false);
+  assert.equal(saveButton.disabled, false);
+  assert.equal(context.runtimeSettings.concurrentDownloads, 8);
+  assert.equal(context.trackerResearchSettings.minimumLeechers, 7);
+  assert.equal(context.downloadRules.enabled, false);
+  assert.match(messages.at(-1), /部分服务端设置已保存/);
+});
 
 test("Pawchive UI shares the default history source while preserving history-state rendering", () => {
   assert.match(pawActionsSource, /renderPostDownloadButton\(context, \{ container, parsed \}\)/);

@@ -134,6 +134,12 @@ test("injected UI is scoped and site scripts reuse shared renderers", () => {
     /kd-ui-action\s*\{[^}]*pointer-events:\s*auto\s*!important;[^}]*cursor:\s*pointer\s*!important;/s
   );
   assert.match(sharedComponentsSource, /const expectedCursor = status === "SCANNING"/);
+  const progressHostRule = contentCss.match(/[^{}]+\{[^{}]*cursor:\s*progress\s*!important;[^{}]*\}/)?.[0];
+  assert.ok(progressHostRule);
+  for (const state of ['data-status="SCANNING"', 'data-status="SENDING"', 'aria-busy="true"']) {
+    assert.ok(progressHostRule.includes(`kd-ui-action[${state}][disabled]`));
+  }
+  assert.ok(contentCss.indexOf(progressHostRule) > contentCss.indexOf('kd-ui-action[variant="flag"][disabled]'));
   assert.match(contentUiSource, /KDComponents\.createLinksDialogElement\(\)/);
   assert.match(contentUiSource, /if \(!dialog\.isConnected\) \{\s*dialog\.close\(\);\s*finish\(\);/);
   assert.doesNotMatch(contentUiSource, /document\.createElement\(KDComponents\.LINKS_DIALOG_TAG\)/);
@@ -275,6 +281,137 @@ test("shared busy state remains active until overlapping tasks both settle", asy
   assert.equal(attributes.has("aria-busy"), false);
 });
 
+test("busy controls preserve accessible names and report the actual disabled state", async () => {
+  const context = vm.createContext({ document: {} });
+  vm.runInContext(sharedComponentsSource, context);
+  const attributes = new Map([["aria-label", "Refresh"], ["aria-disabled", "false"]]);
+  const button = {
+    disabled: false,
+    getAttribute: (name) => attributes.get(name) ?? null,
+    removeAttribute: (name) => attributes.delete(name),
+    setAttribute: (name, value) => attributes.set(name, value),
+  };
+  await context.KDComponents.withBusyButton(button, async () => {
+    assert.equal(attributes.get("aria-disabled"), "true");
+  });
+  assert.equal(attributes.get("aria-disabled"), "false");
+
+  context.KDComponents.setBusyState(button, true, { busyLabel: "Refreshing" });
+  context.KDComponents.setBusyState(button, true, { busyLabel: "Still refreshing" });
+  assert.equal(attributes.get("aria-label"), "Still refreshing");
+  context.KDComponents.setBusyState(button, false, { manageDisabled: false });
+  assert.equal(button.disabled, true);
+  assert.equal(attributes.get("aria-disabled"), "true");
+  assert.equal(attributes.get("aria-label"), "Refresh");
+  context.KDComponents.setBusyState(button, false);
+  assert.equal(attributes.get("aria-disabled"), "false");
+});
+
+test("native action hosts mirror busy state for host CSS while retaining the inner control state", () => {
+  class NativeElement {
+    setAttribute(name, value) { this.attributes.set(name, String(value)); }
+    getAttribute(name) { return this.attributes.get(name) ?? null; }
+    removeAttribute(name) { this.attributes.delete(name); }
+  }
+  const registry = new Map();
+  const context = vm.createContext({
+    HTMLElement: NativeElement,
+    document: {},
+    customElements: { get: (name) => registry.get(name), define: (name, constructor) => registry.set(name, constructor) },
+  });
+  vm.runInContext(sharedComponentsSource, context);
+  const action = Object.create(registry.get("kd-ui-action").prototype);
+  action.attributes = new Map();
+  action.control = new NativeElement();
+  action.control.attributes = new Map();
+  context.KDComponents.setBusyState(action, true, { manageDisabled: false });
+  assert.equal(NativeElement.prototype.getAttribute.call(action, "aria-busy"), "true");
+  assert.equal(action.control.getAttribute("aria-busy"), "true");
+  context.KDComponents.setBusyState(action, false, { manageDisabled: false });
+  assert.equal(NativeElement.prototype.getAttribute.call(action, "aria-busy"), null);
+  assert.equal(action.control.getAttribute("aria-busy"), null);
+});
+
+test("confirmation dialogs cancel safely, render text, and restore the invoking control", async () => {
+  let activeElement;
+  const frames = [];
+  class Element {
+    constructor(tagName) {
+      this.tagName = tagName;
+      this.children = [];
+      this.attributes = new Map();
+      this.listeners = new Map();
+      this.isConnected = false;
+    }
+    append(...children) { this.children.push(...children); }
+    appendChild(child) { this.append(child); child.isConnected = true; }
+    setAttribute(name, value) { this.attributes.set(name, value); }
+    addEventListener(name, callback) { this.listeners.set(name, callback); }
+    removeEventListener(name) { this.listeners.delete(name); }
+    dispatch(name, event = {}) { this.listeners.get(name)?.(event); }
+    getBoundingClientRect() { return { left: 20, right: 300, top: 20, bottom: 200 }; }
+    focus() { activeElement = this; }
+    remove() { this.isConnected = false; }
+    showModal() { this.open = true; }
+    close(value) { this.returnValue = value; this.open = false; this.dispatch("close"); }
+  }
+  const opener = new Element("button");
+  opener.isConnected = true;
+  activeElement = opener;
+  const body = new Element("body");
+  const ownerDocument = new Element("document");
+  ownerDocument.body = body;
+  ownerDocument.createElement = (tag) => new Element(tag);
+  Object.defineProperty(ownerDocument, "activeElement", { get: () => activeElement });
+  const context = vm.createContext({
+    document: ownerDocument,
+    requestAnimationFrame: (callback) => frames.push(callback),
+  });
+  vm.runInContext(sharedComponentsSource, context);
+  const show = () => context.KDComponents.confirmAction({
+    title: "Delete history", message: "<script>literal text</script>",
+    confirmLabel: "Delete", cancelLabel: "Cancel", danger: true,
+  });
+  for (const outcome of ["escape", "backdrop", "cancel", "confirm"]) {
+    const result = show();
+    const dialog = body.children.at(-1);
+    const [heading, description, actions] = dialog.children;
+    assert.equal(dialog.open, true);
+    assert.equal(description.textContent, "<script>literal text</script>");
+    assert.equal(dialog.attributes.get("aria-labelledby"), heading.id);
+    assert.equal(activeElement, actions.children[0]);
+    const tab = (shiftKey) => {
+      let prevented = false;
+      ownerDocument.dispatch("keydown", { key: "Tab", shiftKey, preventDefault() { prevented = true; } });
+      assert.equal(prevented, true);
+    };
+    tab(true);
+    assert.equal(activeElement, actions.children[1]);
+    tab(false);
+    assert.equal(activeElement, actions.children[0]);
+    activeElement = body;
+    tab(true);
+    assert.equal(activeElement, actions.children[1]);
+    activeElement = body;
+    tab(false);
+    assert.equal(activeElement, actions.children[0]);
+    if (outcome === "escape") {
+      let prevented = false;
+      dialog.dispatch("cancel", { preventDefault() { prevented = true; } });
+      assert.equal(prevented, true);
+    } else if (outcome === "backdrop") {
+      dialog.dispatch("click", { target: dialog, clientX: 0, clientY: 0 });
+    } else {
+      actions.children[outcome === "confirm" ? 1 : 0].dispatch("click");
+    }
+    assert.equal(await result, outcome === "confirm");
+    assert.equal(dialog.isConnected, false);
+    assert.equal(ownerDocument.listeners.has("keydown"), false);
+    frames.shift()();
+    assert.equal(activeElement, opener);
+  }
+});
+
 test("shared messaging never retries an ambiguous timeout", async () => {
   let sendCount = 0;
   const context = vm.createContext({
@@ -381,6 +518,41 @@ test("TrueDown keeps its light and dark design tokens", () => {
   assert.deepEqual(kdTokens(trueDownCss), kdTokens(sharedCss));
 });
 
+test("every light-DOM design token referenced by shared controls is defined", () => {
+  for (const css of [sharedCss, trueDownCss]) {
+    const defined = new Set(kdTokens(css).map(([name]) => name));
+    for (const [, name] of css.matchAll(/var\((--kd-[\w-]+)/g)) {
+      assert.ok(defined.has(name), `missing token ${name}`);
+    }
+  }
+});
+
+test("injected status and link text remains legible in both system themes", () => {
+  const luminance = (hex) => hex.replace(/^#/, "").match(/../g)
+    .map((part) => parseInt(part, 16) / 255)
+    .map((part) => part <= 0.04045 ? part / 12.92 : ((part + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, part, index) => sum + part * [0.2126, 0.7152, 0.0722][index], 0);
+  const contrast = (foreground, background) => {
+    const first = luminance(foreground);
+    const second = luminance(background);
+    return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+  };
+  for (const styleName of ["CONTENT_COMPONENT_STYLES", "LINKS_DIALOG_STYLES"]) {
+    const css = sharedComponentsSource.match(new RegExp(`const ${styleName} = String.raw\u0060([\\s\\S]*?)\u0060;`))[1];
+    const [dark, light] = css.split("@media (prefers-color-scheme: light)");
+    const extract = (source) => Object.fromEntries([...source.matchAll(/--kd-content-([\w-]+):\s*(#[\da-f]{6});/g)].map((match) => [match[1], match[2]]));
+    const darkTokens = extract(dark);
+    for (const tokens of [darkTokens, { ...darkTokens, ...extract(light) }]) {
+      const pairs = styleName === "LINKS_DIALOG_STYLES"
+        ? [["link", "surface"], ["link", "surface-raised"]]
+        : [["success-text", "surface"], ["error-text", "surface"], ["warning-text", "warning"], ["warning-text", "warning-hover"], ["accent-text", "success"], ["accent-text", "success-hover"], ["accent-text", "error"], ["accent-text", "error-hover"]];
+      for (const [foreground, background] of pairs) {
+        assert.ok(contrast(tokens[foreground], tokens[background]) >= 4.5, `${styleName}: ${foreground} on ${background}`);
+      }
+    }
+  }
+});
+
 test("the shared brand palette is anchored to #487A7A", () => {
   for (const css of [sharedCss, trueDownCss]) {
     assert.equal((css.match(/--kd-accent:\s*#487a7a;/gi) ?? []).length, 2);
@@ -409,7 +581,7 @@ test("TrueDown consumes the generated canonical component runtime", () => {
   assert.match(trueDownApp, /KDComponents\.prepareDecorativeIcons/);
   assert.match(trueDownApp, /KDComponents\.setBusyState/);
   assert.doesNotMatch(
-    trueDownApp,
+    trueDownApp.replace(/^.*els\.(?:tasksContainer|downloadForm)\.(?:setAttribute|removeAttribute)\("aria-busy".*$/gm, ""),
     /(?:setAttribute|removeAttribute|toggleAttribute)\("aria-busy"/
   );
 });

@@ -32,13 +32,13 @@
             <input type="checkbox" id="backend-enabled" class="kd-toggle">
             <span data-i18n="backendEnable">Enable backend dispatch</span>
           </label>
-          <label class="field">
+          <div class="field">
             <span data-i18n="backendType">Backend type</span>
             <div class="kd-segmented" role="group" aria-label="Backend type" data-i18n-aria-label="backendType">
               <button type="button" class="kd-segment is-active" id="backend-type-abdm" data-value="abdm" aria-pressed="true">ABDM</button>
               <button type="button" class="kd-segment" id="backend-type-gopeed" data-value="gopeed" aria-pressed="false">Gopeed</button>
             </div>
-          </label>
+          </div>
         </div>
         <div class="backend-details kd-hidden" id="backend-details">
           <p class="backend-warning" data-i18n="backendHistoryWarning">
@@ -47,58 +47,58 @@
           <div class="backend-config" id="abdm-fields">
             <label class="field">
               <span data-i18n="abdmProtocol">ABDM protocol</span>
-              <select id="backend-protocol">
+              <select id="backend-protocol" class="kd-select">
                 <option value="http">http</option>
                 <option value="https">https</option>
               </select>
             </label>
             <label class="field">
               <span data-i18n="abdmHost">ABDM host</span>
-              <input id="backend-host" type="text" placeholder="127.0.0.1">
+              <input id="backend-host" type="text" class="kd-input" placeholder="127.0.0.1">
             </label>
             <label class="field">
               <span data-i18n="abdmPort">ABDM port</span>
-              <input id="backend-port" type="number" min="1" max="65535" step="1" placeholder="15151">
+              <input id="backend-port" type="number" class="kd-input" min="1" max="65535" step="1" placeholder="15151">
             </label>
             <label class="field">
               <span data-i18n="backendApiKey">API Key</span>
-              <input id="backend-api-key" type="password" maxlength="256" autocomplete="off" spellcheck="false">
+              <input id="backend-api-key" type="password" class="kd-input" maxlength="256" autocomplete="off" spellcheck="false">
               <span class="field-help" data-i18n="backendApiKeyHelp">Use the same API Key configured by the backend.</span>
             </label>
           </div>
           <div class="backend-config kd-hidden" id="gopeed-fields">
             <label class="field">
               <span data-i18n="gopeedProtocol">Gopeed protocol</span>
-              <select id="gopeed-protocol">
+              <select id="gopeed-protocol" class="kd-select">
                 <option value="http">http</option>
                 <option value="https">https</option>
               </select>
             </label>
             <label class="field">
               <span data-i18n="gopeedHost">Gopeed host</span>
-              <input id="gopeed-host" type="text" placeholder="127.0.0.1">
+              <input id="gopeed-host" type="text" class="kd-input" placeholder="127.0.0.1">
             </label>
             <label class="field">
               <span data-i18n="gopeedPort">Gopeed port</span>
-              <input id="gopeed-port" type="number" min="1" max="65535" step="1" placeholder="9999">
+              <input id="gopeed-port" type="number" class="kd-input" min="1" max="65535" step="1" placeholder="9999">
             </label>
             <label class="field">
               <span data-i18n="apiToken">API token</span>
-              <input id="gopeed-token" type="password" maxlength="4096" autocomplete="off" spellcheck="false">
+              <input id="gopeed-token" type="password" class="kd-input" maxlength="4096" autocomplete="off" spellcheck="false">
             </label>
           </div>
           <div class="backend-config backend-batching">
             <label class="field">
               <span data-i18n="concurrency">Concurrency</span>
-              <input id="backend-concurrency" type="number" min="1" max="6" step="1">
+              <input id="backend-concurrency" type="number" class="kd-input" min="1" max="6" step="1">
             </label>
             <label class="field">
               <span data-i18n="retryCount">Retry count</span>
-              <input id="backend-retry-count" type="number" min="0" max="10" step="1">
+              <input id="backend-retry-count" type="number" class="kd-input" min="0" max="10" step="1">
             </label>
             <label class="field">
               <span data-i18n="perPostFileLimit">Per-post file limit</span>
-              <input id="backend-file-limit" type="number" min="1" max="1000" step="1">
+              <input id="backend-file-limit" type="number" class="kd-input" min="1" max="1000" step="1">
             </label>
           </div>
         </div>
@@ -155,7 +155,7 @@
         <div class="form-grid">
           <label class="field">
             <span data-i18n="intervalMinutes">Interval minutes</span>
-            <input id="watch-interval" type="number" min="1" max="10080" step="1">
+            <input id="watch-interval" type="number" class="kd-input" min="1" max="10080" step="1">
           </label>
           <div class="field">
             <span data-i18n="watchCheckMode">Check mode</span>
@@ -231,11 +231,11 @@
           <div></div>
           <label class="field">
             <span data-i18n="tokenLabel">Token</span>
-            <input id="gist-token" type="password" maxlength="4096" autocomplete="off" spellcheck="false">
+            <input id="gist-token" type="password" class="kd-input" maxlength="4096" autocomplete="off" spellcheck="false">
           </label>
           <label class="field">
             <span data-i18n="gistId">Gist ID</span>
-            <input id="gist-id" type="text" maxlength="128" spellcheck="false">
+            <input id="gist-id" type="text" class="kd-input" maxlength="128" spellcheck="false">
           </label>
           <div class="button-row">
             <button type="button" class="kd-button secondary" id="gist-save">

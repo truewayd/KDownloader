@@ -9,7 +9,7 @@
     "message": "KDownloader"
   },
   "popupTitle": {
-    "message": "Kemono Toolkit"
+    "message": "KDownloader"
   },
   "settingsPageTitle": {
     "message": "KDownloader Settings"
@@ -336,6 +336,9 @@
   },
   "clearHistoryConfirm": {
     "message": "This will permanently delete all download history. Continue?"
+  },
+  "cancelAction": {
+    "message": "Cancel"
   },
   "downloadActionDecorated": {
     "message": "↓ Download"

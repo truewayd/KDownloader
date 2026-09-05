@@ -5,9 +5,11 @@
   const ACTION_TAG = "kd-ui-action";
   const LINKS_DIALOG_TAG = "kd-ui-links-dialog";
   const busyButtons = new WeakMap();
+  const busyControlLabels = new WeakMap();
   const componentStyleSheets = new Map();
   const manualActionControls = new WeakMap();
   const linksDialogControllers = new WeakMap();
+  let confirmDialogSequence = 0;
   const HTMLElementBase = globalThis.HTMLElement || class {};
 
   const CONTENT_COMPONENT_STYLES = String.raw`
@@ -21,12 +23,15 @@
       --kd-content-accent-hover: #3c6868;
       --kd-content-accent-text: #ffffff;
       --kd-content-focus: #79a8a8;
-      --kd-content-success: #5c9452;
-      --kd-content-success-hover: #6aa660;
+      --kd-content-success: #47773e;
+      --kd-content-success-hover: #3f7038;
+      --kd-content-success-text: #d4ebd0;
       --kd-content-warning: #d19a5b;
       --kd-content-warning-hover: #b87c3d;
+      --kd-content-warning-text: #151a1a;
       --kd-content-error: #ad5047;
-      --kd-content-error-hover: #c15d52;
+      --kd-content-error-hover: #b65349;
+      --kd-content-error-text: #f2c6c1;
       --kd-content-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
       box-sizing: border-box;
       display: inline-block;
@@ -38,6 +43,7 @@
 
     :host([hidden]) { display: none !important; }
     :host([disabled]) { cursor: not-allowed; }
+    :host([aria-busy="true"]),
     :host([data-status="SCANNING"]),
     :host([data-status="SENDING"]) { cursor: progress; }
 
@@ -59,7 +65,7 @@
       cursor: pointer;
       font: inherit;
       font-size: 13px;
-      font-weight: 700;
+      font-weight: 720;
       line-height: 1;
       text-align: center;
       text-decoration: none;
@@ -87,9 +93,10 @@
 
     button:disabled {
       cursor: not-allowed;
-      opacity: 0.62;
+      opacity: 0.58;
     }
 
+    button[aria-busy="true"],
     :host([data-status="SCANNING"]) button,
     :host([data-status="SENDING"]) button { cursor: progress; }
 
@@ -119,7 +126,7 @@
     :host([data-status="PARTIAL"]) button {
       border-color: var(--kd-content-warning);
       background: var(--kd-content-warning);
-      color: #fff;
+      color: var(--kd-content-warning-text);
     }
 
     :host([data-status="PARTIAL"]) button:hover:not(:disabled) {
@@ -181,7 +188,7 @@
     :host([variant="creator"][data-status="SUCCESS"]) button {
       border-color: color-mix(in srgb, var(--kd-content-success) 72%, transparent);
       background: color-mix(in srgb, var(--kd-content-surface) 88%, transparent);
-      color: #d3e6cd;
+      color: var(--kd-content-success-text);
     }
 
     :host([variant="creator"][data-status="PARTIAL"]) button {
@@ -193,7 +200,7 @@
     :host([variant="creator"][data-status="ERROR"]) button {
       border-color: color-mix(in srgb, var(--kd-content-error) 72%, transparent);
       background: color-mix(in srgb, var(--kd-content-surface) 88%, transparent);
-      color: #f0c4bd;
+      color: var(--kd-content-error-text);
     }
 
     :host([variant="creator"][data-status="SCANNING"]),
@@ -238,12 +245,15 @@
         --kd-content-accent-hover: #3c6868;
         --kd-content-accent-text: #ffffff;
         --kd-content-focus: #487a7a;
-        --kd-content-success: #4e8445;
+        --kd-content-success: #4b8042;
         --kd-content-success-hover: #3f7038;
+        --kd-content-success-text: #365b2f;
         --kd-content-warning: #8b5e20;
         --kd-content-warning-hover: #704714;
+        --kd-content-warning-text: #ffffff;
         --kd-content-error: #b0453a;
         --kd-content-error-hover: #96372f;
+        --kd-content-error-text: #8b3326;
         --kd-content-shadow: 0 8px 24px rgba(35, 60, 60, 0.18);
       }
     }
@@ -269,7 +279,7 @@
       --kd-content-border: rgba(224, 235, 235, 0.22);
       --kd-content-text: #f1f5f5;
       --kd-content-muted: #a6b2b2;
-      --kd-content-accent-hover: #3c6868;
+      --kd-content-link: #8eb2b2;
       --kd-content-focus: #79a8a8;
       position: fixed;
       inset: 0;
@@ -311,7 +321,7 @@
     p { margin: 0 0 14px; color: var(--kd-content-muted); font-size: 13px; line-height: 1.5; }
     ul { display: flex; flex-direction: column; gap: 8px; margin: 0 0 16px; padding: 0; list-style: none; }
     li { min-width: 0; border-left: 3px solid color-mix(in srgb, #487a7a 72%, transparent); padding: 8px 10px; background: color-mix(in srgb, var(--kd-content-surface-raised) 62%, transparent); }
-    a { color: var(--kd-content-accent-hover); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; text-decoration: none; }
+    a { color: var(--kd-content-link); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; text-decoration: none; }
     a:hover { text-decoration: underline; }
     a:focus-visible,
     button:focus-visible { outline: 2px solid var(--kd-content-focus); outline-offset: 2px; }
@@ -328,7 +338,7 @@
         --kd-content-border: rgba(47, 69, 69, 0.24);
         --kd-content-text: #202b2b;
         --kd-content-muted: #5e6f6f;
-        --kd-content-accent-hover: #3c6868;
+        --kd-content-link: #3c6868;
         --kd-content-focus: #487a7a;
       }
     }
@@ -625,7 +635,7 @@
       const backgroundMissing = style.backgroundColor === "rgba(0, 0, 0, 0)"
         || style.backgroundColor === "transparent";
       const status = element.getAttribute("data-status");
-      const expectedCursor = status === "SCANNING" || status === "SENDING"
+      const expectedCursor = status === "SCANNING" || status === "SENDING" || control.getAttribute("aria-busy") === "true"
         ? "progress"
         : (control.disabled ? "not-allowed" : "pointer");
       const baseStylesReady = style.display === "inline-flex" && style.cursor === expectedCursor;
@@ -673,6 +683,7 @@
     setAttribute(name, value) {
       if (String(name).startsWith("aria-") && this.control) {
         this.control.setAttribute(name, String(value));
+        if (name === "aria-busy") super.setAttribute(name, value);
         return;
       }
       super.setAttribute(name, value);
@@ -688,6 +699,7 @@
     removeAttribute(name) {
       if (String(name).startsWith("aria-") && this.control) {
         this.control.removeAttribute(name);
+        if (name === "aria-busy") super.removeAttribute(name);
         return;
       }
       super.removeAttribute(name);
@@ -785,12 +797,14 @@
         count: 0,
         wasDisabled: button.disabled,
         previousBusy: button.getAttribute("aria-busy"),
+        previousDisabled: button.getAttribute("aria-disabled"),
       };
       busyButtons.set(button, state);
     }
     state.count += 1;
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
+    button.setAttribute("aria-disabled", "true");
     try {
       return await task();
     } finally {
@@ -800,6 +814,8 @@
         button.disabled = state.wasDisabled;
         if (state.previousBusy === null) button.removeAttribute("aria-busy");
         else button.setAttribute("aria-busy", state.previousBusy);
+        if (state.previousDisabled === null) button.removeAttribute("aria-disabled");
+        else button.setAttribute("aria-disabled", state.previousDisabled);
       }
     }
   }
@@ -832,6 +848,82 @@
     return Object.freeze({ show, hide });
   }
 
+  function confirmAction({ title, message, confirmLabel, cancelLabel, danger = false } = {}) {
+    const ownerDocument = document;
+    const returnFocus = ownerDocument.activeElement;
+    const dialog = ownerDocument.createElement("dialog");
+    dialog.className = "kd-confirm-dialog";
+    const heading = ownerDocument.createElement("h2");
+    const description = ownerDocument.createElement("p");
+    const dialogID = `kd-confirm-${++confirmDialogSequence}`;
+    heading.id = `${dialogID}-title`;
+    description.id = `${dialogID}-description`;
+    heading.textContent = String(title ?? "");
+    description.textContent = String(message ?? "");
+    dialog.setAttribute("aria-labelledby", heading.id);
+    dialog.setAttribute("aria-describedby", description.id);
+    const actions = ownerDocument.createElement("div");
+    actions.className = "kd-confirm-actions";
+    const cancel = ownerDocument.createElement("button");
+    cancel.type = "button";
+    cancel.className = "kd-button secondary";
+    cancel.textContent = String(cancelLabel ?? "");
+    cancel.autofocus = true;
+    const confirm = ownerDocument.createElement("button");
+    confirm.type = "button";
+    confirm.className = `kd-button ${danger ? "danger" : "primary"}`;
+    confirm.textContent = String(confirmLabel ?? "");
+    actions.append(cancel, confirm);
+    dialog.append(heading, description, actions);
+
+    return new Promise((resolve, reject) => {
+      const handleKeydown = (event) => {
+        if (!dialog.open || event.key !== "Tab") return;
+        event.preventDefault();
+        const controls = [cancel, confirm].filter((control) => !control.disabled);
+        const current = controls.indexOf(ownerDocument.activeElement);
+        const next = current < 0
+          ? (event.shiftKey ? controls.length - 1 : 0)
+          : (current + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+        controls[next]?.focus({ preventScroll: true });
+      };
+      const finish = () => {
+        ownerDocument.removeEventListener("keydown", handleKeydown, true);
+        dialog.remove();
+        resolve(dialog.returnValue === "confirm");
+        // A caller may restore its busy button after awaiting this result.
+        requestAnimationFrame(() => {
+          if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+        });
+      };
+      dialog.addEventListener("close", finish, { once: true });
+      cancel.addEventListener("click", () => dialog.close("cancel"));
+      confirm.addEventListener("click", () => dialog.close("confirm"));
+      dialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        dialog.close("cancel");
+      });
+      dialog.addEventListener("click", (event) => {
+        if (event.target !== dialog) return;
+        const bounds = dialog.getBoundingClientRect();
+        if (event.clientX < bounds.left || event.clientX > bounds.right
+          || event.clientY < bounds.top || event.clientY > bounds.bottom) {
+          dialog.close("cancel");
+        }
+      });
+      ownerDocument.body.appendChild(dialog);
+      try {
+        dialog.showModal();
+        ownerDocument.addEventListener("keydown", handleKeydown, true);
+        cancel.focus({ preventScroll: true });
+      } catch (error) {
+        ownerDocument.removeEventListener("keydown", handleKeydown, true);
+        dialog.remove();
+        reject(error);
+      }
+    });
+  }
+
   function setIconButton(button, iconId, label, iconRoot = "") {
     if (!button) return;
     const svg = button.querySelector("svg.kd-button-icon") || document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -856,11 +948,23 @@
     }
   }
 
-  function setBusyState(control, busy, { manageDisabled = true } = {}) {
+  function setBusyState(control, busy, { manageDisabled = true, busyLabel } = {}) {
     if (!control) return;
     if (busy) control.setAttribute("aria-busy", "true");
     else control.removeAttribute("aria-busy");
     if (manageDisabled) control.disabled = Boolean(busy);
+    control.setAttribute("aria-disabled", String(Boolean(control.disabled)));
+    if (busy && busyLabel !== undefined) {
+      if (!busyControlLabels.has(control)) {
+        busyControlLabels.set(control, control.getAttribute("aria-label"));
+      }
+      control.setAttribute("aria-label", String(busyLabel));
+    } else if (!busy && busyControlLabels.has(control)) {
+      const label = busyControlLabels.get(control);
+      busyControlLabels.delete(control);
+      if (label === null) control.removeAttribute("aria-label");
+      else control.setAttribute("aria-label", label);
+    }
   }
 
   function prepareDecorativeIcons(scope = document) {
@@ -894,6 +998,7 @@
     createLinksDialogElement,
     createProgress,
     createToast,
+    confirmAction,
     prepareDecorativeIcons,
     ensureActionElement,
     ensureLinksDialogElement,

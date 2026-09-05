@@ -44,6 +44,7 @@ body {
 
 .status-chip {
   min-width: 116px;
+  max-width: min(420px, 45%);
   border: 1px solid var(--kd-border);
   border-radius: var(--kd-radius);
   padding: 8px 11px;
@@ -52,6 +53,7 @@ body {
   text-align: center;
   font-size: 12px;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .settings-grid {
@@ -242,6 +244,7 @@ body {
 
   .status-chip {
     min-width: 0;
+    max-width: none;
   }
 
   .action-bar {

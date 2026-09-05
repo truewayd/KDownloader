@@ -73,7 +73,11 @@ kd-ui-action[disabled] {
 }
 
 kd-ui-action[data-status="SCANNING"],
-kd-ui-action[data-status="SENDING"] {
+kd-ui-action[data-status="SENDING"],
+kd-ui-action[aria-busy="true"],
+kd-ui-action[data-status="SCANNING"][disabled],
+kd-ui-action[data-status="SENDING"][disabled],
+kd-ui-action[aria-busy="true"][disabled] {
   cursor: progress !important;
 }
 

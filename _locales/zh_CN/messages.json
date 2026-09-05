@@ -9,7 +9,7 @@
     "message": "KDownloader"
   },
   "popupTitle": {
-    "message": "Kemono 工具箱"
+    "message": "KDownloader"
   },
   "settingsPageTitle": {
     "message": "KDownloader 设置"
@@ -336,6 +336,9 @@
   },
   "clearHistoryConfirm": {
     "message": "这会永久删除全部下载历史，是否继续？"
+  },
+  "cancelAction": {
+    "message": "取消"
   },
   "downloadActionDecorated": {
     "message": "↓ 下载"
