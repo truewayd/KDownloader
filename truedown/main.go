@@ -498,8 +498,7 @@ func isDashboardNavigation(r *http.Request) bool {
 	if origin == "" {
 		return r.Header.Get("Sec-Fetch-Mode") == ""
 	}
-	parsed, err := url.Parse(origin)
-	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && strings.EqualFold(parsed.Host, r.Host)
+	return sameRequestOrigin(r, origin)
 }
 
 func isAPIPath(path string) bool {
@@ -631,13 +630,30 @@ func allowedRequestOrigin(r *http.Request) bool {
 		return true
 	}
 	parsed, err := url.Parse(origin)
-	if err != nil {
+	if err != nil || !validOriginURL(parsed) {
 		return false
 	}
 	if parsed.Scheme == "chrome-extension" && parsed.Host != "" {
 		return true
 	}
-	return (parsed.Scheme == "http" || parsed.Scheme == "https") && strings.EqualFold(parsed.Host, r.Host)
+	return sameRequestOrigin(r, origin)
+}
+
+func validOriginURL(origin *url.URL) bool {
+	return origin.Host != "" && origin.User == nil && origin.Path == "" &&
+		origin.RawQuery == "" && !origin.ForceQuery && origin.Fragment == "" && origin.Opaque == ""
+}
+
+func sameRequestOrigin(r *http.Request, origin string) bool {
+	parsed, err := url.Parse(origin)
+	if err != nil || !validOriginURL(parsed) {
+		return false
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return parsed.Scheme == scheme && strings.EqualFold(parsed.Host, r.Host)
 }
 
 func openBrowser(url string) {

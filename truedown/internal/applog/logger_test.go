@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestLoggerReturnsBoundedCompleteTail(t *testing.T) {
@@ -71,5 +72,36 @@ func TestLoggerTruncatesOneOversizedEntryAtAUTF8Boundary(t *testing.T) {
 	}
 	if !strings.HasSuffix(content, "\n[log entry truncated]\n") || strings.ContainsRune(content, '\uFFFD') {
 		t.Fatalf("oversized log entry was not safely truncated: suffix=%q", content[len(content)-32:])
+	}
+}
+
+func TestOversizedMalformedLogPreservesDiagnosticText(t *testing.T) {
+	logger, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	entry := []byte(strings.Repeat("a", maximumWrite/2) + "\xff useful diagnostic " + strings.Repeat("z", maximumWrite))
+	if _, err := logger.Write(entry); err != nil {
+		t.Fatal(err)
+	}
+	content, _, _, err := logger.ReadTail(maximumBytes)
+	if err != nil || !strings.Contains(content, "useful diagnostic") || !utf8.ValidString(content) {
+		t.Fatalf("malformed log lost its diagnostic text or UTF-8 validity: err=%v length=%d", err, len(content))
+	}
+}
+
+func TestMalformedLogTailStaysWithinByteLimit(t *testing.T) {
+	logger, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	if _, err := logger.Write([]byte(strings.Repeat("\xffx", 100))); err != nil {
+		t.Fatal(err)
+	}
+	content, truncated, _, err := logger.ReadTail(32)
+	if err != nil || !truncated || len(content) > 32 || !utf8.ValidString(content) || !strings.HasSuffix(content, "x") {
+		t.Fatalf("tail length=%d truncated=%v valid=%v err=%v", len(content), truncated, utf8.ValidString(content), err)
 	}
 }

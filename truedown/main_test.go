@@ -128,6 +128,34 @@ func TestSecureHandlerRejectsCrossOriginWrites(t *testing.T) {
 	}
 }
 
+func TestSecureHandlerRequiresExactWriteOrigin(t *testing.T) {
+	for _, test := range []struct {
+		name, target, origin string
+		want                 int
+	}{
+		{"same HTTP origin", "http://127.0.0.1:15151/tasks/clear-done", "http://127.0.0.1:15151", http.StatusNoContent},
+		{"same HTTPS origin", "https://127.0.0.1:15151/tasks/clear-done", "https://127.0.0.1:15151", http.StatusNoContent},
+		{"HTTP origin on TLS", "https://127.0.0.1:15151/tasks/clear-done", "http://127.0.0.1:15151", http.StatusForbidden},
+		{"HTTPS origin on cleartext", "http://127.0.0.1:15151/tasks/clear-done", "https://127.0.0.1:15151", http.StatusForbidden},
+		{"userinfo", "http://127.0.0.1:15151/tasks/clear-done", "http://user@127.0.0.1:15151", http.StatusForbidden},
+		{"path", "http://127.0.0.1:15151/tasks/clear-done", "http://127.0.0.1:15151/path", http.StatusForbidden},
+		{"extension", "http://127.0.0.1:15151/tasks/clear-done", "chrome-extension://abcdefghijklmnop", http.StatusNoContent},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			handler := secureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			}), testAuthState(""), "127.0.0.1:15151")
+			request := httptest.NewRequest(http.MethodPost, test.target, nil)
+			request.Header.Set("Origin", test.origin)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.want {
+				t.Fatalf("status=%d, want %d", response.Code, test.want)
+			}
+		})
+	}
+}
+
 func TestSecureHandlerRequiresTokenAndIssuesDashboardSession(t *testing.T) {
 	token := strings.Repeat("x", 30) + ";,"
 	handler := secureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

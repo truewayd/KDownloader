@@ -35,6 +35,7 @@ const (
 	StatusDone        Status = "done"
 	StatusError       Status = "error"
 	ariaBacklogLimit         = 256
+	ariaResultLimit          = 2 * ariaBacklogLimit
 )
 
 // Aria2Opts holds user-tunable aria2 download parameters.
@@ -78,6 +79,9 @@ type Task struct {
 	DropboxDirect bool   `json:"-"`
 	RemoteDigest  string `json:"-"`
 	RemoteName    string `json:"-"`
+
+	admissionFailureStatus   Status
+	admissionFailureRevision int64
 }
 
 // TaskSnapshot contains only fields needed by the web UI. Request headers and
@@ -204,19 +208,20 @@ type Manager struct {
 	modules          *moduleRegistry
 	trackerResearch  *trackerResearchModule
 
-	mu           sync.RWMutex
-	tasks        map[int64]*Task
-	fingerprints map[string]int64
-	gids         map[string]int64
-	outputNames  map[string]int64
-	orderedIDs   []int64
-	statusCounts map[Status]int
-	revision     int64
-	structureRev int64
-	ariaAdmitted map[int64]bool
-	ariaSlots    chan struct{}
-	opMu         sync.Mutex
-	nextID       atomic.Int64
+	mu                         sync.RWMutex
+	tasks                      map[int64]*Task
+	fingerprints               map[string]int64
+	gids                       map[string]int64
+	outputNames                map[string]int64
+	orderedIDs                 []int64
+	statusCounts               map[Status]int
+	revision                   int64
+	structureRev               int64
+	lastSuccessfulPollRevision int64
+	ariaAdmitted               map[int64]bool
+	ariaSlots                  chan struct{}
+	opMu                       sync.Mutex
+	nextID                     atomic.Int64
 
 	admissionMu sync.Mutex
 	admissions  []admission
@@ -1530,7 +1535,7 @@ func (m *Manager) ClearDone() int {
 		}
 	}
 	m.mu.RUnlock()
-	if err := m.store.ClearDone(); err != nil {
+	if err := m.store.DeleteBatch(ids); err != nil {
 		log.Printf("clear completed records from database: %v", err)
 		return 0
 	}
@@ -1540,11 +1545,8 @@ func (m *Manager) ClearDone() int {
 	}
 	m.compactOrderedIDsLocked()
 	m.mu.Unlock()
-	if m.rpc != nil {
-		if err := m.rpc.purgeResults(); err != nil {
-			log.Printf("purge aria2 results: %v", err)
-		}
-	}
+	// The engine already bounds its result window. Let it evict old results
+	// without deleting unobserved completions or querying every history GID.
 	return len(ids)
 }
 
@@ -1706,9 +1708,7 @@ func (m *Manager) dispatcher() {
 				if !m.acquireAriaSlot() {
 					return
 				}
-				m.opMu.Lock()
 				admitted := m.submit(item)
-				m.opMu.Unlock()
 				if !admitted {
 					m.releaseAriaSlot()
 				}
@@ -1718,6 +1718,8 @@ func (m *Manager) dispatcher() {
 }
 
 func (m *Manager) submit(item submission) bool {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
 	m.mu.RLock()
 	task, ok := m.tasks[item.id]
 	if !ok || m.ariaAdmitted[item.id] {
@@ -1729,8 +1731,11 @@ func (m *Manager) submit(item submission) bool {
 	if snapshot.Status != StatusQueued && snapshot.Status != StatusPaused {
 		return false
 	}
-	if m.engineExited.Load() {
-		m.failTask(snapshot.ID, fmt.Errorf("download engine stopped unexpectedly; restart TrueDown before retrying"))
+	var identity requestIdentity
+	isBitTorrent := snapshot.RequestJSON != "" && json.Unmarshal([]byte(snapshot.RequestJSON), &identity) == nil && identity.BitTorrent != nil
+	if m.engineExited.Load() || m.lifecycleCtx.Err() != nil {
+		// The exit handler owns recovery intent. Pending submissions must not
+		// turn its recoverable queue back into failed tasks while it restarts.
 		return false
 	}
 	if err := os.MkdirAll(snapshot.Folder, 0755); err != nil {
@@ -1767,12 +1772,24 @@ func (m *Manager) submit(item submission) bool {
 	var preparedHeaders map[string]string
 	if module := m.modules.module(snapshot.ModuleID); module != nil {
 		prepareContext, cancel := context.WithTimeout(m.lifecycleCtx, 5*time.Minute)
+		// Resolver traffic can take minutes. Keep queue operations responsive,
+		// then revalidate the task before using the prepared network result.
+		m.opMu.Unlock()
 		prepared, err := module.prepare(prepareContext, m, snapshot)
 		cancel()
+		m.opMu.Lock()
+		m.mu.RLock()
+		current := m.tasks[snapshot.ID]
+		stillPending := current != nil && current.GID == snapshot.GID && !m.ariaAdmitted[snapshot.ID] &&
+			(current.Status == StatusQueued || current.Status == StatusPaused)
+		if stillPending {
+			snapshot = cloneTask(current)
+		}
+		m.mu.RUnlock()
+		if !stillPending || m.engineExited.Load() || m.lifecycleCtx.Err() != nil {
+			return false
+		}
 		if err != nil {
-			if errors.Is(err, context.Canceled) && m.lifecycleCtx.Err() != nil {
-				return false
-			}
 			m.failTask(snapshot.ID, err)
 			return false
 		}
@@ -1785,7 +1802,7 @@ func (m *Manager) submit(item submission) bool {
 		preparedHeaders = prepared.Headers
 		preparedProxy = prepared.ProxyURL
 	}
-	if !item.recheck && snapshot.OutputName != "" {
+	if !isBitTorrent && !item.recheck && snapshot.OutputName != "" {
 		var err error
 		snapshot, err = m.refreshOutputName(snapshot.ID)
 		if err != nil {
@@ -1800,10 +1817,13 @@ func (m *Manager) submit(item submission) bool {
 		snapshot.Headers = preparedHeaders
 	}
 	options := ariaOptions(snapshot, item.recheck)
-	var identity requestIdentity
-	isBitTorrent := snapshot.RequestJSON != "" && json.Unmarshal([]byte(snapshot.RequestJSON), &identity) == nil && identity.BitTorrent != nil
-	if isBitTorrent && m.aria2Next {
-		options["check-integrity"] = "true"
+	if isBitTorrent {
+		// OutputName records the root observed from the native torrent layout.
+		// It must never become an HTTP output override on resume or restart.
+		delete(options, "out")
+		if m.aria2Next {
+			options["check-integrity"] = "true"
+		}
 	}
 	if preparedProxy != "" {
 		options["https-proxy"] = preparedProxy
@@ -1812,6 +1832,16 @@ func (m *Manager) submit(item submission) bool {
 	if m.aria2Next {
 		if state, err := m.rpc.status(snapshot.GID); err == nil && state.Bittorrent != nil &&
 			(state.Status == "active" || state.Status == "waiting" || state.Status == "paused" || state.Status == "complete") {
+			var restoreErr error
+			if snapshot.Status == StatusPaused && (state.Status == "active" || state.Status == "waiting") {
+				restoreErr = m.rpc.pause(snapshot.GID)
+			} else if snapshot.Status == StatusQueued && state.Status == "paused" {
+				restoreErr = m.rpc.unpause(snapshot.GID)
+			}
+			if restoreErr != nil {
+				m.failAdmission(snapshot, fmt.Errorf("restore native torrent pause state: %w", restoreErr))
+				return false
+			}
 			attachedToNativeTorrent = true
 		}
 	}
@@ -1827,7 +1857,7 @@ func (m *Manager) submit(item submission) bool {
 			addErr = m.rpc.addURI(snapshot, options)
 		}
 		if addErr != nil {
-			m.failTask(snapshot.ID, addErr)
+			m.failAdmission(snapshot, addErr)
 			return false
 		}
 	}
@@ -1872,12 +1902,15 @@ func (m *Manager) poller() {
 			m.handleUnexpectedEngineExit(err)
 			return
 		case <-ticker.C:
+			m.mu.RLock()
+			pollRevision := m.revision
+			m.mu.RUnlock()
 			statuses, err := m.rpc.statuses()
 			if err != nil {
 				log.Printf("poll aria2 status: %v", err)
 				continue
 			}
-			m.applyStatuses(statuses)
+			m.applyStatusesAtRevision(statuses, pollRevision)
 			m.trackerResearch.sync(m.rpc, statuses)
 		}
 	}
@@ -1903,8 +1936,13 @@ func (m *Manager) handleUnexpectedEngineExit(err error) {
 	updates := make([]*Task, 0)
 	m.mu.Lock()
 	for _, task := range m.tasks {
+		if recovering && task.Status == StatusError && task.admissionFailureStatus != "" &&
+			task.admissionFailureRevision > m.lastSuccessfulPollRevision {
+			m.setStatusLocked(task, task.admissionFailureStatus)
+		}
 		switch task.Status {
 		case StatusQueued, StatusDownloading, StatusPaused:
+			task.admissionFailureStatus, task.admissionFailureRevision = "", 0
 			m.releaseAriaSlotLocked(task.ID)
 			if recovering {
 				if task.Status != StatusPaused {
@@ -1931,6 +1969,10 @@ func (m *Manager) handleUnexpectedEngineExit(err error) {
 }
 
 func (m *Manager) applyStatuses(statuses []ariaStatus) {
+	m.applyStatusesAtRevision(statuses, -1)
+}
+
+func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision int64) {
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
 	updates := make([]*Task, 0, len(statuses))
@@ -1940,12 +1982,21 @@ func (m *Manager) applyStatuses(statuses []ariaStatus) {
 		statesByGID[state.GID] = state
 	}
 	m.mu.Lock()
+	applyRevision := m.revision
+	if pollRevision > m.lastSuccessfulPollRevision {
+		m.lastSuccessfulPollRevision = pollRevision
+	}
+	isCurrent := func(task *Task) bool {
+		// Local operations completed after this poll began take precedence.
+		// Revisions created inside this batch still accept later child/status rows.
+		return task != nil && (pollRevision < 0 || task.Revision <= pollRevision || task.Revision > applyRevision)
+	}
 	for _, parent := range statuses {
 		if len(parent.FollowedBy) == 0 {
 			continue
 		}
 		task := m.tasks[m.gids[parent.GID]]
-		if task == nil {
+		if !isCurrent(task) {
 			continue
 		}
 		childGID := ""
@@ -1954,6 +2005,15 @@ func (m *Manager) applyStatuses(statuses []ariaStatus) {
 			if ok && child.Bittorrent != nil {
 				childGID = candidate
 				break
+			}
+		}
+		if childGID == "" && len(parent.FollowedBy) == 1 {
+			// The active/waiting/stopped RPC pages are read separately. A torrent
+			// child can appear after its page was fetched but before the completed
+			// metadata parent was fetched; preserve the announced child identity.
+			var identity requestIdentity
+			if json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.BitTorrent != nil {
+				childGID = parent.FollowedBy[0]
 			}
 		}
 		if childGID == "" {
@@ -1965,16 +2025,20 @@ func (m *Manager) applyStatuses(statuses []ariaStatus) {
 		delete(m.gids, parent.GID)
 		task.GID = childGID
 		m.gids[childGID] = task.ID
+		if task.Status != StatusPaused {
+			m.setStatusLocked(task, StatusQueued)
+		}
 		task.Progress = "Torrent metadata loaded; checking local files"
 		m.touchTaskLocked(task)
 		updates = append(updates, snapshotTaskUpdate(task))
 	}
 	for _, state := range statuses {
 		task := m.tasks[m.gids[state.GID]]
-		if task == nil {
+		if !isCurrent(task) {
 			continue
 		}
 		oldStatus, oldProgress, oldError, oldOutput := task.Status, task.Progress, task.Error, task.OutputName
+		task.admissionFailureStatus, task.admissionFailureRevision = "", 0
 		oldTotalLength := task.TotalLength
 		m.setStatusLocked(task, statusFromAria(state.Status))
 		if task.Status == StatusDone || task.Status == StatusError {
@@ -2053,6 +2117,7 @@ func (m *Manager) setStatusLocked(task *Task, status Status) {
 
 func (m *Manager) rotateGIDLocked(task *Task) string {
 	oldGID := task.GID
+	task.admissionFailureStatus, task.admissionFailureRevision = "", 0
 	delete(m.gids, oldGID)
 	task.GID = m.newGIDLocked()
 	m.gids[task.GID] = task.ID
@@ -2091,7 +2156,11 @@ func (m *Manager) replaceTaskLocked(task, replacement *Task) {
 		}
 	}
 
+	oldGID := task.GID
 	*task = *cloneTask(replacement)
+	if oldGID != task.GID {
+		task.admissionFailureStatus, task.admissionFailureRevision = "", 0
+	}
 	m.fingerprints[task.Fingerprint] = task.ID
 	m.gids[task.GID] = task.ID
 	if task.OutputName != "" {
@@ -2234,11 +2303,32 @@ func runRPCOperations(targets []rpcTarget, concurrency int, operation func(rpcTa
 
 func (m *Manager) failTask(id int64, err error) {
 	if persistErr := m.setTask(id, func(t *Task) {
+		t.admissionFailureStatus, t.admissionFailureRevision = "", 0
 		t.Status = StatusError
 		t.Error = truncateText(err.Error(), 2048)
 		t.Progress = ""
 	}); persistErr != nil {
 		log.Printf("persist failed task %d: %v", id, persistErr)
+	}
+}
+
+func (m *Manager) failAdmission(snapshot *Task, err error) {
+	if persistErr := m.setTask(snapshot.ID, func(task *Task) {
+		if m.engineExited.Load() || m.lifecycleCtx.Err() != nil {
+			return
+		}
+		var rpcErr *ariaRPCError
+		if !errors.As(err, &rpcErr) {
+			// The process-exit notification may arrive after a disconnected RPC.
+			// A later successful poll expires this recovery eligibility in O(1).
+			task.admissionFailureStatus = snapshot.Status
+			task.admissionFailureRevision = m.revision + 1
+		}
+		task.Status = StatusError
+		task.Progress = ""
+		task.Error = truncateText(err.Error(), 2048)
+	}); persistErr != nil {
+		log.Printf("persist failed admission for task %d: %v", snapshot.ID, persistErr)
 	}
 }
 
@@ -2350,8 +2440,8 @@ func (m *Manager) aria2StartArgs(port int, secret string, runtimeSettings Runtim
 		"--console-log-level=" + consoleLogLevel,
 		fmt.Sprintf("--summary-interval=%d", summaryInterval),
 		"--download-result=full",
-		"--keep-unfinished-download-result=true",
-		"--max-download-result=256",
+		"--keep-unfinished-download-result=false",
+		fmt.Sprintf("--max-download-result=%d", ariaResultLimit),
 	}
 	if m.aria2Next {
 		args = append(args, "--check-integrity=true")
@@ -2587,7 +2677,7 @@ func newDropboxHTTPClient(proxy func(*http.Request) (*url.URL, error)) *http.Cli
 	}
 }
 
-func resolveDropboxDirectURL(task *Task, client *http.Client) (dropboxMetadata, error) {
+func resolveDropboxDirectURL(ctx context.Context, task *Task, client *http.Client) (dropboxMetadata, error) {
 	if task == nil || !isDropboxDirectDownload(task.Link) {
 		return dropboxMetadata{}, fmt.Errorf("task does not contain a Dropbox dl=1 link")
 	}
@@ -2595,27 +2685,32 @@ func resolveDropboxDirectURL(task *Task, client *http.Client) (dropboxMetadata, 
 		return dropboxMetadata{}, fmt.Errorf("Dropbox resolver is unavailable")
 	}
 	if isDropboxFolderDownload(task.Link) {
-		metadata, err := requestDropboxMetadata(task, client, http.MethodGet, 5*time.Minute)
+		metadata, err := requestDropboxMetadata(ctx, task, client, http.MethodGet, 5*time.Minute)
 		if err != nil {
 			return dropboxMetadata{}, fmt.Errorf("refresh Dropbox folder archive URL: %w", err)
 		}
 		return metadata, nil
 	}
 	var headErr error
-	if metadata, err := requestDropboxMetadata(task, client, http.MethodHead, 20*time.Second); err == nil {
+	if metadata, err := requestDropboxMetadata(ctx, task, client, http.MethodHead, 20*time.Second); err == nil {
 		return metadata, nil
 	} else {
 		headErr = err
 	}
-	metadata, getErr := requestDropboxMetadata(task, client, http.MethodGet, 20*time.Second)
+	if err := ctx.Err(); err != nil {
+		return dropboxMetadata{}, err
+	}
+	metadata, getErr := requestDropboxMetadata(ctx, task, client, http.MethodGet, 20*time.Second)
 	if getErr == nil {
 		return metadata, nil
 	}
-	return dropboxMetadata{}, fmt.Errorf("refresh Dropbox download URL: HEAD: %v; GET: %v", headErr, getErr)
+	return dropboxMetadata{}, fmt.Errorf("refresh Dropbox download URL: HEAD: %v; GET: %w", headErr, getErr)
 }
 
-func requestDropboxMetadata(task *Task, client *http.Client, method string, timeout time.Duration) (dropboxMetadata, error) {
-	request, err := http.NewRequest(method, task.Link, nil)
+func requestDropboxMetadata(ctx context.Context, task *Task, client *http.Client, method string, timeout time.Duration) (dropboxMetadata, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, method, task.Link, nil)
 	if err != nil {
 		return dropboxMetadata{}, err
 	}
@@ -2631,9 +2726,6 @@ func requestDropboxMetadata(task *Task, client *http.Client, method string, time
 	if method == http.MethodGet {
 		request.Header.Set("Range", "bytes=0-0")
 	}
-	ctx, cancel := context.WithTimeout(request.Context(), timeout)
-	defer cancel()
-	request = request.WithContext(ctx)
 	response, err := client.Do(request)
 	if err != nil {
 		return dropboxMetadata{}, err

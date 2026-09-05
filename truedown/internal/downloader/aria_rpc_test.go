@@ -3,12 +3,60 @@ package downloader
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestAriaStatusesIncludesNewestResultsBeyondHistoricalFailures(t *testing.T) {
+	stopped := make([]ariaStatus, ariaResultLimit+1)
+	for index := range stopped {
+		stopped[index] = ariaStatus{GID: fmt.Sprintf("%016x", index+1), Status: "error"}
+	}
+	stopped[len(stopped)-1].Status = "complete"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, incoming *http.Request) {
+		var request struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(incoming.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		result := []ariaStatus{}
+		if request.Method == "aria2.tellStopped" {
+			var offset, count int
+			if len(request.Params) != 4 || json.Unmarshal(request.Params[1], &offset) != nil ||
+				json.Unmarshal(request.Params[2], &count) != nil || count < 1 || count > ariaResultLimit {
+				t.Errorf("invalid stopped-result window: %s", request.Params)
+				return
+			}
+			step := 1
+			if offset < 0 {
+				offset += len(stopped)
+				step = -1
+			}
+			for index := offset; index >= 0 && index < len(stopped) && len(result) < count; index += step {
+				result = append(result, stopped[index])
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "result": result})
+	}))
+	defer server.Close()
+	client := newAriaClient(0, "secret")
+	client.url = server.URL
+	defer client.http.CloseIdleConnections()
+	states, err := client.statuses()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(states) != ariaResultLimit || states[0].GID != stopped[len(stopped)-1].GID || states[0].Status != "complete" {
+		t.Fatalf("latest completion was hidden by historical failures: count=%d states=%+v", len(states), states)
+	}
+}
 
 func TestAriaTrackerResearchRPCUsesNextMethodContract(t *testing.T) {
 	requests := make([]map[string]any, 0, 2)

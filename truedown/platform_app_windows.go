@@ -292,12 +292,11 @@ func (state *trayState) createMenu() error {
 		{mfString, menuExit, "退出"},
 	}
 	for _, item := range items {
-		var labelPointer uintptr
+		var label *uint16
 		if item.label != "" {
-			label, _ := syscall.UTF16PtrFromString(item.label)
-			labelPointer = uintptr(unsafe.Pointer(label))
+			label, _ = syscall.UTF16PtrFromString(item.label)
 		}
-		ok, _, appendErr := appendMenuW.Call(menu, item.flags, item.id, labelPointer)
+		ok, _, appendErr := appendMenuW.Call(menu, item.flags, item.id, uintptr(unsafe.Pointer(label)))
 		if ok == 0 {
 			return fmt.Errorf("create TrueDown tray menu item: %w", appendErr)
 		}

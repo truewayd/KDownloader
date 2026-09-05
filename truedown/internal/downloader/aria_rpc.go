@@ -242,10 +242,13 @@ func (c *ariaClient) statuses() ([]ariaStatus, error) {
 	// Queued items are already known locally. A bounded window is enough to
 	// observe aria2-side state without transferring thousands of stable rows
 	// every second when a large batch is waiting.
-	if err := c.call("aria2.tellWaiting", []any{0, 256, keys}, &waiting); err != nil {
+	if err := c.call("aria2.tellWaiting", []any{0, ariaBacklogLimit, keys}, &waiting); err != nil {
 		return nil, err
 	}
-	if err := c.call("aria2.tellStopped", []any{0, 256, keys}, &stopped); err != nil {
+	// Read newest results first; retained historical failures must not hide
+	// current completions. Each admitted torrent can stop a metadata parent
+	// and its child before the next poll.
+	if err := c.call("aria2.tellStopped", []any{-1, ariaResultLimit, keys}, &stopped); err != nil {
 		return nil, err
 	}
 	result := make([]ariaStatus, 0, len(active)+len(waiting)+len(stopped))

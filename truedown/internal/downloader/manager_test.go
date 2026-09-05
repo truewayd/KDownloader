@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -232,7 +233,7 @@ func TestResolveDropboxDirectURLRefreshesContentAddress(t *testing.T) {
 		DropboxDirect: true,
 		Headers:       map[string]string{"Accept-Encoding": "gzip"},
 	}
-	metadata, err := resolveDropboxDirectURL(task, client)
+	metadata, err := resolveDropboxDirectURL(context.Background(), task, client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,12 +262,160 @@ func TestResolveDropboxFolderUsesOneLongRunningGET(t *testing.T) {
 		}, nil
 	})}
 	task := &Task{Link: "https://www.dropbox.com/scl/fo/token/share?rlkey=key&dl=1", Headers: map[string]string{}}
-	metadata, err := resolveDropboxDirectURL(task, client)
+	metadata, err := resolveDropboxDirectURL(context.Background(), task, client)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if requests != 1 || metadata.Name != "Shared Folder.zip" || metadata.Length != 2587341388 || !metadata.LengthKnown {
 		t.Fatalf("unexpected folder metadata: requests=%d metadata=%+v", requests, metadata)
+	}
+}
+
+func TestStopCancelsDropboxPreparationAndPreservesQueuedIntent(t *testing.T) {
+	for _, link := range []string{
+		"https://www.dropbox.com/scl/fi/abc/file.bin?dl=1",
+		"https://www.dropbox.com/scl/fo/abc/folder?dl=1",
+	} {
+		t.Run(link, func(t *testing.T) {
+			root := t.TempDir()
+			databasePath := filepath.Join(root, "records.db")
+			manager, err := NewManager("unused", filepath.Join(root, "downloads"), databasePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			started := make(chan struct{}, 2)
+			release := make(chan struct{})
+			defer func() { close(release); manager.Stop() }()
+			manager.rpc = &fakeAriaRPC{}
+			manager.dropboxClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				started <- struct{}{}
+				select {
+				case <-request.Context().Done():
+					return nil, request.Context().Err()
+				case <-release:
+					return nil, context.Canceled
+				}
+			})}
+			manager.wg.Add(1)
+			go manager.dispatcher()
+			task, _, err := manager.AddTask(link, "", "", nil, "", 0, Aria2Opts{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("Dropbox preparation did not start")
+			}
+			stopped := make(chan struct{})
+			go func() { manager.Stop(); close(stopped) }()
+			select {
+			case <-stopped:
+			case <-time.After(time.Second):
+				t.Fatal("shutdown waited for Dropbox's independent network timeout")
+			}
+			reloaded, err := NewManager("unused", filepath.Join(root, "downloads"), databasePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reloaded.Stop()
+			persisted, ok := reloaded.GetTask(task.ID)
+			if !ok || persisted.Status != StatusQueued || persisted.Error != "" {
+				t.Fatalf("shutdown lost queued task intent: %+v", persisted)
+			}
+			if len(started) != 0 {
+				t.Fatal("cancelled HEAD request attempted a fallback GET")
+			}
+		})
+	}
+}
+
+func TestQueueOperationsRemainResponsiveDuringResolverPreparation(t *testing.T) {
+	for _, operation := range []string{"pause", "remove"} {
+		t.Run(operation, func(t *testing.T) {
+			root := t.TempDir()
+			manager, err := NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			started, release := make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			unblock := func() { releaseOnce.Do(func() { close(release) }) }
+			defer func() { unblock(); manager.Stop() }()
+			fake := &fakeAriaRPC{statusErr: errors.New("GID not found")}
+			manager.rpc = fake
+			manager.dropboxProxy = nil
+			manager.dropboxClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				close(started)
+				select {
+				case <-release:
+				case <-request.Context().Done():
+					return nil, request.Context().Err()
+				}
+				resolved := request.Clone(request.Context())
+				resolved.URL, _ = url.Parse("https://dl.dropboxusercontent.com/content/file.bin")
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Disposition": []string{`attachment; filename="file.bin"`}},
+					Body:       io.NopCloser(strings.NewReader("")), Request: resolved,
+				}, nil
+			})}
+			manager.wg.Add(1)
+			go manager.dispatcher()
+			task, _, err := manager.AddTask("https://www.dropbox.com/scl/fi/abc/file.bin?dl=1", "file.bin", "", nil, "", 0, Aria2Opts{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("resolver did not start")
+			}
+			operationsDone := make(chan error, 1)
+			go func() {
+				_, _, err := manager.AddTask("https://example.test/marker.bin", "marker.bin", "", nil, "", 0, Aria2Opts{})
+				if err == nil {
+					if operation == "pause" {
+						err = manager.PauseTask(task.ID)
+					} else {
+						err = singleOperationError(manager.RemoveTasks([]int64{task.ID}), task.ID)
+					}
+				}
+				operationsDone <- err
+			}()
+			select {
+			case err := <-operationsDone:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("slow resolver blocked adding and controlling queued tasks")
+			}
+			unblock()
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				fake.mu.Lock()
+				count := len(fake.added)
+				finished := count > 0 && fake.added[count-1].Name == "marker.bin"
+				fake.mu.Unlock()
+				if finished {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("dispatcher did not advance after resolver completion")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			fake.mu.Lock()
+			defer fake.mu.Unlock()
+			if operation == "pause" {
+				if len(fake.added) != 2 || fake.addedOptions[0]["pause"] != "true" {
+					t.Fatalf("resolver ignored updated pause state: %v", fake.addedOptions)
+				}
+			} else if len(fake.added) != 1 {
+				t.Fatalf("removed task was submitted after stale resolver completion: %+v", fake.added)
+			}
+		})
 	}
 }
 

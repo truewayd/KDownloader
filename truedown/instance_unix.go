@@ -17,7 +17,7 @@ type appInstance struct {
 
 func acquireAppInstance(dataDir string) (*appInstance, bool, error) {
 	lockPath := filepath.Join(dataDir, "truedown.lock")
-	fd, err := unix.Open(lockPath, unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
+	fd, err := unix.Open(lockPath, unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0o600)
 	if err != nil {
 		return nil, false, fmt.Errorf("open TrueDown instance lock: %w", err)
 	}
@@ -25,6 +25,10 @@ func acquireAppInstance(dataDir string) (*appInstance, bool, error) {
 	if file == nil {
 		_ = unix.Close(fd)
 		return nil, false, fmt.Errorf("open TrueDown instance lock handle")
+	}
+	if info, err := file.Stat(); err != nil || !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, false, fmt.Errorf("TrueDown instance lock must be a regular file")
 	}
 	if err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		_ = file.Close()

@@ -24,6 +24,7 @@ type sqliteRows struct {
 	conn   *sqliteConn
 	rows   *sql.Rows
 	values []any
+	inputs []any
 	closed bool
 }
 
@@ -94,7 +95,11 @@ func (c *sqliteConn) Query(query string, args ...any) (*sqliteRows, error) {
 		c.mu.Unlock()
 		return nil, fmt.Errorf("sqlite columns: %w", err)
 	}
-	return &sqliteRows{conn: c, rows: rows, values: make([]any, len(columns))}, nil
+	result := &sqliteRows{conn: c, rows: rows, values: make([]any, len(columns)), inputs: make([]any, len(columns))}
+	for index := range result.values {
+		result.inputs[index] = &result.values[index]
+	}
+	return result, nil
 }
 
 func validateSQLiteArgs(args []any) error {
@@ -115,11 +120,7 @@ func (r *sqliteRows) Next() (bool, error) {
 	if !r.rows.Next() {
 		return false, r.rows.Err()
 	}
-	pointers := make([]any, len(r.values))
-	for index := range r.values {
-		pointers[index] = &r.values[index]
-	}
-	if err := r.rows.Scan(pointers...); err != nil {
+	if err := r.rows.Scan(r.inputs...); err != nil {
 		return false, fmt.Errorf("sqlite scan: %w", err)
 	}
 	return true, nil
@@ -174,5 +175,7 @@ func (r *sqliteRows) Close() {
 		_ = r.rows.Close()
 		r.rows = nil
 	}
+	r.values = nil
+	r.inputs = nil
 	r.conn.mu.Unlock()
 }

@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"encoding/base64"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,6 +34,96 @@ type torrentRPCStub struct {
 	*fakeAriaRPC
 	torrent string
 	options map[string]any
+}
+
+type restoredTorrentRPCStub struct {
+	*fakeAriaRPC
+	nativeStatus string
+}
+
+func (stub *restoredTorrentRPCStub) status(gid string) (ariaStatus, error) {
+	return ariaStatus{GID: gid, Status: stub.nativeStatus, Bittorrent: &ariaBitTorrentStatus{}}, nil
+}
+
+func TestRestoredTorrentKeepsNativeOutputRoot(t *testing.T) {
+	for _, native := range []bool{false, true} {
+		t.Run(map[bool]string{false: "resubmit", true: "attach"}[native], func(t *testing.T) {
+			root := t.TempDir()
+			manager, err := NewManagerWithConfig("unused", root, filepath.Join(root, "records.db"), ManagerConfig{Aria2Next: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer manager.Stop()
+			task, _, err := manager.AddBitTorrentLink("https://example.test/archive.torrent", root, nil, "", Aria2Opts{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			manager.flushAdmissions(false)
+			if err := os.Mkdir(filepath.Join(root, "bundle"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := manager.setTask(task.ID, func(task *Task) { task.OutputName = "bundle" }); err != nil {
+				t.Fatal(err)
+			}
+			fake := &fakeAriaRPC{}
+			manager.rpc = fake
+			if native {
+				manager.rpc = &restoredTorrentRPCStub{fakeAriaRPC: fake, nativeStatus: "active"}
+			}
+			if !manager.submit(submission{id: task.ID}) {
+				t.Fatal("restored torrent was not admitted")
+			}
+			updated, _ := manager.GetTask(task.ID)
+			if updated.OutputName != "bundle" {
+				t.Fatalf("native torrent root was renamed to %q", updated.OutputName)
+			}
+			for _, options := range fake.addedOptions {
+				if _, exists := options["out"]; exists {
+					t.Fatalf("restored torrent must not override its native root: %v", options)
+				}
+			}
+		})
+	}
+}
+
+func TestRestoredTorrentReconcilesPersistedPauseState(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		local           Status
+		native          string
+		pauses, resumes int
+	}{
+		{"pause-active", StatusPaused, "active", 1, 0},
+		{"pause-waiting", StatusPaused, "waiting", 1, 0},
+		{"resume-paused", StatusQueued, "paused", 0, 1},
+		{"keep-paused", StatusPaused, "paused", 0, 0},
+		{"keep-complete", StatusQueued, "complete", 0, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			manager, err := NewManagerWithConfig("unused", root, filepath.Join(root, "records.db"), ManagerConfig{Aria2Next: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer manager.Stop()
+			task, _, err := manager.AddBitTorrentLink("https://example.test/archive.torrent", root, nil, "", Aria2Opts{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			manager.flushAdmissions(false)
+			if err := manager.setTask(task.ID, func(task *Task) { task.Status = test.local }); err != nil {
+				t.Fatal(err)
+			}
+			fake := &fakeAriaRPC{}
+			manager.rpc = &restoredTorrentRPCStub{fakeAriaRPC: fake, nativeStatus: test.native}
+			if !manager.submit(submission{id: task.ID}) {
+				t.Fatal("native torrent was not attached")
+			}
+			if len(fake.paused) != test.pauses || len(fake.resumed) != test.resumes || len(fake.added) != 0 {
+				t.Fatalf("pause calls=%v resume calls=%v added=%d", fake.paused, fake.resumed, len(fake.added))
+			}
+		})
+	}
 }
 
 func (stub *torrentRPCStub) addTorrent(_ *Task, torrent string, options map[string]any) error {
@@ -99,7 +190,7 @@ func TestApplyStatusesFollowsTorrentChildGID(t *testing.T) {
 	parent := ariaStatus{GID: task.GID, Status: "complete", FollowedBy: []string{childGID}}
 	child := ariaStatus{GID: childGID, Status: "active", TotalLength: "100", CompletedLength: "25"}
 	child.Bittorrent = &ariaBitTorrentStatus{AnnounceList: [][]string{{"udp://tracker.example:80/announce"}}}
-	manager.applyStatuses([]ariaStatus{parent, child})
+	manager.applyStatusesAtRevision([]ariaStatus{parent, child}, manager.revision)
 	updated, ok := manager.GetTask(task.ID)
 	if !ok || updated.GID != childGID || updated.Status != StatusDownloading || !strings.Contains(updated.Progress, "25.0%") {
 		t.Fatalf("updated task=%+v", updated)
@@ -114,6 +205,39 @@ func TestApplyStatusesFollowsTorrentChildGID(t *testing.T) {
 	persisted, ok := reloaded.GetTask(task.ID)
 	if !ok || persisted.GID != childGID {
 		t.Fatalf("persisted task=%+v", persisted)
+	}
+}
+
+func TestTorrentMetadataCompletionWaitsForChildOutsidePollingSnapshot(t *testing.T) {
+	root := t.TempDir()
+	manager, err := NewManagerWithConfig("unused", root, filepath.Join(root, "records.db"), ManagerConfig{Aria2Next: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Stop()
+	task, _, err := manager.AddBitTorrentLink("https://example.test/archive.torrent", root, nil, "", Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.flushAdmissions(false)
+	manager.rpc = &fakeAriaRPC{}
+	if !manager.acquireAriaSlot() || !manager.submit(submission{id: task.ID}) {
+		t.Fatal("torrent was not admitted")
+	}
+	childGID := "fedcba9876543210"
+	manager.applyStatuses([]ariaStatus{{GID: task.GID, Status: "complete", FollowedBy: []string{childGID}}})
+	pending, _ := manager.GetTask(task.ID)
+	if pending.GID != childGID || pending.Status != StatusQueued || len(manager.ariaSlots) != 1 {
+		t.Fatalf("metadata completion lost its pending child or admission slot: task=%+v slots=%d", pending, len(manager.ariaSlots))
+	}
+	manager.applyStatuses([]ariaStatus{{GID: childGID, Status: "active", Bittorrent: &ariaBitTorrentStatus{}, TotalLength: "100", CompletedLength: "25"}})
+	active, _ := manager.GetTask(task.ID)
+	if active.Status != StatusDownloading || !strings.Contains(active.Progress, "25.0%") {
+		t.Fatalf("later child status was lost: %+v", active)
+	}
+	manager.applyStatuses([]ariaStatus{{GID: childGID, Status: "complete", Bittorrent: &ariaBitTorrentStatus{}}})
+	if len(manager.ariaSlots) != 0 {
+		t.Fatal("completed child did not release its admission slot")
 	}
 }
 

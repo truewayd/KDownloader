@@ -409,8 +409,9 @@ func (m *Manager) engineRestartRequiredLocked() bool {
 func (m *Manager) SetSettings(settings Settings) (Snapshot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.state.AutoUpdateTrueDown = settings.AutoUpdateTrueDown
-	if err := m.persistLocked(); err != nil {
+	next := m.state
+	next.AutoUpdateTrueDown = settings.AutoUpdateTrueDown
+	if err := m.persistStateLocked(next); err != nil {
 		return Snapshot{}, err
 	}
 	return m.snapshotLocked(), nil
@@ -429,17 +430,26 @@ func (m *Manager) SelectEngine(engine string) (Snapshot, error) {
 	if engine == EngineNext && m.state.NextEngine == nil {
 		return Snapshot{}, fmt.Errorf("install an Aria2 Next engine before selecting it")
 	}
-	m.state.EnginePreference = engine
-	m.state.LastUpdateError = ""
-	m.lastError = ""
-	if err := m.persistLocked(); err != nil {
+	next := m.state
+	next.EnginePreference = engine
+	next.LastUpdateError = ""
+	if err := m.persistStateLocked(next); err != nil {
 		return Snapshot{}, err
 	}
+	m.lastError = ""
 	return m.snapshotLocked(), nil
 }
 
 func (m *Manager) RequestRestart() error {
+	return m.requestRestart(false)
+}
+
+func (m *Manager) requestRestart(automatic bool) error {
 	m.mu.RLock()
+	if automatic && (!m.state.AutoUpdateTrueDown || m.busy != "" || m.applyLaunched) {
+		m.mu.RUnlock()
+		return nil
+	}
 	pending := m.state.PendingUpdate != nil && m.state.PendingUpdate.Build > m.currentBuild
 	restart := m.restart
 	m.mu.RUnlock()
@@ -647,14 +657,19 @@ func requireJSONObject(data []byte, description string) ([]byte, error) {
 }
 
 func (m *Manager) persistLocked() error {
-	m.state.SchemaVersion = stateSchemaVersion
-	data, err := json.MarshalIndent(m.state, "", "  ")
+	return m.persistStateLocked(m.state)
+}
+
+func (m *Manager) persistStateLocked(next persistedState) error {
+	next.SchemaVersion = stateSchemaVersion
+	data, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode update settings: %w", err)
 	}
 	if err := writeAtomicFile(m.statePath, append(data, '\n'), 0600); err != nil {
 		return fmt.Errorf("persist update settings: %w", err)
 	}
+	m.state = next
 	return nil
 }
 

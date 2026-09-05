@@ -79,13 +79,14 @@ func (m *Manager) updateTrueDown(ctx context.Context) error {
 		return err
 	}
 	m.mu.Lock()
-	m.state.LastCheckedAt = m.now().UTC()
-	m.availableApp = available
-	m.state.LastUpdateError = ""
-	if persistErr := m.persistLocked(); persistErr != nil {
+	next := m.state
+	next.LastCheckedAt = m.now().UTC()
+	next.LastUpdateError = ""
+	if persistErr := m.persistStateLocked(next); persistErr != nil {
 		m.mu.Unlock()
 		return persistErr
 	}
+	m.availableApp = available
 	m.mu.Unlock()
 	if available == nil {
 		return nil
@@ -158,14 +159,15 @@ func (m *Manager) stageTrueDown(ctx context.Context, available *availableAppUpda
 		return fmt.Errorf("stage TrueDown update: %w", err)
 	}
 	m.mu.Lock()
-	m.state.PendingUpdate = &pendingAppUpdate{
+	next := m.state
+	next.PendingUpdate = &pendingAppUpdate{
 		Version: available.Version,
 		Build:   available.Build,
 		File:    stagedName,
 		SHA256:  executableDigest,
 	}
-	m.state.LastUpdateError = ""
-	err = m.persistLocked()
+	next.LastUpdateError = ""
+	err = m.persistStateLocked(next)
 	m.mu.Unlock()
 	return err
 }
@@ -234,13 +236,14 @@ func (m *Manager) installNext(ctx context.Context) error {
 		return fmt.Errorf("inspect installed Aria2 Next: %w", existingErr)
 	}
 	m.mu.Lock()
-	m.state.NextEngine = &installedEngine{
+	next := m.state
+	next.NextEngine = &installedEngine{
 		Version: version,
 		File:    available.BinaryName,
 		SHA256:  strings.ToLower(digest),
 	}
-	m.state.LastUpdateError = ""
-	err = m.persistLocked()
+	next.LastUpdateError = ""
+	err = m.persistStateLocked(next)
 	m.mu.Unlock()
 	return err
 }
@@ -364,7 +367,7 @@ func (m *Manager) tryAutomaticApply(canApply func() bool) {
 	if !m.HasPendingUpdate() || canApply == nil || !canApply() {
 		return
 	}
-	if err := m.RequestRestart(); err != nil {
+	if err := m.requestRestart(true); err != nil {
 		m.recordUpdateError(err)
 	}
 }

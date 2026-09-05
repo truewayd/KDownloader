@@ -30,6 +30,56 @@ func TestRunAutomaticStopsWhenContextIsCanceled(t *testing.T) {
 	}
 }
 
+func TestAutomaticApplyHonorsSettingAndIdleState(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		for _, idle := range []bool{false, true} {
+			restarts := 0
+			manager := &Manager{
+				currentBuild: 1,
+				state:        persistedState{AutoUpdateTrueDown: enabled, PendingUpdate: &pendingAppUpdate{Build: 2}},
+				restart:      func() error { restarts++; return nil },
+			}
+			manager.tryAutomaticApply(func() bool { return idle })
+			want := 0
+			if enabled && idle {
+				want = 1
+			}
+			if restarts != want {
+				t.Fatalf("enabled=%v idle=%v restarts=%d, want %d", enabled, idle, restarts, want)
+			}
+			if !enabled {
+				if err := manager.RequestRestart(); err != nil || restarts != 1 {
+					t.Fatalf("manual restart must remain available: restarts=%d err=%v", restarts, err)
+				}
+			}
+		}
+	}
+}
+
+func TestFailedUpdatePreferencesPreservePublishedState(t *testing.T) {
+	manager := &Manager{
+		statePath: t.TempDir(), // A directory cannot be replaced by a settings file.
+		state: persistedState{
+			AutoUpdateTrueDown: true, EnginePreference: EngineStable,
+			NextEngine: &installedEngine{Version: "2.6.5"}, LastUpdateError: "previous error",
+		},
+		lastError: "previous error",
+	}
+	if _, err := manager.SetSettings(Settings{AutoUpdateTrueDown: false}); err == nil {
+		t.Fatal("settings write unexpectedly succeeded")
+	}
+	if !manager.Snapshot().TrueDown.AutoUpdate {
+		t.Fatal("failed settings write changed live automatic-update preference")
+	}
+	if _, err := manager.SelectEngine(EngineNext); err == nil {
+		t.Fatal("engine preference write unexpectedly succeeded")
+	}
+	snapshot := manager.Snapshot()
+	if snapshot.Engine.Preference != EngineStable || snapshot.Error != "previous error" {
+		t.Fatalf("failed engine selection changed published state: %+v", snapshot)
+	}
+}
+
 func TestManualNextInstallPersistsSelection(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows assets are intentionally platform-specific")

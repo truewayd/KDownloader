@@ -136,8 +136,8 @@ func (module *dropboxResolverModule) resolve(
 	return result, true, nil
 }
 
-func (*dropboxResolverModule) prepare(_ context.Context, m *Manager, task *Task) (modulePreparation, error) {
-	metadata, err := resolveDropboxDirectURL(task, m.dropboxClient)
+func (*dropboxResolverModule) prepare(ctx context.Context, m *Manager, task *Task) (modulePreparation, error) {
+	metadata, err := resolveDropboxDirectURL(ctx, task, m.dropboxClient)
 	if err != nil {
 		return modulePreparation{}, err
 	}

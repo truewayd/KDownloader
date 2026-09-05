@@ -329,7 +329,7 @@ func TestDropboxFolderLive(t *testing.T) {
 			t.Fatalf("live expansion returned an invalid task: %+v", task)
 		}
 	}
-	metadata, err := resolveDropboxDirectURL(result.Tasks[0], manager.dropboxClient)
+	metadata, err := resolveDropboxDirectURL(context.Background(), result.Tasks[0], manager.dropboxClient)
 	if err != nil {
 		t.Fatalf("resolve expanded Dropbox file: %v", err)
 	}

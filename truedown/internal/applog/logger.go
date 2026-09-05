@@ -54,7 +54,9 @@ func (logger *Logger) Write(input []byte) (int, error) {
 	data := input
 	if len(data) > maximumWrite {
 		cut := maximumWrite
-		for cut > 0 && !utf8.Valid(input[:cut]) {
+		// Inspect only a possible split rune; malformed earlier bytes must not
+		// discard the rest of the entry or cause repeated scans of its prefix.
+		for cut > maximumWrite-(utf8.UTFMax-1) && !utf8.RuneStart(input[cut]) {
 			cut--
 		}
 		data = append(append([]byte(nil), data[:cut]...), []byte("\n[log entry truncated]\n")...)
@@ -131,6 +133,14 @@ func (logger *Logger) ReadTail(limit int64) (content string, truncated bool, upd
 	}
 	if !utf8.Valid(data) {
 		data = []byte(strings.ToValidUTF8(string(data), "\uFFFD"))
+	}
+	if int64(len(data)) > limit {
+		start := len(data) - int(limit)
+		for start < len(data) && !utf8.RuneStart(data[start]) {
+			start++
+		}
+		data = data[start:]
+		truncated = true
 	}
 	return string(data), truncated, openedInfo.ModTime().UTC(), nil
 }
