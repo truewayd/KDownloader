@@ -271,6 +271,51 @@ test("release workflows pin actions and bind releases to the tested commit", asy
   assert.match(dependabot, /interval:\s*"weekly"/);
 });
 
+test("TrueDown publishes all native packages only after every build succeeds", async () => {
+  const workflow = await read(".github/workflows/publish-truedown.yml");
+  const windows = workflow.split("  build-windows:")[1].split("  build-unix:")[0];
+  const unix = workflow.split("  build-unix:")[1].split("  publish-release:")[0];
+  const publish = workflow.split("  publish-release:")[1];
+  assert.match(windows, /runs-on: windows-latest/);
+  assert.match(workflow, /ARTIFACT_NAME: TrueDown-build-\$\{\{ github\.run_number \}\}\.zip/);
+  assert.match(windows, /name = \$archive\.Name/);
+  assert.match(windows, /size = \$archive\.Length/);
+  assert.match(windows, /Get-FileHash -Algorithm SHA256 -LiteralPath \$archive\.FullName/);
+  assert.match(windows, /python -m unittest discover -s truedown\/tools -p test_validate_release\.py/);
+  assert.doesNotMatch(windows + unix, /action-gh-release|contents: write/);
+  for (const [os, arch, runner] of [
+    ["linux", "amd64", "ubuntu-24.04"],
+    ["linux", "arm64", "ubuntu-24.04-arm"],
+    ["darwin", "amd64", "macos-15-intel"],
+    ["darwin", "arm64", "macos-15"],
+  ]) {
+    assert.ok(unix.includes(`os: ${os}, arch: ${arch}, runner: ${runner},`));
+  }
+  assert.match(unix, /runs-on: \$\{\{ matrix\.runner \}\}/);
+  assert.match(unix, /TRUEDOWN_VERSION: truedown-build-\$\{\{ github\.run_number \}\}/);
+  assert.match(unix, /TRUEDOWN_BUILD_NUMBER: \$\{\{ github\.run_number \}\}/);
+  assert.match(unix, /TRUEDOWN_COMMIT: \$\{\{ github\.sha \}\}/);
+  assert.match(unix, /TRUEDOWN_INTEGRATION: "1"/);
+  assert.match(unix, /bash truedown\/build-unix\.sh/);
+  assert.match(unix, /bash truedown\/tools\/smoke-linux\.sh/);
+  assert.match(unix, /tar -czf/);
+  assert.match(unix, /zip -r/);
+  assert.match(unix, /if-no-files-found: error/);
+  assert.doesNotMatch(workflow, /codesign|notarytool|altool/);
+  assert.match(publish, /needs: \[build-windows, build-unix\]/);
+  assert.doesNotMatch(publish, /always\(\)|continue-on-error/);
+  assert.match(publish, /pattern: TrueDown-\$\{\{ env\.RELEASE_TAG \}\}-\*/);
+  assert.match(publish, /merge-multiple: true/);
+  assert.match(publish, /python3 truedown\/tools\/validate_release\.py release-assets --build/);
+  assert.ok(publish.indexOf("validate_release.py") < publish.indexOf("action-gh-release"));
+  assert.match(publish, /fail_on_unmatched_files: true/);
+  for (const suffix of ["linux-amd64.tar.gz", "linux-arm64.tar.gz", "macos-amd64.zip", "macos-arm64.zip"]) {
+    assert.ok(publish.includes(`release-assets/TrueDown-build-\${{ github.run_number }}-${suffix}`));
+  }
+  assert.match(publish, /release-assets\/\$\{\{ env\.ARTIFACT_NAME \}\}/);
+  assert.match(publish, /release-assets\/\$\{\{ env\.UPDATE_MANIFEST \}\}/);
+});
+
 test("extension build refuses to clean through a directory junction", async (t) => {
   const fixtureRoot = await mkdtemp(path.join(tmpdir(), "kdownloader-build-boundary-"));
   const target = path.join(fixtureRoot, "outside-target");

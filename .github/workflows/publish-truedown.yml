@@ -8,25 +8,26 @@ on:
       - ".github/workflows/publish-truedown.yml"
       - "changelog/truedown/**"
       - "tools/read-latest-changelog.ps1"
+      - "tests/releaseWorkflow.test.mjs"
       - "truedown/**"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  RELEASE_TAG: truedown-build-${{ github.run_number }}
+  ARTIFACT_NAME: TrueDown-build-${{ github.run_number }}.zip
+  UPDATE_MANIFEST: truedown-update-${{ github.run_number }}.json
 
 concurrency:
   group: publish-truedown-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  build-release:
+  build-windows:
     runs-on: windows-latest
     timeout-minutes: 45
-    env:
-      ARTIFACT_NAME: TrueDown-build-${{ github.run_number }}.zip
-      UPDATE_MANIFEST: truedown-update-${{ github.run_number }}.json
-      RELEASE_TAG: truedown-build-${{ github.run_number }}
-
     defaults:
       run:
         shell: pwsh
@@ -39,6 +40,9 @@ jobs:
 
       - name: Test release workflow safety
         run: node --test tests/releaseWorkflow.test.mjs
+
+      - name: Test release asset validation
+        run: python -m unittest discover -s truedown/tools -p test_validate_release.py
 
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -77,17 +81,124 @@ jobs:
           }
           $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $env:UPDATE_MANIFEST -Encoding utf8NoBOM
 
-      - name: Select release notes
-        run: ./tools/read-latest-changelog.ps1 -Product TrueDown -OutputFile release-notes.md
-
       - name: Upload build artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: TrueDown-${{ env.RELEASE_TAG }}
+          name: TrueDown-${{ env.RELEASE_TAG }}-windows-amd64
           path: |
             ${{ env.ARTIFACT_NAME }}
             ${{ env.UPDATE_MANIFEST }}
           if-no-files-found: error
+
+  build-unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux, arch: amd64, runner: ubuntu-24.04, asset_os: linux, archive: tar.gz }
+          - { os: linux, arch: arm64, runner: ubuntu-24.04-arm, asset_os: linux, archive: tar.gz }
+          - { os: darwin, arch: amd64, runner: macos-15-intel, asset_os: macos, archive: zip }
+          - { os: darwin, arch: arm64, runner: macos-15, asset_os: macos, archive: zip }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      TRUEDOWN_VERSION: truedown-build-${{ github.run_number }}
+      TRUEDOWN_BUILD_NUMBER: ${{ github.run_number }}
+      TRUEDOWN_COMMIT: ${{ github.sha }}
+      UNIX_ARTIFACT: TrueDown-build-${{ github.run_number }}-${{ matrix.asset_os }}-${{ matrix.arch }}.${{ matrix.archive }}
+      PACKAGE_DIRECTORY: truedown/dist/TrueDown-${{ matrix.os }}-${{ matrix.arch }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: truedown/go.mod
+          cache: false
+
+      - name: Install aria2 on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y aria2
+
+      - name: Install aria2 on macOS
+        if: runner.os == 'macOS'
+        run: brew install aria2
+
+      - name: Test TrueDown with native aria2
+        working-directory: truedown
+        env:
+          CGO_ENABLED: "0"
+          TRUEDOWN_INTEGRATION: "1"
+        run: go test ./...
+
+      - name: Vet TrueDown
+        working-directory: truedown
+        env:
+          CGO_ENABLED: "0"
+        run: go vet ./...
+
+      - name: Test Unix build safety
+        run: bash truedown/tools/test-unix-build-safety.sh
+
+      - name: Build Unix package
+        run: bash truedown/build-unix.sh "${{ matrix.os }}" "${{ matrix.arch }}"
+
+      - name: Smoke test Linux package
+        if: runner.os == 'Linux'
+        run: bash truedown/tools/smoke-linux.sh "$PACKAGE_DIRECTORY/TrueDown"
+
+      - name: Validate macOS bundle
+        if: runner.os == 'macOS'
+        run: plutil -lint "$PACKAGE_DIRECTORY/TrueDown.app/Contents/Info.plist"
+
+      - name: Archive Linux package
+        if: runner.os == 'Linux'
+        run: tar -czf "$UNIX_ARTIFACT" -C truedown/dist "TrueDown-${{ matrix.os }}-${{ matrix.arch }}"
+
+      - name: Archive macOS bundle
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.PACKAGE_DIRECTORY }}
+        run: zip -r "$GITHUB_WORKSPACE/$UNIX_ARTIFACT" TrueDown.app README.md THIRD_PARTY_NOTICES.md
+
+      - name: Upload Unix build artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: TrueDown-${{ env.RELEASE_TAG }}-${{ matrix.asset_os }}-${{ matrix.arch }}
+          path: ${{ env.UNIX_ARTIFACT }}
+          if-no-files-found: error
+
+  publish-release:
+    needs: [build-windows, build-unix]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: TrueDown-${{ env.RELEASE_TAG }}-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Validate complete release asset set
+        run: python3 truedown/tools/validate_release.py release-assets --build "${{ github.run_number }}"
+
+      - name: Select release notes
+        shell: pwsh
+        run: ./tools/read-latest-changelog.ps1 -Product TrueDown -OutputFile release-notes.md
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -97,6 +208,11 @@ jobs:
           target_commitish: ${{ github.sha }}
           generate_release_notes: false
           body_path: release-notes.md
+          fail_on_unmatched_files: true
           files: |
-            ${{ env.ARTIFACT_NAME }}
-            ${{ env.UPDATE_MANIFEST }}
+            release-assets/${{ env.ARTIFACT_NAME }}
+            release-assets/${{ env.UPDATE_MANIFEST }}
+            release-assets/TrueDown-build-${{ github.run_number }}-linux-amd64.tar.gz
+            release-assets/TrueDown-build-${{ github.run_number }}-linux-arm64.tar.gz
+            release-assets/TrueDown-build-${{ github.run_number }}-macos-amd64.zip
+            release-assets/TrueDown-build-${{ github.run_number }}-macos-arm64.zip

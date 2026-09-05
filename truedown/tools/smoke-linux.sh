@@ -17,12 +17,12 @@ if ! command -v aria2c >/dev/null || ! command -v curl >/dev/null; then
   exit 2
 fi
 
-probe_bin=/tmp/truedown-wsl2-smoke
 probe_root=$(mktemp -d /tmp/truedown-wsl2-XXXXXX)
 case "$probe_root" in
   /tmp/truedown-wsl2-*) ;;
   *) echo "unsafe temporary directory: $probe_root" >&2; exit 1 ;;
 esac
+probe_bin="$probe_root/TrueDown"
 
 server_pid=""
 cleanup() {

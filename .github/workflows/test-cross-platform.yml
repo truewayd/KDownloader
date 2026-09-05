@@ -66,6 +66,9 @@ jobs:
         working-directory: truedown
         run: go vet ./...
 
+      - name: Test Unix build safety
+        run: bash truedown/tools/test-unix-build-safety.sh
+
       - name: Build native package
         working-directory: truedown
         run: bash ./build-unix.sh

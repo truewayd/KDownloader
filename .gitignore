@@ -8,8 +8,11 @@ dist/
 *.md
 !README.zh-CN.md
 !docs/ui-architecture.md
+!docs/project-audit-2026-09-05.md
+!docs/project-reaudit-2026-09-05.md
 !truedown/THIRD_PARTY_NOTICES.md
 !truedown/COMPONENTS.md
+!truedown/unix/README.md
 !changelog/
 !changelog/*.md
 !changelog/*/

@@ -20,12 +20,19 @@ version=${TRUEDOWN_VERSION:-dev}
 build_number=${TRUEDOWN_BUILD_NUMBER:-0}
 commit=${TRUEDOWN_COMMIT:-unknown}
 [[ "$version" =~ ^(dev|truedown-build-[1-9][0-9]*)$ ]] || { echo "invalid TrueDown version" >&2; exit 2; }
-[[ "$build_number" =~ ^[0-9]+$ ]] || { echo "invalid TrueDown build number" >&2; exit 2; }
+[[ "$build_number" =~ ^(0|[1-9][0-9]{0,18})$ ]] || { echo "invalid TrueDown build number" >&2; exit 2; }
+if [[ ${#build_number} -eq 19 && "$build_number" > 9223372036854775807 ]]; then
+  echo "invalid TrueDown build number" >&2; exit 2
+fi
+if [[ "$version" != dev && "$version" != "truedown-build-$build_number" ]]; then
+  echo "version and build number must identify the same release" >&2; exit 2
+fi
 [[ "$commit" =~ ^(unknown|[0-9a-fA-F]{7,40})$ ]] || { echo "invalid TrueDown commit" >&2; exit 2; }
 
 project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 dist_root="$project_root/dist"
 output="$dist_root/TrueDown-$target_os-$target_arch"
+[[ ! -L "$dist_root" ]] || { echo "refusing to traverse a symbolic-link dist directory" >&2; exit 1; }
 mkdir -p "$dist_root"
 case "$output" in
   "$dist_root"/TrueDown-linux-amd64|"$dist_root"/TrueDown-linux-arm64|"$dist_root"/TrueDown-darwin-amd64|"$dist_root"/TrueDown-darwin-arm64) ;;
