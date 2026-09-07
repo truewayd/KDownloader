@@ -7,3 +7,9 @@
 - Separate frontend transport, workspace navigation, task-row rendering, settings, and logs into focused files. Document the remaining work for a Go core plus CLI/browser/Tauri architecture in `docs/truedown-core-and-tauri.md`.
 
 The release introduces `/settings/startup`; it does not introduce a Tauri dependency or a replacement download engine.
+
+## Verification
+
+- Go tests, go vet, Node regressions, and component synchronization.
+- Packaged Windows service download/exit smoke and WSL Linux integration tests.
+- Desktop/mobile browser checks for navigation, scrolling, focus, and task refresh.

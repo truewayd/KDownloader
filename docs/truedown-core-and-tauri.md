@@ -30,8 +30,7 @@ dependencies. The current frontend work addresses those problems first.
 
 ## Available now
 
-The existing executable accepts three launch modes. These are launch commands,
-not a complete task-management CLI, and they currently use one executable.
+The existing executable retains its three compatible launch modes:
 
 | Command | Behavior |
 | --- | --- |
@@ -65,35 +64,96 @@ and task orchestration (`app.js`). It keeps native form controls and the canonic
 shared component runtime. Settings and logs have direct hash URLs; changing views
 does not recreate the service or its tasks.
 
-## Remaining work before a Tauri release
+## Implemented core and client split
 
 ### 1. Extract reusable service composition
 
-Move listener setup, lifecycle cancellation, engine recovery, and application
-services out of `main.go` into an `internal/app` package with explicit options.
-Keep separate entrypoints such as `cmd/truedow-core` and `cmd/truedown` small.
-Expose service readiness and a protocol/version handshake. A port answering HTTP
-is insufficient proof that it is the expected TrueDown instance.
+Listener setup, lifecycle cancellation, recovery, and application services now
+live in `internal/app.Run(context.Context, Options)`. The root executable remains
+the legacy browser/tray launcher. `cmd/truedown-core` is a console service entry;
+`cmd/truedown` is an HTTP-only CLI. Dashboard assets are embedded by `web/assets.go`.
+The profile lock is acquired before configuration/updater/log initialization.
 
-Build a CLI client for status, add, list, pause, resume, retry, and exit using the
-same bounded API. Define exit codes and a machine-readable `--json` format.
-Resolve credentials from the existing protected configuration or an explicit
-environment input; avoid secrets in command-line arguments or logs. Never open
-SQLite from a CLI client while the service owns it.
+The CLI implements status, add, paginated list, pause, resume, retry, exit, and
+local `paths`. Global `--json` supports scripts; exit codes are 0 success,
+1 API/connection failure, 2 invalid usage, and 3 partial task-operation failure.
+Every network command first checks authenticated `GET /system/info` for
+`product=TrueDown` and protocol version 1. Transport bounds request/response
+sizes, rejects redirects, bypasses proxy forwarding, and requires HTTPS plus a
+token for remote origins. Credentials come from `TRUEDOWN_API_TOKEN` or a bounded
+read of the resolved profile token. The CLI has no downloader/SQLite dependency.
+The handshake establishes product/protocol compatibility; process ownership and
+shell-owned-instance tokens remain work for the native launcher.
+
+Build Windows development clients with `build-core.ps1`. The console client is
+named `truedown-cli.exe` to avoid colliding with `TrueDown.exe` on Windows.
+On Unix, build `./cmd/truedown-core` and `./cmd/truedown` with Go. The separate
+core does not register the legacy tray/login entry or run the legacy program
+updater, including applying updates already staged by another executable.
 
 ### 2. Make preferences portable between clients
 
 Runtime concurrency, global speed, resolver rules, modules, authentication, and
-updates already live on the server. Several new-task defaults still live in browser
-localStorage: folder, connection count, per-task speed, headers, proxy, and extra
-arguments. Move these into a bounded server settings API with the existing
-`safefile` boundary before promising identical CLI, browser, and Tauri behavior.
-Migrate legacy defaults explicitly, including the different WebView storage origin.
+updates live on the server. New-task defaults now do too: folder, connection
+count, per-task speed, headers, proxy, and extra arguments use authenticated
+`GET/POST /settings/task-defaults`, strict typed JSON, a 64 KiB bound, atomic
+`safefile` persistence, and compare-and-swap revisions. A failed write never
+changes the visible snapshot; stale saves return 409 and retain the form draft.
+The dashboard imports legacy localStorage only at revision zero and removes it
+only after a successful import or a read of an already configured profile.
+CLI `add` opts in with `useDefaults: true`; old browser integrations keep their
+explicit parameters and credentials. Explicit option objects replace defaults,
+including zero limits; request headers override defaults case-insensitively.
 
-Preserve existing Windows portable data directories. If an installer switches to
-a user data directory, provide a validated, recoverable migration of tasks,
-configuration, tokens, engine state, and updater metadata. Never silently start an
-empty profile because the installation directory changed.
+## Storage policy and migration
+
+Program files and mutable user data should have separate lifecycles. The default
+Windows location is the OS Known Folder for LocalAppData plus `TrueDown`;
+this honors folder redirection and keeps machine-specific engine state, paths,
+and credentials out of roaming profiles. macOS uses
+`~/Library/Application Support/TrueDown`. Linux currently uses
+`${XDG_DATA_HOME:-~/.local/share}/truedown`, ignoring relative XDG values.
+These defaults are resolved once by `internal/profile` for both Go and CLI.
+`--data-dir` overrides `TRUEDOWN_DATA_DIR`; there are no new per-file path flags.
+`GET /system/storage` and the application settings page show the actual root.
+
+The standards-based target for a later layout migration is:
+
+| Purpose | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| Preferences and local secrets | LocalAppData/TrueDown/config | Application Support/TrueDown/config | XDG_CONFIG_HOME/truedown |
+| Task database, modules, installed engines | LocalAppData/TrueDown/data | Application Support/TrueDown/data | XDG_DATA_HOME/truedown |
+| Logs and restart state | LocalAppData/TrueDown/state | Library/Logs/TrueDown; Application Support/TrueDown/state | XDG_STATE_HOME/truedown |
+| Regenerable cache | LocalAppData/TrueDown/cache | Library/Caches/TrueDown | XDG_CACHE_HOME/truedown |
+| Downloaded files | User-selected download directory | User-selected download directory | User-selected download directory |
+
+Unset Linux config/state/cache roots default to `~/.config`,
+`~/.local/state`, and `~/.cache`. A portable profile will map all roles beneath
+its explicit root. Configuration continues to have one Go owner and typed
+categories; storage roles must not turn into an array of unrelated UI settings.
+Preferences, local secrets, task records, and updater/recovery state have different
+export and recovery rules and should not be forced into one unversioned JSON blob.
+
+**Current compatibility boundary:** existing profile filenames and their flat
+layout are retained in this phase. Their canonical names/ownership are now
+centralized in `internal/profile`; the table above is the target, not a completed
+relocation. New Windows installs use the user directory, but a recognized profile
+beside the executable remains selected as `legacy`. Relocating an old executable
+requires passing its original data directory; the program does not search the
+disk for databases, merge two profiles, or copy live SQLite/WAL files.
+
+A future layout upgrade must lock the source and destination profiles while the
+core is stopped, checkpoint SQLite, validate a versioned migration manifest, copy
+and verify credentials/configuration/engine state, then atomically switch the
+selected profile. Preserve a recoverable source and rollback metadata; never delete
+downloaded files or place the only BT resume state in purgeable cache. The native
+bundle updater must understand that layout before this becomes automatic.
+
+Sources: [Windows Known Folders](https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid),
+[Apple file-system guidance](https://developer.apple.com/documentation/foundation/using-the-file-system-effectively),
+and the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir/).
+
+## Remaining work before a Tauri release
 
 ### 3. Establish process ownership
 

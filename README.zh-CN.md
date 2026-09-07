@@ -109,7 +109,27 @@ TrueDown.exe background                 驻留运行，Windows 保留托盘
 TrueDown.exe serve --data-dir "D:\Data"  指定数据目录
 ```
 
-这些是服务启动命令；完整的任务管理 CLI 和 Tauri 桌面客户端属于后续工作。核心拆分、配置迁移、进程归属和更新机制的具体方案见 [TrueDown 核心与 Tauri 迁移设计](docs/truedown-core-and-tauri.md)。
+已增加独立 Go 内核和 HTTP 任务管理 CLI。Windows 开发包运行 `pwsh -File truedown/build-core.ps1`，输出到 `truedown/dist/core/`：
+
+```text
+truedown-core.exe --data-dir "D:\TrueDownData"
+truedown-cli.exe --data-dir "D:\TrueDownData" status
+truedown-cli.exe add https://example.com/file.zip
+truedown-cli.exe --json list --status downloading
+truedown-cli.exe pause 12 13
+truedown-cli.exe resume 12
+truedown-cli.exe retry 13
+truedown-cli.exe paths
+truedown-cli.exe exit
+```
+
+内核默认前台运行，可通过 `http://127.0.0.1:15151` 打开网页。CLI 与网页共用服务端默认值、任务库及鉴权，CLI 不启动第二个下载管理器。全局参数放在命令前，命令参数放在 URL 或任务 ID 前；API Key 通过 `TRUEDOWN_API_TOKEN` 或数据目录中的 token 文件读取。新开发包未接入发布更新器。
+
+启用认证且使用非默认数据目录时，各条 CLI 命令均需传入 `--data-dir`，或在当前终端设置 `TRUEDOWN_DATA_DIR`。`--data-dir` 选择本地凭据，连接地址仍由 `--endpoint` 或 `TRUEDOWN_ADDR` 指定。
+
+新 Windows 实例默认保存到 `%LOCALAPPDATA%\TrueDown`；已有程序旁的旧数据会继续复用。macOS 使用 `~/Library/Application Support/TrueDown`，Linux 使用 `${XDG_DATA_HOME:-~/.local/share}/truedown`。`--data-dir` 优先于 `TRUEDOWN_DATA_DIR`，可用于便携部署；设置中的“启动与运行”显示服务实际使用的位置。任务默认值由服务端统一保存，旧浏览器偏好只在未配置的数据目录中导入。
+
+Tauri 外壳尚未加入。已完成的拆分、存储目录规范以及剩余迁移步骤见 [TrueDown 核心与 Tauri 迁移设计](docs/truedown-core-and-tauri.md)。
 
 如需远程监听，请通过 `TRUEDOWN_ADDR` 指定明确的网卡地址，设置 `TRUEDOWN_ALLOW_REMOTE=1`，启用 API Key 认证，并提供 `TRUEDOWN_TLS_CERT` 与 `TRUEDOWN_TLS_KEY`。程序会拒绝通配地址监听。
 
