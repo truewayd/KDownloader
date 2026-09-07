@@ -18,6 +18,29 @@ pub struct Startup {
 }
 
 impl Startup {
+    // Preserve an already-enabled registration when the native package replaces
+    // the legacy executable in place. Only the exact executable/profile pair is
+    // eligible; the existing value name and Windows disabled state stay intact.
+    pub fn migrate_legacy(&self) -> Result<(), String> {
+        #[cfg(windows)]
+        {
+            use winreg::{
+                enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE},
+                RegKey,
+            };
+            let key = match RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(
+                "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                KEY_READ | KEY_WRITE,
+            ) {
+                Ok(key) => key,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(error.to_string()),
+            };
+            self.upgrade_legacy_entry(&key)?;
+        }
+        Ok(())
+    }
+
     pub fn new(identity: &str, directory: String) -> Result<Self, String> {
         let executable = std::env::current_exe().map_err(|error| error.to_string())?;
         // These overrides cannot be reproduced by a login registration. Avoid
@@ -72,17 +95,45 @@ impl Startup {
 
 #[cfg(windows)]
 impl Startup {
+    fn expected_command(&self) -> String {
+        self.args()
+            .iter()
+            .map(|arg| windows_quote(arg))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn is_legacy_command(&self, command: &str) -> bool {
+        let Some(args) = windows_arguments(command) else {
+            return false;
+        };
+        args.len() == 4
+            && args[0].to_lowercase() == self.executable.to_string_lossy().to_lowercase()
+            && args[1] == "background"
+            && args[2] == "--data-dir"
+            && args[3].to_lowercase() == self.directory.to_lowercase()
+    }
+
+    fn upgrade_legacy_entry(&self, key: &winreg::RegKey) -> Result<(), String> {
+        let current: String = match key.get_value(&self.name) {
+            Ok(value) => value,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.to_string()),
+        };
+        let expected = self.expected_command();
+        if self.is_legacy_command(&current) && expected.encode_utf16().count() <= 260 {
+            key.set_value(&self.name, &expected)
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+
     fn platform_state(&self, enabled: Option<bool>) -> Result<State, String> {
         use winreg::{
             enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE},
             RegKey,
         };
-        let expected = self
-            .args()
-            .iter()
-            .map(|arg| windows_quote(arg))
-            .collect::<Vec<_>>()
-            .join(" ");
+        let expected = self.expected_command();
         if expected.encode_utf16().count() > 260 {
             return Ok(State {
                 supported: false,
@@ -120,7 +171,12 @@ impl Startup {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
             Err(error) => return Err(error.to_string()),
         };
-        let foreign = current.as_ref().is_some_and(|value| value != &expected);
+        let legacy = current
+            .as_ref()
+            .is_some_and(|value| self.is_legacy_command(value));
+        let foreign = current
+            .as_ref()
+            .is_some_and(|value| value != &expected && !legacy);
         if enabled.is_some() && foreign {
             return Err(
                 "此 profile 的登录启动项指向另一份 TrueDown；请先在旧版本中关闭开机启动。".into(),
@@ -135,7 +191,7 @@ impl Startup {
                     .map_err(|error| error.to_string())?;
             }
         }
-        let configured = enabled.unwrap_or(current.as_ref() == Some(&expected));
+        let configured = enabled.unwrap_or(current.as_ref() == Some(&expected) || legacy);
         let approved = root
             .open_subkey(
                 "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
@@ -160,6 +216,40 @@ impl Startup {
             enabled: configured && !disabled_by_os,
             reason: reason.into(),
         })
+    }
+}
+
+#[cfg(windows)]
+fn windows_arguments(command: &str) -> Option<Vec<String>> {
+    use windows_sys::Win32::{Foundation::LocalFree, UI::Shell::CommandLineToArgvW};
+    if command.is_empty() || command.contains('\0') || command.len() > 4096 {
+        return None;
+    }
+    let input: Vec<u16> = command.encode_utf16().chain(Some(0)).collect();
+    let mut count = 0;
+    unsafe {
+        let argv = CommandLineToArgvW(input.as_ptr(), &mut count);
+        if argv.is_null() {
+            return None;
+        }
+        let result = if count == 4 {
+            Some(
+                std::slice::from_raw_parts(argv, count as usize)
+                    .iter()
+                    .map(|argument| {
+                        let mut length = 0;
+                        while *argument.add(length) != 0 {
+                            length += 1;
+                        }
+                        String::from_utf16_lossy(std::slice::from_raw_parts(*argument, length))
+                    })
+                    .collect(),
+            )
+        } else {
+            None
+        };
+        LocalFree(argv.cast());
+        result
     }
 }
 
@@ -324,5 +414,41 @@ mod tests {
             "\"/home/a b/100%%\""
         );
         assert!(desktop_quote("/home/a\nb").is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn migration_changes_only_an_in_place_legacy_registration() {
+        use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+        let root = RegKey::predef(HKEY_CURRENT_USER);
+        let path = format!("Software\\TrueDownTests\\startup-{}", std::process::id());
+        let key = root.create_subkey(&path).unwrap().0;
+        let startup = Startup {
+            name: "TrueDown-fixture".into(),
+            executable: PathBuf::from("C:\\Test Application\\TrueDown.exe"),
+            directory: "C:\\Test Profile".into(),
+            unavailable: false,
+            lock: std::sync::Mutex::new(()),
+        };
+        let legacy =
+            "\"C:\\Test Application\\TrueDown.exe\" background --data-dir \"C:\\Test Profile\"";
+        assert!(startup.is_legacy_command(legacy));
+        key.set_value(&startup.name, &legacy).unwrap();
+        startup.upgrade_legacy_entry(&key).unwrap();
+        assert_eq!(
+            key.get_value::<String, _>(&startup.name).unwrap(),
+            startup.expected_command()
+        );
+        for foreign in [
+            legacy.replace("Test Application", "Other Application"),
+            legacy.replace("Test Profile", "Other Profile"),
+            format!("{legacy} --extra"),
+        ] {
+            key.set_value(&startup.name, &foreign).unwrap();
+            startup.upgrade_legacy_entry(&key).unwrap();
+            assert_eq!(key.get_value::<String, _>(&startup.name).unwrap(), foreign);
+        }
+        drop(key);
+        root.delete_subkey_all(&path).unwrap();
     }
 }

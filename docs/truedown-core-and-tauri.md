@@ -136,8 +136,10 @@ Login startup is opt-in and profile-scoped. Native Windows uses a quoted HKCU Ru
 entry and reports when Windows has disabled it. Linux uses an XDG autostart entry;
 macOS uses a LaunchAgent. The OS registration is authoritative and contains no
 credentials. Unsupported process-scoped overrides report their limitation in
-settings. Migrating an old Go startup registration to the native shell remains
-part of the release handoff; unrelated registrations must never be overwritten.
+settings. An in-place Windows upgrade migrates a recognized legacy Go command
+for the exact same executable and profile to the native background command. The
+existing value name and Windows disabled state remain intact. Registrations for
+other executable locations or profiles are never overwritten.
 
 The legacy updater swaps only `TrueDown.exe`, so program updates are disabled in
 standalone sidecars. Publishing the native bundle requires an atomic transaction

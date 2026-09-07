@@ -42,7 +42,8 @@ relative `dataDirectory`. Auxiliary windows do not create separate browser cache
 - Ctrl/Cmd+, opens settings, Ctrl/Cmd+S saves its current category, and Escape or
   Ctrl/Cmd+W hides auxiliary windows when no confirmation dialog is active.
 - The Go resolver determines the profile; its identity scopes the desktop instance
-  and login entry. Existing entries owned by another executable are not overwritten.
+  and login entry. An in-place Windows upgrade migrates its recognized Go startup
+  command while preserving the OS disabled state; other executables' entries stay intact.
 - Windows uses Mica when supported and allowed by system transparency/contrast
   preferences. macOS uses native vibrancy and system controls. Working surfaces
   stay opaque, and unsupported effects fall back to normal backgrounds.

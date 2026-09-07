@@ -157,7 +157,7 @@ fn main() {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
-            "--background" => background = true,
+            "--background" | "background" => background = true,
             "--data-dir" => {
                 index += 1;
                 data_dir = args.get(index).cloned();
@@ -214,7 +214,10 @@ fn main() {
     ));
     let application = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if !args.iter().any(|arg| arg == "--background") {
+            if !args
+                .iter()
+                .any(|arg| arg == "--background" || arg == "background")
+            {
                 show_main(app)
             }
         }))
@@ -235,6 +238,9 @@ fn main() {
             appearance::apply_material
         ])
         .setup(move |app| {
+            if let Err(error) = app.state::<startup::Startup>().migrate_legacy() {
+                eprintln!("Cannot migrate login registration: {error}");
+            }
             let core = app.state::<Arc<Core>>().inner().clone();
             tauri::async_runtime::block_on(core.connect()).map_err(std::io::Error::other)?;
             let profile = profile::Profile::resolve(&base, data_dir.as_deref())
