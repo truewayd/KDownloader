@@ -116,7 +116,7 @@ func (m *Manager) LaunchPendingApply(originalArgs []string) error {
 	if !strings.EqualFold(filepath.Clean(filepath.Dir(m.currentExe)), m.baseDir) {
 		return fmt.Errorf("running TrueDown executable is outside its package directory")
 	}
-	updatesDir := filepath.Join(m.dataDir, "updates")
+	updatesDir := m.updatesDir
 	if err := os.MkdirAll(updatesDir, 0700); err != nil {
 		return fmt.Errorf("prepare update helper directory: %w", err)
 	}
@@ -184,7 +184,7 @@ func (m *Manager) recordUpdateError(updateErr error) {
 }
 
 func (m *Manager) cleanupOldUpdateHelpers() {
-	directory := filepath.Join(m.dataDir, "updates")
+	directory := m.updatesDir
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return
@@ -200,7 +200,7 @@ func (m *Manager) pendingUpdatePathLocked(pending *pendingAppUpdate) (string, er
 	if pending == nil || filepath.Base(pending.File) != pending.File || pending.File == "." || pending.File == "" {
 		return "", fmt.Errorf("invalid staged TrueDown update metadata")
 	}
-	root := filepath.Clean(filepath.Join(m.dataDir, "updates"))
+	root := filepath.Clean(m.updatesDir)
 	path := filepath.Clean(filepath.Join(root, pending.File))
 	if !pathWithin(root, path) {
 		return "", fmt.Errorf("staged TrueDown update escapes its managed directory")

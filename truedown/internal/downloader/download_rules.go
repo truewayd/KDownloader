@@ -4,11 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
-	"truedown/internal/profile"
 )
 
 var excludedExtensionPattern = regexp.MustCompile(`^\.[a-z0-9]{1,16}$`)
@@ -45,9 +43,9 @@ type downloadRulesStore struct {
 	rules DownloadRules
 }
 
-func newDownloadRulesStore(databasePath string) (*downloadRulesStore, error) {
+func newDownloadRulesStoreAt(path string) (*downloadRulesStore, error) {
 	store := &downloadRulesStore{
-		path:  profile.File(filepath.Dir(databasePath), profile.DownloadRules),
+		path:  path,
 		rules: defaultDownloadRules(),
 	}
 	var rules DownloadRules

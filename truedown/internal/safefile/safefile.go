@@ -14,6 +14,18 @@ import (
 // directory itself to be a junction or symlink.
 var operationMu sync.Mutex
 
+// InspectFile reads the last committed contents without repairing or changing
+// the filesystem. Profile discovery and CLI paths use this read-only boundary.
+func InspectFile(path string, maximum int64) ([]byte, error) {
+	operationMu.Lock()
+	defer operationMu.Unlock()
+	data, err := readFile(path, maximum)
+	if os.IsNotExist(err) {
+		return readFile(path+".bak", maximum)
+	}
+	return data, err
+}
+
 // ReadFile reads a regular file with a hard size limit. If an atomic write was
 // interrupted after preserving the previous file, the backup is recovered.
 func ReadFile(path string, maximum int64) ([]byte, error) {

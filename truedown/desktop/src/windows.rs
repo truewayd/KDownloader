@@ -12,6 +12,7 @@ pub enum Kind {
 pub struct Windows {
     pub suppress: bool,
     pub creation: tokio::sync::Mutex<()>,
+    pub cache: std::path::PathBuf,
 }
 
 impl Kind {
@@ -66,16 +67,14 @@ pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), Str
             Kind::About => (560.0, 500.0, 420.0, 360.0),
         };
         WebviewWindowBuilder::new(&app, kind.label(), WebviewUrl::App(kind.url().into()))
+            .data_directory(state.cache.clone())
             .title(kind.title())
             .inner_size(width, height)
             .min_inner_size(min_width, min_height)
             .visible(false)
             .transparent(cfg!(any(windows, target_os = "macos")))
             .center()
-            .on_navigation(|url| {
-                matches!(url.scheme(), "tauri" | "http" | "https")
-                    && matches!(url.host_str(), Some("tauri.localhost" | "localhost"))
-            })
+            .on_navigation(local_navigation)
             .build()
             .map_err(|error| error.to_string())?
     };
@@ -87,6 +86,15 @@ pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), Str
             .map_err(|error| error.to_string())?;
     }
     Ok(())
+}
+
+pub fn local_navigation(url: &tauri::Url) -> bool {
+    matches!(
+        (url.scheme(), url.host_str()),
+        ("tauri", Some("localhost")) | ("http" | "https", Some("tauri.localhost"))
+    ) && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
 }
 
 #[tauri::command]

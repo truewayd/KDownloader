@@ -25,6 +25,7 @@ $outputs = @(
   @{ Package = "./internal/applog"; Path = (Join-Path $testRoot "applog.test"); Test = $true },
   @{ Package = "./internal/cli"; Path = (Join-Path $testRoot "cli.test"); Test = $true },
   @{ Package = "./internal/client"; Path = (Join-Path $testRoot "client.test"); Test = $true },
+  @{ Package = "./internal/desktopbridge"; Path = (Join-Path $testRoot "desktopbridge.test"); Test = $true },
   @{ Package = "./internal/profile"; Path = (Join-Path $testRoot "profile.test"); Test = $true },
   @{ Package = "./internal/downloader"; Path = (Join-Path $testRoot "downloader.test"); Test = $true },
   @{ Package = "./internal/safefile"; Path = (Join-Path $testRoot "safefile.test"); Test = $true },

@@ -29,6 +29,11 @@ commands, contrast fallback, scaled layouts and graceful exit. No separate
 Chromium download or interactive confirmation is needed. Test screenshots and
 profile fixtures remain in the reported temporary directory for diagnosis.
 
+Windows and Linux windows share the resolved profile's WebView cache. The core commits storage
+migration before any WebView is created; the native builder receives the absolute
+cache path directly, because Tauri's JSON window configuration accepts only a
+relative `dataDirectory`. Auxiliary windows do not create separate browser caches.
+
 ## Window behavior
 
 - Main is the download workspace. Closing it hides the window while downloads run.
@@ -48,7 +53,7 @@ profile fixtures remain in the reported temporary directory for diagnosis.
 
 This directory is the native migration implementation, not a replacement for the
 existing release pipeline yet. The legacy single-executable updater is disabled
-for sidecars. Storage-layout transactions, full-bundle update/rollback, native
+for sidecars. Full-bundle update/rollback, native
 Unix acceptance and signing/notarization must be completed before switching the
 published product. Keep the legacy and native update mechanisms separate until
 that release transition is tested.

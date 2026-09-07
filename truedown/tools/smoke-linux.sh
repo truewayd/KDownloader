@@ -31,7 +31,7 @@ cleanup() {
 		echo "Linux smoke test diagnostics ($probe_root):" >&2
 		[[ ! -f "$probe_root/console.log" ]] || cat "$probe_root/console.log" >&2
 		[[ ! -f "$probe_root/second.log" ]] || cat "$probe_root/second.log" >&2
-		[[ ! -f "$probe_root/truedown.log" ]] || cat "$probe_root/truedown.log" >&2
+		[[ ! -f "$probe_root/logs/truedown.log" ]] || cat "$probe_root/logs/truedown.log" >&2
 		[[ ! -f "$probe_root/aria2-console.log" ]] || cat "$probe_root/aria2-console.log" >&2
 	fi
   if [[ -n "$server_pid" ]] && kill -0 "$server_pid" 2>/dev/null; then
@@ -81,7 +81,7 @@ TRUEDOWN_NO_BROWSER=1 \
   "$probe_bin" >"$probe_root/second.log" 2>&1
 elapsed_ms=$(( ($(date +%s%N) - started) / 1000000 ))
 [[ "$elapsed_ms" -lt 3000 ]]
-[[ -s "$probe_root/truedown.db" ]]
+[[ -s "$probe_root/data/truedown.db" ]]
 grep -q "another TrueDown instance owns" "$probe_root/second.log"
 
 aria_pid=$(pgrep -P "$server_pid" aria2c || true)
@@ -99,7 +99,7 @@ if kill -0 "$aria_pid" 2>/dev/null; then
   echo "aria2 child remained alive after TrueDown shutdown" >&2
   exit 1
 fi
-grep -q "dashboard: exit requested" "$probe_root/truedown.log"
-grep -q "TrueDown stopped cleanly" "$probe_root/truedown.log"
+grep -q "dashboard: exit requested" "$probe_root/logs/truedown.log"
+grep -q "TrueDown stopped cleanly" "$probe_root/logs/truedown.log"
 
 printf 'ping=pong sqlite=ok tasks=ok single_instance_ms=%s aria2_reaped=ok dashboard_exit=clean\n' "$elapsed_ms"

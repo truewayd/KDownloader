@@ -121,7 +121,11 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		return nil
 	}
 	defer instance.Close()
-	applicationLog, err := applog.Open(dataDir)
+	location, err = profile.Initialize(ctx, location, downloader.CheckpointForProfileMigration)
+	if err != nil {
+		return err
+	}
+	applicationLog, err := applog.Open(location.Paths.Logs)
 	if err != nil {
 		return err
 	}
@@ -145,6 +149,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	updates, err := systemupdate.New(systemupdate.Options{
 		BaseDir:               base,
 		DataDir:               dataDir,
+		Paths:                 location.Paths,
 		StableEnginePath:      stableAria2,
 		CurrentVersion:        version,
 		CurrentBuild:          currentBuild,
@@ -154,10 +159,10 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	if err != nil {
 		return err
 	}
-	downloads := filepath.Join(dataDir, "downloads")
-	database := profile.File(dataDir, profile.Database)
+	downloads := location.Paths.Downloads
+	database := location.Paths.File(profile.Database)
 	auth, err := newAuthController(
-		dataDir,
+		location.Paths.Config,
 		os.Getenv("TRUEDOWN_REQUIRE_TOKEN") == "1",
 		os.Getenv("TRUEDOWN_API_TOKEN"),
 	)
@@ -199,6 +204,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	})
 	buildManager := func(spec systemupdate.EngineSpec) (*downloader.Manager, error) {
 		return downloader.NewManagerWithConfig(spec.Path, downloads, database, downloader.ManagerConfig{
+			Paths:            location.Paths,
 			Aria2Next:        spec.Kind == systemupdate.EngineNext,
 			Aria2NextVersion: spec.Version,
 			EngineExit: func(source *downloader.Manager, exitErr error) {

@@ -23,6 +23,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"truedown/internal/profile"
 	"unicode/utf8"
 )
 
@@ -49,6 +50,7 @@ type Aria2Opts struct {
 
 // ManagerConfig describes capabilities of the engine selected by TrueDown.
 type ManagerConfig struct {
+	Paths            profile.Paths
 	Aria2Next        bool
 	Aria2NextVersion string
 	EngineExit       func(*Manager, error)
@@ -201,6 +203,7 @@ type Manager struct {
 	aria2Next        bool
 	aria2NextVersion string
 	ariaStateDir     string
+	logDir           string
 	defaultDir       string
 	store            *recordStore
 	downloadRules    *downloadRulesStore
@@ -256,6 +259,10 @@ func NewManager(aria2Path, defaultDir, databasePath string) (*Manager, error) {
 }
 
 func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config ManagerConfig) (*Manager, error) {
+	paths := config.Paths
+	if paths.Config == "" {
+		paths = profile.FlatPaths(filepath.Dir(databasePath))
+	}
 	store, err := openRecordStore(databasePath)
 	if err != nil {
 		return nil, err
@@ -265,27 +272,27 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		store.Close()
 		return nil, fmt.Errorf("load download records: %w", err)
 	}
-	downloadRules, err := newDownloadRulesStore(databasePath)
+	downloadRules, err := newDownloadRulesStoreAt(paths.File(profile.DownloadRules))
 	if err != nil {
 		store.Close()
 		return nil, err
 	}
-	runtimeSettings, err := newRuntimeSettingsStore(databasePath)
+	runtimeSettings, err := newRuntimeSettingsStoreAt(paths.File(profile.RuntimeSettings))
 	if err != nil {
 		store.Close()
 		return nil, err
 	}
-	taskDefaults, err := newTaskDefaultsStore(databasePath)
+	taskDefaults, err := newTaskDefaultsStoreAt(paths.File(profile.TaskDefaults))
 	if err != nil {
 		store.Close()
 		return nil, err
 	}
-	modules, err := newModuleRegistry(databasePath)
+	modules, err := newModuleRegistryAt(paths.File(profile.Modules), paths.File(profile.ModulePackages))
 	if err != nil {
 		store.Close()
 		return nil, err
 	}
-	trackerResearch, err := newTrackerResearchModule(databasePath)
+	trackerResearch, err := newTrackerResearchModuleAt(paths.File(profile.TrackerState))
 	if err != nil {
 		store.Close()
 		return nil, err
@@ -297,7 +304,8 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		aria2Path:         aria2Path,
 		aria2Next:         config.Aria2Next,
 		aria2NextVersion:  strings.TrimSpace(config.Aria2NextVersion),
-		ariaStateDir:      filepath.Join(filepath.Dir(databasePath), "aria2-next-state"),
+		ariaStateDir:      paths.File(profile.ResumeState),
+		logDir:            paths.Logs,
 		defaultDir:        defaultDir,
 		store:             store,
 		downloadRules:     downloadRules,
@@ -2354,7 +2362,10 @@ func (m *Manager) startAria2() error {
 		return err
 	}
 	secret := hex.EncodeToString(secretBytes)
-	dataDir := filepath.Dir(m.defaultDir)
+	dataDir := m.logDir
+	if dataDir == "" {
+		dataDir = filepath.Dir(m.defaultDir)
+	}
 	logPath := filepath.Join(dataDir, "aria2.log")
 	consoleLogPath := logPath
 	if m.aria2Next && aria2NextSupportsNativeDiagnostics(m.aria2NextVersion) {

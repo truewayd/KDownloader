@@ -144,9 +144,19 @@ async function loadStorageLocation() {
   const element = document.getElementById("storage-location");
   try {
     const location = await requestJSON("/system/storage");
-    element.textContent = location.source === "legacy"
-      ? `当前使用旧版便携目录：${location.dataDirectory}`
-      : `数据目录：${location.dataDirectory}`;
+    element.replaceChildren();
+    const root = document.createElement("p");
+    root.textContent = `Profile：${location.dataDirectory}`;
+    element.append(root);
+    if (location.paths) {
+      const details = document.createElement("dl");
+      details.className = "storage-locations";
+      for (const [key,label] of [["config","配置"],["data","任务数据"],["state","恢复状态"],["logs","日志"],["cache","缓存"]]) {
+        const term = document.createElement("dt"), path = document.createElement("dd");
+        term.textContent = label; path.textContent = location.paths[key]; details.append(term,path);
+      }
+      element.append(details);
+    }
   } catch (error) {
     element.textContent = `读取数据目录失败：${error.message}`;
     throw error;

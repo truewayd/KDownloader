@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"truedown/internal/profile"
 )
 
 const (
@@ -104,10 +103,10 @@ type moduleRegistry struct {
 	updateErrors map[string]string
 }
 
-func newModuleRegistry(databasePath string) (*moduleRegistry, error) {
+func newModuleRegistryAt(settingsPath, packagesDir string) (*moduleRegistry, error) {
 	registry := &moduleRegistry{
-		settingsPath: profile.File(filepath.Dir(databasePath), profile.Modules),
-		packagesDir:  filepath.Join(filepath.Dir(databasePath), "modules"),
+		settingsPath: settingsPath,
+		packagesDir:  packagesDir,
 		factories:    make(map[string]resolverComponentFactory),
 		baseline:     make(map[string]loadedComponent),
 		active:       make(map[string]loadedComponent),

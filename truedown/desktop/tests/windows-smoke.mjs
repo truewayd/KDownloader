@@ -73,6 +73,11 @@ try {
   await waitUntil(() => context.pages().length === 4);
   const logs = await waitUntil(() => context.pages().find(page => page.url().includes("window=logs")));
   const about = await waitUntil(() => context.pages().find(page => page.url().endsWith("about.html")));
+  const storage = await api(main, "GET", "/system/storage");
+  assert.equal(storage.layoutVersion, 1);
+  assert.equal(storage.paths.cache.toLowerCase(), path.join(profile, "cache").toLowerCase());
+  await fs.access(path.join(storage.paths.cache, "webview", "EBWebView"));
+  assert.equal((await fs.readdir(installation)).some(name => name.includes("WebView")), false);
   await logs.waitForFunction(() => document.querySelector("#application-log-output").textContent.includes("starting"));
   await about.waitForFunction(() => document.querySelector("#version").textContent.includes("build"));
   assert.equal(new URL(main.url()).hash, "");
@@ -109,7 +114,7 @@ try {
   assert.equal(windows.length, 4);
   assert.ok(windows.every(window => !window.visible), "Acceptance tests must never show native windows");
   assert.deepEqual(errors, []);
-  console.log("native_windows=ok shared_settings=ok retained_drafts=ok private_auth=ok scale_layout=ok all_windows_hidden=ok");
+  console.log("native_windows=ok shared_cache=ok shared_settings=ok retained_drafts=ok private_auth=ok scale_layout=ok all_windows_hidden=ok");
 } finally {
   if (main && child.exitCode === null) await invoke(main, "core_request", { request: { method: "POST", path: "/system/exit" } }).catch(() => {});
   await waitUntil(() => child.exitCode !== null || child.signalCode !== null, 20000).catch(() => child.kill());

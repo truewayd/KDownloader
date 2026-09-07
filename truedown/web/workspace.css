@@ -50,6 +50,8 @@
 .runtime-guide p, .runtime-guide dd { color: var(--kd-muted); }
 .runtime-guide dt { margin-top: 18px; }
 .runtime-guide dd { margin: 6px 0 0; }
+.storage-locations { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px 16px; }
+.storage-locations dt, .storage-locations dd { margin: 0; overflow-wrap: anywhere; }
 .log-page { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; padding: 22px; gap: 16px; }
 .log-page .settings-section-heading { margin: 0; }
 .log-page .application-log-output { flex: 1; min-height: 120px; max-height: none; font-size: 12px; padding: 16px; }

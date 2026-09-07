@@ -13,12 +13,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"truedown/internal/profile"
 )
 
 const (
@@ -159,10 +157,10 @@ func defaultTrackerResearchSettings() TrackerResearchSettings {
 	}
 }
 
-func newTrackerResearchModule(databasePath string) (*trackerResearchModule, error) {
+func newTrackerResearchModuleAt(path string) (*trackerResearchModule, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	module := &trackerResearchModule{
-		path:      profile.File(filepath.Dir(databasePath), profile.TrackerState),
+		path:      path,
 		settings:  defaultTrackerResearchSettings(),
 		originals: make(map[string][]btTrackerConfig),
 		rewrites:  make(map[string]trackerTorrentRewrite),

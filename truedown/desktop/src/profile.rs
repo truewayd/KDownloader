@@ -9,6 +9,12 @@ use std::{
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
     pub data_directory: String,
+    pub paths: Paths,
+}
+
+#[derive(Deserialize)]
+pub struct Paths {
+    pub cache: String,
 }
 
 impl Profile {
@@ -40,7 +46,9 @@ impl Profile {
         }
         let profile: Self =
             serde_json::from_slice(&output.stdout).map_err(|_| "Invalid profile response")?;
-        if !Path::new(&profile.data_directory).is_absolute() {
+        if !Path::new(&profile.data_directory).is_absolute()
+            || !Path::new(&profile.paths.cache).is_absolute()
+        {
             return Err("Profile path must be absolute".into());
         }
         Ok(profile)

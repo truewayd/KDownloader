@@ -45,6 +45,7 @@ var (
 type Options struct {
 	BaseDir               string
 	DataDir               string
+	Paths                 profile.Paths
 	StableEnginePath      string
 	CurrentVersion        string
 	CurrentBuild          int64
@@ -161,7 +162,8 @@ type Manager struct {
 	mu sync.RWMutex
 
 	baseDir                string
-	dataDir                string
+	updatesDir             string
+	enginesDir             string
 	statePath              string
 	stableEnginePath       string
 	currentExe             string
@@ -196,6 +198,10 @@ func New(options Options) (*Manager, error) {
 	dataDir, err := filepath.Abs(options.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve TrueDown data directory: %w", err)
+	}
+	paths := options.Paths
+	if paths.Config == "" {
+		paths = profile.FlatPaths(dataDir)
 	}
 	stablePath, err := filepath.Abs(options.StableEnginePath)
 	if err != nil {
@@ -235,8 +241,9 @@ func New(options Options) (*Manager, error) {
 	}
 	manager := &Manager{
 		baseDir:                filepath.Clean(baseDir),
-		dataDir:                filepath.Clean(dataDir),
-		statePath:              profile.File(dataDir, profile.UpdateState),
+		updatesDir:             paths.File(profile.StagedUpdates),
+		enginesDir:             paths.File(profile.Engines),
+		statePath:              paths.File(profile.UpdateState),
 		stableEnginePath:       filepath.Clean(stablePath),
 		currentExe:             filepath.Clean(currentExe),
 		currentVersion:         strings.TrimSpace(options.CurrentVersion),
@@ -598,8 +605,8 @@ func (m *Manager) installedEnginePath(engine *installedEngine) (string, error) {
 	if filepath.Base(engine.File) != engine.File || engine.File == "." || engine.File == "" {
 		return "", fmt.Errorf("invalid installed Aria2 Next filename")
 	}
-	path := filepath.Clean(filepath.Join(m.dataDir, "engines", engine.File))
-	root := filepath.Clean(filepath.Join(m.dataDir, "engines")) + string(os.PathSeparator)
+	path := filepath.Clean(filepath.Join(m.enginesDir, engine.File))
+	root := filepath.Clean(m.enginesDir) + string(os.PathSeparator)
 	if !strings.HasPrefix(strings.ToLower(path), strings.ToLower(root)) {
 		return "", fmt.Errorf("installed Aria2 Next path escapes the engines directory")
 	}

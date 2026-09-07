@@ -143,7 +143,7 @@ func (m *Manager) stageTrueDown(ctx context.Context, available *availableAppUpda
 		manifest.Asset.Size != available.ArchiveSize || normalizeSHA256(manifest.Asset.SHA256) == "" {
 		return fmt.Errorf("TrueDown update manifest does not match its GitHub release")
 	}
-	updatesDir := filepath.Join(m.dataDir, "updates")
+	updatesDir := m.updatesDir
 	archivePath, digest, size, err := m.downloadFile(ctx, available.ArchiveURL, updatesDir, maxReleaseArchiveBytes)
 	if err != nil {
 		return fmt.Errorf("download TrueDown update: %w", err)
@@ -204,7 +204,7 @@ func (m *Manager) installNext(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	enginesDir := filepath.Join(m.dataDir, "engines")
+	enginesDir := m.enginesDir
 	temporaryPath, digest, size, err := m.downloadFile(ctx, available.BinaryURL, enginesDir, maxEngineBytes)
 	if err != nil {
 		return fmt.Errorf("download Aria2 Next: %w", err)

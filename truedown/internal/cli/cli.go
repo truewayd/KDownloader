@@ -108,7 +108,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		if jsonOutput {
 			_ = json.NewEncoder(stdout).Encode(location)
 		} else {
-			fmt.Fprintf(stdout, "Data: %s\nSource: %s\n", clean(location.DataDirectory), location.Source)
+			fmt.Fprintf(stdout, "Profile: %s\nSource: %s\nLayout: %d\nConfig: %s\nData: %s\nState: %s\nLogs: %s\nCache: %s\n", clean(location.DataDirectory), location.Source, location.LayoutVersion, clean(location.Paths.Config), clean(location.Paths.Data), clean(location.Paths.State), clean(location.Paths.Logs), clean(location.Paths.Cache))
 		}
 		return 0
 	}
@@ -195,7 +195,12 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if token == "" && dataDir != "" {
-		data, err := safefile.ReadFile(profile.File(dataDir, profile.Token), 1024)
+		location, err := profile.Resolve(dataDir, "")
+		if err != nil {
+			fmt.Fprintln(stderr, "cannot resolve credential profile")
+			return 1
+		}
+		data, err := safefile.ReadFile(location.Paths.File(profile.Token), 1024)
 		if err != nil && !os.IsNotExist(err) {
 			fmt.Fprintln(stderr, "cannot read local API token")
 			return 1

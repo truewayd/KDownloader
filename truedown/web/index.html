@@ -155,7 +155,7 @@
           <div class="settings-section-heading"><h3 id="settings-application-title">启动与运行</h3><p>下载服务独立运行，关闭网页后仍会继续下载。</p></div>
           <label class="setting-toggle" for="startup-enabled"><input id="startup-enabled" type="checkbox" disabled><span><strong>开机自动启动</strong><small>Windows 登录后在托盘运行，不自动打开网页。即时生效。</small></span></label>
             <p class="hint" id="startup-status" role="status">正在读取启动设置…</p>
-            <div class="runtime-guide"><h3>数据存储</h3><p id="storage-location" class="hint" role="status">正在读取数据目录…</p><p class="hint">任务、设置和日志由下载服务统一保存。备份或搬迁此目录前，请先退出 TrueDown；下载文件仍保留在各任务选择的位置。</p></div>
+            <div class="runtime-guide"><h3>数据存储</h3><div id="storage-location" class="hint" role="status">正在读取数据目录…</div><p class="hint">配置、任务和恢复状态由同一个 Profile 管理。日志单独轮转，缓存可重建。备份或搬迁前请先退出 TrueDown，并包含上方列出的配置、任务与恢复状态目录；下载文件仍保留在各任务选择的位置。</p></div>
           <button class="kd-button danger compact" id="exit-from-settings-btn" type="button">退出 TrueDown</button>
           <div class="runtime-guide"><h3>独立运行下载服务</h3><p>使用命令行启动服务，也可随时打开同一个下载界面。</p><dl><dt><code>TrueDown serve</code></dt><dd>前台运行服务，不创建托盘或打开网页。</dd><dt><code>TrueDown ui</code></dt><dd>打开界面；已有服务时复用它。</dd><dt><code>TrueDown background</code></dt><dd>后台驻留，Windows 可通过托盘打开界面。</dd></dl></div>
         </section>

@@ -235,6 +235,10 @@ fn main() {
     context.config_mut().app.macos_private_api = cfg!(target_os = "macos");
     for window in &mut context.config_mut().app.windows {
         window.transparent = cfg!(any(windows, target_os = "macos"));
+        // Build explicitly after the core commits any profile migration. Tauri's
+        // config path accepts relative paths only; the builder accepts the
+        // authoritative absolute cache path returned by the Go profile owner.
+        window.create = false;
     }
     // Start hidden at creation time, so background launches never flash a window.
     if background {
@@ -267,11 +271,6 @@ fn main() {
         )
         .manage(core.clone())
         .manage(startup)
-        .manage(windows::Windows {
-            suppress: cfg!(debug_assertions)
-                && std::env::var("TRUEDOWN_DESKTOP_TEST").as_deref() == Ok("1"),
-            creation: Mutex::new(()),
-        })
         .invoke_handler(tauri::generate_handler![
             core_request,
             desktop_state,
@@ -281,6 +280,23 @@ fn main() {
             appearance::apply_material
         ])
         .setup(move |app| {
+            let core = app.state::<Arc<Core>>().inner().clone();
+            tauri::async_runtime::block_on(core.connect()).map_err(std::io::Error::other)?;
+            let profile = profile::Profile::resolve(&base, data_dir.as_deref())
+                .map_err(std::io::Error::other)?;
+            let cache = PathBuf::from(profile.paths.cache).join("webview");
+            app.manage(windows::Windows {
+                suppress: cfg!(debug_assertions)
+                    && std::env::var("TRUEDOWN_DESKTOP_TEST").as_deref() == Ok("1"),
+                creation: Mutex::new(()),
+                cache: cache.clone(),
+            });
+            for config in &app.config().app.windows {
+                tauri::WebviewWindowBuilder::from_config(app, config)?
+                    .data_directory(cache.clone())
+                    .on_navigation(windows::local_navigation)
+                    .build()?;
+            }
             let open = MenuItem::with_id(app, "open", "打开 TrueDown", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "settings", "设置…", true, None::<&str>)?;
             let logs = MenuItem::with_id(app, "logs", "应用日志…", true, None::<&str>)?;
@@ -327,10 +343,6 @@ fn main() {
                     window.hide()?
                 }
             }
-            let core = app.state::<Arc<Core>>().inner().clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = core.connect().await;
-            });
             Ok(())
         })
         .on_window_event(|window, event| {

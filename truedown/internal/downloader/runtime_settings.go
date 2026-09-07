@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
-	"truedown/internal/profile"
 )
 
 const (
@@ -33,9 +31,9 @@ type runtimeSettingsStore struct {
 	settings RuntimeSettings
 }
 
-func newRuntimeSettingsStore(databasePath string) (*runtimeSettingsStore, error) {
+func newRuntimeSettingsStoreAt(path string) (*runtimeSettingsStore, error) {
 	store := &runtimeSettingsStore{
-		path:     profile.File(filepath.Dir(databasePath), profile.RuntimeSettings),
+		path:     path,
 		settings: defaultRuntimeSettings(),
 	}
 	var settings RuntimeSettings

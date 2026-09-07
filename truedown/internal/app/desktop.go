@@ -145,7 +145,11 @@ func desktopToken(root string) (string, error) {
 	if token := os.Getenv("TRUEDOWN_API_TOKEN"); token != "" {
 		return token, validateAPIToken(token)
 	}
-	data, err := safefile.ReadFile(profile.File(root, profile.Token), maxAPITokenFileBytes)
+	location, err := profile.Resolve(root, "")
+	if err != nil {
+		return "", err
+	}
+	data, err := safefile.ReadFile(location.Paths.File(profile.Token), maxAPITokenFileBytes)
 	if os.IsNotExist(err) {
 		return "", nil
 	}

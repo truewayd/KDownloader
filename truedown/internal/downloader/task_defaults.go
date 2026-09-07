@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
-	"truedown/internal/profile"
 )
 
 const maxTaskDefaultsBytes = 64 * 1024
@@ -50,8 +48,8 @@ func defaultTaskDefaults() TaskDefaults {
 	return TaskDefaults{Connections: 16, SpeedUnit: 1048576, MaxTries: 5, RetryWait: 3, Allocation: "none", RemoteTime: true}
 }
 
-func newTaskDefaultsStore(databasePath string) (*taskDefaultsStore, error) {
-	store := &taskDefaultsStore{path: profile.File(filepath.Dir(databasePath), profile.TaskDefaults), state: TaskDefaultsSnapshot{Values: defaultTaskDefaults()}}
+func newTaskDefaultsStoreAt(path string) (*taskDefaultsStore, error) {
+	store := &taskDefaultsStore{path: path, state: TaskDefaultsSnapshot{Values: defaultTaskDefaults()}}
 	var state TaskDefaultsSnapshot
 	err := readStrictJSONFile(store.path, maxTaskDefaultsBytes, &state)
 	if os.IsNotExist(err) {
