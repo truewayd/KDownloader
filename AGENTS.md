@@ -1,6 +1,6 @@
 # KDownloader Agent Guide
 
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-08
 
 This file is the current engineering contract for the extension. Historical release notes live in `changelog/`; do not append dated entries here.
 
@@ -95,6 +95,10 @@ Download rules are stored in sync storage as `{ enabled, excludedExtensions, syn
 Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps avatar data outside exports. A manual add establishes the current profile update baseline before notifications are enabled. Scheduled checks aggregate updates/failures and preserve baselines on failure.
 
 ## TrueDown Runtime
+
+- TrueDown launch modes share one Go download core and one instance lock per data directory: `ui` (default) opens the browser and starts the Windows tray; `serve` runs the foreground HTTP service without a browser or tray; `background` suppresses the browser and retains the Windows tray. `--data-dir` overrides `TRUEDOWN_DATA_DIR`. A second `ui` launch opens the existing instance; other repeated modes exit without opening a browser. Keep CLI/service lifecycle separate from presentation when adding a future desktop shell.
+- The dashboard has hash routes for tasks, application logs, and categorized settings. Settings navigation is immediately available, each category loads independently, drafts survive category switches, and saves write only that category. Late reads cannot overwrite newer mutations. Task polling runs only on the visible task route; reconcile rows by task ID and update progress text in place, preserving row controls, selection, focus, and pending operations. `web/api.js`, `workspace.js`, `task-view.js`, `settings.js`, and `logs.js` separate transport, navigation, rendering, settings, and diagnostics from task orchestration in `app.js`.
+- `GET/POST /settings/startup` reads or changes Windows current-user login registration through the authenticated HTTP boundary; POST accepts only an explicit `enabled` boolean. Startup is opt-in, launches the current executable in `background` mode with its fixed resolved data directory, and never accepts a client command or path. The OS registration is authoritative; failed writes must not claim success. Registrations are scoped per data directory and must not overwrite another executable's entry. Other platforms, overlong Windows startup commands, and instances with process-scoped runtime/auth overrides report unsupported and use an external service launcher.
 
 - Resolver preparation must not hold the task-operation mutex across network waits; validate task identity, admission, and latest pause state after reacquiring it. Preparation must honor manager cancellation. Native BitTorrent output names are observed metadata, never HTTP `out` overrides, and a completed metadata parent must rebind to its child before the task can complete.
 

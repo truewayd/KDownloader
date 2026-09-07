@@ -98,6 +98,19 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File build.ps1
 
 Windows 包会生成到 `truedown/dist/TrueDown`。启动 `TrueDown.exe`，然后打开 `http://127.0.0.1:15151`。
 
+下载任务、应用日志和设置现在都有独立入口；设置提供总览和分类，每页独立保存。Windows 可在「设置 → 启动与运行」开启开机自动启动，登录后驻留托盘，不自动打开网页。
+
+同一个 Go 下载核心支持三种启动方式：
+
+```text
+TrueDown.exe ui                         打开界面，复用已有服务（默认）
+TrueDown.exe serve                      前台运行服务，不创建托盘或打开网页
+TrueDown.exe background                 驻留运行，Windows 保留托盘
+TrueDown.exe serve --data-dir "D:\Data"  指定数据目录
+```
+
+这些是服务启动命令；完整的任务管理 CLI 和 Tauri 桌面客户端属于后续工作。核心拆分、配置迁移、进程归属和更新机制的具体方案见 [TrueDown 核心与 Tauri 迁移设计](docs/truedown-core-and-tauri.md)。
+
 如需远程监听，请通过 `TRUEDOWN_ADDR` 指定明确的网卡地址，设置 `TRUEDOWN_ALLOW_REMOTE=1`，启用 API Key 认证，并提供 `TRUEDOWN_TLS_CERT` 与 `TRUEDOWN_TLS_KEY`。程序会拒绝通配地址监听。
 
 ## 仓库结构
