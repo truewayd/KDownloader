@@ -40,6 +40,7 @@ const platform={
 }[target];
 if(!platform)throw new Error("Unsupported desktop target");
 const [goos,goarch,suffix]=platform;
+console.log(run(process.execPath,[path.join(project,"tools/native-licenses.mjs")],{env:{...process.env,CARGO_BUILD_TARGET:target}}));
 const version=process.env.TRUEDOWN_VERSION || "dev";
 const buildNumber=process.env.TRUEDOWN_BUILD_NUMBER || "0";
 const commit=process.env.TRUEDOWN_COMMIT || "unknown";

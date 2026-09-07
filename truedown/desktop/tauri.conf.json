@@ -42,7 +42,8 @@
     ],
     "resources": {
       "../ARIA2_COPYING": "ARIA2_COPYING",
-      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../dist/NATIVE_LICENSES.txt": "NATIVE_LICENSES.txt"
     }
   }
 }
