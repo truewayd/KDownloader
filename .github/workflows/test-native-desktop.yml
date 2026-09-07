@@ -1,0 +1,86 @@
+name: Native desktop validation
+
+on:
+  pull_request:
+    paths:
+      - "truedown/**"
+      - "shared/**"
+      - "manifest.json"
+      - ".github/workflows/test-native-desktop.yml"
+  push:
+    branches: [main]
+    paths:
+      - "truedown/**"
+      - "shared/**"
+      - "manifest.json"
+      - ".github/workflows/test-native-desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: truedown/desktop
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: truedown/go.mod
+          cache: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Prepare Rust
+        run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends aria2 libwebkit2gtk-4.1-dev build-essential libxdo-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev pkg-config xvfb xauth webkit2gtk-driver
+      - name: Install macOS download engine
+        if: runner.os == 'macOS'
+        run: brew install aria2
+      - name: Install desktop build dependencies
+        run: npm ci
+      - name: Build native desktop and Go sidecars
+        env:
+          RUSTUP_TOOLCHAIN: 1.98.1
+        run: npm run build -- --debug --no-bundle
+      - name: Check Rust formatting and contracts
+        env:
+          RUSTUP_TOOLCHAIN: 1.98.1
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+      - name: Check private core transport
+        if: runner.os != 'Windows'
+        run: node ../tools/smoke-desktop.mjs target/debug/truedown-core
+      - name: Check private core transport on Windows
+        if: runner.os == 'Windows'
+        run: node ../tools/smoke-desktop.mjs target/debug/truedown-core.exe
+      - name: Accept hidden Windows WebView2 windows and crash recovery
+        if: runner.os == 'Windows'
+        run: npm run test:windows
+      - name: Install Linux automation driver
+        if: runner.os == 'Linux'
+        run: cargo +1.98.1 install tauri-driver --version 2.0.6 --locked
+      - name: Accept hidden Linux WebKitGTK windows
+        if: runner.os == 'Linux'
+        run: xvfb-run -a -s '-screen 0 1280x800x24' dbus-run-session -- node tests/linux-smoke.mjs target/debug/truedown-desktop

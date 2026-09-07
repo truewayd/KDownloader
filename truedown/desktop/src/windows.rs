@@ -12,7 +12,7 @@ pub enum Kind {
 pub struct Windows {
     pub suppress: bool,
     pub creation: tokio::sync::Mutex<()>,
-    pub cache: std::path::PathBuf,
+    pub storage: crate::webview::Storage,
 }
 
 impl Kind {
@@ -66,8 +66,13 @@ pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), Str
             Kind::Logs => (960.0, 680.0, 560.0, 360.0),
             Kind::About => (560.0, 500.0, 420.0, 360.0),
         };
-        WebviewWindowBuilder::new(&app, kind.label(), WebviewUrl::App(kind.url().into()))
-            .data_directory(state.cache.clone())
+        let window = state
+            .storage
+            .configure(WebviewWindowBuilder::new(
+                &app,
+                kind.label(),
+                WebviewUrl::App(kind.url().into()),
+            ))
             .title(kind.title())
             .inner_size(width, height)
             .min_inner_size(min_width, min_height)
@@ -76,9 +81,12 @@ pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), Str
             .center()
             .on_navigation(local_navigation)
             .build()
-            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
+        crate::placement::fit(&window.as_ref().window(), true);
+        window
     };
     if !state.suppress {
+        crate::placement::fit(&window.as_ref().window(), false);
         window
             .show()
             .and_then(|_| window.unminimize())

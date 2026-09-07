@@ -36,6 +36,7 @@
       "binaries/truedown-cli"
     ],
     "icon": [
+      "../dist/desktop-icon.png",
       "../windows/truedown.ico",
       "../macos/truedown.icns"
     ],

@@ -41,6 +41,21 @@ const platform={
 if(!platform)throw new Error("Unsupported desktop target");
 const [goos,goarch,suffix]=platform;
 const binaries=await directory("desktop/binaries");
+// Linux packaging needs a PNG. Reuse the canonical ICO's exact 256px PNG
+// frame, so all native packages retain the same source artwork.
+const ico=await fs.readFile(path.join(project,"windows/truedown.ico"));
+let nativeIcon;
+for(let entry=6;entry<6+ico.readUInt16LE(4)*16;entry+=16){
+  if(ico[entry]===0 && ico[entry+1]===0){
+    const size=ico.readUInt32LE(entry+8),offset=ico.readUInt32LE(entry+12);
+    if(offset+size>ico.length)throw new Error("Invalid canonical icon frame");
+    nativeIcon=ico.subarray(offset,offset+size);
+  }
+}
+if(!nativeIcon || nativeIcon.subarray(0,8).toString("hex")!=="89504e470d0a1a0a")throw new Error("Canonical icon requires a 256px PNG frame");
+const iconOutput=path.join(await directory("dist"),"desktop-icon.png");
+await regularOutput(iconOutput);
+await fs.writeFile(iconOutput,nativeIcon);
 for(const [name,entry] of [["truedown-core","./cmd/truedown-core"],["truedown-cli","./cmd/truedown"]]){
   const output=path.join(binaries,`${name}-${target}${suffix}`);
   await regularOutput(output);

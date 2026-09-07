@@ -3,17 +3,16 @@
 mod appearance;
 mod bridge;
 mod core;
+mod placement;
 mod profile;
 mod startup;
 mod tray_image;
+mod webview;
 mod windows;
 
 use bridge::{Request, Response};
 use core::Core;
-use std::{
-    path::PathBuf,
-    sync::{atomic::Ordering, Arc},
-};
+use std::sync::{atomic::Ordering, Arc};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
@@ -147,6 +146,7 @@ fn show_main(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
+        placement::fit(&window.as_ref().window(), false);
         let _ = window.set_focus();
     }
 }
@@ -245,18 +245,24 @@ fn main() {
             tauri::async_runtime::block_on(core.connect()).map_err(std::io::Error::other)?;
             let profile = profile::Profile::resolve(&base, data_dir.as_deref())
                 .map_err(std::io::Error::other)?;
-            let cache = PathBuf::from(profile.paths.cache).join("webview");
             app.manage(windows::Windows {
                 suppress: cfg!(debug_assertions)
                     && std::env::var("TRUEDOWN_DESKTOP_TEST").as_deref() == Ok("1"),
                 creation: Mutex::new(()),
-                cache: cache.clone(),
+                storage: webview::Storage::new(&profile),
             });
             for config in &app.config().app.windows {
-                tauri::WebviewWindowBuilder::from_config(app, config)?
-                    .data_directory(cache.clone())
+                let window = app
+                    .state::<windows::Windows>()
+                    .storage
+                    .configure(tauri::WebviewWindowBuilder::from_config(app, config)?)
+                    .visible(false)
                     .on_navigation(windows::local_navigation)
                     .build()?;
+                placement::fit(&window.as_ref().window(), true);
+                if config.visible && !app.state::<windows::Windows>().suppress {
+                    window.show()?;
+                }
             }
             let open = MenuItem::with_id(app, "open", "打开 TrueDown", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "settings", "设置…", true, None::<&str>)?;
@@ -264,7 +270,10 @@ fn main() {
             let about = MenuItem::with_id(app, "about", "关于 TrueDown…", true, None::<&str>)?;
             let exit = MenuItem::with_id(app, "exit", "退出 TrueDown", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &settings, &logs, &about, &exit])?;
-            let icon = tray_image::image_for_pixels(32)?;
+            // macOS renders an 18pt status item: keep enough source pixels for
+            // Retina instead of enlarging the previous 32px bitmap to 36px.
+            let icon =
+                tray_image::image_for_pixels(if cfg!(target_os = "macos") { 64 } else { 32 })?;
             let tray = TrayIconBuilder::new()
                 .icon(icon)
                 .tooltip("TrueDown")
@@ -322,6 +331,9 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if let WindowEvent::ScaleFactorChanged { .. } = event {
+                placement::fit(window, false);
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();

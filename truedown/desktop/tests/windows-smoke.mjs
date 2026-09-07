@@ -136,6 +136,14 @@ try {
   const windows = await main.evaluate(async () => Promise.all((await window.__TAURI__.window.getAllWindows()).map(async window => ({ label: window.label, visible: await window.isVisible() }))));
   assert.equal(windows.length, 4);
   assert.ok(windows.every(window => !window.visible), "Acceptance tests must never show native windows");
+  const geometry = await main.evaluate(async () => {
+    const monitors = await window.__TAURI__.window.availableMonitors();
+    const windows = await Promise.all((await window.__TAURI__.window.getAllWindows()).map(async entry => ({ label: entry.label, position: await entry.outerPosition(), size: await entry.outerSize() })));
+    return { monitors, windows };
+  });
+  for (const entry of geometry.windows) {
+    assert.ok(geometry.monitors.some(({ workArea: area }) => entry.position.x >= area.position.x - 1 && entry.position.y >= area.position.y - 1 && entry.position.x + entry.size.width <= area.position.x + area.size.width + 1 && entry.position.y + entry.size.height <= area.position.y + area.size.height + 1), `Window escaped its monitor work area: ${JSON.stringify(entry)}`);
+  }
   assert.deepEqual(errors, []);
   // An authenticated external client exit must stop the desktop, not trigger
   // crash recovery. Read this isolated fixture's key only in the test driver.

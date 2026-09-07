@@ -4186,6 +4186,8 @@ dependencies = [
 name = "truedown-desktop"
 version = "0.1.0"
 dependencies = [
+ "objc2-app-kit",
+ "objc2-foundation",
  "plist",
  "serde",
  "serde_json",

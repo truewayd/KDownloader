@@ -44,7 +44,11 @@ pub fn apply_material(window: WebviewWindow, enabled: bool) -> bool {
     }
     #[cfg(target_os = "macos")]
     {
-        if enabled {
+        let workspace = objc2_app_kit::NSWorkspace::sharedWorkspace();
+        if enabled
+            && !workspace.accessibilityDisplayShouldReduceTransparency()
+            && !workspace.accessibilityDisplayShouldIncreaseContrast()
+        {
             return window_vibrancy::apply_vibrancy(
                 &window,
                 window_vibrancy::NSVisualEffectMaterial::Sidebar,

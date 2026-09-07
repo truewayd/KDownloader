@@ -65,6 +65,9 @@ match the current route/query. Settings have an overview and typed categories.
 Working surfaces stay readable with Windows Fluent and macOS system styling;
 Mica/vibrancy respects transparency/contrast preferences and has solid fallbacks.
 Windows tray icons choose the exact raster for the taskbar monitor's DPI.
+The macOS status item uses a 64px source for its 18pt Retina rendering. Window
+sizes and minimums fit the monitor's work area, including native frame metrics,
+and are recalculated when moving between display scale factors.
 
 All durable task defaults use `GET/POST /settings/task-defaults`: a strict 64 KiB
 schema, revision preconditions, and atomic persistence. Stale writes return 409;
@@ -127,8 +130,9 @@ windows share the same profile cache, limiting browser processes and isolating p
 The native builder receives the absolute cache path directly; Tauri's JSON
 configuration only accepts relative cache paths. Cache contains no authoritative
 download settings, tokens or resumable BitTorrent state.
-WKWebView manages its own website data; native macOS profile isolation is part of
-the remaining platform acceptance work.
+WKWebView uses a stable profile-specific website store on macOS 14 and newer.
+Older systems use ephemeral website data because WKWebView cannot select a
+persistent store there. Authoritative preferences still persist in the Go core.
 
 ## Startup and release transition
 
@@ -162,7 +166,11 @@ settings saves and drafts, credentials, role restrictions, contrast fallback,
 125%/200%/300% layouts, forced core recovery, engine cleanup and external exit.
 Exact tray raster tests cover 100% through 400%
 scaling. No interactive acceptance windows or login/logout cycle are used.
-Native WKWebView/WebKitGTK and bundle update acceptance are still outstanding.
+Hidden Linux WebKitGTK acceptance under Xvfb covers the four native windows,
+settings persistence and bounded layouts. The native CI matrix builds and tests
+Windows, Linux and macOS, with platform WebView acceptance on Windows and Linux.
+WKWebView runtime and bundle update acceptance are still outstanding; no local
+macOS runtime is available.
 
 An earlier local Chromium benchmark of 100 changing rows over 30 iterations
 measured median render plus layout dropping from 54 ms to 5.2 ms after row
