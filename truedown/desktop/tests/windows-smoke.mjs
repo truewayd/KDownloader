@@ -10,11 +10,12 @@ import { chromium } from "playwright";
 if (process.platform !== "win32") throw new Error("This acceptance test requires Windows WebView2");
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = path.resolve(process.argv[2] || path.join(desktop, "target/debug"));
+const shellName = process.argv[3] || "TrueDown.exe";
 const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "truedown-window-review-"));
 const installation = path.join(fixture, "Application with spaces");
 const profile = path.join(fixture, "Profile with spaces");
 await fs.mkdir(installation);
-for (const name of ["truedown-desktop.exe", "truedown-core.exe", "truedown-cli.exe", "aria2c.exe"]) {
+for (const name of [shellName, "truedown-core.exe", "truedown-cli.exe", "aria2c.exe"]) {
   await fs.copyFile(path.join(source, name), path.join(installation, name));
 }
 async function freePort() {
@@ -34,7 +35,7 @@ async function waitUntil(check, timeout = 30000) {
   throw new Error("Native acceptance test timed out");
 }
 const port = await freePort(), debugPort = await freePort();
-function launchDesktop() { return spawn(path.join(installation, "truedown-desktop.exe"), ["--background", "--data-dir", profile], {
+function launchDesktop() { return spawn(path.join(installation, shellName), ["--background", "--data-dir", profile], {
   windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
   env: {
     ...process.env, TRUEDOWN_DESKTOP_TEST: "1", TRUEDOWN_ADDR: `127.0.0.1:${port}`,

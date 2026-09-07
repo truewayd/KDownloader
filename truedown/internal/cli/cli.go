@@ -33,7 +33,7 @@ const Usage = `truedown [--endpoint URL] [--data-dir PATH] [--json] COMMAND [OPT
   pause ID... | resume ID... | retry ID...
   exit                           Request a graceful core exit.
 
-Start the service with truedown-core; use TrueDown ui for the browser dashboard.
+Start the service with truedown-core; open TrueDown for the native interface.
 Global flags precede COMMAND. Command flags precede positional arguments.
 Credentials: TRUEDOWN_API_TOKEN, or truedown.token in an explicit --data-dir.
 Exit codes: 0 success, 1 connection/API failure, 2 usage, 3 partial task failure.

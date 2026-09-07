@@ -160,8 +160,18 @@ Recovery is repeatable after a partially completed replacement or rollback. The
 new core finalizes pending state under its profile lock; the helper never rewrites
 settings after the healthy core begins serving requests. Updates restart hidden.
 Downloaded files, SQLite, configuration, bundled aria2 and NEXT stay outside the
-program replacement set. Platform packaging and signing/notarization integration
-remain release work; the existing pipeline must not publish a partial migration.
+program replacement set. Native release scripts package all three components and
+their notices. The Windows archive manifest is schema 2; Linux retains its
+architecture-specific tarball and macOS uses Tauri's standard application bundle.
+Release publication depends on all five packages plus native UI/recovery tests.
+Each package must complete frontend startup using its own matching CLI
+and core before archiving. The aggregate validator checks all executable
+architectures, Unix permissions, native notices and Windows component hashes.
+macOS builds verify their signature and use Tauri's signing/notarization
+credentials when configured; the credential-free default is ad-hoc signing.
+Windows package acceptance uses background startup. Linux maps its view inside
+Xvfb because WebKitGTK can defer loading an unmapped view; this never opens a
+window on the user's desktop.
 
 ## Validation
 

@@ -50,11 +50,28 @@ relative `dataDirectory`. Auxiliary windows do not create separate browser cache
 - Windows chooses a 16/20/24/32/40/48/64-pixel tray raster using the taskbar monitor
   DPI and refreshes after taskbar movement. macOS treats the icon as a template.
 
-## Release integration still in progress
+## Native packages
 
-This directory is the native migration implementation, not a replacement for the
-existing release pipeline yet. The legacy single-executable updater is disabled
-for sidecars. Full-bundle update/rollback, native
-Unix acceptance and signing/notarization must be completed before switching the
-published product. Keep the legacy and native update mechanisms separate until
-that release transition is tested.
+From the repository root, `truedown/build.ps1` produces the Windows package.
+`bash truedown/build-unix.sh linux amd64` (or the matching host OS/architecture)
+produces a Linux package or standard macOS `.app`. Install the desktop npm
+dependencies first. The platform scripts use Tauri's release build and package
+the matching shell, Go core, CLI and pinned dependency notices together.
+
+Numbered Windows packages use the complete schema-2 bundle updater, with startup
+health checks and rollback. Independent core services leave application updates
+to their package owner. Migrating from the old browser-only Windows package
+requires extracting a complete native package; its single-file updater cannot
+install the new format. Linux and macOS replace the complete package manually.
+
+Release jobs accept each packaged application's frontend startup and CLI
+before archiving. All platform builds and the reusable native UI/recovery test
+matrix must succeed before publication. Archive validation checks all component
+architectures, executable modes, exact file sets, and every Windows update hash.
+Windows uses the production background launch; Linux maps its view only inside
+Xvfb because WebKitGTK can defer loading an unmapped view.
+
+macOS packaging uses Tauri's [signing environment](https://v2.tauri.app/distribute/sign/macos/).
+Without Developer ID credentials it uses an ad-hoc signature and verifies it;
+this is not notarization. Configured certificate and notarization credentials
+are passed only to the build step. No local macOS runtime is available for acceptance.

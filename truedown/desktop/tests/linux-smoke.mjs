@@ -6,7 +6,7 @@ import net from "node:net";
 import { spawn } from "node:child_process";
 
 if (process.platform !== "linux" || !process.env.DISPLAY) throw new Error("Run this test inside xvfb-run and dbus-run-session");
-const application = path.resolve(process.argv[2] || "target/debug/truedown-desktop");
+const application = path.resolve(process.argv[2] || "target/debug/TrueDown");
 const profile = await fs.mkdtemp(path.join(os.tmpdir(), "truedown-webkit-"));
 async function freePort() {
   const server = net.createServer();

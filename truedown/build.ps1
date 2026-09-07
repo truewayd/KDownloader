@@ -77,10 +77,7 @@ function Assert-RegularSourceFile {
 
 function Assert-BuildInputs {
   param([string]$Root)
-  foreach ($source in Get-ChildItem -LiteralPath $Root -Force -File -Filter "*.go") {
-    Assert-RegularSourceFile -Root $Root -Path $source.FullName
-  }
-  foreach ($resourceName in @("resource_windows_amd64.syso", "windows\truedown.ico", "windows\truedown.manifest")) {
+  foreach ($resourceName in @("windows\truedown.ico", "desktop\windows-app.manifest", "desktop\Cargo.toml", "desktop\Cargo.lock", "desktop\tauri.conf.json", "desktop\tauri.windows.conf.json", "desktop\package-lock.json")) {
     Assert-RegularSourceFile -Root $Root -Path (Join-Path $Root $resourceName)
   }
   foreach ($manifestName in @("go.mod", "go.sum")) {
@@ -89,7 +86,7 @@ function Assert-BuildInputs {
       Assert-RegularSourceFile -Root $Root -Path $manifest
     }
   }
-  foreach ($treeName in @("internal", "web", "windows")) {
+  foreach ($treeName in @("cmd", "internal", "web", "windows", "desktop\src", "desktop\capabilities", "desktop\licenses", "tools")) {
     $tree = Join-Path $Root $treeName
     Assert-NoReparsePath -Root $Root -Path $tree
     Assert-NoReparseTree $tree
@@ -186,25 +183,11 @@ public static class TrueDownWindowsResourceReader {
     [System.Runtime.InteropServices.Marshal]::Copy($pointer, $bytes, 0, $bytes.Length)
     $actual = [System.Text.Encoding]::UTF8.GetString($bytes).Trim([char]0).Replace("`r`n", "`n").Trim()
     $expected = [System.IO.File]::ReadAllText($ExpectedManifest, [System.Text.Encoding]::UTF8).Replace("`r`n", "`n").Trim()
-    if ($actual -ne $expected) {
+    # The native resource compiler flattens whitespace in embedded XML. Compare
+    # parsed manifests so every declaration is still verified without requiring
+    # the compiler to preserve the source file's line breaks.
+    if (([xml]$actual).OuterXml -ne ([xml]$expected).OuterXml) {
       throw "Built executable DPI manifest does not match the reviewed source manifest"
-    }
-  } finally {
-    [TrueDownWindowsResourceReader]::FreeLibrary($module) | Out-Null
-  }
-}
-
-function Assert-TrayIconResource {
-  param([string]$Executable)
-
-  $module = [TrueDownWindowsResourceReader]::LoadLibraryExW($Executable, [IntPtr]::Zero, 0x22)
-  if ($module -eq [IntPtr]::Zero) {
-    throw "Unable to inspect the built executable tray icon"
-  }
-  try {
-    $resource = [TrueDownWindowsResourceReader]::FindResourceW($module, [IntPtr]2, [IntPtr]14)
-    if ($resource -eq [IntPtr]::Zero -or [TrueDownWindowsResourceReader]::SizeofResource($module, $resource) -eq 0) {
-      throw "Built executable does not contain tray icon group resource 2"
     }
   } finally {
     [TrueDownWindowsResourceReader]::FreeLibrary($module) | Out-Null
@@ -267,14 +250,15 @@ function Remove-TreeSafely {
 if ($Version -notmatch '^(dev|truedown-build-[1-9][0-9]*)$') {
   throw "Version must be dev or truedown-build-N"
 }
-if ($BuildNumber -lt 0) {
-  throw "BuildNumber must not be negative"
+if ($BuildNumber -lt 0 -or $BuildNumber -gt 9999999999999) {
+  throw "BuildNumber must be between 0 and 9999999999999"
 }
 if ($Version -ne "dev" -and $Version -ne "truedown-build-$BuildNumber") {
   throw "Version and BuildNumber must identify the same release"
 }
-if ($Commit -notmatch '^(unknown|[0-9a-fA-F]{7,40})$') {
-  throw "Commit must be unknown or a 7-40 character Git commit"
+if (($BuildNumber -eq 0 -and ($Version -ne "dev" -or $Commit -ne "unknown")) -or
+    ($BuildNumber -gt 0 -and ($Version -ne "truedown-build-$BuildNumber" -or $Commit -cnotmatch '^[0-9a-f]{40}$'))) {
+  throw "Release identity requires a numbered version and full commit, or dev/0/unknown"
 }
 $projectRoot = $PSScriptRoot
 $syncComponents = Join-Path $projectRoot "..\tools\sync-ui-components.ps1"
@@ -292,11 +276,12 @@ if (-not $dist.StartsWith($distPrefix, [System.StringComparison]::OrdinalIgnoreC
 }
 $aria = Join-Path $projectRoot "aria2\aria2c.exe"
 $icon = Join-Path $projectRoot "windows\truedown.ico"
-$appManifest = Join-Path $projectRoot "windows\truedown.manifest"
+$appManifest = Join-Path $projectRoot "desktop\windows-app.manifest"
 $copySources = @(
   @{ Source = $aria; Name = "aria2c.exe" },
   @{ Source = (Join-Path $projectRoot "ARIA2_COPYING"); Name = "ARIA2_COPYING" },
-  @{ Source = (Join-Path $projectRoot "THIRD_PARTY_NOTICES.md"); Name = "THIRD_PARTY_NOTICES.md" }
+  @{ Source = (Join-Path $projectRoot "THIRD_PARTY_NOTICES.md"); Name = "THIRD_PARTY_NOTICES.md" },
+  @{ Source = (Join-Path $projectRoot "windows\README.md"); Name = "README.md" }
 )
 
 Assert-NoReparsePath -Root $projectRoot -Path $dist
@@ -315,19 +300,39 @@ try {
   Assert-NoReparsePath -Root $projectRoot -Path $staging
   $exe = Join-Path $staging "TrueDown.exe"
   Write-Host "Building..."
-  Push-Location $projectRoot
+  $previous = @{}
+  foreach ($name in @("TRUEDOWN_VERSION", "TRUEDOWN_BUILD_NUMBER", "TRUEDOWN_COMMIT", "CARGO_BUILD_TARGET")) {
+    $previous[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+  }
+  Push-Location (Join-Path $projectRoot "desktop")
   try {
-    $ldflags = "-H windowsgui -s -w -X main.version=$Version -X main.buildNumber=$BuildNumber -X main.commit=$Commit"
-    go build -trimpath -ldflags $ldflags -o $exe .
-    $buildExitCode = $LASTEXITCODE
+    $hostInfo = rustc -vV
+    if ($LASTEXITCODE -ne 0) { throw "Rust is required for native builds" }
+    $target = ($hostInfo | Select-String '^host: (.+)$').Matches.Groups[1].Value
+    if ($target -notin @("x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc")) { throw "Build on a native Windows MSVC host" }
+    $env:TRUEDOWN_VERSION = $Version
+    $env:TRUEDOWN_BUILD_NUMBER = "$BuildNumber"
+    $env:TRUEDOWN_COMMIT = $Commit
+    $env:CARGO_BUILD_TARGET = $target
+    npm run build -- --no-bundle --target $target
+    if ($LASTEXITCODE -ne 0) { throw "Native desktop build failed" }
+    $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0) { throw "Cannot locate native build output" }
+    $nativeOutput = Join-Path $metadata.target_directory "$target/release"
+    foreach ($name in @("TrueDown.exe", "truedown-core.exe", "truedown-cli.exe")) {
+      $source = Join-Path $nativeOutput $name
+      Assert-RegularSourceFile -Root $metadata.target_directory -Path $source
+      [System.IO.File]::Copy($source, (Join-Path $staging $name), $false)
+    }
   } finally {
     Pop-Location
+    foreach ($name in $previous.Keys) { [Environment]::SetEnvironmentVariable($name, $previous[$name], "Process") }
   }
-  if ($buildExitCode -ne 0) { exit $buildExitCode }
   Assert-WindowsGUISubsystem -Executable $exe
   Assert-ExecutableIcon -Executable $exe -ExpectedIcon $icon
   Assert-ExecutableDPIManifest -Executable $exe -ExpectedManifest $appManifest
-  Assert-TrayIconResource -Executable $exe
+
+  $copySources += @{ Source = (Join-Path $projectRoot "dist\NATIVE_LICENSES.txt"); Name = "NATIVE_LICENSES.txt" }
 
   Assert-NoReparsePath -Root $projectRoot -Path $staging
   foreach ($entry in $copySources) {

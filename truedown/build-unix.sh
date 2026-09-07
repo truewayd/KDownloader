@@ -20,14 +20,15 @@ version=${TRUEDOWN_VERSION:-dev}
 build_number=${TRUEDOWN_BUILD_NUMBER:-0}
 commit=${TRUEDOWN_COMMIT:-unknown}
 [[ "$version" =~ ^(dev|truedown-build-[1-9][0-9]*)$ ]] || { echo "invalid TrueDown version" >&2; exit 2; }
-[[ "$build_number" =~ ^(0|[1-9][0-9]{0,18})$ ]] || { echo "invalid TrueDown build number" >&2; exit 2; }
-if [[ ${#build_number} -eq 19 && "$build_number" > 9223372036854775807 ]]; then
-  echo "invalid TrueDown build number" >&2; exit 2
-fi
+[[ "$build_number" =~ ^(0|[1-9][0-9]{0,12})$ ]] || { echo "invalid TrueDown build number" >&2; exit 2; }
 if [[ "$version" != dev && "$version" != "truedown-build-$build_number" ]]; then
   echo "version and build number must identify the same release" >&2; exit 2
 fi
-[[ "$commit" =~ ^(unknown|[0-9a-fA-F]{7,40})$ ]] || { echo "invalid TrueDown commit" >&2; exit 2; }
+if [[ "$build_number" == 0 ]]; then
+  [[ "$version" == dev && "$commit" == unknown ]] || { echo "development identity must be dev/0/unknown" >&2; exit 2; }
+else
+  [[ "$version" == "truedown-build-$build_number" && "$commit" =~ ^[a-f0-9]{40}$ ]] || { echo "release identity requires a full commit" >&2; exit 2; }
+fi
 
 project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 dist_root="$project_root/dist"
@@ -52,29 +53,51 @@ cleanup() {
 }
 trap cleanup EXIT
 
-ldflags="-s -w -X main.version=$version -X main.buildNumber=$build_number -X main.commit=$commit"
+case "$target_os-$target_arch" in
+  linux-amd64) target=x86_64-unknown-linux-gnu ;;
+  linux-arm64) target=aarch64-unknown-linux-gnu ;;
+  darwin-amd64) target=x86_64-apple-darwin ;;
+  darwin-arm64) target=aarch64-apple-darwin ;;
+esac
+host=$(rustc -vV | sed -n 's/^host: //p')
+[[ "$host" == "$target" ]] || { echo "native packages must be built on their matching OS and architecture" >&2; exit 2; }
+export CARGO_BUILD_TARGET="$target"
+export TRUEDOWN_VERSION="$version" TRUEDOWN_BUILD_NUMBER="$build_number" TRUEDOWN_COMMIT="$commit"
 if [[ "$target_os" == darwin ]]; then
-  bundle="$staging/TrueDown.app"
-  mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
-  (cd "$project_root" && CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" \
-    go build -trimpath -ldflags "$ldflags" -o "$bundle/Contents/MacOS/TrueDown" .)
-  cp "$project_root/macos/truedown.icns" "$bundle/Contents/Resources/truedown.icns"
+  # Developer ID credentials use Tauri's signing environment. Ad-hoc signing
+  # is the explicit credential-free default and does not imply notarization.
+  export APPLE_SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
   plist_build=$build_number
   [[ "$plist_build" -gt 0 ]] || plist_build=1
-  sed "s/@BUILD_NUMBER@/$plist_build/g" "$project_root/macos/Info.plist.in" >"$bundle/Contents/Info.plist"
-  cp "$project_root/unix/README.md" "$staging/README.md"
-  cp "$project_root/THIRD_PARTY_NOTICES.md" "$staging/THIRD_PARTY_NOTICES.md"
+  (cd "$project_root/desktop" && npm run build -- --target "$target" --bundles app \
+    --config "{\"bundle\":{\"macOS\":{\"bundleVersion\":\"$plist_build\"}}}")
 else
-  (cd "$project_root" && CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" \
-    go build -trimpath -ldflags "$ldflags" -o "$staging/TrueDown" .)
-  chmod 755 "$staging/TrueDown"
+  (cd "$project_root/desktop" && npm run build -- --target "$target" --no-bundle)
+fi
+target_directory=$(cd "$project_root/desktop" && cargo metadata --locked --no-deps --format-version 1 | \
+  node -e 'let input="";process.stdin.on("data",part=>input+=part);process.stdin.on("end",()=>process.stdout.write(JSON.parse(input).target_directory))')
+native_output="$target_directory/$target/release"
+if [[ "$target_os" == darwin ]]; then
+  bundle="$staging/TrueDown.app"
+  [[ -d "$native_output/bundle/macos/TrueDown.app" && ! -L "$native_output/bundle/macos/TrueDown.app" ]]
+  ditto "$native_output/bundle/macos/TrueDown.app" "$bundle"
+  plutil -lint "$bundle/Contents/Info.plist"
+  codesign --verify --deep --strict "$bundle"
+else
+  for name in TrueDown truedown-core truedown-cli; do
+    [[ -f "$native_output/$name" && ! -L "$native_output/$name" ]] || { echo "missing native component: $name" >&2; exit 1; }
+    cp "$native_output/$name" "$staging/$name"
+    chmod 755 "$staging/$name"
+  done
   cp "$project_root/linux/truedown.desktop" "$staging/truedown.desktop"
   cp "$project_root/web/truedown-logo.svg" "$staging/truedown.svg"
-  cp "$project_root/unix/README.md" "$staging/README.md"
-  cp "$project_root/THIRD_PARTY_NOTICES.md" "$staging/THIRD_PARTY_NOTICES.md"
 fi
+cp "$project_root/unix/README.md" "$staging/README.md"
+cp "$project_root/THIRD_PARTY_NOTICES.md" "$staging/THIRD_PARTY_NOTICES.md"
+cp "$project_root/dist/NATIVE_LICENSES.txt" "$staging/NATIVE_LICENSES.txt"
 
 if [[ -e "$output" ]]; then
+  [[ ! -L "$output" ]] || { echo "refusing to replace a symbolic-link output" >&2; exit 1; }
   rm -rf "$output"
 fi
 mv "$staging" "$output"

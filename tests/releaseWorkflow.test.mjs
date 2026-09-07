@@ -254,6 +254,14 @@ test("release workflows pin actions and bind releases to the tested commit", asy
     const references = actionReferences(workflow);
     assert.ok(references.length > 0, "workflow must use at least one action");
     for (const { reference, version } of references) {
+      if (reference === "./.github/workflows/test-native-desktop.yml") {
+        const native = await read(".github/workflows/test-native-desktop.yml");
+        assert.match(native, /workflow_call:/);
+        for (const action of actionReferences(native)) {
+          assert.match(action.reference, /^[\w.-]+\/[\w.-]+@[a-f0-9]{40}$/);
+        }
+        continue;
+      }
       assert.match(reference, /^[\w.-]+\/[\w.-]+@[a-f0-9]{40}$/, `${reference} must use an immutable commit`);
       assert.match(version || "", /^v\d+(?:\.\d+){1,2}$/, `${reference} must document its release version`);
     }
@@ -301,8 +309,13 @@ test("TrueDown publishes all native packages only after every build succeeds", a
   assert.match(unix, /tar -czf/);
   assert.match(unix, /zip -r/);
   assert.match(unix, /if-no-files-found: error/);
-  assert.doesNotMatch(workflow, /codesign|notarytool|altool/);
-  assert.match(publish, /needs: \[build-windows, build-unix\]/);
+  assert.match(windows, /schemaVersion = 2/);
+  assert.match(windows, /protocolVersion = 1/);
+  assert.match(windows, /NATIVE_LICENSES\.txt/);
+  assert.match(windows, /package-smoke\.mjs/);
+  assert.match(unix, /package-smoke\.mjs/);
+  assert.match(unix, /codesign --verify --deep --strict/);
+  assert.match(publish, /needs: \[build-windows, build-unix, native-acceptance\]/);
   assert.doesNotMatch(publish, /always\(\)|continue-on-error/);
   assert.match(publish, /pattern: TrueDown-\$\{\{ env\.RELEASE_TAG \}\}-\*/);
   assert.match(publish, /merge-multiple: true/);

@@ -10,6 +10,10 @@ on:
       - "tools/read-latest-changelog.ps1"
       - "tests/releaseWorkflow.test.mjs"
       - "truedown/**"
+      - "shared/**"
+      - "manifest.json"
+      - ".gitattributes"
+      - ".github/workflows/test-native-desktop.yml"
   workflow_dispatch:
 
 permissions:
@@ -19,6 +23,7 @@ env:
   RELEASE_TAG: truedown-build-${{ github.run_number }}
   ARTIFACT_NAME: TrueDown-build-${{ github.run_number }}.zip
   UPDATE_MANIFEST: truedown-update-${{ github.run_number }}.json
+  RUSTUP_TOOLCHAIN: 1.98.1
 
 concurrency:
   group: publish-truedown-${{ github.ref }}
@@ -27,7 +32,7 @@ concurrency:
 jobs:
   build-windows:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     defaults:
       run:
         shell: pwsh
@@ -40,6 +45,16 @@ jobs:
 
       - name: Test release workflow safety
         run: node --test tests/releaseWorkflow.test.mjs
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Set up native build tools
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+          npm ci --prefix truedown/desktop
 
       - name: Test release asset validation
         run: python -m unittest discover -s truedown/tools -p test_validate_release.py
@@ -61,6 +76,12 @@ jobs:
       - name: Build TrueDown
         run: ./truedown/build.ps1 -OutputDirectory dist/TrueDown -Version $env:RELEASE_TAG -BuildNumber ${{ github.run_number }} -Commit ${{ github.sha }}
 
+      - name: Accept packaged native startup and CLI
+        env:
+          TRUEDOWN_BUILD_NUMBER: ${{ github.run_number }}
+          TRUEDOWN_COMMIT: ${{ github.sha }}
+        run: node truedown/desktop/tests/package-smoke.mjs truedown/dist/TrueDown/TrueDown.exe
+
       - name: Create release archive
         run: Compress-Archive -Path truedown/dist/TrueDown/* -DestinationPath $env:ARTIFACT_NAME -CompressionLevel Optimal
 
@@ -68,18 +89,24 @@ jobs:
         run: |
           $archive = Get-Item -LiteralPath $env:ARTIFACT_NAME
           $manifest = [ordered]@{
-            schemaVersion = 1
+            schemaVersion = 2
             product = "TrueDown"
             repository = "truewayd/KDownloader"
             version = $env:RELEASE_TAG
             build = [long]${{ github.run_number }}
+            protocolVersion = 1
+            platform = "windows-amd64"
+            files = @("truedown-core.exe", "truedown-cli.exe", "THIRD_PARTY_NOTICES.md", "NATIVE_LICENSES.txt", "TrueDown.exe") | ForEach-Object {
+              $file = Get-Item -LiteralPath (Join-Path truedown/dist/TrueDown $_)
+              [ordered]@{ name = $file.Name; size = $file.Length; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant() }
+            }
             asset = [ordered]@{
               name = $archive.Name
               size = $archive.Length
               sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive.FullName).Hash.ToLowerInvariant()
             }
           }
-          $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $env:UPDATE_MANIFEST -Encoding utf8NoBOM
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $env:UPDATE_MANIFEST -Encoding utf8NoBOM
 
       - name: Upload build artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -100,7 +127,7 @@ jobs:
           - { os: darwin, arch: amd64, runner: macos-15-intel, asset_os: macos, archive: zip }
           - { os: darwin, arch: arm64, runner: macos-15, asset_os: macos, archive: zip }
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
@@ -123,9 +150,21 @@ jobs:
           go-version-file: truedown/go.mod
           cache: false
 
-      - name: Install aria2 on Linux
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Set up native build tools
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+          npm ci --prefix truedown/desktop
+
+      - name: Install Linux native runtime and build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y aria2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aria2 libwebkit2gtk-4.1-dev build-essential libxdo-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev pkg-config xvfb xauth dbus-x11
 
       - name: Install aria2 on macOS
         if: runner.os == 'macOS'
@@ -148,15 +187,32 @@ jobs:
         run: bash truedown/tools/test-unix-build-safety.sh
 
       - name: Build Unix package
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: bash truedown/build-unix.sh "${{ matrix.os }}" "${{ matrix.arch }}"
 
-      - name: Smoke test Linux package
+      - name: Smoke test packaged Linux core
         if: runner.os == 'Linux'
-        run: bash truedown/tools/smoke-linux.sh "$PACKAGE_DIRECTORY/TrueDown"
+        run: bash truedown/tools/smoke-linux.sh "$PACKAGE_DIRECTORY/truedown-core"
+
+      - name: Accept packaged Linux native startup and CLI
+        if: runner.os == 'Linux'
+        run: xvfb-run -a dbus-run-session -- node truedown/desktop/tests/package-smoke.mjs "$PACKAGE_DIRECTORY/TrueDown" --virtual-display
+
+      - name: Accept packaged macOS native startup and CLI
+        if: runner.os == 'macOS'
+        run: node truedown/desktop/tests/package-smoke.mjs "$PACKAGE_DIRECTORY/TrueDown.app/Contents/MacOS/TrueDown"
 
       - name: Validate macOS bundle
         if: runner.os == 'macOS'
-        run: plutil -lint "$PACKAGE_DIRECTORY/TrueDown.app/Contents/Info.plist"
+        run: |
+          plutil -lint "$PACKAGE_DIRECTORY/TrueDown.app/Contents/Info.plist"
+          codesign --verify --deep --strict "$PACKAGE_DIRECTORY/TrueDown.app"
 
       - name: Archive Linux package
         if: runner.os == 'Linux'
@@ -165,7 +221,7 @@ jobs:
       - name: Archive macOS bundle
         if: runner.os == 'macOS'
         working-directory: ${{ env.PACKAGE_DIRECTORY }}
-        run: zip -r "$GITHUB_WORKSPACE/$UNIX_ARTIFACT" TrueDown.app README.md THIRD_PARTY_NOTICES.md
+        run: zip -r "$GITHUB_WORKSPACE/$UNIX_ARTIFACT" TrueDown.app README.md THIRD_PARTY_NOTICES.md NATIVE_LICENSES.txt
 
       - name: Upload Unix build artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -174,8 +230,11 @@ jobs:
           path: ${{ env.UNIX_ARTIFACT }}
           if-no-files-found: error
 
+  native-acceptance:
+    uses: ./.github/workflows/test-native-desktop.yml
+
   publish-release:
-    needs: [build-windows, build-unix]
+    needs: [build-windows, build-unix, native-acceptance]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

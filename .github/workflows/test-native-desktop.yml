@@ -15,12 +15,13 @@ on:
       - "manifest.json"
       - ".github/workflows/test-native-desktop.yml"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: native-desktop-${{ github.ref }}
+  group: native-desktop-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -88,4 +89,4 @@ jobs:
         run: cargo +1.98.1 install tauri-driver --version 2.0.6 --locked
       - name: Accept hidden Linux WebKitGTK windows
         if: runner.os == 'Linux'
-        run: xvfb-run -a -s '-screen 0 1280x800x24' dbus-run-session -- node tests/linux-smoke.mjs target/debug/truedown-desktop
+        run: xvfb-run -a -s '-screen 0 1280x800x24' dbus-run-session -- node tests/linux-smoke.mjs target/debug/TrueDown

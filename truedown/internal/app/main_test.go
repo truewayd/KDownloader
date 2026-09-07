@@ -376,11 +376,11 @@ func TestBuildScriptGuardsRecursiveDeleteAndCopiesAgainstReparsePoints(t *testin
 		!strings.Contains(script, "[System.IO.File]::Copy") ||
 		!strings.Contains(script, "Assert-NoReparsePath -Root $projectRoot -Path $dist") ||
 		!strings.Contains(script, "Assert-BuildInputs -Root $projectRoot") ||
-		!strings.Contains(script, "-H windowsgui") ||
+		!strings.Contains(script, "npm run build -- --no-bundle --target $target") ||
 		!strings.Contains(script, "Assert-WindowsGUISubsystem -Executable $exe") ||
 		!strings.Contains(script, "Assert-ExecutableIcon -Executable $exe -ExpectedIcon $icon") ||
 		!strings.Contains(script, "Assert-ExecutableDPIManifest -Executable $exe -ExpectedManifest $appManifest") ||
-		!strings.Contains(script, "Assert-TrayIconResource -Executable $exe") {
+		!strings.Contains(script, "Assert-RegularSourceFile -Root $metadata.target_directory -Path $source") {
 		t.Fatal("build input/output paths are not constrained against reparse traversal")
 	}
 	if strings.Contains(script, "$paths = @($current)") {
@@ -389,7 +389,7 @@ func TestBuildScriptGuardsRecursiveDeleteAndCopiesAgainstReparsePoints(t *testin
 }
 
 func TestWindowsManifestDeclaresPerMonitorV2DPI(t *testing.T) {
-	data, err := os.ReadFile(repositoryFile(t, "windows", "truedown.manifest"))
+	data, err := os.ReadFile(repositoryFile(t, "desktop", "windows-app.manifest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,11 +402,11 @@ func TestWindowsManifestDeclaresPerMonitorV2DPI(t *testing.T) {
 			t.Fatalf("Windows manifest is missing %s", declaration)
 		}
 	}
-	generator, err := os.ReadFile(repositoryFile(t, "windows", "generate_icon.ps1"))
+	generator, err := os.ReadFile(repositoryFile(t, "desktop", "build.rs"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(generator), "-manifest $manifest") {
+	if !strings.Contains(string(generator), `app_manifest(include_str!("windows-app.manifest"))`) {
 		t.Fatal("Windows resource generator does not embed the DPI manifest")
 	}
 }
@@ -489,8 +489,9 @@ func TestUnixBuildScriptPackagesLinuxAndMacOS(t *testing.T) {
 	}
 	script := string(data)
 	for _, contract := range []string{
-		"linux|darwin", "amd64|arm64", "CGO_ENABLED=0", "TrueDown.app",
-		"macos/truedown.icns", "linux/truedown.desktop", "TRUEDOWN_VERSION",
+		"linux|darwin", "amd64|arm64", "--bundles app", "TrueDown.app",
+		"truedown-core truedown-cli", "linux/truedown.desktop", "TRUEDOWN_VERSION",
+		"NATIVE_LICENSES.txt", "codesign --verify --deep --strict",
 	} {
 		if !strings.Contains(script, contract) {
 			t.Errorf("Unix build script is missing %q", contract)

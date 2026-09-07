@@ -18,6 +18,7 @@ truedown/desktop/gen/
 !truedown/THIRD_PARTY_NOTICES.md
 !truedown/COMPONENTS.md
 !truedown/unix/README.md
+!truedown/windows/README.md
 !truedown/desktop/README.md
 !changelog/
 !changelog/*.md
