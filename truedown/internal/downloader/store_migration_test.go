@@ -4,9 +4,19 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"truedown/internal/profile"
 )
+
+func TestNativeDiagnosticsUseResolvedLogRole(t *testing.T) {
+	manager := &Manager{aria2Next: true, aria2NextVersion: "2.6.5", defaultDir: filepath.Join(t.TempDir(), "downloads"), logDir: filepath.Join(t.TempDir(), "logs")}
+	args := manager.aria2StartArgs(15152, "fixture", defaultRuntimeSettings())
+	want := "--log=" + filepath.ToSlash(filepath.Join(manager.logDir, profile.AriaLog))
+	if !slices.Contains(args, want) {
+		t.Fatal("native diagnostics escaped the resolved log role")
+	}
+}
 
 func TestProfileCheckpointFlushesRealSQLiteWAL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "truedown.db")

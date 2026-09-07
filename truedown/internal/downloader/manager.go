@@ -2362,10 +2362,7 @@ func (m *Manager) startAria2() error {
 		return err
 	}
 	secret := hex.EncodeToString(secretBytes)
-	dataDir := m.logDir
-	if dataDir == "" {
-		dataDir = filepath.Dir(m.defaultDir)
-	}
+	dataDir := m.engineLogDirectory()
 	logPath := filepath.Join(dataDir, "aria2.log")
 	consoleLogPath := logPath
 	if m.aria2Next && aria2NextSupportsNativeDiagnostics(m.aria2NextVersion) {
@@ -2437,6 +2434,13 @@ func (m *Manager) startAria2() error {
 	return fmt.Errorf("aria2 RPC service did not become ready")
 }
 
+func (m *Manager) engineLogDirectory() string {
+	if m.logDir != "" {
+		return m.logDir
+	}
+	return filepath.Dir(m.defaultDir)
+}
+
 func (m *Manager) aria2StartArgs(port int, secret string, runtimeSettings RuntimeSettings) []string {
 	consoleLogLevel := "info"
 	summaryInterval := 5
@@ -2465,7 +2469,7 @@ func (m *Manager) aria2StartArgs(port int, secret string, runtimeSettings Runtim
 		args = append(args, "--check-integrity=true")
 		if aria2NextSupportsNativeDiagnostics(m.aria2NextVersion) {
 			args = append(args,
-				"--log="+filepath.ToSlash(filepath.Join(filepath.Dir(m.defaultDir), "aria2.log")),
+				"--log="+filepath.ToSlash(filepath.Join(m.engineLogDirectory(), profile.AriaLog)),
 				"--log-level=debug",
 				"--log-max-size=10M",
 				"--log-max-files=4",
