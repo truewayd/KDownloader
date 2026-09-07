@@ -8,6 +8,7 @@ mod placement;
 mod profile;
 mod startup;
 mod tray_image;
+mod update;
 mod webview;
 mod windows;
 
@@ -179,6 +180,14 @@ fn main() {
         .parent()
         .unwrap()
         .to_path_buf();
+    match update::before_start(&base) {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(error) => {
+            eprintln!("Native update recovery: {error}");
+            std::process::exit(1);
+        }
+    }
     let profile = match profile::Profile::resolve(&base, data_dir.as_deref()) {
         Ok(profile) => profile,
         Err(error) => {
@@ -236,7 +245,8 @@ fn main() {
             copy_api_token,
             windows::open_auxiliary,
             windows::close_auxiliary,
-            appearance::apply_material
+            appearance::apply_material,
+            update::desktop_ready
         ])
         .setup(move |app| {
             if let Err(error) = app.state::<startup::Startup>().migrate_legacy() {
@@ -246,6 +256,9 @@ fn main() {
             tauri::async_runtime::block_on(core.connect()).map_err(std::io::Error::other)?;
             let profile = profile::Profile::resolve(&base, data_dir.as_deref())
                 .map_err(std::io::Error::other)?;
+            app.manage(update::Health {
+                directory: std::path::PathBuf::from(&profile.paths.state).join("updates"),
+            });
             app.manage(windows::Windows {
                 suppress: cfg!(debug_assertions)
                     && std::env::var("TRUEDOWN_DESKTOP_TEST").as_deref() == Ok("1"),

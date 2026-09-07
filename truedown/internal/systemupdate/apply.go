@@ -25,6 +25,7 @@ const (
 )
 
 type applyTransaction struct {
+	Native        bool     `json:"native,omitempty"`
 	SchemaVersion int      `json:"schemaVersion"`
 	Build         int64    `json:"build"`
 	TargetPath    string   `json:"targetPath"`
@@ -76,6 +77,9 @@ func IsUpdateRelaunch() bool {
 func (m *Manager) LaunchPendingApply(originalArgs []string) error {
 	if m.programUpdatesDisabled {
 		return fmt.Errorf("program updates belong to the external launcher")
+	}
+	if m.nativeExecutable != "" {
+		return m.launchNativeApply(originalArgs)
 	}
 	m.mu.Lock()
 	if m.applyLaunched {
@@ -162,12 +166,13 @@ func (m *Manager) LaunchPendingApply(originalArgs []string) error {
 func (m *Manager) discardPendingUpdate(build int64, updateErr error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.state.PendingUpdate != nil && m.state.PendingUpdate.Build == build {
-		m.state.PendingUpdate = nil
+	next := m.state
+	if next.PendingUpdate != nil && next.PendingUpdate.Build == build {
+		next.PendingUpdate = nil
 	}
 	m.lastError = truncate(updateErr.Error(), 1024)
-	m.state.LastUpdateError = m.lastError
-	if persistErr := m.persistLocked(); persistErr != nil {
+	next.LastUpdateError = m.lastError
+	if persistErr := m.persistStateLocked(next); persistErr != nil {
 		m.lastError += fmt.Sprintf("; persist update failure: %v", persistErr)
 	}
 }
@@ -192,6 +197,15 @@ func (m *Manager) cleanupOldUpdateHelpers() {
 	for _, entry := range entries {
 		if entry.Type().IsRegular() && updateHelperPattern.MatchString(entry.Name()) {
 			_ = os.Remove(filepath.Join(directory, entry.Name()))
+		}
+		if entry.Type().IsRegular() && nativeHelperPattern.MatchString(entry.Name()) {
+			info, err := entry.Info()
+			if err == nil && m.now().Sub(info.ModTime()) > 24*time.Hour {
+				// Never reclaim the recovery helper named by an unfinished marker.
+				if _, err := os.Lstat(filepath.Join(m.baseDir, nativeMarkerName)); os.IsNotExist(err) {
+					_ = os.Remove(filepath.Join(directory, entry.Name()))
+				}
+			}
 		}
 	}
 }
@@ -277,6 +291,9 @@ func loadApplyTransaction(path string) (applyTransaction, error) {
 }
 
 func validateApplyTransaction(transaction applyTransaction, transactionPath string) error {
+	if transaction.Native {
+		return fmt.Errorf("native bundles require the native transaction helper")
+	}
 	if transaction.SchemaVersion != applySchemaVersion || transaction.Build <= 0 || normalizeSHA256(transaction.ExpectedSHA) == "" || !validToken(transaction.HealthToken) {
 		return fmt.Errorf("invalid update transaction metadata")
 	}
@@ -318,10 +335,13 @@ func waitAndBackupTarget(targetPath, backupPath string, timeout time.Duration) e
 
 func launchAndAwaitHealth(transaction applyTransaction) error {
 	command := exec.Command(transaction.TargetPath, transaction.OriginalArgs...)
-	command.Env = append(os.Environ(),
+	command.Env = append(withoutUpdateEnvironment(os.Environ()),
 		updateHealthFileEnv+"="+transaction.HealthPath,
 		updateHealthTokenEnv+"="+transaction.HealthToken,
 	)
+	if transaction.Native {
+		command.Env = append(command.Env, nativeBypassEnv+"="+transaction.HealthToken, "TRUEDOWN_UPDATE_EXPECTED_BUILD="+fmt.Sprint(transaction.Build))
+	}
 	configureHiddenProcess(command)
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("start updated TrueDown: %w", err)
@@ -330,7 +350,11 @@ func launchAndAwaitHealth(transaction applyTransaction) error {
 	go func() { done <- command.Wait() }()
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
-	timer := time.NewTimer(30 * time.Second)
+	healthTimeout := 30 * time.Second
+	if transaction.Native {
+		healthTimeout = 60 * time.Second
+	}
+	timer := time.NewTimer(healthTimeout)
 	defer timer.Stop()
 	for {
 		select {

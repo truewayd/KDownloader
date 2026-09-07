@@ -29,9 +29,10 @@ impl Storage {
             // so unrelated profiles cannot share cookies or localStorage.
             let version = objc2_foundation::NSProcessInfo::processInfo().operatingSystemVersion();
             if version.majorVersion >= 14 {
-                return builder.data_store_identifier(self.identifier);
+                builder.data_store_identifier(self.identifier)
+            } else {
+                builder.incognito(true)
             }
-            return builder.incognito(true);
         }
         #[cfg(not(target_os = "macos"))]
         builder

@@ -120,6 +120,15 @@ impl Bridge {
         recovering: bool,
     ) -> Result<Arc<Self>, String> {
         let mut command = Command::new(executable);
+        command.env(
+            "TRUEDOWN_DESKTOP_EXECUTABLE",
+            std::env::current_exe().map_err(|error| error.to_string())?,
+        );
+        // Only the native window can acknowledge a full bundle's health.
+        command.env_remove("TRUEDOWN_UPDATE_HEALTH_FILE");
+        command.env_remove("TRUEDOWN_UPDATE_HEALTH_TOKEN");
+        command.env_remove("TRUEDOWN_UPDATE_BYPASS");
+        command.env_remove("TRUEDOWN_UPDATE_EXPECTED_BUILD");
         command.arg("--desktop-stdio");
         if attach_only {
             command.arg("--desktop-attach-only");

@@ -16,6 +16,7 @@ pub struct Profile {
 #[derive(Deserialize)]
 pub struct Paths {
     pub cache: String,
+    pub state: String,
 }
 
 impl Profile {

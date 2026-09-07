@@ -45,12 +45,15 @@ type githubRelease struct {
 }
 
 type updateManifest struct {
-	SchemaVersion int    `json:"schemaVersion"`
-	Product       string `json:"product"`
-	Repository    string `json:"repository"`
-	Version       string `json:"version"`
-	Build         int64  `json:"build"`
-	Asset         struct {
+	SchemaVersion   int          `json:"schemaVersion"`
+	Product         string       `json:"product"`
+	Repository      string       `json:"repository"`
+	Version         string       `json:"version"`
+	Build           int64        `json:"build"`
+	ProtocolVersion int          `json:"protocolVersion,omitempty"`
+	Platform        string       `json:"platform,omitempty"`
+	Files           []nativeFile `json:"files,omitempty"`
+	Asset           struct {
 		Name   string `json:"name"`
 		Size   int64  `json:"size"`
 		SHA256 string `json:"sha256"`
@@ -138,10 +141,24 @@ func (m *Manager) stageTrueDown(ctx context.Context, available *availableAppUpda
 	if err := m.fetchStrictJSON(ctx, available.ManifestURL, maxManifestBytes, available.ManifestSize, &manifest); err != nil {
 		return fmt.Errorf("download TrueDown update manifest: %w", err)
 	}
-	if manifest.SchemaVersion != 1 || manifest.Product != "TrueDown" || manifest.Repository != "truewayd/KDownloader" ||
+	schema := 1
+	if m.nativeExecutable != "" {
+		schema = 2
+	}
+	if manifest.SchemaVersion != schema || manifest.Product != "TrueDown" || manifest.Repository != "truewayd/KDownloader" ||
 		manifest.Version != available.Version || manifest.Build != available.Build || manifest.Asset.Name != available.ArchiveName ||
 		manifest.Asset.Size != available.ArchiveSize || normalizeSHA256(manifest.Asset.SHA256) == "" {
 		return fmt.Errorf("TrueDown update manifest does not match its GitHub release")
+	}
+	if schema == 2 {
+		if manifest.ProtocolVersion != 1 || manifest.Platform != "windows-"+runtime.GOARCH {
+			return fmt.Errorf("native release targets an incompatible platform or protocol")
+		}
+		if err := validateNativeFiles(manifest.Files); err != nil {
+			return err
+		}
+	} else if len(manifest.Files) != 0 || manifest.ProtocolVersion != 0 || manifest.Platform != "" {
+		return fmt.Errorf("legacy update cannot contain native package metadata")
 	}
 	updatesDir := m.updatesDir
 	archivePath, digest, size, err := m.downloadFile(ctx, available.ArchiveURL, updatesDir, maxReleaseArchiveBytes)
@@ -151,6 +168,9 @@ func (m *Manager) stageTrueDown(ctx context.Context, available *availableAppUpda
 	defer os.Remove(archivePath)
 	if size != manifest.Asset.Size || !strings.EqualFold(digest, manifest.Asset.SHA256) {
 		return fmt.Errorf("TrueDown update archive failed its size or SHA-256 check")
+	}
+	if schema == 2 {
+		return m.stageNativeArchive(archivePath, available, manifest)
 	}
 	stagedName := fmt.Sprintf("TrueDown-build-%d.exe", available.Build)
 	stagedPath := filepath.Join(updatesDir, stagedName)
@@ -353,6 +373,11 @@ func (m *Manager) RunAutomatic(ctx context.Context, canApply func() bool) <-chan
 }
 
 func (m *Manager) runAutomaticCheck(ctx context.Context) {
+	if m.nativeExecutable != "" {
+		if _, err := os.Lstat(filepath.Join(m.baseDir, nativeMarkerName)); !os.IsNotExist(err) {
+			return
+		}
+	}
 	m.mu.RLock()
 	enabled := m.state.AutoUpdateTrueDown
 	pending := m.state.PendingUpdate != nil && m.state.PendingUpdate.Build > m.currentBuild

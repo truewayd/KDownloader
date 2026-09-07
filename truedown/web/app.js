@@ -123,6 +123,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderTrackerResearchSettings();
   bindEvents();
   initWorkspace();
+  if (nativeWindowRole === "main") {
+    invokeNative("desktop_ready").catch((error) => showToast(error.message, "error"));
+  }
 });
 
 function cacheElements() {

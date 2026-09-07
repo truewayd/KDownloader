@@ -1,8 +1,8 @@
 # TrueDown core, clients and native desktop
 
 Reviewed: 2026-09-08. The Go core, HTTP CLI, private desktop transport, native
-windows and versioned profile migration are implemented. Native bundle releases
-and their update transaction are still being integrated.
+windows, versioned profile migration and recoverable native bundle updates are
+implemented. Native release packaging is still being integrated.
 
 ## Ownership
 
@@ -47,8 +47,8 @@ allow at most three core restarts, resetting after two healthy minutes. Requests
 are never replayed automatically. An intentional HTTP/CLI exit closes the shell;
 an attached bridge reconnects with an attach-only flag and cannot start a new
 independent service. Windows console cores join a kill-on-close job before any
-engine starts; aria2 also watches its owner's PID on every platform. Native full
-bundle health/rollback remains release integration work.
+engine starts; aria2 also watches its owner's PID on every platform. The native
+release identity binds the shell, local CLI and every owned core connection.
 
 ## UI and preferences
 
@@ -145,12 +145,23 @@ for the exact same executable and profile to the native background command. The
 existing value name and Windows disabled state remain intact. Registrations for
 other executable locations or profiles are never overwritten.
 
-The legacy updater swaps only `TrueDown.exe`, so program updates are disabled in
-standalone sidecars. Publishing the native bundle requires an atomic transaction
-covering shell, core and CLI, compatible protocol/build metadata, health checks,
-rollback, platform packaging, and signing/notarization integration. Engine/NEXT
-installation and selection remain independent Go-owned operations. The existing
-release pipeline must not publish a partially migrated bundle.
+Standalone services leave program updates to their package owner. Numbered
+Windows native packages use manifest schema 2, binding archive SHA-256, platform,
+protocol, and the sizes/hashes of shell, core, CLI and both notice files. The
+release schema prevents legacy single-executable updaters from installing an
+incomplete native package; the first migration requires the complete new package.
+
+An installation-scoped helper prepares synchronized candidates and `.previous`
+backups for every application file. It replaces each target without removing the
+launch entry point first, checks the new native window and owned core, and rolls
+back the complete file set on failure. A persisted installation marker delegates
+interrupted updates to a verified copied helper before any CLI/profile startup.
+Recovery is repeatable after a partially completed replacement or rollback. The
+new core finalizes pending state under its profile lock; the helper never rewrites
+settings after the healthy core begins serving requests. Updates restart hidden.
+Downloaded files, SQLite, configuration, bundled aria2 and NEXT stay outside the
+program replacement set. Platform packaging and signing/notarization integration
+remain release work; the existing pipeline must not publish a partial migration.
 
 ## Validation
 
@@ -169,8 +180,10 @@ scaling. No interactive acceptance windows or login/logout cycle are used.
 Hidden Linux WebKitGTK acceptance under Xvfb covers the four native windows,
 settings persistence and bounded layouts. The native CI matrix builds and tests
 Windows, Linux and macOS, with platform WebView acceptance on Windows and Linux.
-WKWebView runtime and bundle update acceptance are still outstanding; no local
-macOS runtime is available.
+Hidden Windows native package acceptance covers successful upgrade, failed
+window/build health rollback, and recovery after partial component replacement.
+Every path verifies all application hashes and preserves the engine. WKWebView
+runtime acceptance remains outstanding; no local macOS runtime is available.
 
 An earlier local Chromium benchmark of 100 changing rows over 30 iterations
 measured median render plus layout dropping from 54 ms to 5.2 ms after row

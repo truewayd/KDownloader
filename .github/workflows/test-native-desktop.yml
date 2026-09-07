@@ -78,6 +78,11 @@ jobs:
       - name: Accept hidden Windows WebView2 windows and crash recovery
         if: runner.os == 'Windows'
         run: npm run test:windows
+      - name: Accept hidden Windows native bundle update and recovery
+        if: runner.os == 'Windows'
+        env:
+          RUSTUP_TOOLCHAIN: 1.98.1
+        run: node tests/windows-update.mjs --build
       - name: Install Linux automation driver
         if: runner.os == 'Linux'
         run: cargo +1.98.1 install tauri-driver --version 2.0.6 --locked

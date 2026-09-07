@@ -40,6 +40,7 @@ var (
 	stableVersionPattern    = regexp.MustCompile(`(?mi)^aria2 version ([0-9]+\.[0-9]+\.[0-9]+)\s*$`)
 	nextVersionPattern      = regexp.MustCompile(`(?mi)^aria2 next version ([0-9]+\.[0-9]+\.[0-9]+)\s*$`)
 	updateHelperPattern     = regexp.MustCompile(`^TrueDown-updater-[0-9]+\.exe$`)
+	nativeHelperPattern     = regexp.MustCompile(`^TrueDown-native-updater-[0-9a-f]{48}\.exe$`)
 )
 
 type Options struct {
@@ -51,6 +52,7 @@ type Options struct {
 	CurrentBuild          int64
 	CurrentCommit         string
 	DisableProgramUpdates bool
+	NativeExecutable      string
 
 	HTTPClient            *http.Client
 	TrueDownReleasesURL   string
@@ -105,10 +107,11 @@ type installedEngine struct {
 }
 
 type pendingAppUpdate struct {
-	Version string `json:"version"`
-	Build   int64  `json:"build"`
-	File    string `json:"file"`
-	SHA256  string `json:"sha256"`
+	Version     string       `json:"version"`
+	Build       int64        `json:"build"`
+	File        string       `json:"file"`
+	SHA256      string       `json:"sha256"`
+	NativeFiles []nativeFile `json:"nativeFiles,omitempty"`
 }
 
 type persistedState struct {
@@ -170,6 +173,7 @@ type Manager struct {
 	currentVersion         string
 	currentBuild           int64
 	programUpdatesDisabled bool
+	nativeExecutable       string
 	currentCommit          string
 
 	client                *http.Client
@@ -179,15 +183,16 @@ type Manager struct {
 	inspectEngine         func(string) (string, string, error)
 	now                   func() time.Time
 
-	state         persistedState
-	active        activeEngine
-	stableVersion string
-	availableApp  *availableAppUpdate
-	availableNext *availableNextUpdate
-	busy          string
-	lastError     string
-	restart       func() error
-	applyLaunched bool
+	state             persistedState
+	active            activeEngine
+	stableVersion     string
+	availableApp      *availableAppUpdate
+	availableNext     *availableNextUpdate
+	busy              string
+	lastError         string
+	restart           func() error
+	applyLaunched     bool
+	prunedNativeState bool
 }
 
 func New(options Options) (*Manager, error) {
@@ -262,6 +267,16 @@ func New(options Options) (*Manager, error) {
 			EnginePreference:   EngineStable,
 		},
 	}
+	if options.NativeExecutable != "" {
+		if runtime.GOOS != "windows" || filepath.Dir(options.NativeExecutable) != manager.baseDir ||
+			filepath.Base(options.NativeExecutable) != "TrueDown.exe" {
+			return nil, fmt.Errorf("native updater requires the packaged TrueDown.exe beside its core")
+		}
+		if _, _, err := nativeHash(options.NativeExecutable, maxExecutableBytes); err != nil {
+			return nil, fmt.Errorf("inspect native executable: %w", err)
+		}
+		manager.nativeExecutable = options.NativeExecutable
+	}
 	clientCopy := *client
 	clientCopy.CheckRedirect = manager.checkRedirect
 	manager.client = &clientCopy
@@ -273,6 +288,10 @@ func New(options Options) (*Manager, error) {
 		invalidPath := fmt.Sprintf("%s.invalid-%d", manager.statePath, manager.now().UnixNano())
 		if renameErr := os.Rename(manager.statePath, invalidPath); renameErr != nil && !os.IsNotExist(renameErr) {
 			manager.lastError += fmt.Sprintf("; could not preserve the invalid file: %v", renameErr)
+		}
+	} else if manager.prunedNativeState {
+		if err := manager.persistLocked(); err != nil {
+			return nil, fmt.Errorf("finalize native update state: %w", err)
 		}
 	}
 	manager.resolveActiveEngine()
@@ -485,6 +504,9 @@ func (m *Manager) HasPendingUpdate() bool {
 func (m *Manager) begin(operation string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.applyLaunched {
+		return fmt.Errorf("TrueDown is restarting to apply an update")
+	}
 	if m.busy != "" {
 		return fmt.Errorf("update operation %q is still running", m.busy)
 	}
@@ -649,12 +671,23 @@ func (m *Manager) loadState() error {
 		}
 		state.NextEngine.SHA256 = strings.ToLower(state.NextEngine.SHA256)
 	}
+	m.prunedNativeState = false
 	if state.PendingUpdate != nil {
 		if filepath.Base(state.PendingUpdate.File) != state.PendingUpdate.File || state.PendingUpdate.Build <= 0 || normalizeSHA256(state.PendingUpdate.SHA256) == "" {
 			return fmt.Errorf("invalid pending TrueDown update metadata")
 		}
 		state.PendingUpdate.SHA256 = strings.ToLower(state.PendingUpdate.SHA256)
-		if state.PendingUpdate.Build <= m.currentBuild {
+		if len(state.PendingUpdate.NativeFiles) > 0 {
+			if err := validateNativeFiles(state.PendingUpdate.NativeFiles); err != nil {
+				return err
+			}
+		}
+		// A legacy single-file stage cannot be applied to a native package.
+		if m.nativeExecutable != "" && len(state.PendingUpdate.NativeFiles) == 0 {
+			state.PendingUpdate = nil
+		}
+		if state.PendingUpdate != nil && state.PendingUpdate.Build <= m.currentBuild {
+			m.prunedNativeState = len(state.PendingUpdate.NativeFiles) > 0
 			state.PendingUpdate = nil
 		}
 	}

@@ -150,6 +150,10 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	if parseErr != nil || currentBuild < 0 {
 		currentBuild = 0
 	}
+	nativeExecutable := ""
+	if options.desktop != nil && runtime.GOOS == "windows" && currentBuild > 0 {
+		nativeExecutable = os.Getenv("TRUEDOWN_DESKTOP_EXECUTABLE")
+	}
 	updates, err := systemupdate.New(systemupdate.Options{
 		BaseDir:               base,
 		DataDir:               dataDir,
@@ -158,7 +162,8 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		CurrentVersion:        version,
 		CurrentBuild:          currentBuild,
 		CurrentCommit:         commit,
-		DisableProgramUpdates: !options.LegacyUpdates,
+		DisableProgramUpdates: !options.LegacyUpdates && nativeExecutable == "",
+		NativeExecutable:      nativeExecutable,
 	})
 	if err != nil {
 		return err
@@ -292,7 +297,11 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		if active > 0 {
 			return fmt.Errorf("wait for queued, downloading, and paused tasks before restarting TrueDown")
 		}
-		if err := updates.LaunchPendingApply(options.RelaunchArgs); err != nil {
+		arguments := options.RelaunchArgs
+		if nativeExecutable != "" {
+			arguments = []string{"--background", "--data-dir", dataDir}
+		}
+		if err := updates.LaunchPendingApply(arguments); err != nil {
 			return err
 		}
 		select {

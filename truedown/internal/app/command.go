@@ -14,6 +14,9 @@ import (
 // Main adapts command-line flags and OS signals to the reusable service.
 // Only the legacy entry point enables the updater's executable-replacement helper.
 func Main(args []string, build BuildInfo, defaultMode string, legacyUpdates bool) int {
+	if handled, code := systemupdate.RunNativeHelperIfRequested(args); handled {
+		return code
+	}
 	if legacyUpdates {
 		if handled, code := systemupdate.RunHelperIfRequested(args); handled {
 			return code

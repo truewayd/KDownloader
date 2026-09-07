@@ -8,7 +8,9 @@
 - Generate Linux's PNG icon from the canonical ICO during native preparation.
 - Add hidden WebKitGTK acceptance and a Windows/Linux/macOS native CI matrix.
 
-Validation: Windows Rust formatting, clippy and eight tests pass. Windows hidden
+## Verification
+
+Windows Rust formatting, clippy and eight tests pass. Windows hidden
 WebView2 acceptance confirms all four windows fit their display and stay hidden,
 including core/shell crash cleanup. Linux native build, clippy, unit tests and
 hidden WebKitGTK window/settings acceptance pass. macOS runtime remains untested
