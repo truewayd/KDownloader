@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"truedown/internal/profile"
 )
 
 const (
@@ -161,7 +162,7 @@ func defaultTrackerResearchSettings() TrackerResearchSettings {
 func newTrackerResearchModule(databasePath string) (*trackerResearchModule, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	module := &trackerResearchModule{
-		path:      filepath.Join(filepath.Dir(databasePath), "truedown.tracker-research.json"),
+		path:      profile.File(filepath.Dir(databasePath), profile.TrackerState),
 		settings:  defaultTrackerResearchSettings(),
 		originals: make(map[string][]btTrackerConfig),
 		rewrites:  make(map[string]trackerTorrentRewrite),

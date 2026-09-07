@@ -70,11 +70,9 @@ if [[ "$ready" -ne 1 ]]; then
 fi
 [[ $(cat "$probe_root/ping.txt") == pong ]]
 curl -fsS "http://127.0.0.1:$port/tasks?limit=1" >"$probe_root/tasks.json"
-for _ in $(seq 1 50); do
-	grep -q "foreground service ready" "$probe_root/truedown.log" && break
-	sleep 0.1
-done
-grep -q "foreground service ready" "$probe_root/truedown.log"
+curl -fsS "http://127.0.0.1:$port/system/info" >"$probe_root/info.json"
+grep -q '"product":"TrueDown"' "$probe_root/info.json"
+grep -q '"protocolVersion":1' "$probe_root/info.json"
 
 started=$(date +%s%N)
 TRUEDOWN_DATA_DIR="$probe_root" \
@@ -84,7 +82,7 @@ TRUEDOWN_NO_BROWSER=1 \
 elapsed_ms=$(( ($(date +%s%N) - started) / 1000000 ))
 [[ "$elapsed_ms" -lt 3000 ]]
 [[ -s "$probe_root/truedown.db" ]]
-grep -q "another TrueDown instance owns" "$probe_root/truedown.log"
+grep -q "another TrueDown instance owns" "$probe_root/second.log"
 
 aria_pid=$(pgrep -P "$server_pid" aria2c || true)
 if [[ -z "$aria_pid" ]]; then

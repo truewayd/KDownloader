@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"truedown/internal/profile"
 
 	"truedown/internal/safefile"
 )
@@ -42,12 +43,13 @@ var (
 )
 
 type Options struct {
-	BaseDir          string
-	DataDir          string
-	StableEnginePath string
-	CurrentVersion   string
-	CurrentBuild     int64
-	CurrentCommit    string
+	BaseDir               string
+	DataDir               string
+	StableEnginePath      string
+	CurrentVersion        string
+	CurrentBuild          int64
+	CurrentCommit         string
+	DisableProgramUpdates bool
 
 	HTTPClient            *http.Client
 	TrueDownReleasesURL   string
@@ -158,14 +160,15 @@ type availableNextUpdate struct {
 type Manager struct {
 	mu sync.RWMutex
 
-	baseDir          string
-	dataDir          string
-	statePath        string
-	stableEnginePath string
-	currentExe       string
-	currentVersion   string
-	currentBuild     int64
-	currentCommit    string
+	baseDir                string
+	dataDir                string
+	statePath              string
+	stableEnginePath       string
+	currentExe             string
+	currentVersion         string
+	currentBuild           int64
+	programUpdatesDisabled bool
+	currentCommit          string
 
 	client                *http.Client
 	trueDownReleasesURL   string
@@ -231,20 +234,21 @@ func New(options Options) (*Manager, error) {
 		nextURL = defaultNextReleaseURL
 	}
 	manager := &Manager{
-		baseDir:               filepath.Clean(baseDir),
-		dataDir:               filepath.Clean(dataDir),
-		statePath:             filepath.Join(dataDir, "truedown.updates.json"),
-		stableEnginePath:      filepath.Clean(stablePath),
-		currentExe:            filepath.Clean(currentExe),
-		currentVersion:        strings.TrimSpace(options.CurrentVersion),
-		currentBuild:          options.CurrentBuild,
-		currentCommit:         strings.TrimSpace(options.CurrentCommit),
-		client:                client,
-		trueDownReleasesURL:   trueDownURL,
-		nextReleaseURL:        nextURL,
-		allowInsecureLoopback: options.AllowInsecureLoopback,
-		inspectEngine:         inspect,
-		now:                   now,
+		baseDir:                filepath.Clean(baseDir),
+		dataDir:                filepath.Clean(dataDir),
+		statePath:              profile.File(dataDir, profile.UpdateState),
+		stableEnginePath:       filepath.Clean(stablePath),
+		currentExe:             filepath.Clean(currentExe),
+		currentVersion:         strings.TrimSpace(options.CurrentVersion),
+		currentBuild:           options.CurrentBuild,
+		programUpdatesDisabled: options.DisableProgramUpdates,
+		currentCommit:          strings.TrimSpace(options.CurrentCommit),
+		client:                 client,
+		trueDownReleasesURL:    trueDownURL,
+		nextReleaseURL:         nextURL,
+		allowInsecureLoopback:  options.AllowInsecureLoopback,
+		inspectEngine:          inspect,
+		now:                    now,
 		state: persistedState{
 			SchemaVersion:      stateSchemaVersion,
 			AutoUpdateTrueDown: true,
@@ -358,7 +362,7 @@ func (m *Manager) snapshotLocked() Snapshot {
 			Version:    m.currentVersion,
 			Build:      m.currentBuild,
 			Commit:     m.currentCommit,
-			Supported:  runtime.GOOS == "windows" && m.currentBuild > 0,
+			Supported:  !m.programUpdatesDisabled && runtime.GOOS == "windows" && m.currentBuild > 0,
 			AutoUpdate: m.state.AutoUpdateTrueDown,
 		},
 		Engine: EngineStatus{
@@ -380,7 +384,7 @@ func (m *Manager) snapshotLocked() Snapshot {
 		status.TrueDown.AvailableVersion = m.availableApp.Version
 		status.TrueDown.AvailableBuild = m.availableApp.Build
 	}
-	if pending := m.state.PendingUpdate; pending != nil && pending.Build > m.currentBuild {
+	if pending := m.state.PendingUpdate; !m.programUpdatesDisabled && pending != nil && pending.Build > m.currentBuild {
 		status.TrueDown.PendingVersion = pending.Version
 		status.TrueDown.PendingBuild = pending.Build
 		status.TrueDown.RestartRequired = true
@@ -445,6 +449,9 @@ func (m *Manager) RequestRestart() error {
 }
 
 func (m *Manager) requestRestart(automatic bool) error {
+	if m.programUpdatesDisabled {
+		return fmt.Errorf("program updates belong to the external launcher")
+	}
 	m.mu.RLock()
 	if automatic && (!m.state.AutoUpdateTrueDown || m.busy != "" || m.applyLaunched) {
 		m.mu.RUnlock()
@@ -465,7 +472,7 @@ func (m *Manager) requestRestart(automatic bool) error {
 func (m *Manager) HasPendingUpdate() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.state.PendingUpdate != nil && m.state.PendingUpdate.Build > m.currentBuild
+	return !m.programUpdatesDisabled && m.state.PendingUpdate != nil && m.state.PendingUpdate.Build > m.currentBuild
 }
 
 func (m *Manager) begin(operation string) error {

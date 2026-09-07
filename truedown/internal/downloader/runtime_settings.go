@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"truedown/internal/profile"
 )
 
 const (
@@ -34,7 +35,7 @@ type runtimeSettingsStore struct {
 
 func newRuntimeSettingsStore(databasePath string) (*runtimeSettingsStore, error) {
 	store := &runtimeSettingsStore{
-		path:     filepath.Join(filepath.Dir(databasePath), "truedown.settings.json"),
+		path:     profile.File(filepath.Dir(databasePath), profile.RuntimeSettings),
 		settings: defaultRuntimeSettings(),
 	}
 	var settings RuntimeSettings

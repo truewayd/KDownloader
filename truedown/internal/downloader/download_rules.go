@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"truedown/internal/profile"
 )
 
 var excludedExtensionPattern = regexp.MustCompile(`^\.[a-z0-9]{1,16}$`)
@@ -46,7 +47,7 @@ type downloadRulesStore struct {
 
 func newDownloadRulesStore(databasePath string) (*downloadRulesStore, error) {
 	store := &downloadRulesStore{
-		path:  filepath.Join(filepath.Dir(databasePath), "truedown.download-rules.json"),
+		path:  profile.File(filepath.Dir(databasePath), profile.DownloadRules),
 		rules: defaultDownloadRules(),
 	}
 	var rules DownloadRules

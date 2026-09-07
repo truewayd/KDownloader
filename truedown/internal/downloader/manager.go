@@ -205,6 +205,7 @@ type Manager struct {
 	store            *recordStore
 	downloadRules    *downloadRulesStore
 	runtimeSettings  *runtimeSettingsStore
+	taskDefaults     *taskDefaultsStore
 	modules          *moduleRegistry
 	trackerResearch  *trackerResearchModule
 
@@ -274,6 +275,11 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		store.Close()
 		return nil, err
 	}
+	taskDefaults, err := newTaskDefaultsStore(databasePath)
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
 	modules, err := newModuleRegistry(databasePath)
 	if err != nil {
 		store.Close()
@@ -296,6 +302,7 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		store:             store,
 		downloadRules:     downloadRules,
 		runtimeSettings:   runtimeSettings,
+		taskDefaults:      taskDefaults,
 		modules:           modules,
 		trackerResearch:   trackerResearch,
 		tasks:             make(map[int64]*Task, len(tasks)),

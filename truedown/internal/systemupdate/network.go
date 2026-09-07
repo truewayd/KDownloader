@@ -58,7 +58,7 @@ type updateManifest struct {
 }
 
 func (m *Manager) UpdateTrueDown(ctx context.Context) (Snapshot, error) {
-	if runtime.GOOS != "windows" || m.currentBuild <= 0 {
+	if m.programUpdatesDisabled || runtime.GOOS != "windows" || m.currentBuild <= 0 {
 		return m.Snapshot(), fmt.Errorf("automatic TrueDown updates are available in packaged Windows builds")
 	}
 	if err := m.begin("truedown"); err != nil {
@@ -318,7 +318,7 @@ func checksumForAsset(checksums, name string) (string, error) {
 
 func (m *Manager) RunAutomatic(ctx context.Context, canApply func() bool) <-chan struct{} {
 	done := make(chan struct{})
-	if runtime.GOOS != "windows" || m.currentBuild <= 0 {
+	if m.programUpdatesDisabled || runtime.GOOS != "windows" || m.currentBuild <= 0 {
 		close(done)
 		return done
 	}

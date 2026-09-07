@@ -24,6 +24,9 @@ type Manager struct {
 	reason  string
 }
 
+// Unavailable leaves registration ownership with an external service or shell.
+func Unavailable(reason string) *Manager { return &Manager{reason: reason} }
+
 func (m *Manager) Snapshot() (State, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

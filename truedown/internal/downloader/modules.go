@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"truedown/internal/profile"
 )
 
 const (
@@ -105,7 +106,7 @@ type moduleRegistry struct {
 
 func newModuleRegistry(databasePath string) (*moduleRegistry, error) {
 	registry := &moduleRegistry{
-		settingsPath: filepath.Join(filepath.Dir(databasePath), "truedown.modules.json"),
+		settingsPath: profile.File(filepath.Dir(databasePath), profile.Modules),
 		packagesDir:  filepath.Join(filepath.Dir(databasePath), "modules"),
 		factories:    make(map[string]resolverComponentFactory),
 		baseline:     make(map[string]loadedComponent),

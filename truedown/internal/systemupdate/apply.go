@@ -74,6 +74,9 @@ func IsUpdateRelaunch() bool {
 // LaunchPendingApply starts a copy of the current executable as an updater. The
 // caller should then shut down normally so the helper can replace TrueDown.exe.
 func (m *Manager) LaunchPendingApply(originalArgs []string) error {
+	if m.programUpdatesDisabled {
+		return fmt.Errorf("program updates belong to the external launcher")
+	}
 	m.mu.Lock()
 	if m.applyLaunched {
 		m.mu.Unlock()

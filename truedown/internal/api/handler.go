@@ -58,7 +58,8 @@ type startReq struct {
 	Folder         string                     `json:"folder"`
 	Name           string                     `json:"name"`
 	QueueID        int                        `json:"queueId"`
-	Opts           downloader.Aria2Opts       `json:"opts"`
+	Opts           *downloader.Aria2Opts      `json:"opts"`
+	UseDefaults    bool                       `json:"useDefaults"`
 	Dropbox        dropboxStartReq            `json:"dropbox"`
 	ModuleOptions  map[string]json.RawMessage `json:"moduleOptions"`
 }
@@ -110,6 +111,7 @@ type engineSelectionReq struct {
 }
 
 func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, updateServices ...UpdateService) {
+	registerTaskDefaults(mux, dm)
 	if len(updateServices) > 0 && updateServices[0] != nil {
 		registerUpdateEndpoints(mux, updateServices[0])
 	}
@@ -381,6 +383,14 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			http.Error(w, "downloadSource.link is required", http.StatusBadRequest)
 			return
 		}
+		var opts downloader.Aria2Opts
+		if req.Opts != nil {
+			opts = *req.Opts
+		}
+		if req.UseDefaults {
+			req.Folder, req.DownloadSource.DownloadPage, req.DownloadSource.Headers, opts = dm.ApplyTaskDefaults(
+				req.Folder, req.DownloadSource.DownloadPage, req.DownloadSource.Headers, req.Opts)
+		}
 		moduleOptions := req.ModuleOptions
 		if moduleOptions == nil {
 			moduleOptions = make(map[string]json.RawMessage)
@@ -399,7 +409,7 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		resolved, handled, resolveErr := dm.AddWithModules(
 			r.Context(), req.DownloadSource.Link, req.Name, req.Folder,
 			req.DownloadSource.Headers, req.DownloadSource.DownloadPage,
-			req.QueueID, req.Opts, moduleOptions,
+			req.QueueID, opts, moduleOptions,
 		)
 		if resolveErr != nil {
 			if downloader.IsValidationError(resolveErr) {
@@ -421,7 +431,7 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			req.DownloadSource.Headers,
 			req.DownloadSource.DownloadPage,
 			req.QueueID,
-			req.Opts,
+			opts,
 		)
 		if err != nil {
 			if downloader.IsValidationError(err) {

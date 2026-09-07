@@ -43,6 +43,9 @@ run_package() {
 run_package truedown "$repo_root" 1
 run_package api "$repo_root/internal/api"
 run_package applog "$repo_root/internal/applog"
+run_package cli "$repo_root/internal/cli"
+run_package client "$repo_root/internal/client"
+run_package profile "$repo_root/internal/profile"
 run_package downloader "$repo_root/internal/downloader" 1
 run_package safefile "$repo_root/internal/safefile"
 run_package startup "$repo_root/internal/startup"
