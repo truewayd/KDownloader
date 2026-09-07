@@ -17,150 +17,18 @@ import (
 )
 
 const (
-	applyArgument        = "--truedown-apply-update"
-	applySchemaVersion   = 1
 	updateHealthFileEnv  = "TRUEDOWN_UPDATE_HEALTH_FILE"
 	updateHealthTokenEnv = "TRUEDOWN_UPDATE_HEALTH_TOKEN"
 	maxExecutableBytes   = 96 * 1024 * 1024
 )
 
-type applyTransaction struct {
-	Native        bool     `json:"native,omitempty"`
-	SchemaVersion int      `json:"schemaVersion"`
-	Build         int64    `json:"build"`
-	TargetPath    string   `json:"targetPath"`
-	StagedPath    string   `json:"stagedPath"`
-	BackupPath    string   `json:"backupPath"`
-	StatePath     string   `json:"statePath"`
-	HealthPath    string   `json:"healthPath"`
-	HealthToken   string   `json:"healthToken"`
-	ExpectedSHA   string   `json:"expectedSha256"`
-	OriginalArgs  []string `json:"originalArgs,omitempty"`
-}
-
-// RunHelperIfRequested handles the private updater invocation before the normal
-// TrueDown process initializes any files or listeners.
-func RunHelperIfRequested(args []string) (bool, int) {
-	if len(args) == 0 || args[0] != applyArgument {
-		return false, 0
+// LaunchPendingApply starts the verified native bundle helper. The caller then
+// shuts down the owned core so the helper can replace the shell and sidecars.
+func (m *Manager) LaunchPendingApply(arguments []string) error {
+	if m.programUpdatesDisabled || m.nativeExecutable == "" {
+		return fmt.Errorf("program updates require the packaged native desktop")
 	}
-	if len(args) != 2 {
-		return true, 2
-	}
-	if err := runApplyTransaction(args[1]); err != nil {
-		fmt.Fprintln(os.Stderr, "TrueDown update failed:", err)
-		return true, 1
-	}
-	return true, 0
-}
-
-// SignalHealthyFromEnvironment tells the update helper that the replacement
-// process initialized successfully. Normal launches do nothing.
-func SignalHealthyFromEnvironment() error {
-	path := strings.TrimSpace(os.Getenv(updateHealthFileEnv))
-	token := strings.TrimSpace(os.Getenv(updateHealthTokenEnv))
-	if path == "" && token == "" {
-		return nil
-	}
-	if path == "" || !validToken(token) || !filepath.IsAbs(path) {
-		return fmt.Errorf("invalid TrueDown update health environment")
-	}
-	return writeAtomicFile(path, []byte(token+"\n"), 0600)
-}
-
-func IsUpdateRelaunch() bool {
-	return strings.TrimSpace(os.Getenv(updateHealthFileEnv)) != ""
-}
-
-// LaunchPendingApply starts a copy of the current executable as an updater. The
-// caller should then shut down normally so the helper can replace TrueDown.exe.
-func (m *Manager) LaunchPendingApply(originalArgs []string) error {
-	if m.programUpdatesDisabled {
-		return fmt.Errorf("program updates belong to the external launcher")
-	}
-	if m.nativeExecutable != "" {
-		return m.launchNativeApply(originalArgs)
-	}
-	m.mu.Lock()
-	if m.applyLaunched {
-		m.mu.Unlock()
-		return fmt.Errorf("TrueDown update restart is already in progress")
-	}
-	pending := m.state.PendingUpdate
-	if pending == nil || pending.Build <= m.currentBuild {
-		m.mu.Unlock()
-		return fmt.Errorf("no staged TrueDown update is ready")
-	}
-	stagedPath, err := m.pendingUpdatePathLocked(pending)
-	if err != nil {
-		m.mu.Unlock()
-		return err
-	}
-	expectedSHA := pending.SHA256
-	build := pending.Build
-	m.applyLaunched = true
-	m.mu.Unlock()
-	launched := false
-	defer func() {
-		if launched {
-			return
-		}
-		m.mu.Lock()
-		m.applyLaunched = false
-		m.mu.Unlock()
-	}()
-
-	digest, _, err := hashFile(stagedPath, maxExecutableBytes)
-	if err != nil || !strings.EqualFold(digest, expectedSHA) {
-		validationErr := fmt.Errorf("staged TrueDown update failed its SHA-256 check; check for updates again")
-		_ = os.Remove(stagedPath)
-		m.discardPendingUpdate(build, validationErr)
-		return validationErr
-	}
-	if !strings.EqualFold(filepath.Clean(filepath.Dir(m.currentExe)), m.baseDir) {
-		return fmt.Errorf("running TrueDown executable is outside its package directory")
-	}
-	updatesDir := m.updatesDir
-	if err := os.MkdirAll(updatesDir, 0700); err != nil {
-		return fmt.Errorf("prepare update helper directory: %w", err)
-	}
-	helperPath := filepath.Join(updatesDir, fmt.Sprintf("TrueDown-updater-%d.exe", m.currentBuild))
-	if err := copyExecutable(m.currentExe, helperPath); err != nil {
-		return fmt.Errorf("prepare update helper: %w", err)
-	}
-	token, err := randomToken()
-	if err != nil {
-		return fmt.Errorf("prepare update health token: %w", err)
-	}
-	transactionPath := filepath.Join(updatesDir, fmt.Sprintf("apply-%d-%s.json", build, token[:12]))
-	transaction := applyTransaction{
-		SchemaVersion: applySchemaVersion,
-		Build:         build,
-		TargetPath:    m.currentExe,
-		StagedPath:    stagedPath,
-		BackupPath:    m.currentExe + ".previous",
-		StatePath:     m.statePath,
-		HealthPath:    filepath.Join(updatesDir, fmt.Sprintf("health-%d-%s", build, token[:12])),
-		HealthToken:   token,
-		ExpectedSHA:   strings.ToLower(expectedSHA),
-		OriginalArgs:  sanitizeOriginalArgs(originalArgs),
-	}
-	data, err := json.MarshalIndent(transaction, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode update transaction: %w", err)
-	}
-	if err := writeAtomicFile(transactionPath, append(data, '\n'), 0600); err != nil {
-		return fmt.Errorf("persist update transaction: %w", err)
-	}
-	command := exec.Command(helperPath, applyArgument, transactionPath)
-	configureHiddenProcess(command)
-	if err := command.Start(); err != nil {
-		_ = os.Remove(transactionPath)
-		return fmt.Errorf("start update helper: %w", err)
-	}
-	_ = command.Process.Release()
-	launched = true
-	return nil
+	return m.launchNativeApply(arguments)
 }
 
 func (m *Manager) discardPendingUpdate(build int64, updateErr error) {
@@ -222,126 +90,13 @@ func (m *Manager) pendingUpdatePathLocked(pending *pendingAppUpdate) (string, er
 	return path, nil
 }
 
-func runApplyTransaction(transactionPath string) error {
-	transactionPath, err := filepath.Abs(transactionPath)
-	if err != nil {
-		return fmt.Errorf("resolve update transaction: %w", err)
-	}
-	transaction, err := loadApplyTransaction(transactionPath)
-	if err != nil {
-		return err
-	}
-	defer os.Remove(transactionPath)
-	defer os.Remove(transaction.HealthPath)
-
-	digest, stagedSize, err := hashFile(transaction.StagedPath, maxExecutableBytes)
-	if err != nil || !strings.EqualFold(digest, transaction.ExpectedSHA) {
-		return fmt.Errorf("staged executable failed its SHA-256 check")
-	}
-	candidatePath := transaction.TargetPath + ".update-new"
-	if err := copyVerifiedExecutable(transaction.StagedPath, candidatePath, transaction.ExpectedSHA, stagedSize); err != nil {
-		return fmt.Errorf("prepare replacement executable: %w", err)
-	}
-	defer os.Remove(candidatePath)
-	_ = os.Remove(transaction.HealthPath)
-
-	if err := waitAndBackupTarget(transaction.TargetPath, transaction.BackupPath, 45*time.Second); err != nil {
-		return err
-	}
-	if err := os.Rename(candidatePath, transaction.TargetPath); err != nil {
-		_ = os.Rename(transaction.BackupPath, transaction.TargetPath)
-		return fmt.Errorf("activate replacement executable: %w", err)
-	}
-	if err := launchAndAwaitHealth(transaction); err != nil {
-		rollbackErr := rollbackReplacement(transaction)
-		if rollbackErr != nil {
-			return fmt.Errorf("%v; rollback also failed: %w", err, rollbackErr)
-		}
-		return err
-	}
-	if err := clearPendingUpdate(transaction.StatePath, transaction.Build, ""); err != nil {
-		return fmt.Errorf("finalize TrueDown update state: %w", err)
-	}
-	_ = os.Remove(transaction.StagedPath)
-	return nil
-}
-
-func loadApplyTransaction(path string) (applyTransaction, error) {
-	data, err := safefile.ReadFile(path, 64*1024)
-	if err != nil {
-		return applyTransaction{}, fmt.Errorf("read update transaction: %w", err)
-	}
-	data, err = requireJSONObject(data, "update transaction")
-	if err != nil {
-		return applyTransaction{}, err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var transaction applyTransaction
-	if err := decoder.Decode(&transaction); err != nil {
-		return applyTransaction{}, fmt.Errorf("decode update transaction: %w", err)
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return applyTransaction{}, fmt.Errorf("update transaction must contain one JSON object")
-	}
-	if err := validateApplyTransaction(transaction, path); err != nil {
-		return applyTransaction{}, err
-	}
-	return transaction, nil
-}
-
-func validateApplyTransaction(transaction applyTransaction, transactionPath string) error {
-	if transaction.Native {
-		return fmt.Errorf("native bundles require the native transaction helper")
-	}
-	if transaction.SchemaVersion != applySchemaVersion || transaction.Build <= 0 || normalizeSHA256(transaction.ExpectedSHA) == "" || !validToken(transaction.HealthToken) {
-		return fmt.Errorf("invalid update transaction metadata")
-	}
-	for _, path := range []string{transaction.TargetPath, transaction.StagedPath, transaction.BackupPath, transaction.StatePath, transaction.HealthPath} {
-		if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-			return fmt.Errorf("update transaction contains an invalid path")
-		}
-	}
-	updatesDir := filepath.Dir(transactionPath)
-	if filepath.Dir(transaction.StagedPath) != updatesDir || filepath.Dir(transaction.StatePath) != filepath.Dir(updatesDir) || filepath.Dir(transaction.HealthPath) != updatesDir {
-		return fmt.Errorf("update transaction paths are outside the managed update directory")
-	}
-	if transaction.BackupPath != transaction.TargetPath+".previous" || transaction.TargetPath == transaction.StagedPath {
-		return fmt.Errorf("update transaction replacement paths are invalid")
-	}
-	if len(transaction.OriginalArgs) > 32 {
-		return fmt.Errorf("update transaction contains too many process arguments")
-	}
-	for _, argument := range transaction.OriginalArgs {
-		if len(argument) > 4096 || argument == applyArgument {
-			return fmt.Errorf("update transaction contains an invalid process argument")
-		}
-	}
-	return nil
-}
-
-func waitAndBackupTarget(targetPath, backupPath string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for {
-		_ = os.Remove(backupPath)
-		if err := os.Rename(targetPath, backupPath); err == nil {
-			return nil
-		} else if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for the running TrueDown process to exit: %w", err)
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
-}
-
-func launchAndAwaitHealth(transaction applyTransaction) error {
-	command := exec.Command(transaction.TargetPath, transaction.OriginalArgs...)
+func launchAndAwaitHealth(transaction nativeTransaction) error {
+	command := exec.Command(filepath.Join(transaction.Directory, "TrueDown.exe"), transaction.Arguments...)
 	command.Env = append(withoutUpdateEnvironment(os.Environ()),
 		updateHealthFileEnv+"="+transaction.HealthPath,
-		updateHealthTokenEnv+"="+transaction.HealthToken,
+		updateHealthTokenEnv+"="+transaction.Token,
 	)
-	if transaction.Native {
-		command.Env = append(command.Env, nativeBypassEnv+"="+transaction.HealthToken, "TRUEDOWN_UPDATE_EXPECTED_BUILD="+fmt.Sprint(transaction.Build))
-	}
+	command.Env = append(command.Env, nativeBypassEnv+"="+transaction.Token, "TRUEDOWN_UPDATE_EXPECTED_BUILD="+fmt.Sprint(transaction.Build))
 	configureHiddenProcess(command)
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("start updated TrueDown: %w", err)
@@ -350,11 +105,7 @@ func launchAndAwaitHealth(transaction applyTransaction) error {
 	go func() { done <- command.Wait() }()
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
-	healthTimeout := 30 * time.Second
-	if transaction.Native {
-		healthTimeout = 60 * time.Second
-	}
-	timer := time.NewTimer(healthTimeout)
+	timer := time.NewTimer(60 * time.Second)
 	defer timer.Stop()
 	for {
 		select {
@@ -364,7 +115,7 @@ func launchAndAwaitHealth(transaction applyTransaction) error {
 			}
 			return fmt.Errorf("updated TrueDown exited before becoming healthy: %w", err)
 		case <-ticker.C:
-			if healthTokenMatches(transaction.HealthPath, transaction.HealthToken) {
+			if healthTokenMatches(transaction.HealthPath, transaction.Token) {
 				return nil
 			}
 		case <-timer.C:
@@ -378,21 +129,6 @@ func launchAndAwaitHealth(transaction applyTransaction) error {
 func healthTokenMatches(path, expected string) bool {
 	data, err := safefile.ReadFile(path, 512)
 	return err == nil && strings.TrimSpace(string(data)) == expected
-}
-
-func rollbackReplacement(transaction applyTransaction) error {
-	_ = os.Remove(transaction.TargetPath)
-	if err := os.Rename(transaction.BackupPath, transaction.TargetPath); err != nil {
-		return err
-	}
-	_ = clearPendingUpdate(transaction.StatePath, transaction.Build, "updated TrueDown failed its startup health check and was rolled back")
-	_ = os.Remove(transaction.StagedPath)
-	command := exec.Command(transaction.TargetPath, transaction.OriginalArgs...)
-	configureHiddenProcess(command)
-	if err := command.Start(); err != nil {
-		return fmt.Errorf("restart previous TrueDown: %w", err)
-	}
-	return command.Process.Release()
 }
 
 func clearPendingUpdate(statePath string, build int64, updateError string) error {
@@ -505,17 +241,6 @@ func validToken(value string) bool {
 	}
 	_, err := hex.DecodeString(value)
 	return err == nil
-}
-
-func sanitizeOriginalArgs(args []string) []string {
-	result := make([]string, 0, len(args))
-	for _, argument := range args {
-		if argument == applyArgument || len(argument) > 4096 || len(result) >= 32 {
-			continue
-		}
-		result = append(result, argument)
-	}
-	return result
 }
 
 func pathWithin(root, path string) bool {

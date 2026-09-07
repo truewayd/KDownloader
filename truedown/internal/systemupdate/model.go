@@ -253,7 +253,7 @@ func New(options Options) (*Manager, error) {
 		currentExe:             filepath.Clean(currentExe),
 		currentVersion:         strings.TrimSpace(options.CurrentVersion),
 		currentBuild:           options.CurrentBuild,
-		programUpdatesDisabled: options.DisableProgramUpdates,
+		programUpdatesDisabled: options.DisableProgramUpdates || options.NativeExecutable == "",
 		currentCommit:          strings.TrimSpace(options.CurrentCommit),
 		client:                 client,
 		trueDownReleasesURL:    trueDownURL,
@@ -683,8 +683,9 @@ func (m *Manager) loadState() error {
 			}
 		}
 		// A legacy single-file stage cannot be applied to a native package.
-		if m.nativeExecutable != "" && len(state.PendingUpdate.NativeFiles) == 0 {
+		if len(state.PendingUpdate.NativeFiles) == 0 {
 			state.PendingUpdate = nil
+			m.prunedNativeState = true
 		}
 		if state.PendingUpdate != nil && state.PendingUpdate.Build <= m.currentBuild {
 			m.prunedNativeState = len(state.PendingUpdate.NativeFiles) > 0

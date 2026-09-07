@@ -1,7 +1,6 @@
 package systemupdate
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -141,24 +140,16 @@ func (m *Manager) stageTrueDown(ctx context.Context, available *availableAppUpda
 	if err := m.fetchStrictJSON(ctx, available.ManifestURL, maxManifestBytes, available.ManifestSize, &manifest); err != nil {
 		return fmt.Errorf("download TrueDown update manifest: %w", err)
 	}
-	schema := 1
-	if m.nativeExecutable != "" {
-		schema = 2
-	}
-	if manifest.SchemaVersion != schema || manifest.Product != "TrueDown" || manifest.Repository != "truewayd/KDownloader" ||
+	if manifest.SchemaVersion != 2 || manifest.Product != "TrueDown" || manifest.Repository != "truewayd/KDownloader" ||
 		manifest.Version != available.Version || manifest.Build != available.Build || manifest.Asset.Name != available.ArchiveName ||
 		manifest.Asset.Size != available.ArchiveSize || normalizeSHA256(manifest.Asset.SHA256) == "" {
 		return fmt.Errorf("TrueDown update manifest does not match its GitHub release")
 	}
-	if schema == 2 {
-		if manifest.ProtocolVersion != 1 || manifest.Platform != "windows-"+runtime.GOARCH {
-			return fmt.Errorf("native release targets an incompatible platform or protocol")
-		}
-		if err := validateNativeFiles(manifest.Files); err != nil {
-			return err
-		}
-	} else if len(manifest.Files) != 0 || manifest.ProtocolVersion != 0 || manifest.Platform != "" {
-		return fmt.Errorf("legacy update cannot contain native package metadata")
+	if manifest.ProtocolVersion != 1 || manifest.Platform != "windows-"+runtime.GOARCH {
+		return fmt.Errorf("native release targets an incompatible platform or protocol")
+	}
+	if err := validateNativeFiles(manifest.Files); err != nil {
+		return err
 	}
 	updatesDir := m.updatesDir
 	archivePath, digest, size, err := m.downloadFile(ctx, available.ArchiveURL, updatesDir, maxReleaseArchiveBytes)
@@ -169,27 +160,7 @@ func (m *Manager) stageTrueDown(ctx context.Context, available *availableAppUpda
 	if size != manifest.Asset.Size || !strings.EqualFold(digest, manifest.Asset.SHA256) {
 		return fmt.Errorf("TrueDown update archive failed its size or SHA-256 check")
 	}
-	if schema == 2 {
-		return m.stageNativeArchive(archivePath, available, manifest)
-	}
-	stagedName := fmt.Sprintf("TrueDown-build-%d.exe", available.Build)
-	stagedPath := filepath.Join(updatesDir, stagedName)
-	executableDigest, err := extractTrueDownExecutable(archivePath, stagedPath)
-	if err != nil {
-		return fmt.Errorf("stage TrueDown update: %w", err)
-	}
-	m.mu.Lock()
-	next := m.state
-	next.PendingUpdate = &pendingAppUpdate{
-		Version: available.Version,
-		Build:   available.Build,
-		File:    stagedName,
-		SHA256:  executableDigest,
-	}
-	next.LastUpdateError = ""
-	err = m.persistStateLocked(next)
-	m.mu.Unlock()
-	return err
+	return m.stageNativeArchive(archivePath, available, manifest)
 }
 
 func (m *Manager) InstallNext(ctx context.Context) (Snapshot, error) {
@@ -572,91 +543,6 @@ func (m *Manager) validateURL(raw string) error {
 		}
 	}
 	return fmt.Errorf("update URL host is not trusted")
-}
-
-func extractTrueDownExecutable(archivePath, destination string) (string, error) {
-	archive, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return "", err
-	}
-	defer archive.Close()
-	if len(archive.File) == 0 || len(archive.File) > maxArchiveEntries {
-		return "", fmt.Errorf("release archive contains an invalid number of entries")
-	}
-	var executable *zip.File
-	var expanded uint64
-	for _, entry := range archive.File {
-		if entry.UncompressedSize64 > maxArchiveExpanded-expanded {
-			return "", fmt.Errorf("release archive expands beyond the allowed size")
-		}
-		expanded += entry.UncompressedSize64
-		if strings.ReplaceAll(entry.Name, "\\", "/") == "TrueDown.exe" {
-			if executable != nil {
-				return "", fmt.Errorf("release archive contains duplicate TrueDown executables")
-			}
-			executable = entry
-		}
-	}
-	if executable == nil || executable.UncompressedSize64 == 0 || executable.UncompressedSize64 > maxEngineBytes {
-		return "", fmt.Errorf("release archive does not contain a bounded TrueDown.exe")
-	}
-	reader, err := executable.Open()
-	if err != nil {
-		return "", err
-	}
-	defer reader.Close()
-	directory := filepath.Dir(destination)
-	if err := os.MkdirAll(directory, 0700); err != nil {
-		return "", err
-	}
-	temporary, err := os.CreateTemp(directory, ".truedown-exe-*.tmp")
-	if err != nil {
-		return "", err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0700); err != nil {
-		temporary.Close()
-		return "", err
-	}
-	hash := sha256.New()
-	written, err := io.Copy(io.MultiWriter(temporary, hash), io.LimitReader(reader, maxEngineBytes+1))
-	if err != nil {
-		temporary.Close()
-		return "", err
-	}
-	if written <= 2 || written > maxEngineBytes || uint64(written) != executable.UncompressedSize64 {
-		temporary.Close()
-		return "", fmt.Errorf("TrueDown.exe size does not match the release archive")
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return "", err
-	}
-	if err := temporary.Close(); err != nil {
-		return "", err
-	}
-	probe := make([]byte, 2)
-	file, err := os.Open(temporaryPath)
-	if err != nil {
-		return "", err
-	}
-	_, readErr := io.ReadFull(file, probe)
-	file.Close()
-	if readErr != nil || string(probe) != "MZ" {
-		return "", fmt.Errorf("staged TrueDown executable is not a Windows PE file")
-	}
-	if _, err := os.Stat(destination); err == nil {
-		if err := os.Remove(destination); err != nil {
-			return "", err
-		}
-	} else if !os.IsNotExist(err) {
-		return "", err
-	}
-	if err := os.Rename(temporaryPath, destination); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func loopbackHost(host string) bool {

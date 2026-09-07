@@ -364,8 +364,7 @@ func runNativeTransaction(path string, recoverOnly bool) error {
 			updateErr = replaceNativeFiles(transaction)
 		}
 		if updateErr == nil {
-			updateErr = launchAndAwaitHealth(applyTransaction{TargetPath: filepath.Join(transaction.Directory, "TrueDown.exe"), Build: transaction.Build,
-				OriginalArgs: transaction.Arguments, HealthPath: transaction.HealthPath, HealthToken: transaction.Token, Native: true})
+			updateErr = launchAndAwaitHealth(transaction)
 		}
 		healthy = updateErr == nil
 	}

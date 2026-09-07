@@ -172,7 +172,7 @@ func TestManualNextInstallPersistsSelection(t *testing.T) {
 	}
 }
 
-func TestTrueDownUpdateStagesOnlyVerifiedExecutable(t *testing.T) {
+func TestTrueDownUpdateStagesCompleteVerifiedNativeBundle(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("packaged self-updates are Windows-only")
 	}
@@ -181,12 +181,16 @@ func TestTrueDownUpdateStagesOnlyVerifiedExecutable(t *testing.T) {
 	if err := os.WriteFile(stablePath, []byte("stable"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	executable := []byte("MZ-fake-TrueDown-build-12")
-	archive := makeReleaseArchive(t, executable)
+	archive, nativeFiles := makeReleaseArchive(t)
+	nativePath := filepath.Join(root, "TrueDown.exe")
+	if err := os.WriteFile(nativePath, nativePayload("TrueDown.exe", 1), 0700); err != nil {
+		t.Fatal(err)
+	}
 	archiveDigest := sha256Hex(archive)
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		manifest := updateManifest{SchemaVersion: 1, Product: "TrueDown", Repository: "truewayd/KDownloader", Version: "truedown-build-12", Build: 12}
+		manifest := updateManifest{SchemaVersion: 2, Product: "TrueDown", Repository: "truewayd/KDownloader", Version: "truedown-build-12", Build: 12,
+			ProtocolVersion: 1, Platform: "windows-" + runtime.GOARCH, Files: nativeFiles}
 		manifest.Asset.Name = "TrueDown-build-12.zip"
 		manifest.Asset.Size = int64(len(archive))
 		manifest.Asset.SHA256 = archiveDigest
@@ -212,6 +216,7 @@ func TestTrueDownUpdateStagesOnlyVerifiedExecutable(t *testing.T) {
 	defer server.Close()
 
 	manager := newTestManager(t, root, stablePath, Options{
+		NativeExecutable:      nativePath,
 		CurrentVersion:        "truedown-build-10",
 		CurrentBuild:          10,
 		TrueDownReleasesURL:   server.URL + "/releases",
@@ -231,29 +236,13 @@ func TestTrueDownUpdateStagesOnlyVerifiedExecutable(t *testing.T) {
 	if pathErr != nil {
 		t.Fatal(pathErr)
 	}
-	data, err := os.ReadFile(stagedPath)
-	if err != nil {
-		t.Fatal(err)
+	if len(pending.NativeFiles) != len(nativeNames) || pending.SHA256 != archiveDigest {
+		t.Fatal("staged bundle is not bound to the verified archive")
 	}
-	if !bytes.Equal(data, executable) || pending.SHA256 != sha256Hex(executable) {
-		t.Fatal("staged executable or its persisted digest did not match the verified archive")
-	}
-}
-
-func TestSignalHealthyRequiresMatchingBoundedToken(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "health")
-	token := strings.Repeat("ab", 24)
-	t.Setenv(updateHealthFileEnv, path)
-	t.Setenv(updateHealthTokenEnv, token)
-	if err := SignalHealthyFromEnvironment(); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(string(data)) != token {
-		t.Fatal("health marker did not contain the transaction token")
+	for _, file := range pending.NativeFiles {
+		if err := verifyNativeFile(stagedPath, file); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -362,130 +351,40 @@ func TestPersistedStateOmitsZeroLastCheckedAt(t *testing.T) {
 	}
 }
 
-func TestTamperedStagedUpdateIsDiscardedBeforeHelperLaunch(t *testing.T) {
-	root := t.TempDir()
-	stablePath := filepath.Join(root, "aria2c.exe")
-	if err := os.WriteFile(stablePath, []byte("stable"), 0700); err != nil {
-		t.Fatal(err)
+func TestTamperedNativeStageIsDiscardedBeforeHelperLaunch(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("native update helper ownership is Windows-specific")
 	}
-	manager := newTestManager(t, root, stablePath, Options{CurrentBuild: 10, CurrentVersion: "truedown-build-10"})
-	updatesDir := filepath.Join(root, "updates")
-	if err := os.MkdirAll(updatesDir, 0700); err != nil {
-		t.Fatal(err)
+	transaction, _ := nativeFixture(t)
+	manager := &Manager{baseDir: transaction.Directory, nativeExecutable: filepath.Join(transaction.Directory, "TrueDown.exe"),
+		updatesDir: filepath.Dir(transaction.Stage), statePath: transaction.StatePath, currentBuild: 1,
+		state: persistedState{SchemaVersion: 1, EnginePreference: EngineStable}}
+	files := []nativeFile{}
+	for _, file := range transaction.Files {
+		files = append(files, file.New)
 	}
-	stagedPath := filepath.Join(updatesDir, "TrueDown-build-11.exe")
-	if err := os.WriteFile(stagedPath, []byte("MZ-tampered"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	manager.mu.Lock()
-	manager.state.PendingUpdate = &pendingAppUpdate{
-		Version: "truedown-build-11",
-		Build:   11,
-		File:    filepath.Base(stagedPath),
-		SHA256:  strings.Repeat("0", 64),
-	}
+	manager.state.PendingUpdate = &pendingAppUpdate{Version: "truedown-build-2", Build: 2,
+		File: filepath.Base(transaction.Stage), SHA256: strings.Repeat("a", 64), NativeFiles: files}
 	if err := manager.persistLocked(); err != nil {
-		manager.mu.Unlock()
 		t.Fatal(err)
 	}
-	manager.mu.Unlock()
-	if err := manager.LaunchPendingApply(nil); err == nil || !strings.Contains(err.Error(), "SHA-256") {
-		t.Fatalf("tampered staged update error=%v", err)
+	if err := os.WriteFile(filepath.Join(transaction.Stage, "truedown-cli.exe"), []byte("MZ-tampered"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.LaunchPendingApply(transaction.Arguments); err == nil || !strings.Contains(err.Error(), "SHA-256") {
+		t.Fatalf("tampered native stage error=%v", err)
 	}
 	if manager.HasPendingUpdate() {
-		t.Fatal("tampered staged update remained pending")
+		t.Fatal("tampered native stage remained pending")
 	}
-	if _, err := os.Stat(stagedPath); !os.IsNotExist(err) {
-		t.Fatalf("tampered staged executable was not removed: %v", err)
+	if _, err := os.Stat(transaction.Stage); !os.IsNotExist(err) {
+		t.Fatalf("tampered stage was not removed: %v", err)
 	}
-}
-
-func TestApplyTransactionReplacesExecutableAfterHealthSignal(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Windows executable replacement protocol")
+	for _, file := range transaction.Files {
+		if err := verifyNativeFile(transaction.Directory, file.Old); err != nil {
+			t.Fatal(err)
+		}
 	}
-	root := t.TempDir()
-	updatesDir := filepath.Join(root, "updates")
-	if err := os.MkdirAll(updatesDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	testExecutable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	targetPath := filepath.Join(root, "TrueDown.exe")
-	stagedPath := filepath.Join(updatesDir, "TrueDown-build-2.exe")
-	if err := copyExecutable(testExecutable, targetPath); err != nil {
-		t.Fatal(err)
-	}
-	if err := copyExecutable(testExecutable, stagedPath); err != nil {
-		t.Fatal(err)
-	}
-	digest, _, err := hashFile(stagedPath, maxExecutableBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	statePath := filepath.Join(root, "truedown.updates.json")
-	state := persistedState{
-		SchemaVersion:      stateSchemaVersion,
-		AutoUpdateTrueDown: true,
-		EnginePreference:   EngineStable,
-		PendingUpdate: &pendingAppUpdate{
-			Version: "truedown-build-2",
-			Build:   2,
-			File:    filepath.Base(stagedPath),
-			SHA256:  digest,
-		},
-	}
-	stateData, err := json.Marshal(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writeAtomicFile(statePath, stateData, 0600); err != nil {
-		t.Fatal(err)
-	}
-	token := strings.Repeat("cd", 24)
-	transaction := applyTransaction{
-		SchemaVersion: applySchemaVersion,
-		Build:         2,
-		TargetPath:    targetPath,
-		StagedPath:    stagedPath,
-		BackupPath:    targetPath + ".previous",
-		StatePath:     statePath,
-		HealthPath:    filepath.Join(updatesDir, "health-2-test"),
-		HealthToken:   token,
-		ExpectedSHA:   digest,
-		OriginalArgs:  []string{"-test.run=^TestUpdateHealthChild$"},
-	}
-	transactionData, err := json.Marshal(transaction)
-	if err != nil {
-		t.Fatal(err)
-	}
-	transactionPath := filepath.Join(updatesDir, "apply-2-test.json")
-	if err := writeAtomicFile(transactionPath, transactionData, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := runApplyTransaction(transactionPath); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(statePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var saved persistedState
-	if err := json.Unmarshal(data, &saved); err != nil {
-		t.Fatal(err)
-	}
-	if saved.PendingUpdate != nil {
-		t.Fatal("successful health-checked replacement remained pending")
-	}
-	if _, err := os.Stat(targetPath + ".previous"); err != nil {
-		t.Fatalf("previous executable backup is missing: %v", err)
-	}
-	if _, err := os.Stat(stagedPath); !os.IsNotExist(err) {
-		t.Fatalf("staged executable was not reclaimed: %v", err)
-	}
-	time.Sleep(900 * time.Millisecond)
 }
 
 func TestCopyVerifiedExecutableRejectsStagedFileChangedAfterManifestCheck(t *testing.T) {
@@ -513,16 +412,6 @@ func TestCopyVerifiedExecutableRejectsStagedFileChangedAfterManifestCheck(t *tes
 	}
 }
 
-func TestUpdateHealthChild(t *testing.T) {
-	if !IsUpdateRelaunch() {
-		t.Skip("only runs as the replacement child process")
-	}
-	if err := SignalHealthyFromEnvironment(); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(600 * time.Millisecond)
-}
-
 func newTestManager(t *testing.T, root, stablePath string, overrides Options) *Manager {
 	t.Helper()
 	options := overrides
@@ -539,21 +428,26 @@ func newTestManager(t *testing.T, root, stablePath string, overrides Options) *M
 	return manager
 }
 
-func makeReleaseArchive(t *testing.T, executable []byte) []byte {
+func makeReleaseArchive(t *testing.T) ([]byte, []nativeFile) {
 	t.Helper()
 	var buffer bytes.Buffer
 	archive := zip.NewWriter(&buffer)
-	entry, err := archive.Create("TrueDown.exe")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := entry.Write(executable); err != nil {
-		t.Fatal(err)
+	files := []nativeFile{}
+	for _, name := range nativeNames {
+		payload := nativePayload(name, 2)
+		files = append(files, nativeMetadata(name, payload))
+		entry, err := archive.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write(payload); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := archive.Close(); err != nil {
 		t.Fatal(err)
 	}
-	return buffer.Bytes()
+	return buffer.Bytes(), files
 }
 
 func sha256Hex(data []byte) string {
