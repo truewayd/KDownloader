@@ -1108,6 +1108,11 @@ async function updateAuthSettings() {
 async function copyAPIToken() {
   KDComponents.setBusyState(els.copyApiTokenBtn, true);
   try {
+    if (window.__TAURI__?.core?.invoke) {
+      const copied = await invokeNative("copy_api_token");
+      showToast(copied ? "API Key 已复制，请粘贴到浏览器扩展设置。" : "API Key 认证当前未启用。");
+      return;
+    }
     const response = await requestJSON("/auth/token");
     if (!response.enabled) {
       showToast("API Key 认证当前未启用；浏览器集成可将 API Key 留空。");

@@ -1,0 +1,66 @@
+/* Native frame/materials surround opaque working surfaces. Product structure
+   and the shared control vocabulary remain the same on every platform. */
+:root[data-platform="windows"], :root[data-platform="macos"] {
+  --kd-bg: #202020;
+  --kd-surface: #2b2b2b;
+  --kd-surface-raised: #353535;
+  --kd-input: #242424;
+  --kd-input-focus: #202020;
+  --kd-text: #f5f5f5;
+  --kd-muted: #bcbcbc;
+  --kd-subtle: #a8a8a8;
+  --kd-border: rgb(255 255 255 / 9%);
+  --kd-border-strong: rgb(255 255 255 / 20%);
+  --kd-secondary-hover: #3b3b3b;
+  --kd-secondary-hover-border: rgb(255 255 255 / 22%);
+  --kd-shadow: 0 8px 24px rgb(0 0 0 / 20%);
+  --native-chrome: rgb(32 32 32 / 55%);
+}
+[data-platform="windows"] body { font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif; -webkit-font-smoothing: auto; }
+[data-platform="windows"] .kd-button,
+[data-platform="windows"] .kd-input,
+[data-platform="windows"] .kd-select { border-radius: 4px; }
+[data-platform="windows"] .kd-input { border-bottom-color: var(--kd-border-strong); }
+[data-platform="windows"] .kd-input:focus { border-bottom: 2px solid var(--kd-focus); }
+[data-platform="windows"] .primary-nav a[aria-current],
+[data-platform="windows"] .settings-nav-link[aria-current] { box-shadow: inset 3px 0 var(--kd-accent); }
+[data-platform="macos"] { --kd-control-height: 32px; }
+[data-platform="macos"] body { font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", sans-serif; font-size: 13px; }
+[data-platform="macos"] .kd-button { border-radius: 6px; font-weight: 500; box-shadow: 0 1px 1px rgb(0 0 0 / 8%); }
+[data-platform="macos"] .primary-nav a,
+[data-platform="macos"] .settings-nav-link { border: 0; padding-block: 8px; }
+[data-platform] .kd-eyebrow { display: none; }
+[data-platform] .panel-header h1 { font-size: 24px; font-weight: 600; }
+[data-platform] .tasks-table { font-size: 13px; }
+[data-platform] .settings-footer { background: var(--kd-surface); }
+[data-material="native"] body { background: transparent; }
+[data-material="native"] .topbar,
+[data-material="native"] .sidebar { background: var(--native-chrome); }
+[data-material="native"] .settings-page { background: transparent; }
+[data-material="native"] .settings-page > .panel-header,
+[data-material="native"] .settings-nav { background: var(--native-chrome); }
+[data-material="native"] #settings-form { background: var(--kd-surface); }
+@media (prefers-color-scheme: light) {
+  :root[data-platform="windows"], :root[data-platform="macos"] {
+    --kd-bg: #f3f3f3;
+    --kd-surface: #ffffff;
+    --kd-surface-raised: #fafafa;
+    --kd-input: #ffffff;
+    --kd-input-focus: #ffffff;
+    --kd-text: #202020;
+    --kd-muted: #606060;
+    --kd-subtle: #6a6a6a;
+    --kd-border: rgb(0 0 0 / 8%);
+    --kd-border-strong: rgb(0 0 0 / 20%);
+    --kd-secondary-hover: #f0f0f0;
+    --kd-secondary-hover-border: rgb(0 0 0 / 18%);
+    --kd-shadow: 0 8px 24px rgb(0 0 0 / 8%);
+    --native-chrome: rgb(245 245 245 / 45%);
+  }
+  [data-platform="macos"] { --kd-bg: #ececec; --native-chrome: rgb(238 238 238 / 40%); }
+}
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  [data-material="native"] body { background: var(--kd-bg); }
+  [data-material="native"] .topbar, [data-material="native"] .sidebar,
+  [data-material="native"] .settings-nav, [data-material="native"] .settings-page > .panel-header { background: var(--kd-bg); }
+}

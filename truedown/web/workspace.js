@@ -10,6 +10,7 @@ function initWorkspace() {
 function applyWorkspaceRoute(focus = true) {
   const [page, category] = window.location.hash.slice(1).split("/");
   currentPage = ["tasks", "logs", "settings"].includes(page) ? page : "tasks";
+  if (typeof nativeWindowRole !== "undefined" && ["settings", "logs"].includes(nativeWindowRole)) currentPage = nativeWindowRole;
   currentSettingsPage = SETTINGS_PAGES.includes(category) ? category : "overview";
   routeEpoch++;
   applicationLogAbort?.abort();

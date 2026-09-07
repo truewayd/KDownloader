@@ -1,0 +1,9 @@
+body { margin: 0; min-width: 0; overflow-y: auto; }
+main { padding: 28px; max-width: 620px; margin: auto; }
+h1 { margin: 12px 0 8px; }
+p { line-height: 1.6; }
+dl { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; padding-block: 16px; border-block: 1px solid var(--kd-border); }
+dt { color: var(--kd-muted); }
+dd { margin: 0; overflow-wrap: anywhere; }
+#close-about { display: flex; margin-left: auto; gap: 24px; }
+#about-status:empty { display: none; }

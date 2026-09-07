@@ -1,0 +1,13 @@
+{
+  "identifier": "main",
+  "description": "The bundled TrueDown window may use only its constrained core bridge.",
+  "windows": [
+    "main",
+    "settings",
+    "logs",
+    "about"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}

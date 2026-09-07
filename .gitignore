@@ -5,6 +5,10 @@ __pycache__/
 *.pyc
 *.pyo
 dist/
+truedown/desktop/target/
+truedown/desktop/binaries/
+truedown/desktop/node_modules/
+truedown/desktop/gen/
 *.md
 !README.zh-CN.md
 !docs/ui-architecture.md
@@ -14,6 +18,7 @@ dist/
 !truedown/THIRD_PARTY_NOTICES.md
 !truedown/COMPONENTS.md
 !truedown/unix/README.md
+!truedown/desktop/README.md
 !changelog/
 !changelog/*.md
 !changelog/*/

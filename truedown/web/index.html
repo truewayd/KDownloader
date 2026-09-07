@@ -9,8 +9,11 @@
   <link rel="stylesheet" href="/styles.css">
   <script src="/components.js" defer></script>
   <script src="/api.js" defer></script>
+  <script src="/native-windows.js" defer></script>
   <script src="/logs.js" defer></script>
   <link rel="stylesheet" href="/workspace.css">
+  <link rel="stylesheet" href="/native-appearance.css">
+  <script src="/native-appearance.js" defer></script>
   <script src="/task-view.js" defer></script>
   <script src="/settings.js" defer></script>
   <script src="/workspace.js" defer></script>
@@ -29,7 +32,7 @@
           <a href="#logs" data-route="logs"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-file"></use></svg>应用日志</a>
           <a href="#settings/overview" data-route="settings" id="settings-btn"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-settings"></use></svg>设置</a>
         </nav>
-        <div class="sidebar-footer"><span class="hint">关闭界面，下载仍会继续</span><button class="kd-button secondary compact" id="exit-truedown-btn" type="button">退出 TrueDown</button></div>
+        <div class="sidebar-footer"><button class="kd-button secondary compact native-only" data-native-window="about" type="button">关于 TrueDown</button><span class="hint">关闭界面，下载仍会继续</span><button class="kd-button secondary compact" id="exit-truedown-btn" type="button">退出 TrueDown</button></div>
       </aside>
       <main class="dashboard">
       <section class="kd-panel task-panel" id="tasks-page" data-page="tasks" aria-labelledby="tasks-title">

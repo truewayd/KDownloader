@@ -1,5 +1,15 @@
 /* Workspace layout; controls and state visuals remain in styles.css. */
 [hidden] { display: none !important; }
+.native-only { display: none; }
+[data-native-window="main"] .native-only { display: inline-flex; }
+[data-native-window="settings"] .topbar,
+[data-native-window="settings"] .sidebar,
+[data-native-window="logs"] .topbar,
+[data-native-window="logs"] .sidebar { display: none; }
+[data-native-window="settings"] .dashboard,
+[data-native-window="logs"] .dashboard { padding: 0; }
+[data-native-window="settings"] .settings-page,
+[data-native-window="logs"] .log-page { border: 0; border-radius: 0; }
 .topbar { padding: 0 24px; background: var(--kd-surface); backdrop-filter: none; }
 .brand { color: inherit; text-decoration: none; }
 .workspace { display: flex; flex: 1; min-height: 0; }

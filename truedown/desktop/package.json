@@ -1,0 +1,16 @@
+{
+  "name": "truedown-desktop",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "prepare:core": "node ../tools/prepare-desktop.mjs",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "check": "cargo test --locked",
+    "test:windows": "node tests/windows-smoke.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "playwright": "^1.63.0"
+  }
+}

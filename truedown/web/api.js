@@ -17,6 +17,7 @@ async function requestJSON(url, options) {
 }
 
 async function apiFetch(url, options = {}) {
+  if (window.__TAURI__?.core?.invoke) return nativeFetch(url, options);
   let response = await fetchWithAPIToken(url, options);
   if (response.status !== 401 || apiTokenPromptDismissed) return response;
 
@@ -51,6 +52,34 @@ async function apiFetch(url, options = {}) {
     apiTokenPromptDismissed = true;
   }
   return response;
+}
+
+let nativeDesktopState = null;
+async function invokeNative(command, args) {
+  try { return await window.__TAURI__.core.invoke(command, args); }
+  catch (error) { throw error instanceof Error ? error : new Error(String(error)); }
+}
+async function nativeFetch(path, options = {}) {
+  const signal = options.signal;
+  signal?.throwIfAborted();
+  const headers = Object.fromEntries(new Headers(options.headers || {}));
+  const operation = invokeNative("core_request", {
+    request: { method: options.method || "GET", path, body: options.body || "", headers },
+  });
+  let abort;
+  const canceled = signal && new Promise((_, reject) => {
+    abort = () => reject(signal.reason || new DOMException("Aborted", "AbortError"));
+    signal.addEventListener("abort", abort, { once: true });
+  });
+  try {
+    const result = await (canceled ? Promise.race([operation, canceled]) : operation);
+    nativeDesktopState = { owned: result.owned, protocolVersion: 1 };
+    return new Response([204, 205, 304].includes(result.status) ? null : result.body, {
+      status: result.status, headers: result.headers,
+    });
+  } finally {
+    if (abort) signal.removeEventListener("abort", abort);
+  }
 }
 
 function rememberSessionToken(token) {

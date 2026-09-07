@@ -1367,7 +1367,9 @@ async function exitTrueDown(event) {
 	const confirmed = await confirmAction({
 		title: "退出 TrueDown？",
 		eyebrow: "Application lifecycle",
-		message: "TrueDown 将停止当前服务和下载内核。未完成任务会保留，并在下次启动时恢复。",
+		message: typeof nativeDesktopState !== "undefined" && nativeDesktopState?.owned === false
+      ? "将关闭桌面界面，已连接的独立下载服务会继续运行。"
+      : "TrueDown 将停止当前服务和下载内核。未完成任务会保留，并在下次启动时恢复。",
 		confirmLabel: "退出 TrueDown",
 		danger: true,
 	});
