@@ -8,45 +8,39 @@
   <link rel="icon" href="/truedown-logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
   <script src="/components.js" defer></script>
+  <script src="/api.js" defer></script>
+  <script src="/logs.js" defer></script>
+  <link rel="stylesheet" href="/workspace.css">
+  <script src="/task-view.js" defer></script>
+  <script src="/settings.js" defer></script>
+  <script src="/workspace.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <div class="brand" aria-label="TrueDown">
-        <span class="brand-mark" aria-hidden="true">
-          <img src="/truedown-logo.svg" alt="">
-        </span>
-        <span class="brand-copy">
-          <strong>TrueDown</strong>
-          <span>aria2 dashboard</span>
-        </span>
-      </div>
-      <div class="topbar-actions">
-        <button class="kd-button secondary" id="settings-btn" type="button">
-          <svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-settings"></use></svg>
-          设置
-        </button>
-        <button class="kd-button secondary" id="batch-task-btn" type="button">
-          <svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-list"></use></svg>
-          批量下载
-        </button>
-        <button class="kd-button primary" id="new-task-btn" type="button">
-          <svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-plus"></use></svg>
-          新建下载
-        </button>
-      </div>
+      <a class="brand" href="#tasks" aria-label="TrueDown 下载任务"><span class="brand-mark" aria-hidden="true"><img src="/truedown-logo.svg" alt=""></span><span class="brand-copy"><strong>TrueDown</strong><span>下载管理</span></span></a>
+      <div class="topbar-actions"><button class="kd-button secondary" id="batch-task-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-list"></use></svg>批量下载</button><button class="kd-button primary" id="new-task-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-plus"></use></svg>新建下载</button></div>
     </header>
-
-    <main class="dashboard">
-      <section class="kd-panel task-panel" aria-labelledby="tasks-title">
+    <div class="workspace">
+      <aside class="sidebar">
+        <nav class="primary-nav" aria-label="主导航">
+          <a href="#tasks" data-route="tasks"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-list"></use></svg>下载任务</a>
+          <a href="#logs" data-route="logs"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-file"></use></svg>应用日志</a>
+          <a href="#settings/overview" data-route="settings" id="settings-btn"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-settings"></use></svg>设置</a>
+        </nav>
+        <div class="sidebar-footer"><span class="hint">关闭界面，下载仍会继续</span><button class="kd-button secondary compact" id="exit-truedown-btn" type="button">退出 TrueDown</button></div>
+      </aside>
+      <main class="dashboard">
+      <section class="kd-panel task-panel" id="tasks-page" data-page="tasks" aria-labelledby="tasks-title">
         <div class="panel-header">
           <div>
             <p class="kd-eyebrow">Downloads</p>
             <h1 id="tasks-title">下载任务</h1>
-            <p class="panel-subtitle">关闭此网页不会中断下载；Windows 可从托盘重新打开，也可重新访问当前地址并在设置中安全退出。</p>
+            <p class="panel-subtitle">管理下载、查看进度和处理失败任务。</p>
           </div>
-          <div class="panel-actions">
+        </div>
+          <div class="panel-actions task-toolbar" aria-label="队列操作">
             <button class="kd-button secondary" id="open-downloads-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-folder-open"></use></svg>打开下载目录</button>
             <button class="kd-button secondary" id="pause-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-pause"></use></svg>暂停队列</button>
             <button class="kd-button secondary" id="resume-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-play"></use></svg>恢复队列</button>
@@ -54,7 +48,6 @@
             <button class="kd-button secondary" id="clear-done-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-trash"></use></svg>清理已完成</button>
             <button class="kd-button secondary" id="refresh-tasks-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-refresh"></use></svg>刷新任务</button>
           </div>
-        </div>
 
         <div class="metric-strip" aria-label="任务概览">
           <article class="metric-card">
@@ -115,24 +108,54 @@
           </div>
         </div>
       </section>
-
-    </main>
-  </div>
-
-  <div class="overlay" id="settings-overlay" aria-hidden="true" tabindex="-1" inert>
-    <section class="kd-panel modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <form id="settings-form">
-        <div class="modal-header">
-          <div>
-            <p class="kd-eyebrow">Preferences</p>
-            <h2 id="settings-title">下载器设置</h2>
-            <p class="panel-subtitle">作为新任务的默认值，可在创建任务时单独覆盖。</p>
-          </div>
-          <button class="kd-icon-button" id="settings-close-btn" type="button" aria-label="关闭设置"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-close"></use></svg></button>
-        </div>
-
-        <div class="modal-body settings-body">
-          <section class="settings-section" aria-labelledby="settings-general-title">
+<section class="kd-panel log-page" id="logs-page" data-page="logs" hidden aria-labelledby="settings-application-log-title">
+            <div class="settings-section-heading">
+              <h1 id="settings-application-log-title" tabindex="-1">应用日志</h1>
+              <p>查看服务启动、更新和下载内核事件。</p>
+            </div>
+            <div class="application-log-toolbar">
+              <p class="hint" id="application-log-status" aria-live="polite">进入此页时读取最新日志，可手动刷新。</p>
+              <div class="application-log-actions">
+                <button class="kd-button secondary compact" id="refresh-application-log-btn" type="button">刷新日志</button>
+                <button class="kd-button secondary compact" id="copy-application-log-btn" type="button" disabled>复制日志</button>
+              </div>
+            </div>
+            <pre class="application-log-output" id="application-log-output" tabindex="0" aria-label="TrueDown 最新应用日志">尚未读取应用日志。</pre>
+          </section>
+<section class="kd-panel settings-page" id="settings-page" data-page="settings" aria-labelledby="settings-title" hidden>
+  <div class="panel-header"><div><p class="kd-eyebrow">Preferences</p><h1 id="settings-title" tabindex="-1">设置</h1><p class="panel-subtitle">按功能管理配置。标有即时生效的选项会单独保存。</p></div></div>
+  <div class="settings-layout">
+    <nav class="settings-nav" aria-label="设置分类"><a class="settings-nav-link" href="#settings/overview" data-settings-link="overview">设置总览</a>
+<a class="settings-nav-link" href="#settings/general" data-settings-link="general">下载与速度</a>
+<a class="settings-nav-link" href="#settings/network" data-settings-link="network">网络与重试</a>
+<a class="settings-nav-link" href="#settings/files" data-settings-link="files">文件与过滤</a>
+<a class="settings-nav-link" href="#settings/application" data-settings-link="application">启动与运行</a>
+<a class="settings-nav-link" href="#settings/modules" data-settings-link="modules">解析模块</a>
+<a class="settings-nav-link" href="#settings/engine" data-settings-link="engine">内核与更新</a>
+<a class="settings-nav-link" href="#settings/security" data-settings-link="security">连接与认证</a>
+<a class="settings-nav-link" href="#settings/advanced" data-settings-link="advanced">高级参数</a>
+<a class="settings-nav-link" href="#settings/experimental" data-settings-link="experimental">实验功能</a></nav>
+    <form id="settings-form" novalidate>
+      <div class="settings-content">
+        <p class="hint" id="settings-load-status" role="status"></p>
+        <button class="kd-button secondary compact" id="settings-reload-btn" type="button" hidden>重试读取设置</button>
+        <section data-settings-page="overview" aria-label="设置总览"><div class="settings-overview"><a class="kd-panel settings-card" href="#settings/general"><span class="kd-eyebrow">01</span><strong>下载与速度</strong><span>保存位置、并发与速度限制</span><span class="settings-card-value" data-overview="general">打开设置 →</span></a>
+<a class="kd-panel settings-card" href="#settings/network"><span class="kd-eyebrow">02</span><strong>网络与重试</strong><span>代理、请求标识与重试策略</span><span class="settings-card-value" data-overview="network">打开设置 →</span></a>
+<a class="kd-panel settings-card" href="#settings/files"><span class="kd-eyebrow">03</span><strong>文件与过滤</strong><span>Dropbox 默认行为与文件处理</span><span class="settings-card-value" data-overview="files">打开设置 →</span></a>
+<a class="kd-panel settings-card" href="#settings/application"><span class="kd-eyebrow">04</span><strong>启动与运行</strong><span>开机启动与后台服务</span><span class="settings-card-value" data-overview="application">打开设置 →</span></a>
+<a class="kd-panel settings-card" href="#settings/modules"><span class="kd-eyebrow">05</span><strong>解析模块</strong><span>Dropbox 与 Google Drive</span><span class="settings-card-value" data-overview="modules">打开设置 →</span></a>
+<a class="kd-panel settings-card" href="#settings/engine"><span class="kd-eyebrow">06</span><strong>内核与更新</strong><span>下载内核、程序更新与诊断</span><span class="settings-card-value" data-overview="engine">打开设置 →</span></a>
+<a class="kd-panel settings-card" href="#settings/security"><span class="kd-eyebrow">07</span><strong>连接与认证</strong><span>API Key 与浏览器集成</span><span class="settings-card-value" data-overview="security">打开设置 →</span></a>
+<a class="kd-panel settings-card" href="#settings/advanced"><span class="kd-eyebrow">08</span><strong>高级参数</strong><span>额外 aria2 下载选项</span><span class="settings-card-value" data-overview="advanced">打开设置 →</span></a>
+<a class="kd-panel settings-card" href="#settings/experimental"><span class="kd-eyebrow">09</span><strong>实验功能</strong><span>Tracker 流量研究</span><span class="settings-card-value" data-overview="experimental">打开设置 →</span></a></div></section>
+        <section class="settings-section" data-settings-page="application" aria-labelledby="settings-application-title" hidden>
+          <div class="settings-section-heading"><h3 id="settings-application-title">启动与运行</h3><p>下载服务独立运行，关闭网页后仍会继续下载。</p></div>
+          <label class="setting-toggle" for="startup-enabled"><input id="startup-enabled" type="checkbox" disabled><span><strong>开机自动启动</strong><small>Windows 登录后在托盘运行，不自动打开网页。即时生效。</small></span></label>
+          <p class="hint" id="startup-status" role="status">正在读取启动设置…</p>
+          <button class="kd-button danger compact" id="exit-from-settings-btn" type="button">退出 TrueDown</button>
+          <div class="runtime-guide"><h3>独立运行下载服务</h3><p>使用命令行启动服务，也可随时打开同一个下载界面。</p><dl><dt><code>TrueDown serve</code></dt><dd>前台运行服务，不创建托盘或打开网页。</dd><dt><code>TrueDown ui</code></dt><dd>打开界面；已有服务时复用它。</dd><dt><code>TrueDown background</code></dt><dd>后台驻留，Windows 可通过托盘打开界面。</dd></dl></div>
+        </section>
+        <section data-settings-page="general" hidden class="settings-section" aria-labelledby="settings-general-title">
             <div class="settings-section-heading">
               <h3 id="settings-general-title">常规</h3>
               <p>保存位置、连接数与速度限制。</p>
@@ -177,8 +200,7 @@
               </div>
             </div>
           </section>
-
-          <section class="settings-section" aria-labelledby="settings-network-title">
+<section data-settings-page="network" hidden class="settings-section" aria-labelledby="settings-network-title">
             <div class="settings-section-heading">
               <h3 id="settings-network-title">网络与重试</h3>
               <p>为普通 HTTP(S) 下载提供常用网络选项。</p>
@@ -210,8 +232,7 @@
               </div>
             </div>
           </section>
-
-          <section class="settings-section" aria-labelledby="settings-file-title">
+<section data-settings-page="files" hidden class="settings-section" aria-labelledby="settings-file-title">
             <div class="settings-section-heading">
               <h3 id="settings-file-title">文件处理</h3>
               <p>控制文件预分配、完整性校验、远程时间与目录过滤。</p>
@@ -266,16 +287,14 @@
               <p class="hint">不区分大小写，仅在 Dropbox 目录展开且该次选择过滤时生效。</p>
             </div>
           </section>
-
-		  <section class="settings-section" aria-labelledby="settings-modules-title">
+<section data-settings-page="modules" hidden class="settings-section" aria-labelledby="settings-modules-title">
 			<div class="settings-section-heading">
 			  <h3 id="settings-modules-title">解析模块</h3>
 			  <p>每个模块都有随程序内置的安全基线；可单独导入声明式更新包并立即热重载，失败时自动保留基线。</p>
 			</div>
 			<div class="module-list" id="module-list" aria-live="polite"></div>
 		  </section>
-
-          <section class="settings-section" aria-labelledby="settings-update-title">
+<section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-update-title">
             <div class="settings-section-heading">
               <h3 id="settings-update-title">程序与下载内核</h3>
               <p>TrueDown 可以自动更新自身；安装包始终保留内置稳定版 aria2，Aria2 Next 只在你手动操作时下载或更新。</p>
@@ -317,8 +336,7 @@
               </article>
             </div>
           </section>
-
-          <section class="settings-section" aria-labelledby="settings-bt-diagnostics-title">
+<section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-bt-diagnostics-title">
             <div class="settings-section-heading">
               <h3 id="settings-bt-diagnostics-title">BitTorrent 身份与诊断</h3>
               <p>显示 tracker 实际看到的内核身份，并说明零速诊断日志的位置。</p>
@@ -327,24 +345,7 @@
             <p class="hint">Aria2 Next 2.6.5 及以上会把脱敏的 libtorrent debug 日志轮转写入数据目录下的 <code>aria2.log</code>（单文件 10 MiB、最多 4 个）；更早内核写入精简的控制台日志。任务进度会同时显示 peer、seeder、tracker、连接候选和可用性。</p>
             <p class="hint">Motrix Next 嵌入的是同一个 Aria2 Next 内核；qBittorrent 与 Deluge 也使用 libtorrent-rasterbar，但版本、peer fingerprint 和握手身份各自独立。只改普通 HTTP User-Agent 不能把 Aria2 Next 变成这些客户端，反而会产生不一致标识。</p>
           </section>
-
-          <section class="settings-section application-log-section" aria-labelledby="settings-application-log-title">
-            <div class="settings-section-heading">
-              <h3 id="settings-application-log-title">TrueDown 应用日志</h3>
-              <p>显示服务启动、平台生命周期、更新和下载内核管理事件。日志在后端有界轮转，网页一次最多读取最新 256 KiB。</p>
-            </div>
-            <div class="application-log-toolbar">
-              <p class="hint" id="application-log-status" aria-live="polite">打开设置时读取最新日志。</p>
-              <div class="application-log-actions">
-                <button class="kd-button secondary compact" id="refresh-application-log-btn" type="button">刷新日志</button>
-                <button class="kd-button secondary compact" id="copy-application-log-btn" type="button" disabled>复制日志</button>
-                <button class="kd-button danger compact" id="exit-truedown-btn" type="button">退出 TrueDown</button>
-              </div>
-            </div>
-            <pre class="application-log-output" id="application-log-output" tabindex="0" aria-label="TrueDown 最新应用日志">正在读取应用日志…</pre>
-          </section>
-
-          <section class="settings-section tracker-research-section" aria-labelledby="settings-tracker-research-title">
+<section data-settings-page="experimental" hidden class="settings-section tracker-research-section" aria-labelledby="settings-tracker-research-title">
             <div class="settings-section-heading">
               <h3 id="settings-tracker-research-title">Tracker 流量研究（实验性）</h3>
               <p>使用 TrueDown 内置的本地 relay 和 Aria2 Next RPC 复刻 RatioGhost 上报模型，不修改 aria2-next 源码。</p>
@@ -405,8 +406,7 @@
             <p class="hint tracker-research-status" id="tracker-research-status" aria-live="polite">正在读取模块状态…</p>
             <p class="hint">仅改写 HTTP/HTTPS tracker；UDP tracker 保持原样。HTTPS 由 relay 作为普通客户端连接上游，不进行中间人解密，也不安装自定义证书。模块更新跟随 TrueDown。</p>
           </section>
-
-          <section class="settings-section" aria-labelledby="settings-advanced-title">
+<section data-settings-page="advanced" hidden class="settings-section" aria-labelledby="settings-advanced-title">
             <div class="settings-section-heading">
               <h3 id="settings-advanced-title">高级</h3>
               <p>每行一个 aria2 flag，受 TrueDown 安全边界限制。</p>
@@ -416,8 +416,7 @@
               <textarea class="kd-input" id="cfg-extra" rows="4" placeholder="--min-split-size=1M"></textarea>
             </div>
           </section>
-
-          <section class="settings-section token-card" aria-labelledby="settings-security-title">
+<section data-settings-page="security" hidden class="settings-section token-card" aria-labelledby="settings-security-title">
             <div class="settings-section-heading">
               <h3 id="settings-security-title">API Key 认证</h3>
               <p>浏览器集成和远程仪表盘共用此认证。</p>
@@ -429,19 +428,17 @@
             <p class="hint" id="token-auth-status" aria-live="polite">正在读取认证设置…</p>
             <button class="kd-button secondary" id="copy-api-token-btn" type="button" disabled>复制 API Key</button>
           </section>
-        </div>
-
-        <div class="modal-footer">
-          <button class="kd-button secondary" id="settings-reset-btn" type="button">恢复默认</button>
-          <div class="modal-actions">
-            <button class="kd-button secondary" id="settings-cancel-btn" type="button">取消</button>
-            <button class="kd-button primary" type="submit">保存设置</button>
-          </div>
-        </div>
-      </form>
-    </section>
+      </div>
+      <div class="settings-footer" id="settings-footer" hidden>
+        <p class="hint" id="settings-save-status" role="status">保存当前分类的设置。</p>
+        <div class="modal-actions"><button class="kd-button secondary" id="settings-reset-btn" type="button">恢复本页默认</button><button class="kd-button primary" id="settings-save-btn" type="submit">保存本页</button></div>
+      </div>
+    </form>
   </div>
-
+</section>
+      </main>
+    </div>
+  </div>
   <div class="overlay" id="overlay" aria-hidden="true" tabindex="-1" inert>
     <section class="kd-panel modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <form id="download-form">

@@ -101,7 +101,9 @@ body {
   overflow: hidden;
   background: var(--kd-bg);
   color: var(--kd-text);
-  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -212,6 +214,10 @@ input[type="checkbox"]:focus-visible,
 .text-button:focus-visible,
 .task-link:focus-visible,
 .sort-button:focus-visible,
+.primary-nav a:focus-visible,
+.settings-nav-link:focus-visible,
+.settings-card:focus-visible,
+.brand:focus-visible,
 .advanced-options summary:focus-visible {
   outline: 2px solid var(--kd-focus);
   outline-offset: 2px;

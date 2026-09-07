@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { dashboardSource as source } from "./helpers/truedownSource.mjs";
 import test from "node:test";
 import vm from "node:vm";
 
-const source = (await readFile(new URL("../truedown/web/app.js", import.meta.url), "utf8")).replace(/\r\n?/g, "\n");
 function declaration(name) {
   const match = source.match(new RegExp(`(?:async )?function ${name}\\([^]*?\\n\\}`));
   assert.ok(match, name);
@@ -106,7 +105,7 @@ test("modal keyboard navigation recovers focus that starts outside the active di
   const closedOverlay = { classList: { contains: () => false } };
   const overlay = { classList: { contains: () => true }, querySelectorAll: () => [first, last] };
   const context = vm.createContext({
-    els: { dialogOverlay: closedOverlay, settingsOverlay: overlay, overlay: closedOverlay },
+    els: { dialogOverlay: closedOverlay, settingsOverlay: closedOverlay, overlay },
     document: { activeElement: {} },
     event: { key: "Tab", shiftKey: true, preventDefault() { prevented = true; } },
   });
@@ -126,7 +125,7 @@ test("busy modal keyboard navigation keeps focus on the overlay while its form i
     focus() { focused = true; },
   };
   const context = vm.createContext({
-    els: { dialogOverlay: closedOverlay, settingsOverlay: overlay, overlay: closedOverlay },
+    els: { dialogOverlay: closedOverlay, settingsOverlay: closedOverlay, overlay },
     event: { key: "Tab", preventDefault() { prevented = true; } },
   });
   vm.runInContext(declaration("onDocumentKeydown"), context);
@@ -141,8 +140,8 @@ test("closing a nested dialog preserves the scroll lock of an underlying modal",
   const closedOverlay = { classList: { contains: () => false } };
   const context = vm.createContext({
     els: {
-      dialogOverlay: closedOverlay, overlay: closedOverlay,
-      settingsOverlay: { classList: { contains: () => settingsOpen } },
+      dialogOverlay: closedOverlay, settingsOverlay: closedOverlay,
+      overlay: { classList: { contains: () => settingsOpen } },
     },
     document: { body: { classList: { toggle(name, active) { assert.equal(name, "modal-open"); locked = active; } } } },
   });
@@ -154,39 +153,38 @@ test("closing a nested dialog preserves the scroll lock of an underlying modal",
   assert.equal(locked, false);
 });
 
-test("opening settings coalesces clicks and waits for failed refresh siblings before exposing editable controls", async () => {
-  const button = control();
-  const requests = [];
-  let opened = 0;
+test("settings navigation stays immediate and a late category read never overwrites another page", async () => {
+  let complete;
+  let loads = 0;
   let rendered = 0;
+  const panels = { general: { inert: false }, network: { inert: false } };
+  const fields = Object.fromEntries(["settingsFooter", "settingsSaveStatus", "settingsReloadBtn", "settingsSaveBtn", "settingsResetBtn", "settingsLoadStatus"].map((name) => [name, control()]));
   const context = vm.createContext({
-    els: {
-      settingsBtn: button, settingsForm: { inert: false }, cfgFolder: { focus() {} },
-      settingsOverlay: { classList: { contains: () => opened > 0, add() { opened++; } }, setAttribute() {}, removeAttribute() {} },
-    },
-    KDComponents: busyComponents,
-    document: { body: { classList: { add() {} } } },
-    renderDownloadSettings() { rendered++; }, renderResolverModules() {}, showToast() {},
+    els: fields, currentPage: "settings", currentSettingsPage: "general", routeEpoch: 1,
+    settingsLoads: new Map(), settingsReady: new Set(), settingsMessages: new Map(),
+    EDITABLE_SETTINGS_PAGES: new Set(["general", "network"]),
+    document: { querySelectorAll: () => [] },
+    settingsPanels: (page) => [panels[page]],
+    loadServerRuntimeSettings: () => { loads++; return new Promise((resolve) => { complete = resolve; }); },
+    loadServerDownloadRules() {}, loadSettingsOverview() {}, loadStartupSettings() {},
+    loadResolverModules() {}, loadAuthSettings() {}, loadTrackerResearchSettings() {},
+    renderSettingsCategory() { rendered++; }, renderSettingsOverview() {},
   });
-  for (const name of ["loadServerDownloadRules", "loadServerRuntimeSettings", "loadTrackerResearchSettings",
-    "loadResolverModules", "loadSystemUpdateState", "loadApplicationLog"]) {
-    context[name] = () => new Promise((resolve, reject) => requests.push({ resolve, reject }));
-  }
-  vm.runInContext(declaration("openSettingsModal"), context);
-  const pending = context.openSettingsModal();
-  await context.openSettingsModal();
-  assert.equal(requests.length, 6);
-  requests[0].reject(new Error("unavailable"));
+  vm.runInContext(declaration("loadSettingsPage"), context);
+  const first = context.loadSettingsPage();
+  const second = context.loadSettingsPage();
   await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(opened, 0);
-  assert.equal(button.getAttribute("aria-busy"), "true");
-  requests.slice(1).forEach(({ resolve }) => resolve({}));
-  await pending;
-  assert.equal(opened, 1);
+  assert.equal(loads, 1);
+  assert.equal(panels.general.inert, true);
+  context.currentSettingsPage = "network";
+  context.routeEpoch++;
+  await context.loadSettingsPage();
   assert.equal(rendered, 1);
-  await context.openSettingsModal();
-  assert.equal(requests.length, 6);
+  assert.equal(panels.network.inert, false);
+  complete();
+  await Promise.all([first, second]);
+  assert.equal(rendered, 1, "late runtime settings must not reset a network draft");
+  assert.equal(context.settingsReady.has("general"), true);
 });
 
 test("single-task removal preserves selection on failure and clears it before a successful refresh", async () => {
@@ -241,12 +239,51 @@ test("a changed task page preserves keyboard focus on the same row control", () 
   const replacement = { dataset: { selectTask: "" }, closest: () => row, focus() { restored = true; } };
   const context = vm.createContext({
     document: { activeElement: original },
-    els: { tasksContainer: { contains: (element) => element === original, querySelectorAll: () => [replacement] } },
+    els: { tasksContainer: { contains: (element) => element === original, querySelectorAll: () => [replacement], querySelector: () => ({ dataset: { sort: "status:asc" }, querySelector: () => ({}) }) } },
     currentTasks: [], selectedTaskIDs: new Set(), taskStatusByID: new Map(),
     currentOffset: 0, currentFilter: "all", currentSearch: "", currentSort: "status", currentSortOrder: "asc",
     lastTaskRenderSignature: "", syncSelectionControls() {}, taskRow: () => "", sortableHeading: () => "",
+    reconcileTaskRows() { context.document.activeElement = null; },
   });
   vm.runInContext(["renderTasks", "taskControlKey"].map(declaration).join("\n"), context);
   context.renderTasks([{ id: 7, status: "downloading", progress: "25%" }]);
   assert.equal(restored, true);
+});
+
+test("progress polling retains every row control and changes only its progress label", () => {
+  const task = { id: 7, status: "downloading", name: "file.zip", progress: "25%" };
+  const progress = { textContent: "20%", title: "20%" };
+  const ordinal = { textContent: "1" };
+  const checkbox = { checked: true };
+  const row = {
+    dataset: { taskId: "7" },
+    taskShape: JSON.stringify([task.status, task.outputName, task.name, task.folder, task.link, task.error]),
+    querySelector: (query) => query === ".progress-line" ? progress : query === ".task-index" ? ordinal : checkbox,
+  };
+  const body = { children: [row], insertBefore() { assert.fail("unchanged rows must not be moved"); } };
+  const context = vm.createContext({
+    document: { createElement() { assert.fail("progress-only refresh must not parse replacement HTML"); } },
+    currentOffset: 0, selectedTaskIDs: new Set([7]),
+  });
+  vm.runInContext(declaration("reconcileTaskRows"), context);
+  context.reconcileTaskRows(body, [task]);
+  assert.equal(body.children[0], row);
+  assert.equal(progress.textContent, "25%");
+  assert.equal(progress.title, "25%");
+  assert.equal(checkbox.checked, true);
+});
+
+test("a settings read started before a mutation cannot overwrite its persisted result", async () => {
+  let complete;
+  let value = "saved";
+  const context = vm.createContext({
+    settingReadVersions: new Map(), settingReadRequests: new Map(), settingSnapshotsKnown: new Set(),
+    requestJSON: () => new Promise((resolve) => { complete = resolve; }),
+  });
+  vm.runInContext(["invalidateSettingRead", "readSettingSnapshot"].map(declaration).join("\n"), context);
+  const pending = context.readSettingSnapshot("runtime", "/settings/runtime", (next) => { value = next; });
+  context.invalidateSettingRead("runtime");
+  complete("stale");
+  await pending;
+  assert.equal(value, "saved");
 });

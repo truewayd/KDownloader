@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { dashboardSource } from "./helpers/truedownSource.mjs";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
@@ -27,7 +28,7 @@ const [
   read("content/flag/index.js"),
   read("popup/popup.js"),
   read("background/handlers/dbHandlers.js"),
-  read("truedown/web/app.js"),
+  Promise.resolve(dashboardSource),
   read("settings.js"),
 ]);
 
@@ -282,6 +283,7 @@ function createTaskPageHarness(fetchPage) {
   const rendered = [];
   const context = vm.createContext({
     apiFetch: fetchPage,
+    currentPage: "tasks", routeEpoch: 1, document: { hidden: false },
     console: { error() {} },
     URLSearchParams,
     renderTasks: (tasks) => rendered.push(tasks),
@@ -309,6 +311,24 @@ function taskPage(id, total = 300) {
     json: async () => ({ tasks: [{ id }], total, summary: { total } }),
   };
 }
+
+test("TrueDown discards a task response after leaving the task page and does not poll hidden views", async () => {
+  let complete;
+  let requests = 0;
+  const harness = createTaskPageHarness(() => { requests++; return new Promise((resolve) => { complete = resolve; }); });
+  const pending = vm.runInContext("loadTasks()", harness.context);
+  harness.context.currentPage = "logs";
+  harness.context.routeEpoch++;
+  complete(taskPage(1));
+  await pending;
+  assert.equal(harness.rendered.length, 0);
+  await vm.runInContext("loadTasks()", harness.context);
+  assert.equal(requests, 1);
+  harness.context.currentPage = "tasks";
+  harness.context.document.hidden = true;
+  await vm.runInContext("loadTasks()", harness.context);
+  assert.equal(requests, 1);
+});
 
 test("TrueDown fetches a body when navigating back to a page whose validator was cached", async () => {
   const calls = [];
@@ -474,53 +494,40 @@ test("Watch import waits for the shared confirmation and cancel preserves the cu
   assert.equal(reloaded, 1);
 });
 
-test("TrueDown settings exclude duplicate submissions and wait for every write after failure", async () => {
-  const controls = new Map();
-  const saveButton = testButton();
+test("TrueDown saves only the current category, excludes duplicates, and retains server success after local failure", async () => {
+  const fields = new Map();
   const els = new Proxy({}, { get(_target, key) {
-    if (!controls.has(key)) controls.set(key, { value: '', checked: false, inert: false, querySelector: () => saveButton });
-    return controls.get(key);
+    if (!fields.has(key)) fields.set(key, { value: "", checked: false, inert: false, textContent: "" });
+    return fields.get(key);
   } });
-  const pendingWrites = [];
+  els.settingsSaveBtn = testButton();
+  const writes = [];
   const messages = [];
+  let complete;
   const context = vm.createContext({
-    els,
-    document: { querySelectorAll: () => [] },
-    MAX_SPEED_BPS: 2 ** 50,
-    DEFAULT_DOWNLOAD_SETTINGS: { connections: 16, maxTries: 5, retryWait: 3 },
-    DEFAULT_RUNTIME_SETTINGS: { concurrentDownloads: 3 },
-    parseHeaders() {},
-    optionalInt: () => 0,
-    optionalIntAllowZero: (_name, fallback) => fallback,
-    readTrackerResearchForm: () => ({ enabled: false }),
-    downloadRules: { enabled: false },
-    runtimeSettings: { concurrentDownloads: 3 },
-    trackerResearchSettings: { enabled: false },
-    normalizeServerDownloadRules: (value) => value,
+    els, document: {}, currentPage: "settings", currentSettingsPage: "general",
+    settingsReady: new Set(["general"]), settingsMessages: new Map(),
+    EDITABLE_SETTINGS_PAGES: new Set(["general"]), settingsPanels: () => [],
+    downloadSettings: { connections: 16 }, DEFAULT_DOWNLOAD_SETTINGS: { connections: 16 },
+    optionalInt: () => 4, validateSettingsSpeed() {}, renderSettingsCategory() {}, renderSettingsOverview() {}, invalidateSettingRead() {},
+    displaySpeed: () => ({ value: 0, unit: 1048576 }),
     normalizeServerRuntimeSettings: (value) => value,
-    normalizeTrackerResearchSettings: (value) => value,
-    requestJSON: () => new Promise((resolve, reject) => pendingWrites.push({ resolve, reject })),
+    requestJSON: (url) => { writes.push(url); return new Promise((resolve) => { complete = resolve; }); },
+    localStorage: { setItem() { throw new Error("disk full"); } }, DOWNLOAD_DEFAULTS_KEY: "defaults",
     showToast(message) { messages.push(message); },
     KDComponents: { setBusyState: (button, busy) => { button.disabled = busy; } },
   });
-  vm.runInContext(declaration(trueDownSource, 'saveDownloadSettings'), context);
-  const first = context.saveDownloadSettings({ preventDefault() {} });
+  vm.runInContext(declaration(trueDownSource, "saveDownloadSettings"), context);
+  const pending = context.saveDownloadSettings({ preventDefault() {} });
   await context.saveDownloadSettings({ preventDefault() {} });
-  assert.equal(pendingWrites.length, 3);
+  assert.deepEqual(writes, ["/settings/runtime"]);
   assert.equal(els.settingsForm.inert, true);
-  pendingWrites[0].reject(new Error('backend rejected setting'));
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(els.settingsForm.inert, true, 'another submission must not race remaining writes');
-  pendingWrites[1].resolve({ concurrentDownloads: 8 });
-  pendingWrites[2].resolve({ enabled: false, minimumLeechers: 7 });
-  await first;
+  complete({ concurrentDownloads: 8, globalDownloadLimitBps: 0 });
+  await pending;
   assert.equal(els.settingsForm.inert, false);
-  assert.equal(saveButton.disabled, false);
   assert.equal(context.runtimeSettings.concurrentDownloads, 8);
-  assert.equal(context.trackerResearchSettings.minimumLeechers, 7);
-  assert.equal(context.downloadRules.enabled, false);
-  assert.match(messages.at(-1), /部分服务端设置已保存/);
+  assert.match(messages.at(-1), /服务端设置已保存/);
+  assert.match(els.settingsSaveStatus.textContent, /disk full/);
 });
 
 test("Pawchive UI shares the default history source while preserving history-state rendering", () => {

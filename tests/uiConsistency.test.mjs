@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { dashboardSource } from "./helpers/truedownSource.mjs";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
@@ -54,7 +55,7 @@ const [
   read("truedown/web/index.html"),
   read("truedown/web/styles.css"),
   read("truedown/web/components.js"),
-  read("truedown/web/app.js"),
+  Promise.resolve(dashboardSource),
   read("icons/kdownloader-logo.svg"),
   read("truedown/web/truedown-logo.svg"),
 ]);
@@ -607,7 +608,7 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownHtml, /id="select-next-engine-btn"/);
   assert.match(trueDownHtml, /id="application-log-output"[^>]+tabindex="0"/);
   assert.match(trueDownHtml, /id="exit-truedown-btn"/);
-  assert.match(trueDownHtml, /关闭此网页不会中断下载/);
+  assert.match(trueDownHtml, /关闭网页后仍会继续下载/);
   assert.match(trueDownApp, /requestJSON\("\/system\/update\/check"/);
   assert.match(trueDownApp, /requestJSON\("\/system\/engine\/next"/);
   assert.match(trueDownApp, /requestJSON\("\/system\/engine\/select"/);
