@@ -1,14 +1,14 @@
 async function requestText(url, options) {
   const response = await apiFetch(url, options);
   const text = await response.text();
-  if (!response.ok) throw new Error(text.trim() || response.statusText);
+  if (!response.ok) throw Object.assign(new Error(text.trim() || response.statusText), { status: response.status });
   return text;
 }
 
 async function requestJSON(url, options) {
   const response = await apiFetch(url, options);
   const text = await response.text();
-  if (!response.ok) throw new Error(text.trim() || response.statusText);
+  if (!response.ok) throw Object.assign(new Error(text.trim() || response.statusText), { status: response.status });
   try {
     return text ? JSON.parse(text) : {};
   } catch {

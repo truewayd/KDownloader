@@ -7,6 +7,8 @@ const settingReadVersions = new Map();
 const settingReadRequests = new Map();
 const settingSnapshotsKnown = new Set();
 let startupSettings = null;
+let taskDefaultsRevision = 0;
+let taskDefaultsLoad = null;
 
 function invalidateSettingRead(key) {
   const revision = (settingReadVersions.get(key) || 0) + 1;
@@ -80,9 +82,11 @@ async function loadSettingsPage(retry = false) {
     if (!settingsLoads.has(page)) {
       const loaders = {
         overview: loadSettingsOverview,
-        general: loadServerRuntimeSettings,
-        files: loadServerDownloadRules,
-        application: loadStartupSettings,
+        general: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings()]),
+        network: loadServerTaskDefaults,
+        files: () => Promise.all([loadServerTaskDefaults(), loadServerDownloadRules()]),
+        advanced: loadServerTaskDefaults,
+        application: () => Promise.all([loadStartupSettings(), loadStorageLocation()]),
         modules: loadResolverModules,
         engine: () => Promise.all([loadSystemUpdateState(), loadTrackerResearchSettings()]),
         security: loadAuthSettings,
@@ -134,6 +138,19 @@ async function loadStartupSettings() {
     startupSettings = value;
     renderStartupSettings();
   });
+}
+
+async function loadStorageLocation() {
+  const element = document.getElementById("storage-location");
+  try {
+    const location = await requestJSON("/system/storage");
+    element.textContent = location.source === "legacy"
+      ? `当前使用旧版便携目录：${location.dataDirectory}`
+      : `数据目录：${location.dataDirectory}`;
+  } catch (error) {
+    element.textContent = `读取数据目录失败：${error.message}`;
+    throw error;
+  }
 }
 
 function renderStartupSettings() {
@@ -251,8 +268,19 @@ async function saveDownloadSettings(event) {
       serverSaved = true;
     }
     if (page !== "experimental") {
-      localStorage.setItem(DOWNLOAD_DEFAULTS_KEY, JSON.stringify(next));
-      downloadSettings = next;
+      try {
+        const saved = await requestJSON("/settings/task-defaults", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revision: taskDefaultsRevision, values: next }),
+        });
+        applyTaskDefaults(saved);
+      } catch (error) {
+        if (error.status === 409) {
+          await loadServerTaskDefaults();
+          throw new Error("其他窗口已修改默认值，已读取最新设置；本页草稿保留，请检查后重新保存。");
+        }
+        throw error;
+      }
     }
     settingsMessages.set(page, "本页设置已保存。");
     if (currentPage === "settings" && currentSettingsPage === page) {
@@ -263,7 +291,7 @@ async function saveDownloadSettings(event) {
     renderSettingsOverview();
     showToast("本页设置已保存。");
   } catch (error) {
-    const message = `${serverSaved ? "服务端设置已保存，本机默认值保存失败" : "本页设置未保存"}：${error.message}`;
+    const message = `${serverSaved ? "运行或规则设置已保存，任务默认值保存失败" : "本页设置未保存"}：${error.message}`;
     settingsMessages.set(page, message);
     if (currentPage === "settings" && currentSettingsPage === page) els.settingsSaveStatus.textContent = message;
     showToast(message, "error");
@@ -290,6 +318,42 @@ function resetDownloadSettings() {
     supportKnown: trackerResearchSettings.supportKnown, supported: trackerResearchSettings.supported,
   });
   els.settingsSaveStatus.textContent = "本页已恢复默认值，保存后生效。";
+}
+
+function applyTaskDefaults(state) {
+  if (!Number.isSafeInteger(state?.revision) || state.revision < 0 || !state.values || typeof state.values !== "object") {
+    throw new Error("服务端返回了无效的下载默认值");
+  }
+  if (state.revision < taskDefaultsRevision) return;
+  taskDefaultsRevision = state.revision;
+  downloadSettings = { ...DEFAULT_DOWNLOAD_SETTINGS, ...state.values };
+}
+
+async function loadServerTaskDefaults() {
+  if (taskDefaultsLoad) return taskDefaultsLoad;
+  taskDefaultsLoad = (async () => {
+    let state = await requestJSON("/settings/task-defaults");
+    let legacy = null;
+    try { legacy = localStorage.getItem(DOWNLOAD_DEFAULTS_KEY); } catch { /* Storage may be unavailable. */ }
+    if (state.revision === 0 && legacy) {
+      try {
+        state = await requestJSON("/settings/task-defaults", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revision: 0, values: loadDownloadSettings() }),
+        });
+      } catch (error) {
+        if (error.status !== 409) throw error;
+        state = await requestJSON("/settings/task-defaults");
+      }
+    }
+    applyTaskDefaults(state);
+    // Keep legacy preferences on a failed import. Clear only after a successful
+    // server read/import so another browser cannot overwrite this profile.
+    if (legacy && state.revision > 0) {
+      try { localStorage.removeItem(DOWNLOAD_DEFAULTS_KEY); } catch { /* Server state is authoritative. */ }
+    }
+  })().finally(() => { taskDefaultsLoad = null; });
+  return taskDefaultsLoad;
 }
 
 function loadDownloadSettings() {

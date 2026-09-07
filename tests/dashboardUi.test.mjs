@@ -166,7 +166,7 @@ test("settings navigation stays immediate and a late category read never overwri
     document: { querySelectorAll: () => [] },
     settingsPanels: (page) => [panels[page]],
     loadServerRuntimeSettings: () => { loads++; return new Promise((resolve) => { complete = resolve; }); },
-    loadServerDownloadRules() {}, loadSettingsOverview() {}, loadStartupSettings() {},
+    loadServerTaskDefaults() {}, loadServerDownloadRules() {}, loadSettingsOverview() {}, loadStartupSettings() {},
     loadResolverModules() {}, loadAuthSettings() {}, loadTrackerResearchSettings() {},
     renderSettingsCategory() { rendered++; }, renderSettingsOverview() {},
   });
@@ -286,4 +286,44 @@ test("a settings read started before a mutation cannot overwrite its persisted r
   complete("stale");
   await pending;
   assert.equal(value, "saved");
+});
+test("legacy defaults import never overwrites an already configured profile", async () => {
+  let reads = 0, writes = 0, removed = false;
+  const context = vm.createContext({
+    DEFAULT_DOWNLOAD_SETTINGS: { connections: 16 }, taskDefaultsRevision: 0, taskDefaultsLoad: null,
+    DOWNLOAD_DEFAULTS_KEY: "legacy", downloadSettings: {},
+    localStorage: { getItem: () => '{"connections":8}', removeItem: () => { removed = true; } },
+    loadDownloadSettings: () => ({ connections: 8 }),
+    requestJSON: async (_path, options) => {
+      if (options?.method === "POST") { writes++; throw Object.assign(new Error("conflict"), { status: 409 }); }
+      reads++;
+      return reads === 1 ? { revision: 0, values: { connections: 16 } } : { revision: 2, values: { connections: 4 } };
+    },
+  });
+  vm.runInContext(["applyTaskDefaults", "loadServerTaskDefaults"].map(declaration).join("\n"), context);
+  await Promise.all([context.loadServerTaskDefaults(), context.loadServerTaskDefaults()]);
+  assert.equal(writes, 1);
+  assert.equal(reads, 2);
+  assert.equal(context.downloadSettings.connections, 4);
+  assert.equal(removed, true);
+  context.applyTaskDefaults({ revision: 1, values: { connections: 32 } });
+  assert.equal(context.downloadSettings.connections, 4, "late reads must not regress persisted preferences");
+});
+
+test("failed legacy preferences import retains local data for retry", async () => {
+  let removed = false;
+  const context = vm.createContext({
+    DEFAULT_DOWNLOAD_SETTINGS: {}, taskDefaultsRevision: 0, taskDefaultsLoad: null,
+    DOWNLOAD_DEFAULTS_KEY: "legacy", downloadSettings: {},
+    localStorage: { getItem: () => '{}', removeItem: () => { removed = true; } },
+    loadDownloadSettings: () => ({}),
+    requestJSON: async (_path, options) => {
+      if (options?.method === "POST") throw new Error("disk full");
+      return { revision: 0, values: {} };
+    },
+  });
+  vm.runInContext(["applyTaskDefaults", "loadServerTaskDefaults"].map(declaration).join("\n"), context);
+  await assert.rejects(context.loadServerTaskDefaults(), /disk full/);
+  assert.equal(removed, false);
+  assert.equal(context.taskDefaultsLoad, null);
 });

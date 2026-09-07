@@ -383,7 +383,7 @@ async function openModal(mode = "single") {
   KDComponents.setBusyState(els.newTaskBtn, true);
   KDComponents.setBusyState(els.batchTaskBtn, true);
   try {
-    await Promise.all([loadServerDownloadRules(), loadResolverModules()]);
+    await Promise.all([loadServerTaskDefaults(), loadServerDownloadRules(), loadResolverModules()]);
   } catch (error) {
     showToast(`读取新任务默认值失败：${error.message}`, "error");
     return;

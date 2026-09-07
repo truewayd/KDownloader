@@ -494,7 +494,7 @@ test("Watch import waits for the shared confirmation and cancel preserves the cu
   assert.equal(reloaded, 1);
 });
 
-test("TrueDown saves only the current category, excludes duplicates, and retains server success after local failure", async () => {
+test("TrueDown saves only the current category, excludes duplicates, and retains runtime success after defaults persistence failure", async () => {
   const fields = new Map();
   const els = new Proxy({}, { get(_target, key) {
     if (!fields.has(key)) fields.set(key, { value: "", checked: false, inert: false, textContent: "" });
@@ -512,8 +512,12 @@ test("TrueDown saves only the current category, excludes duplicates, and retains
     optionalInt: () => 4, validateSettingsSpeed() {}, renderSettingsCategory() {}, renderSettingsOverview() {}, invalidateSettingRead() {},
     displaySpeed: () => ({ value: 0, unit: 1048576 }),
     normalizeServerRuntimeSettings: (value) => value,
-    requestJSON: (url) => { writes.push(url); return new Promise((resolve) => { complete = resolve; }); },
-    localStorage: { setItem() { throw new Error("disk full"); } }, DOWNLOAD_DEFAULTS_KEY: "defaults",
+    requestJSON: (url) => {
+      writes.push(url);
+      if (url === "/settings/task-defaults") return Promise.reject(new Error("disk full"));
+      return new Promise((resolve) => { complete = resolve; });
+    },
+    taskDefaultsRevision: 1,
     showToast(message) { messages.push(message); },
     KDComponents: { setBusyState: (button, busy) => { button.disabled = busy; } },
   });
@@ -526,7 +530,8 @@ test("TrueDown saves only the current category, excludes duplicates, and retains
   await pending;
   assert.equal(els.settingsForm.inert, false);
   assert.equal(context.runtimeSettings.concurrentDownloads, 8);
-  assert.match(messages.at(-1), /服务端设置已保存/);
+  assert.deepEqual(writes, ["/settings/runtime", "/settings/task-defaults"]);
+  assert.match(messages.at(-1), /运行或规则设置已保存/);
   assert.match(els.settingsSaveStatus.textContent, /disk full/);
 });
 
