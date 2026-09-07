@@ -1,5 +1,5 @@
 $ErrorActionPreference = "Stop"
-# Development packages only. The legacy release updater does not own these binaries.
+# Independent development core/CLI package. Application updates belong to its owner.
 $projectRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot ".."))
 $outputRoot = Join-Path $projectRoot "dist/core"

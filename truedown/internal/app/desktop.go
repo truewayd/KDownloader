@@ -33,8 +33,6 @@ func RunDesktop(ctx context.Context, options Options, input io.ReadCloser, outpu
 	defer cancel()
 	serveDone := make(chan error, 1)
 	started := false
-	options.Mode = "serve"
-	options.LegacyUpdates = false
 	options.desktop = &desktopCallbacks{
 		ready: func(handler http.Handler) {
 			started = true

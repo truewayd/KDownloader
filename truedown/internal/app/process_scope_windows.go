@@ -19,7 +19,7 @@ var coreScope struct {
 // Only this process holds the noninheritable job handle. Process death closes
 // it in the kernel, including forced termination, with no spawn/assignment race.
 // Keep it until process exit: closing it explicitly would terminate this core.
-// Legacy update helpers run outside this console entry point.
+// Native update helpers are dispatched before this scope is established.
 func protectCoreProcess() error {
 	coreScope.once.Do(func() {
 		job, err := windows.CreateJobObject(nil, nil)

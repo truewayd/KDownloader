@@ -2,14 +2,14 @@
 set -euo pipefail
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo "usage: smoke-linux.sh /path/to/TrueDown [port]" >&2
+  echo "usage: smoke-linux.sh /path/to/truedown-core [port]" >&2
   exit 2
 fi
 
 source_bin=$(readlink -f "$1")
 port=${2:-15265}
 if [[ ! -f "$source_bin" ]]; then
-  echo "TrueDown Linux binary is missing: $source_bin" >&2
+  echo "TrueDown Linux core is missing: $source_bin" >&2
   exit 2
 fi
 if ! command -v aria2c >/dev/null || ! command -v curl >/dev/null; then

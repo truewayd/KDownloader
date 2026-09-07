@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -26,7 +25,6 @@ import (
 	"truedown/internal/profile"
 	"truedown/internal/protocol"
 	"truedown/internal/safefile"
-	"truedown/internal/startup"
 	"truedown/internal/systemupdate"
 	"truedown/web"
 )
@@ -50,28 +48,19 @@ type BuildInfo struct {
 
 // Options controls the shared service independently of any executable entry point.
 type Options struct {
-	Mode         string
-	DataDir      string
-	Build        BuildInfo
-	RelaunchArgs []string
-	// Only the legacy executable can use the updater that replaces TrueDown.exe.
-	LegacyUpdates     bool
+	DataDir           string
+	Build             BuildInfo
+	RelaunchArgs      []string
 	DesktopAttachOnly bool
 	desktop           *desktopCallbacks
 }
 
 // Run owns one profile's service until cancellation or an explicit exit request.
 // Run does not terminate the calling process. It must not run concurrently in
-// one process because application logging and native tray state are process-wide.
+// one process because application logging is process-wide.
 func Run(ctx context.Context, options Options) (resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return err
-	}
-	if options.Mode == "" {
-		options.Mode = "serve"
-	}
-	if options.Mode != "serve" && options.Mode != "ui" && options.Mode != "background" {
-		return fmt.Errorf("unsupported launch mode %q", options.Mode)
 	}
 	if options.Build.Version == "" {
 		options.Build.Version = "dev"
@@ -110,14 +99,6 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 				return err
 			}
 			return options.desktop.attach(browserURLForAddress(addr, tlsEnabled), location)
-		}
-		if options.Mode == "ui" && os.Getenv("TRUEDOWN_NO_BROWSER") == "" {
-			tlsEnabled := strings.TrimSpace(os.Getenv("TRUEDOWN_TLS_CERT")) != ""
-			addr, err := validateListenAddress(os.Getenv("TRUEDOWN_ADDR"), os.Getenv("TRUEDOWN_ALLOW_REMOTE") == "1", tlsEnabled, true)
-			if err != nil {
-				return err
-			}
-			openBrowser(browserURLForAddress(addr, tlsEnabled))
 		}
 		return nil
 	}
@@ -162,7 +143,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		CurrentVersion:        version,
 		CurrentBuild:          currentBuild,
 		CurrentCommit:         commit,
-		DisableProgramUpdates: !options.LegacyUpdates && nativeExecutable == "",
+		DisableProgramUpdates: nativeExecutable == "",
 		NativeExecutable:      nativeExecutable,
 	})
 	if err != nil {
@@ -197,7 +178,6 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	if !loopbackListener([]string{addr}) {
 		auth.LockEnabled()
 	}
-	browserURL := browserURLForAddress(addr, tlsEnabled)
 	lifecycleExit := make(chan struct{}, 1)
 	engineReload := make(chan struct{}, 1)
 	host := &managerHost{}
@@ -223,17 +203,13 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 			},
 		})
 	}
-	startupService := startup.New(dataDir)
-	if !options.LegacyUpdates {
-		startupService = startup.Unavailable("此内核由 CLI 或桌面外壳启动；请在对应启动器配置开机启动。")
-	}
 	routes := func(manager *downloader.Manager) http.Handler {
 		mux := http.NewServeMux()
 		api.Register(mux, manager, auth, controller)
-		api.RegisterInfo(mux, protocol.Info{Product: protocol.Product, ProtocolVersion: protocol.Version, Version: version, BuildNumber: buildNumber, Commit: commit, Mode: options.Mode})
+		api.RegisterInfo(mux, protocol.Info{Product: protocol.Product, ProtocolVersion: protocol.Version, Version: version, BuildNumber: buildNumber, Commit: commit, Mode: "serve"})
 		api.RegisterStorage(mux, location)
 		api.RegisterDiagnostics(mux, applicationLog)
-		api.RegisterStartup(mux, startupService)
+		api.RegisterStartup(mux)
 		api.RegisterLifecycle(mux, func() {
 			select {
 			case lifecycleExit <- struct{}{}:
@@ -274,9 +250,6 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	} else if !authEnabled {
 		log.Printf("API Key authentication is disabled; enable it from the dashboard when needed")
 	}
-	if options.Mode == "ui" && os.Getenv("TRUEDOWN_NO_BROWSER") == "" && !systemupdate.IsUpdateRelaunch() && !isEngineRelaunch() {
-		go openBrowser(browserURL)
-	}
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           secureHandler(host, auth, addr),
@@ -297,11 +270,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		if active > 0 {
 			return fmt.Errorf("wait for queued, downloading, and paused tasks before restarting TrueDown")
 		}
-		arguments := options.RelaunchArgs
-		if nativeExecutable != "" {
-			arguments = []string{"--background", "--data-dir", dataDir}
-		}
-		if err := updates.LaunchPendingApply(arguments); err != nil {
+		if err := updates.LaunchPendingApply([]string{"--background", "--data-dir", dataDir}); err != nil {
 			return err
 		}
 		select {
@@ -340,28 +309,11 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		<-automaticUpdatesDone
 		return ctx.Err()
 	case <-time.After(300 * time.Millisecond):
-		if err := systemupdate.SignalHealthyFromEnvironment(); err != nil {
-			log.Printf("update health signal: %v", err)
-		}
 		resetEngineRelaunchCircuitAfterHealthyPeriod()
 	}
 	if options.desktop != nil {
 		options.desktop.ready(host)
 	}
-	var platform *platformApp
-	var platformErr error
-	if options.Mode != "serve" {
-		platform, platformErr = startPlatformApp()
-	}
-	if platformErr != nil {
-		log.Printf("start system tray: %v", platformErr)
-	} else if platform != nil {
-		log.Printf("%s ready", platform.Description())
-	}
-	if platform != nil {
-		defer platform.Close()
-	}
-	platformActions := platform.Actions()
 	reloadEngine := false
 
 waitForExit:
@@ -383,29 +335,6 @@ waitForExit:
 		case <-engineReload:
 			reloadEngine = true
 			break waitForExit
-		case action, ok := <-platformActions:
-			if !ok {
-				platformActions = nil
-				continue
-			}
-			switch action {
-			case platformOpenDashboard:
-				log.Printf("system tray: open dashboard")
-				go openBrowser(browserURL)
-			case platformOpenDownloads:
-				log.Printf("system tray: open downloads")
-				if err := openPlatformPath(downloads); err != nil {
-					log.Printf("open downloads from system tray: %v", err)
-				}
-			case platformOpenLog:
-				log.Printf("system tray: open application log")
-				if err := openPlatformPath(applicationLog.Path()); err != nil {
-					log.Printf("open application log from system tray: %v", err)
-				}
-			case platformExit:
-				log.Printf("system tray: exit requested")
-				break waitForExit
-			}
 		}
 	}
 	cancelUpdates()
@@ -417,7 +346,6 @@ waitForExit:
 	}
 	host.stop()
 	if reloadEngine {
-		platform.Close()
 		_ = instance.Close()
 		if options.desktop != nil {
 			return fmt.Errorf("desktop core needs restart after engine recovery failure")
@@ -717,24 +645,4 @@ func sameRequestOrigin(r *http.Request, origin string) bool {
 		scheme = "https"
 	}
 	return parsed.Scheme == scheme && strings.EqualFold(parsed.Host, r.Host)
-}
-
-func openBrowser(url string) {
-	time.Sleep(300 * time.Millisecond)
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	case "darwin":
-		cmd = exec.Command("open", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	if err := cmd.Start(); err == nil {
-		if runtime.GOOS == "windows" {
-			_ = cmd.Process.Release()
-		} else {
-			go func() { _ = cmd.Wait() }()
-		}
-	}
 }

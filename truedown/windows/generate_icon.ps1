@@ -190,13 +190,8 @@ function Write-MacIcon {
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $sourceSvg = Join-Path $projectRoot "web\truedown-logo.svg"
 $targetIcon = Join-Path $PSScriptRoot "truedown.ico"
-$manifest = Join-Path $PSScriptRoot "truedown.manifest"
 $macIconDirectory = Join-Path $projectRoot "macos"
 $targetMacIcon = Join-Path $macIconDirectory "truedown.icns"
-$targetResource = Join-Path $projectRoot "resource_windows_amd64.syso"
-if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
-  throw "TrueDown Windows manifest is required"
-}
 $browser = Find-ChromiumBrowser -RequestedPath $BrowserPath
 $temporaryBase = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
 $temporaryRoot = [System.IO.Path]::GetFullPath(
@@ -232,25 +227,13 @@ try {
 
   $stagedIcon = Join-Path $temporaryRoot "truedown.ico"
   $stagedMacIcon = Join-Path $temporaryRoot "truedown.icns"
-  $stagedResource = Join-Path $temporaryRoot "resource_windows_amd64.syso"
   Write-MultiSizeIcon -SourcePng $renderedPng -Destination $stagedIcon -WorkingDirectory $temporaryRoot
   Write-MacIcon -SourcePng $renderedPng -Destination $stagedMacIcon
-
-  Push-Location $projectRoot
-  try {
-    go run github.com/akavel/rsrc@v0.10.2 -arch amd64 -ico $stagedIcon -manifest $manifest -o $stagedResource
-    if ($LASTEXITCODE -ne 0) {
-      throw "Failed to compile the Windows icon and DPI manifest resources"
-    }
-  } finally {
-    Pop-Location
-  }
 
   [System.IO.File]::Copy($stagedIcon, $targetIcon, $true)
   [System.IO.Directory]::CreateDirectory($macIconDirectory) | Out-Null
   [System.IO.File]::Copy($stagedMacIcon, $targetMacIcon, $true)
-  [System.IO.File]::Copy($stagedResource, $targetResource, $true)
-  Write-Host "Updated $targetIcon, $targetMacIcon, and $targetResource"
+  Write-Host "Updated $targetIcon and $targetMacIcon (native resources are compiled by the Tauri build)"
 } finally {
   if (Test-Path -LiteralPath $temporaryRoot) {
     if (-not $temporaryRoot.StartsWith($temporaryPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {

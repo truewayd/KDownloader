@@ -2,25 +2,24 @@ package app
 
 import "testing"
 
-func TestLaunchModes(t *testing.T) {
+func TestCoreLaunchOptions(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
-		mode string
 		dir  string
 	}{
-		{nil, "ui", ""},
-		{[]string{"ui"}, "ui", ""},
-		{[]string{"serve", "--data-dir", "C:\\Download Data"}, "serve", "C:\\Download Data"},
-		{[]string{"background", "--data-dir", "/tmp/download data"}, "background", "/tmp/download data"},
+		{nil, ""},
+		{[]string{"serve"}, ""},
+		{[]string{"serve", "--data-dir", "C:\\Download Data"}, "C:\\Download Data"},
+		{[]string{"--data-dir", "/tmp/download data"}, "/tmp/download data"},
 	} {
-		t.Run(tc.mode+tc.dir, func(t *testing.T) {
+		t.Run(tc.dir, func(t *testing.T) {
 			options, err := parseLaunchOptions(tc.args)
-			if err != nil || options.mode != tc.mode || options.dataDir != tc.dir {
+			if err != nil || options.dataDir != tc.dir {
 				t.Fatalf("options = %+v, error = %v", options, err)
 			}
 		})
 	}
-	for _, args := range [][]string{{"unknown"}, {"serve", "unexpected"}, {"--data-dir"}, {"--unknown"}, {"--desktop-attach-only"}} {
+	for _, args := range [][]string{{"ui"}, {"background"}, {"unknown"}, {"serve", "unexpected"}, {"--data-dir"}, {"--unknown"}, {"--desktop-attach-only"}} {
 		if _, err := parseLaunchOptions(args); err == nil {
 			t.Fatalf("accepted invalid arguments %q", args)
 		}

@@ -1,42 +1,23 @@
 package api
 
 import (
-	"errors"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"truedown/internal/startup"
 )
 
-type testStartup struct {
-	enabled, fail bool
-	writes        int
-}
-
-func (s *testStartup) Snapshot() (startup.State, error) {
-	return startup.State{Supported: true, Enabled: s.enabled}, nil
-}
-func (s *testStartup) SetEnabled(enabled bool) (startup.State, error) {
-	if s.fail {
-		return startup.State{}, errors.New("OS write failed")
-	}
-	s.enabled = enabled
-	s.writes++
-	return s.Snapshot()
-}
-
-func TestStartupEndpointIsBoundedAndOnlyAcceptsEnabled(t *testing.T) {
-	service := &testStartup{}
+func TestIndependentCoreCannotRegisterDesktopStartup(t *testing.T) {
 	mux := http.NewServeMux()
-	RegisterStartup(mux, service)
+	RegisterStartup(mux)
 	for _, tc := range []struct {
 		method, body string
 		status       int
 	}{
 		{"GET", "", 200},
-		{"POST", `{"enabled":true}`, 200},
-		{"POST", `{"enabled":false}`, 200},
+		{"POST", `{"enabled":true}`, 409},
+		{"POST", `{"enabled":false}`, 409},
 		{"POST", `{}`, 400},
 		{"POST", `{"enabled":null}`, 400},
 		{"POST", `{"enabled":true,"path":"C:\\other.exe"}`, 400},
@@ -54,16 +35,14 @@ func TestStartupEndpointIsBoundedAndOnlyAcceptsEnabled(t *testing.T) {
 		if w.Header().Get("Cache-Control") != "no-store" {
 			t.Fatal("startup state may be cached")
 		}
-	}
-	if service.writes != 2 {
-		t.Fatalf("unexpected writes: %d", service.writes)
-	}
-	service.fail = true
-	w := httptest.NewRecorder()
-	request := httptest.NewRequest("POST", "/settings/startup", strings.NewReader(`{"enabled":true}`))
-	request.Header.Set("Content-Type", "application/json")
-	mux.ServeHTTP(w, request)
-	if w.Code != http.StatusConflict || service.enabled {
-		t.Fatalf("failed save: %d, enabled %v", w.Code, service.enabled)
+		if tc.method == "GET" {
+			var state struct {
+				Supported, Enabled bool
+				Reason             string
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil || state.Supported || state.Enabled || state.Reason != startupUnavailable {
+				t.Fatalf("unexpected standalone capability: %s, %v", w.Body.String(), err)
+			}
+		}
 	}
 }

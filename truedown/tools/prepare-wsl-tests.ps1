@@ -17,9 +17,8 @@ foreach ($path in @($distRoot, $outputRoot, $testRoot)) {
 }
 
 $outputs = @(
-  @{ Package = "."; Path = (Join-Path $outputRoot "TrueDown") },
   @{ Package = "./cmd/truedown-core"; Path = (Join-Path $outputRoot "truedown-core") },
-  @{ Package = "./cmd/truedown"; Path = (Join-Path $outputRoot "truedown") },
+  @{ Package = "./cmd/truedown"; Path = (Join-Path $outputRoot "truedown-cli") },
   @{ Package = "./internal/app"; Path = (Join-Path $testRoot "truedown.test"); Test = $true },
   @{ Package = "./internal/api"; Path = (Join-Path $testRoot "api.test"); Test = $true },
   @{ Package = "./internal/applog"; Path = (Join-Path $testRoot "applog.test"); Test = $true },
@@ -29,7 +28,6 @@ $outputs = @(
   @{ Package = "./internal/profile"; Path = (Join-Path $testRoot "profile.test"); Test = $true },
   @{ Package = "./internal/downloader"; Path = (Join-Path $testRoot "downloader.test"); Test = $true },
   @{ Package = "./internal/safefile"; Path = (Join-Path $testRoot "safefile.test"); Test = $true },
-  @{ Package = "./internal/startup"; Path = (Join-Path $testRoot "startup.test"); Test = $true },
   @{ Package = "./internal/systemupdate"; Path = (Join-Path $testRoot "systemupdate.test"); Test = $true }
 )
 
