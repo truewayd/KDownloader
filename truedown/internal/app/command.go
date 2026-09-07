@@ -46,7 +46,16 @@ func Main(args []string, build BuildInfo, defaultMode string, legacyUpdates bool
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := Run(ctx, Options{Mode: options.mode, DataDir: options.dataDir, Build: build, RelaunchArgs: append([]string(nil), args...), LegacyUpdates: legacyUpdates}); err != nil {
+	runtimeOptions := Options{Mode: options.mode, DataDir: options.dataDir, Build: build, RelaunchArgs: append([]string(nil), args...), LegacyUpdates: legacyUpdates}
+	run := func() error { return Run(ctx, runtimeOptions) }
+	if options.desktop {
+		if legacyUpdates || options.mode != "serve" {
+			fmt.Fprintln(os.Stderr, "private desktop transport requires truedown-core serve")
+			return 2
+		}
+		run = func() error { return RunDesktop(ctx, runtimeOptions, os.Stdin, os.Stdout) }
+	}
+	if err := run(); err != nil {
 		log.Printf("TrueDown stopped: %v", err)
 		if options.mode == "ui" {
 			showFatalError(err)

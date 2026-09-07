@@ -1,0 +1,98 @@
+{
+  "/system/info": [
+    "GET"
+  ],
+  "/system/storage": [
+    "GET"
+  ],
+  "/system/logs": [
+    "GET"
+  ],
+  "/system/update": [
+    "GET"
+  ],
+  "/settings/runtime": [
+    "GET",
+    "POST"
+  ],
+  "/settings/download-rules": [
+    "GET",
+    "POST"
+  ],
+  "/settings/task-defaults": [
+    "GET",
+    "POST"
+  ],
+  "/settings/tracker-research": [
+    "GET",
+    "POST"
+  ],
+  "/settings/updates": [
+    "GET",
+    "POST"
+  ],
+  "/settings/startup": [
+    "GET",
+    "POST"
+  ],
+  "/modules": [
+    "GET",
+    "POST"
+  ],
+  "/modules/package": [
+    "POST",
+    "DELETE"
+  ],
+  "/auth/settings": [
+    "GET",
+    "POST"
+  ],
+  "/auth/token": [
+    "GET"
+  ],
+  "/start-headless-download": [
+    "POST"
+  ],
+  "/start-bt-download": [
+    "POST"
+  ],
+  "/tasks": [
+    "GET"
+  ],
+  "/tasks/batch": [
+    "POST"
+  ],
+  "/tasks/open-file": [
+    "POST"
+  ],
+  "/tasks/open-folder": [
+    "POST"
+  ],
+  "/tasks/clear-done": [
+    "POST"
+  ],
+  "/queue/pause": [
+    "POST"
+  ],
+  "/queue/resume": [
+    "POST"
+  ],
+  "/system/open-downloads": [
+    "POST"
+  ],
+  "/system/engine/next": [
+    "POST"
+  ],
+  "/system/engine/select": [
+    "POST"
+  ],
+  "/system/update/check": [
+    "POST"
+  ],
+  "/system/update/restart": [
+    "POST"
+  ],
+  "/system/exit": [
+    "POST"
+  ]
+}

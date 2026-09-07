@@ -11,6 +11,7 @@ type launchOptions struct {
 	dataDir string
 	help    bool
 	version bool
+	desktop bool
 }
 
 func parseLaunchOptions(args []string) (launchOptions, error) {
@@ -23,6 +24,7 @@ func parseLaunchOptions(args []string) (launchOptions, error) {
 	flags.StringVar(&options.dataDir, "data-dir", "", "data directory")
 	flags.BoolVar(&options.help, "help", false, "show usage")
 	flags.BoolVar(&options.version, "version", false, "show version")
+	flags.BoolVar(&options.desktop, "desktop-stdio", false, "private desktop transport")
 	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			options.help = true

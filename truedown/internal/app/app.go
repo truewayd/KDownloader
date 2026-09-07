@@ -56,6 +56,7 @@ type Options struct {
 	RelaunchArgs []string
 	// Only the legacy executable can use the updater that replaces TrueDown.exe.
 	LegacyUpdates bool
+	desktop       *desktopCallbacks
 }
 
 // Run owns one profile's service until cancellation or an explicit exit request.
@@ -101,6 +102,14 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	if alreadyRunning {
 		instance.Close()
 		log.Printf("another TrueDown instance owns %s", dataDir)
+		if options.desktop != nil {
+			tlsEnabled := strings.TrimSpace(os.Getenv("TRUEDOWN_TLS_CERT")) != ""
+			addr, err := validateListenAddress(os.Getenv("TRUEDOWN_ADDR"), false, tlsEnabled, true)
+			if err != nil {
+				return err
+			}
+			return options.desktop.attach(browserURLForAddress(addr, tlsEnabled), location)
+		}
 		if options.Mode == "ui" && os.Getenv("TRUEDOWN_NO_BROWSER") == "" {
 			tlsEnabled := strings.TrimSpace(os.Getenv("TRUEDOWN_TLS_CERT")) != ""
 			addr, err := validateListenAddress(os.Getenv("TRUEDOWN_ADDR"), os.Getenv("TRUEDOWN_ALLOW_REMOTE") == "1", tlsEnabled, true)
@@ -317,6 +326,9 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		}
 		resetEngineRelaunchCircuitAfterHealthyPeriod()
 	}
+	if options.desktop != nil {
+		options.desktop.ready(host)
+	}
 	var platform *platformApp
 	var platformErr error
 	if options.Mode != "serve" {
@@ -388,6 +400,9 @@ waitForExit:
 	if reloadEngine {
 		platform.Close()
 		_ = instance.Close()
+		if options.desktop != nil {
+			return fmt.Errorf("desktop core needs restart after engine recovery failure")
+		}
 		if err := launchEngineRelaunch(options.RelaunchArgs); err != nil {
 			log.Printf("reload TrueDown after download-engine recovery failure: %v", err)
 		}
