@@ -113,9 +113,20 @@ pub async fn read_frame<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<Vec<u
     }
 }
 impl Bridge {
-    pub async fn spawn(executable: PathBuf, data_dir: Option<&str>) -> Result<Arc<Self>, String> {
+    pub async fn spawn(
+        executable: PathBuf,
+        data_dir: Option<&str>,
+        attach_only: bool,
+        recovering: bool,
+    ) -> Result<Arc<Self>, String> {
         let mut command = Command::new(executable);
         command.arg("--desktop-stdio");
+        if attach_only {
+            command.arg("--desktop-attach-only");
+        }
+        if recovering {
+            command.env("TRUEDOWN_ENGINE_RELAUNCH", "1");
+        }
         if let Some(directory) = data_dir {
             command.args(["--data-dir", directory]);
         }
@@ -215,14 +226,19 @@ impl Bridge {
         let sent = {
             let mut input = self.input.lock().await;
             match input.as_mut() {
-                Some(input) => input
-                    .write_all(&data)
-                    .await
-                    .map_err(|_| "Core pipe write failed".to_string()),
+                Some(input) => {
+                    match tokio::time::timeout(Duration::from_secs(10), input.write_all(&data))
+                        .await
+                    {
+                        Ok(result) => result.map_err(|_| "Core pipe write failed".to_string()),
+                        Err(_) => Err("Core pipe write timed out".to_string()),
+                    }
+                }
                 None => Err("Core disconnected".into()),
             }
         };
         if let Err(error) = sent {
+            self.alive.store(false, Ordering::SeqCst);
             self.pending.lock().unwrap().remove(&id);
             return Err(error);
         }
@@ -232,17 +248,19 @@ impl Bridge {
             .map_err(|_| "Core request timed out".to_string())?
             .map_err(|_| "Core disconnected".to_string())?
     }
-    pub async fn shutdown(&self) {
+    pub async fn shutdown(&self) -> bool {
         // EOF stops an owned core gracefully and only detaches an attached bridge.
         self.input.lock().await.take();
         let mut child = self.child.lock().await;
-        if tokio::time::timeout(Duration::from_secs(15), child.wait())
-            .await
-            .is_err()
-        {
-            let _ = child.kill().await;
-        }
+        let clean = match tokio::time::timeout(Duration::from_secs(15), child.wait()).await {
+            Ok(Ok(status)) => status.success(),
+            _ => {
+                let _ = child.kill().await;
+                false
+            }
+        };
         self.alive.store(false, Ordering::SeqCst);
+        clean
     }
 }
 

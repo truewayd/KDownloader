@@ -2,18 +2,17 @@
 
 mod appearance;
 mod bridge;
+mod core;
 mod profile;
 mod startup;
 mod tray_image;
 mod windows;
 
-use bridge::{Bridge, Request, Response};
+use bridge::{Request, Response};
+use core::Core;
 use std::{
     path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::{atomic::Ordering, Arc},
 };
 use tauri::{
     menu::{Menu, MenuItem},
@@ -23,47 +22,6 @@ use tauri::{
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tokio::sync::Mutex;
 
-struct Core {
-    bridge: Mutex<Option<Arc<Bridge>>>,
-    executable: PathBuf,
-    data_dir: Option<String>,
-    closing: AtomicBool,
-    failure: Mutex<Option<String>>,
-}
-impl Core {
-    async fn connect(&self) -> Result<Arc<Bridge>, String> {
-        if self.closing.load(Ordering::SeqCst) {
-            return Err("TrueDown is shutting down".into());
-        }
-        let mut slot = self.bridge.lock().await;
-        if let Some(error) = self.failure.lock().await.as_ref() {
-            return Err(error.clone());
-        }
-        if let Some(bridge) = slot.as_ref() {
-            if bridge.alive.load(Ordering::SeqCst) {
-                return Ok(bridge.clone());
-            }
-            return Err("Core disconnected; reopen TrueDown to recover".into());
-        }
-        let bridge = match Bridge::spawn(self.executable.clone(), self.data_dir.as_deref()).await {
-            Ok(bridge) => bridge,
-            Err(error) => {
-                *self.failure.lock().await = Some(error.clone());
-                return Err(error);
-            }
-        };
-        *slot = Some(bridge.clone());
-        Ok(bridge)
-    }
-    async fn shutdown(&self) {
-        if self.closing.swap(true, Ordering::SeqCst) {
-            return;
-        }
-        if let Some(bridge) = self.bridge.lock().await.take() {
-            bridge.shutdown().await
-        }
-    }
-}
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DesktopState {
@@ -246,17 +204,14 @@ fn main() {
             window.visible = false;
         }
     }
-    let core = Arc::new(Core {
-        bridge: Mutex::new(None),
-        executable: base.join(if cfg!(windows) {
+    let core = Arc::new(Core::new(
+        base.join(if cfg!(windows) {
             "truedown-core.exe"
         } else {
             "truedown-core"
         }),
-        data_dir: data_dir.clone(),
-        closing: AtomicBool::new(false),
-        failure: Mutex::new(None),
-    });
+        data_dir.clone(),
+    ));
     let application = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if !args.iter().any(|arg| arg == "--background") {
@@ -343,6 +298,21 @@ fn main() {
                     window.hide()?
                 }
             }
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    if core.closing.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let _ = core.connect().await;
+                    if core.exited.load(Ordering::SeqCst) {
+                        core.shutdown().await;
+                        app_handle.exit(0);
+                        break;
+                    }
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {

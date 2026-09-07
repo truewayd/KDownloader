@@ -15,8 +15,8 @@ const port=listener.address().port;
 await new Promise(resolve=>listener.close(resolve));
 const endpoint=`http://127.0.0.1:${port}`;
 const children=[];
-function launch(desktop){
- const child=spawn(executable,[...(desktop?["--desktop-stdio"]:[]),"--data-dir",root],{windowsHide:true,stdio:["pipe","pipe","pipe"],env:{...process.env,TRUEDOWN_ADDR:`127.0.0.1:${port}`,TRUEDOWN_API_TOKEN:"",TRUEDOWN_REQUIRE_TOKEN:"",TRUEDOWN_NO_BROWSER:"1"}});
+function launch(desktop, attachOnly=false){
+ const child=spawn(executable,[...(desktop?["--desktop-stdio"]:[]),...(attachOnly?["--desktop-attach-only"]:[]),"--data-dir",root],{windowsHide:true,stdio:["pipe","pipe","pipe"],env:{...process.env,TRUEDOWN_ADDR:`127.0.0.1:${port}`,TRUEDOWN_API_TOKEN:"",TRUEDOWN_REQUIRE_TOKEN:"",TRUEDOWN_NO_BROWSER:"1"}});
  children.push(child);
  child.stderr.resume();
  child.done=new Promise(resolve=>child.once("exit",(code,signal)=>resolve({code,signal})));
@@ -60,6 +60,10 @@ try{
  assert.equal((await bounded(attached.done)).code,0);
  await fetch(endpoint+"/system/exit",{method:"POST"});
  assert.equal((await bounded(service.done)).code,0);
+ const reconnect=launch(true,true);
+ reconnect.stdout.resume();
+ assert.equal((await bounded(reconnect.done)).code,1);
+ await assert.rejects(fetch(endpoint+"/system/info"));
 
  const owned=launch(true),ownedRPC=rpc(owned);
  assert.equal((await bounded(ownedRPC.ready)).owned,true);

@@ -42,8 +42,13 @@ When the shell owns the core, closing its pipe cancels the service and engine.
 When an existing service owns the profile, the Go bridge verifies its product,
 protocol and profile identity, then attaches through authenticated loopback HTTP.
 Exiting that desktop detaches without terminating the independent service.
-Protocol version 1 is checked by both desktop and CLI. Bounded native crash
-recovery and full bundle health/rollback remain release integration work.
+Protocol version 1 is checked by both desktop and CLI. Unexpected disconnects
+allow at most three core restarts, resetting after two healthy minutes. Requests
+are never replayed automatically. An intentional HTTP/CLI exit closes the shell;
+an attached bridge reconnects with an attach-only flag and cannot start a new
+independent service. Windows console cores join a kill-on-close job before any
+engine starts; aria2 also watches its owner's PID on every platform. Native full
+bundle health/rollback remains release integration work.
 
 ## UI and preferences
 
@@ -152,7 +157,8 @@ smoke covers download, single instance, SQLite and clean engine shutdown.
 Private-pipe tests cover owned/attached service lifetimes, authentication and EOF.
 Hidden Windows WebView2 acceptance covers all four native windows, shared cache,
 settings saves and drafts, credentials, role restrictions, contrast fallback,
-125%/200%/300% layouts and exit. Exact tray raster tests cover 100% through 400%
+125%/200%/300% layouts, forced core recovery, engine cleanup and external exit.
+Exact tray raster tests cover 100% through 400%
 scaling. No interactive acceptance windows or login/logout cycle are used.
 Native WKWebView/WebKitGTK and bundle update acceptance are still outstanding.
 

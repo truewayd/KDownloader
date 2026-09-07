@@ -44,9 +44,15 @@ func Main(args []string, build BuildInfo, defaultMode string, legacyUpdates bool
 		fmt.Fprintln(os.Stderr, "truedown-core supports serve only; use TrueDown ui for the browser/tray launcher")
 		return 2
 	}
+	if !legacyUpdates {
+		if err := protectCoreProcess(); err != nil {
+			log.Printf("cannot establish core process ownership: %v", err)
+			return 1
+		}
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	runtimeOptions := Options{Mode: options.mode, DataDir: options.dataDir, Build: build, RelaunchArgs: append([]string(nil), args...), LegacyUpdates: legacyUpdates}
+	runtimeOptions := Options{Mode: options.mode, DataDir: options.dataDir, Build: build, RelaunchArgs: append([]string(nil), args...), LegacyUpdates: legacyUpdates, DesktopAttachOnly: options.attachOnly}
 	run := func() error { return Run(ctx, runtimeOptions) }
 	if options.desktop {
 		if legacyUpdates || options.mode != "serve" {

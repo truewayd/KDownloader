@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
@@ -34,14 +34,15 @@ async function waitUntil(check, timeout = 30000) {
   throw new Error("Native acceptance test timed out");
 }
 const port = await freePort(), debugPort = await freePort();
-const child = spawn(path.join(installation, "truedown-desktop.exe"), ["--background", "--data-dir", profile], {
+function launchDesktop() { return spawn(path.join(installation, "truedown-desktop.exe"), ["--background", "--data-dir", profile], {
   windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
   env: {
     ...process.env, TRUEDOWN_DESKTOP_TEST: "1", TRUEDOWN_ADDR: `127.0.0.1:${port}`,
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}`,
     TRUEDOWN_API_TOKEN: "", TRUEDOWN_REQUIRE_TOKEN: "", TRUEDOWN_TLS_CERT: "", TRUEDOWN_TLS_KEY: "",
   },
-});
+}); }
+const child = launchDesktop();
 child.stdout.resume(); child.stderr.resume();
 let browser, main;
 const invoke = (page, command, args) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
@@ -51,6 +52,14 @@ const api = async (page, method, route, body) => {
   return JSON.parse(response.body);
 };
 const errors = [];
+function childrenOf(pid) {
+  assert.ok(Number.isSafeInteger(pid) && pid > 0);
+  const output = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${pid}' | Select-Object ProcessId,Name | ConvertTo-Json -Compress`], { windowsHide: true, encoding: "utf8" });
+  return output.trim() ? [JSON.parse(output)].flat() : [];
+}
+function alive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
 try {
   await waitUntil(async () => {
     if (child.exitCode !== null) throw new Error("Desktop exited before WebView readiness");
@@ -92,6 +101,20 @@ try {
   await invoke(main, "open_auxiliary", { kind: "settings" });
   assert.equal(await settings.locator("#cfg-conns").inputValue(), "7");
   assert.equal(context.pages().length, 4);
+  const previousCore = childrenOf(child.pid).find(process => process.Name === "truedown-core.exe");
+  assert.ok(previousCore, "Native package must own one core");
+  const previousEngine = childrenOf(previousCore.ProcessId).find(process => process.Name === "aria2c.exe");
+  assert.ok(previousEngine, "Core must own its engine");
+  process.kill(previousCore.ProcessId);
+  await waitUntil(() => !alive(previousEngine.ProcessId), 5000);
+  await waitUntil(async () => {
+    try { return (await api(main, "GET", "/settings/task-defaults")).values.connections === 8; }
+    catch { return false; }
+  });
+  const recoveredCores = childrenOf(child.pid).filter(process => process.Name === "truedown-core.exe");
+  assert.equal(recoveredCores.length, 1);
+  assert.notEqual(recoveredCores[0].ProcessId, previousCore.ProcessId);
+  assert.equal(await settings.locator("#cfg-conns").inputValue(), "7");
   await assert.rejects(invoke(about, "core_request", { request: { method: "POST", path: "/settings/runtime", body: "{}" } }));
   await assert.rejects(invoke(logs, "copy_api_token"));
   const auth = await api(settings, "POST", "/auth/settings", { enabled: true });
@@ -114,7 +137,12 @@ try {
   assert.equal(windows.length, 4);
   assert.ok(windows.every(window => !window.visible), "Acceptance tests must never show native windows");
   assert.deepEqual(errors, []);
-  console.log("native_windows=ok shared_cache=ok shared_settings=ok retained_drafts=ok private_auth=ok scale_layout=ok all_windows_hidden=ok");
+  // An authenticated external client exit must stop the desktop, not trigger
+  // crash recovery. Read this isolated fixture's key only in the test driver.
+  const token = (await fs.readFile(path.join(storage.paths.config, "truedown.token"), "utf8")).trim();
+  assert.equal((await fetch(`http://127.0.0.1:${port}/system/exit`, { method: "POST", headers: { "X-Api-Key": token } })).status, 202);
+  await waitUntil(() => child.exitCode !== null, 20000);
+  console.log("native_windows=ok shared_cache=ok shared_settings=ok retained_drafts=ok private_auth=ok scale_layout=ok core_recovery=ok orphan_cleanup=ok external_exit=ok all_windows_hidden=ok");
 } finally {
   if (main && child.exitCode === null) await invoke(main, "core_request", { request: { method: "POST", path: "/system/exit" } }).catch(() => {});
   await waitUntil(() => child.exitCode !== null || child.signalCode !== null, 20000).catch(() => child.kill());
@@ -122,3 +150,17 @@ try {
   console.log(`fixture=${fixture}`);
 }
 assert.equal(child.exitCode, 0);
+
+const shellCrash = launchDesktop();
+shellCrash.stdout.resume(); shellCrash.stderr.resume();
+let crashCore, crashEngine;
+try {
+  crashCore = await waitUntil(() => childrenOf(shellCrash.pid).find(process => process.Name === "truedown-core.exe"));
+  crashEngine = await waitUntil(() => childrenOf(crashCore.ProcessId).find(process => process.Name === "aria2c.exe"));
+  shellCrash.kill();
+  await waitUntil(() => !alive(crashCore.ProcessId) && !alive(crashEngine.ProcessId), 20000);
+  console.log("shell_crash_cleanup=ok");
+} finally {
+  if (shellCrash.exitCode === null && shellCrash.signalCode === null) shellCrash.kill();
+  if (crashCore && alive(crashCore.ProcessId)) process.kill(crashCore.ProcessId);
+}

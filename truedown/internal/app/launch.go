@@ -7,11 +7,12 @@ import (
 )
 
 type launchOptions struct {
-	mode    string
-	dataDir string
-	help    bool
-	version bool
-	desktop bool
+	mode       string
+	dataDir    string
+	help       bool
+	version    bool
+	desktop    bool
+	attachOnly bool
 }
 
 func parseLaunchOptions(args []string) (launchOptions, error) {
@@ -25,6 +26,7 @@ func parseLaunchOptions(args []string) (launchOptions, error) {
 	flags.BoolVar(&options.help, "help", false, "show usage")
 	flags.BoolVar(&options.version, "version", false, "show version")
 	flags.BoolVar(&options.desktop, "desktop-stdio", false, "private desktop transport")
+	flags.BoolVar(&options.attachOnly, "desktop-attach-only", false, "reconnect an independent core only")
 	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			options.help = true
@@ -34,6 +36,9 @@ func parseLaunchOptions(args []string) (launchOptions, error) {
 	}
 	if flags.NArg() != 0 {
 		return options, fmt.Errorf("unknown command or argument %q; use --help", flags.Arg(0))
+	}
+	if options.attachOnly && !options.desktop {
+		return options, fmt.Errorf("desktop attachment requires the private desktop transport")
 	}
 	return options, nil
 }

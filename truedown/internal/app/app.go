@@ -55,8 +55,9 @@ type Options struct {
 	Build        BuildInfo
 	RelaunchArgs []string
 	// Only the legacy executable can use the updater that replaces TrueDown.exe.
-	LegacyUpdates bool
-	desktop       *desktopCallbacks
+	LegacyUpdates     bool
+	DesktopAttachOnly bool
+	desktop           *desktopCallbacks
 }
 
 // Run owns one profile's service until cancellation or an explicit exit request.
@@ -121,6 +122,9 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		return nil
 	}
 	defer instance.Close()
+	if options.DesktopAttachOnly {
+		return fmt.Errorf("independent TrueDown core is not running")
+	}
 	location, err = profile.Initialize(ctx, location, downloader.CheckpointForProfileMigration)
 	if err != nil {
 		return err

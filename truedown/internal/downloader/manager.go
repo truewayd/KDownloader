@@ -2457,6 +2457,7 @@ func (m *Manager) aria2StartArgs(port int, secret string, runtimeSettings Runtim
 		"--dir=" + filepath.ToSlash(m.defaultDir),
 		"--continue=true",
 		"--auto-save-interval=5",
+		fmt.Sprintf("--stop-with-process=%d", os.Getpid()),
 		fmt.Sprintf("--max-concurrent-downloads=%d", runtimeSettings.ConcurrentDownloads),
 		fmt.Sprintf("--max-overall-download-limit=%d", runtimeSettings.GlobalDownloadLimitBps),
 		"--console-log-level=" + consoleLogLevel,

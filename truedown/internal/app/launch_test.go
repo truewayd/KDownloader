@@ -20,10 +20,13 @@ func TestLaunchModes(t *testing.T) {
 			}
 		})
 	}
-	for _, args := range [][]string{{"unknown"}, {"serve", "unexpected"}, {"--data-dir"}, {"--unknown"}} {
+	for _, args := range [][]string{{"unknown"}, {"serve", "unexpected"}, {"--data-dir"}, {"--unknown"}, {"--desktop-attach-only"}} {
 		if _, err := parseLaunchOptions(args); err == nil {
 			t.Fatalf("accepted invalid arguments %q", args)
 		}
+	}
+	if options, err := parseLaunchOptions([]string{"--desktop-stdio", "--desktop-attach-only"}); err != nil || !options.attachOnly || !options.desktop {
+		t.Fatal("private reconnect flags", options, err)
 	}
 	for _, arg := range []string{"-h", "--help"} {
 		options, err := parseLaunchOptions([]string{arg})
