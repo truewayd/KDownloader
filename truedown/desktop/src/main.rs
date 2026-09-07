@@ -2,6 +2,7 @@
 
 mod appearance;
 mod bridge;
+mod build_info;
 mod core;
 mod placement;
 mod profile;

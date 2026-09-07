@@ -4,14 +4,9 @@ package main
 import (
 	"os"
 	"truedown/internal/app"
-)
-
-var (
-	version     = "dev"
-	buildNumber = "0"
-	commit      = "unknown"
+	"truedown/internal/buildinfo"
 )
 
 func main() {
-	os.Exit(app.Main(os.Args[1:], app.BuildInfo{Version: version, BuildNumber: buildNumber, Commit: commit}, "serve", false))
+	os.Exit(app.Main(os.Args[1:], app.BuildInfo{Version: buildinfo.Version, BuildNumber: buildinfo.BuildNumber, Commit: buildinfo.Commit}, "serve", false))
 }

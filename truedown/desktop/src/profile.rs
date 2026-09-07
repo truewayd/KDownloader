@@ -10,6 +10,7 @@ use std::{
 pub struct Profile {
     pub data_directory: String,
     pub paths: Paths,
+    build: crate::build_info::Info,
 }
 
 #[derive(Deserialize)]
@@ -46,6 +47,7 @@ impl Profile {
         }
         let profile: Self =
             serde_json::from_slice(&output.stdout).map_err(|_| "Invalid profile response")?;
+        profile.build.verify()?;
         if !Path::new(&profile.data_directory).is_absolute()
             || !Path::new(&profile.paths.cache).is_absolute()
         {

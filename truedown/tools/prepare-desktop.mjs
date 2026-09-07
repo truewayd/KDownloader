@@ -40,6 +40,17 @@ const platform={
 }[target];
 if(!platform)throw new Error("Unsupported desktop target");
 const [goos,goarch,suffix]=platform;
+const version=process.env.TRUEDOWN_VERSION || "dev";
+const buildNumber=process.env.TRUEDOWN_BUILD_NUMBER || "0";
+const commit=process.env.TRUEDOWN_COMMIT || "unknown";
+if(!/^(0|[1-9][0-9]{0,12})$/.test(buildNumber) ||
+   (buildNumber!=="0" && (version!==`truedown-build-${buildNumber}` || !/^[a-f0-9]{40}$/.test(commit))) ||
+   (buildNumber==="0" && (version!=="dev" || commit!=="unknown")))throw new Error("Invalid native release identity");
+const metadataOutput=path.join(await directory("dist"),"desktop-build.json");
+await regularOutput(metadataOutput);
+await fs.writeFile(metadataOutput,JSON.stringify({product:"TrueDown",protocolVersion:1,version,buildNumber,commit})+"\n");
+const ldflags=["-s","-w",...["Version","BuildNumber","Commit"].map((name,index)=>
+  `-X=truedown/internal/buildinfo.${name}=${[version,buildNumber,commit][index]}`)].join(" ");
 const binaries=await directory("desktop/binaries");
 // Linux packaging needs a PNG. Reuse the canonical ICO's exact 256px PNG
 // frame, so all native packages retain the same source artwork.
@@ -59,7 +70,7 @@ await fs.writeFile(iconOutput,nativeIcon);
 for(const [name,entry] of [["truedown-core","./cmd/truedown-core"],["truedown-cli","./cmd/truedown"]]){
   const output=path.join(binaries,`${name}-${target}${suffix}`);
   await regularOutput(output);
-  run("go",["build","-trimpath","-o",output,entry],{env:{...process.env,CGO_ENABLED:"0",GOOS:goos,GOARCH:goarch}});
+  run("go",["build","-trimpath","-ldflags",ldflags,"-o",output,entry],{env:{...process.env,CGO_ENABLED:"0",GOOS:goos,GOARCH:goarch}});
 }
 const web=await directory("dist/desktop-web");
 const sources=(await fs.readdir(path.join(project,"web"))).filter(name=>/\.(html|css|js|svg)$/.test(name));

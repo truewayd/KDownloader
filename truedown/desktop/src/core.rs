@@ -115,6 +115,21 @@ impl Core {
         .await
         {
             Ok(bridge) => {
+                if bridge.owned {
+                    let identity = bridge
+                        .request(crate::bridge::Request::new("GET", "/system/info"))
+                        .await
+                        .and_then(|response| {
+                            serde_json::from_str::<crate::build_info::Info>(&response.body)
+                                .map_err(|_| "Invalid core build identity".to_string())
+                        })
+                        .and_then(|identity| identity.verify());
+                    if let Err(error) = identity {
+                        bridge.shutdown().await;
+                        session.failure = Some(error.clone());
+                        return Err(error);
+                    }
+                }
                 session.retry_at = None;
                 session.recovery.healthy_since = Instant::now();
                 session.bridge = Some(bridge.clone());

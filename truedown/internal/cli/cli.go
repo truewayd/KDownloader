@@ -17,8 +17,10 @@ import (
 	"text/tabwriter"
 	"unicode"
 
+	"truedown/internal/buildinfo"
 	"truedown/internal/client"
 	"truedown/internal/profile"
+	"truedown/internal/protocol"
 	"truedown/internal/safefile"
 )
 
@@ -106,7 +108,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		if jsonOutput {
-			_ = json.NewEncoder(stdout).Encode(location)
+			_ = json.NewEncoder(stdout).Encode(struct {
+				profile.Location
+				Build protocol.Info `json:"build"`
+			}{location, buildinfo.Current()})
 		} else {
 			fmt.Fprintf(stdout, "Profile: %s\nSource: %s\nLayout: %d\nConfig: %s\nData: %s\nState: %s\nLogs: %s\nCache: %s\n", clean(location.DataDirectory), location.Source, location.LayoutVersion, clean(location.Paths.Config), clean(location.Paths.Data), clean(location.Paths.State), clean(location.Paths.Logs), clean(location.Paths.Cache))
 		}

@@ -1,0 +1,24 @@
+use serde::Deserialize;
+
+#[derive(Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Info {
+    product: String,
+    protocol_version: u32,
+    version: String,
+    build_number: String,
+    commit: String,
+}
+
+impl Info {
+    pub fn verify(&self) -> Result<(), String> {
+        let bundled: Self = serde_json::from_str(include_str!("../../dist/desktop-build.json"))
+            .map_err(|_| "Invalid compiled desktop build identity")?;
+        if self != &bundled {
+            return Err(
+                "The TrueDown shell, core and CLI must come from the same release package".into(),
+            );
+        }
+        Ok(())
+    }
+}
