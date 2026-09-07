@@ -1,8 +1,8 @@
 # TrueDown core, clients and native desktop
 
 Reviewed: 2026-09-08. The Go core, HTTP CLI, private desktop transport, native
-windows, versioned profile migration and recoverable native bundle updates are
-implemented. Native release packaging is still being integrated.
+windows, versioned profile migration, recoverable native bundle updates and
+release packaging are implemented. The legacy Go desktop entry point is retired.
 
 ## Ownership
 
@@ -23,8 +23,11 @@ flowchart LR
 the profile lock, SQLite, authentication, typed configuration, resolver modules,
 queue and engine recovery. `cmd/truedown-core` runs the console service;
 `cmd/truedown` is an HTTP-only client, named `truedown-cli.exe` on Windows.
-The root Go executable remains the legacy browser/tray launcher during release
-transition. It supports `ui`, `serve`, and `background` modes.
+`TrueDown` is the Tauri desktop executable. `truedown-core [serve]` runs the
+independent service; `TrueDown --background` starts the desktop without showing
+its main window. The Go core never opens a browser, creates a tray, or registers
+an OS login entry. Its startup HTTP endpoint reports that desktop capability as
+unavailable; native settings route the operation to Rust.
 
 `desktop/` owns native windows, tray, clipboard and login startup. It packages
 the Go executables as [Tauri sidecars](https://v2.tauri.app/develop/sidecar/).
@@ -134,7 +137,7 @@ WKWebView uses a stable profile-specific website store on macOS 14 and newer.
 Older systems use ephemeral website data because WKWebView cannot select a
 persistent store there. Authoritative preferences still persist in the Go core.
 
-## Startup and release transition
+## Startup and releases
 
 Login startup is opt-in and profile-scoped. Native Windows uses a quoted HKCU Run
 entry and reports when Windows has disabled it. Linux uses an XDG autostart entry;
@@ -150,6 +153,10 @@ Windows native packages use manifest schema 2, binding archive SHA-256, platform
 protocol, and the sizes/hashes of shell, core, CLI and both notice files. The
 release schema prevents legacy single-executable updaters from installing an
 incomplete native package; the first migration requires the complete new package.
+The native core retires old single-executable pending metadata while preserving
+update preferences and installed engines. No legacy executable apply helper is
+shipped. A standalone Windows core relaunch leaves its old process job and
+establishes a new one before starting aria2.
 
 An installation-scoped helper prepares synchronized candidates and `.previous`
 backups for every application file. It replaces each target without removing the
@@ -192,8 +199,9 @@ settings persistence and bounded layouts. The native CI matrix builds and tests
 Windows, Linux and macOS, with platform WebView acceptance on Windows and Linux.
 Hidden Windows native package acceptance covers successful upgrade, failed
 window/build health rollback, and recovery after partial component replacement.
-Every path verifies all application hashes and preserves the engine. WKWebView
-runtime acceptance remains outstanding; no local macOS runtime is available.
+Every path verifies all application hashes and preserves the engine. macOS
+packaged WKWebView startup and signature checks are enforced in the release
+matrix; they have not been run locally because this workspace has no macOS runtime.
 
 An earlier local Chromium benchmark of 100 changing rows over 30 iterations
 measured median render plus layout dropping from 54 ms to 5.2 ms after row

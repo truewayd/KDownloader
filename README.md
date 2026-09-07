@@ -14,7 +14,7 @@
     <td align="center" width="50%">
       <img src="truedown/web/truedown-logo.svg" width="112" alt="TrueDown logo"><br>
       <strong>TrueDown</strong><br>
-      Standalone Windows download manager
+      Cross-platform native download manager
     </td>
   </tr>
 </table>
@@ -65,11 +65,13 @@ The unpacked extension is written to `dist/KDownloader`. Open `chrome://extensio
   <img src="truedown/web/truedown-logo.svg" width="96" alt="TrueDown logo">
 </p>
 
-TrueDown is a standalone Windows download manager written in Go. It embeds an aria2-powered queue and a responsive web dashboard in a single local service.
+TrueDown combines a Go download core with a Tauri desktop for Windows, Linux and macOS. The native interface, command-line client and browser integrations share the same aria2 queue, configuration and task database.
 
 ### Highlights
 
 - Listens on `127.0.0.1:15151` by default.
+- Provides separate download, categorized settings, application-log and about windows, retaining settings drafts when reopened.
+- Supports optional login startup, platform styling and native tray controls; Windows uses Mica and DPI-specific tray rasters, while macOS uses system materials and a Retina template icon.
 - Provides an embedded dashboard for creating, filtering, paging, column sorting, pausing, resuming, retrying, opening, and removing tasks, including whole-queue controls.
 - Lets users choose a persisted Dropbox shared-folder default—direct archive or bounded parallel expansion—while retaining per-submission overrides, optional filtering, and bulk task import.
 - Ships Dropbox and Google Drive with embedded resolver-component baselines; each can be enabled independently or hot-updated from a bounded declarative package without replacing TrueDown.
@@ -86,18 +88,35 @@ TrueDown is a standalone Windows download manager written in Go. It embeds an ar
 
 Requirements:
 
-- Windows
+- Windows, Linux or macOS with the corresponding [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
 - Go 1.26.4 or a compatible newer toolchain
-- `truedown/aria2/aria2c.exe`
+- Node.js 22 or newer and Rust 1.98.1
+- The reviewed bundled Windows aria2, or an installed aria2 on Linux/macOS
 
 ```powershell
 Set-Location truedown
 go test ./...
 go vet ./...
+npm ci --prefix desktop
 pwsh -NoProfile -ExecutionPolicy Bypass -File build.ps1
 ```
 
-The Windows package is written to `truedown/dist/TrueDown`. Start `TrueDown.exe`, then open `http://127.0.0.1:15151`.
+The Windows package is written to `truedown/dist/TrueDown`. Start `TrueDown.exe` to open the native interface. Linux/macOS builds use `bash truedown/build-unix.sh <linux|darwin> <amd64|arm64>` on the matching host. See [desktop development and packaging](truedown/desktop/README.md).
+
+```text
+TrueDown --background                 Start the desktop in the tray
+truedown-core serve                   Run an independent foreground service
+truedown-cli --json status            Inspect the running service
+truedown-cli add https://example.com/file.zip
+truedown-cli paths                    Inspect this profile's storage paths
+truedown-cli exit                     Stop the service
+```
+
+Use `--data-dir` or `TRUEDOWN_DATA_DIR` to select an explicit profile; connection addresses use `--endpoint` or `TRUEDOWN_ADDR`. CLI credentials come from the profile's token file or `TRUEDOWN_API_TOKEN`. The browser dashboard remains available at `http://127.0.0.1:15151`.
+
+Windows defaults to `%LOCALAPPDATA%/TrueDown/{config,data,state,logs,cache}`. macOS uses Application Support for durable data and the standard Library Logs/Caches directories. Linux follows XDG configuration, data, state and cache directories. One versioned profile manifest owns these roles. Recognized portable profiles remain at their existing root; migration retains a backup and preserves download paths.
+
+Numbered Windows native releases update and roll back the complete shell/core/CLI and notice set. The first migration from the legacy browser package requires extracting a complete native package. Independent services and Linux/macOS installations replace the full package through their deployment owner. macOS uses ad-hoc signing unless CI publishing credentials are configured; macOS runtime acceptance has not been performed locally. See the [architecture and verification scope](docs/truedown-core-and-tauri.md).
 
 For a remote listener, configure a specific interface with `TRUEDOWN_ADDR`, opt in with `TRUEDOWN_ALLOW_REMOTE=1`, enable API Key authentication, and provide `TRUEDOWN_TLS_CERT` and `TRUEDOWN_TLS_KEY`. Wildcard binds are rejected.
 
@@ -110,7 +129,7 @@ popup/            Daily-use extension popup
 shared/           Extension-page UI primitives, i18n, and icon sprite
 tests/            Node and Python tests
 tools/            Extension build and release-note scripts
-truedown/         TrueDown Go runtime, embedded dashboard, and build script
+truedown/         TrueDown Go core, CLI, Tauri desktop, and platform builds
 changelog/        Path-scoped release notes
 ```
 

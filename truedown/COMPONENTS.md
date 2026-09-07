@@ -13,7 +13,7 @@ loading executable plugins or weakening the download manager's security model.
 ## Lifecycle
 
 The baseline packages in `internal/downloader/module_baselines/` are embedded in
-the TrueDown binary. They are always available, including when a user update is
+the TrueDown core binary. They are always available, including when a user update is
 missing, corrupt, incompatible, or older than the embedded baseline.
 
 The dashboard's resolver-component cards support three separate actions:
@@ -21,10 +21,10 @@ The dashboard's resolver-component cards support three separate actions:
 - **Enable / Disable** changes whether the resolver claims new links. It does
   not delete a component version or affect existing module-tagged tasks.
 - **Import update** validates a local JSON package, persists it as
-  `<data-dir>/modules/<id>.json`, and activates an immutable snapshot
+  `<profile data role>/modules/<id>.json`, and activates an immutable snapshot
   immediately. In-flight calls finish on their old snapshot.
 - **Restore baseline** removes the independent package and atomically activates
-  the version embedded in the running TrueDown binary.
+  the version embedded in the running TrueDown core.
 
 The module list reports the active version, baseline version, release date,
 source, hot-reload support, and the SHA-256 digest computed from normalized

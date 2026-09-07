@@ -14,7 +14,7 @@
     <td align="center" width="50%">
       <img src="truedown/web/truedown-logo.svg" width="112" alt="TrueDown Logo"><br>
       <strong>TrueDown</strong><br>
-      独立的 Windows 下载管理器
+      跨平台原生下载管理器
     </td>
   </tr>
 </table>
@@ -65,11 +65,13 @@ npm run build
   <img src="truedown/web/truedown-logo.svg" width="96" alt="TrueDown Logo">
 </p>
 
-TrueDown 是一个使用 Go 编写的独立 Windows 下载管理器。它把基于 aria2 的任务队列和响应式 Web 仪表盘封装在同一个本地服务中。
+TrueDown 使用 Go 下载内核与 Tauri 原生桌面界面，支持 Windows、Linux 和 macOS。桌面、命令行与浏览器集成共用基于 aria2 的任务队列、配置和数据库。
 
 ### 主要功能
 
 - 默认监听 `127.0.0.1:15151`。
+- 下载、分类设置、应用日志和关于使用独立窗口；重新打开设置会保留未保存的编辑。
+- 按操作系统提供登录时启动、托盘与窗口风格，Windows 支持 Mica 和按显示器 DPI 选择托盘图标，macOS 支持系统材质与 Retina 模板图标。
 - 内置仪表盘支持新建、筛选、分页、表头正逆序排序、暂停、继续、重试、打开和移除任务，并提供整条队列的暂停与恢复。
 - 每次提交 Dropbox 共享目录时可选择直接下载压缩包或有界并行展开，并可独立选择过滤；展开结果会批量导入任务队列。
 - 将 Dropbox 与 Google Drive 作为可独立安装、移除的内置解析模块，并可在仪表盘中管理安装状态。
@@ -85,31 +87,33 @@ TrueDown 是一个使用 Go 编写的独立 Windows 下载管理器。它把基�
 
 环境要求：
 
-- Windows
+- Windows、Linux 或 macOS，以及对应的 [Tauri 构建依赖](https://v2.tauri.app/start/prerequisites/)
 - Go 1.26.4 或兼容的新版本工具链
-- `truedown/aria2/aria2c.exe`
+- Node.js 22 或更新版本、Rust 1.98.1
+- Windows 使用仓库内的稳定 aria2；Linux/macOS 需安装 aria2
 
 ```powershell
 Set-Location truedown
 go test ./...
 go vet ./...
+npm ci --prefix desktop
 pwsh -NoProfile -ExecutionPolicy Bypass -File build.ps1
 ```
 
-Windows 包会生成到 `truedown/dist/TrueDown`。启动 `TrueDown.exe`，然后打开 `http://127.0.0.1:15151`。
+Windows 包会生成到 `truedown/dist/TrueDown`，启动 `TrueDown.exe` 即可打开原生下载器。Linux/macOS 使用 `bash truedown/build-unix.sh <linux|darwin> <amd64|arm64>`，须在对应系统和架构上构建；详见 [桌面开发与打包](truedown/desktop/README.md)。
 
-下载任务、应用日志和设置现在都有独立入口；设置提供总览和分类，每页独立保存。Windows 可在「设置 → 启动与运行」开启开机自动启动，登录后驻留托盘，不自动打开网页。
+设置提供总览和分类，每页独立保存。在「设置 → 启动与运行」可开启登录时自动启动，登录后驻留托盘。
 
-同一个 Go 下载核心支持三种启动方式：
+原生界面与独立服务使用清晰的启动入口：
 
 ```text
-TrueDown.exe ui                         打开界面，复用已有服务（默认）
-TrueDown.exe serve                      前台运行服务，不创建托盘或打开网页
-TrueDown.exe background                 驻留运行，Windows 保留托盘
-TrueDown.exe serve --data-dir "D:\Data"  指定数据目录
+TrueDown.exe                            打开桌面，复用同一配置的已有服务
+TrueDown.exe --background               驻留托盘，暂不显示主窗口
+truedown-core.exe serve                 前台运行独立服务
+truedown-core.exe --data-dir "D:\Data"   指定配置根目录
 ```
 
-已增加独立 Go 内核和 HTTP 任务管理 CLI。Windows 开发包运行 `pwsh -File truedown/build-core.ps1`，输出到 `truedown/dist/core/`：
+桌面包包含独立内核和 HTTP 任务管理 CLI。只需 Go 的 Windows 内核开发包可运行 `pwsh -File truedown/build-core.ps1`，输出到 `truedown/dist/core/`：
 
 ```text
 truedown-core.exe --data-dir "D:\TrueDownData"
@@ -123,13 +127,15 @@ truedown-cli.exe paths
 truedown-cli.exe exit
 ```
 
-内核默认前台运行，可通过 `http://127.0.0.1:15151` 打开网页。CLI 与网页共用服务端默认值、任务库及鉴权，CLI 不启动第二个下载管理器。全局参数放在命令前，命令参数放在 URL 或任务 ID 前；API Key 通过 `TRUEDOWN_API_TOKEN` 或数据目录中的 token 文件读取。新开发包未接入发布更新器。
+内核默认前台运行，可通过 `http://127.0.0.1:15151` 打开网页。CLI 与桌面共用服务端默认值、任务库及鉴权，CLI 不启动第二个下载管理器。全局参数放在命令前，命令参数放在 URL 或任务 ID 前；API Key 通过 `TRUEDOWN_API_TOKEN` 或配置目录中的 token 文件读取。独立内核的程序升级由部署者管理。
 
 启用认证且使用非默认数据目录时，各条 CLI 命令均需传入 `--data-dir`，或在当前终端设置 `TRUEDOWN_DATA_DIR`。`--data-dir` 选择本地凭据，连接地址仍由 `--endpoint` 或 `TRUEDOWN_ADDR` 指定。
 
-新 Windows 实例默认保存到 `%LOCALAPPDATA%\TrueDown`；已有程序旁的旧数据会继续复用。macOS 使用 `~/Library/Application Support/TrueDown`，Linux 使用 `${XDG_DATA_HOME:-~/.local/share}/truedown`。`--data-dir` 优先于 `TRUEDOWN_DATA_DIR`，可用于便携部署；设置中的“启动与运行”显示服务实际使用的位置。任务默认值由服务端统一保存，旧浏览器偏好只在未配置的数据目录中导入。
+新 Windows 配置使用 `%LOCALAPPDATA%\TrueDown`，按 `config/data/state/logs/cache` 分类。macOS 持久数据使用 `~/Library/Application Support/TrueDown`，日志和缓存分别放入 `~/Library/Logs/TrueDown`、`~/Library/Caches/TrueDown`。Linux 遵循 XDG 配置、数据、状态和缓存目录。配置根清单统一管理各类路径，界面不提供零散的文件路径设置。
 
-Tauri 外壳尚未加入。已完成的拆分、存储目录规范以及剩余迁移步骤见 [TrueDown 核心与 Tauri 迁移设计](docs/truedown-core-and-tauri.md)。
+`--data-dir` 优先于 `TRUEDOWN_DATA_DIR`，便携配置与识别到的程序旁旧数据仍使用原根目录。首次启动在独占锁下迁移已知数据并保留旧布局备份，下载文件与任务输出路径不变。设置和 `truedown-cli paths` 显示实际位置；任务默认值统一由服务端持久化。
+
+编号 Windows 原生包使用包含桌面、内核、CLI 和许可证的整包更新，启动失败会整体回滚。旧浏览器版本首次迁移需解压完整新包，旧单文件更新器不能安装此格式。Linux/macOS 更换完整平台包。macOS 无发布签名凭据时使用临时签名，已配置的 CI 凭据可用于 Developer ID 签名和公证；本地尚未完成 macOS 运行验收。完整设计和验证范围见 [TrueDown 核心与原生桌面](docs/truedown-core-and-tauri.md)。
 
 如需远程监听，请通过 `TRUEDOWN_ADDR` 指定明确的网卡地址，设置 `TRUEDOWN_ALLOW_REMOTE=1`，启用 API Key 认证，并提供 `TRUEDOWN_TLS_CERT` 与 `TRUEDOWN_TLS_KEY`。程序会拒绝通配地址监听。
 
@@ -142,7 +148,7 @@ popup/            扩展日常操作弹窗
 shared/           扩展页面 UI 基础组件、国际化与图标精灵
 tests/            Node 与 Python 测试
 tools/            扩展构建和发布说明脚本
-truedown/         TrueDown Go 运行时、内置仪表盘与构建脚本
+truedown/         TrueDown Go 内核、CLI、Tauri 桌面与平台构建脚本
 changelog/        按产品路径维护的发布说明
 ```
 
