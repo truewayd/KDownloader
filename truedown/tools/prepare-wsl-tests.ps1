@@ -23,6 +23,7 @@ $outputs = @(
   @{ Package = "./internal/applog"; Path = (Join-Path $testRoot "applog.test"); Test = $true },
   @{ Package = "./internal/downloader"; Path = (Join-Path $testRoot "downloader.test"); Test = $true },
   @{ Package = "./internal/safefile"; Path = (Join-Path $testRoot "safefile.test"); Test = $true },
+  @{ Package = "./internal/startup"; Path = (Join-Path $testRoot "startup.test"); Test = $true },
   @{ Package = "./internal/systemupdate"; Path = (Join-Path $testRoot "systemupdate.test"); Test = $true }
 )
 

@@ -45,4 +45,5 @@ run_package api "$repo_root/internal/api"
 run_package applog "$repo_root/internal/applog"
 run_package downloader "$repo_root/internal/downloader" 1
 run_package safefile "$repo_root/internal/safefile"
+run_package startup "$repo_root/internal/startup"
 run_package systemupdate "$repo_root/internal/systemupdate"

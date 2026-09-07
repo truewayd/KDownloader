@@ -28,6 +28,7 @@ import (
 	"truedown/internal/applog"
 	"truedown/internal/downloader"
 	"truedown/internal/safefile"
+	"truedown/internal/startup"
 	"truedown/internal/systemupdate"
 )
 
@@ -51,27 +52,45 @@ func exeDir() string {
 }
 
 func main() {
-	if len(os.Args) == 2 && os.Args[1] == "--version" {
-		fmt.Printf("TrueDown %s (build %s, commit %s)\n", version, buildNumber, commit)
-		return
-	}
 	if handled, exitCode := systemupdate.RunHelperIfRequested(os.Args[1:]); handled {
 		os.Exit(exitCode)
 	}
-	if err := run(); err != nil {
+	options, err := parseLaunchOptions(os.Args[1:])
+	if err != nil || options.help || options.version || options.mode == "serve" {
+		attachParentConsole()
+		log.SetOutput(os.Stderr)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if options.help {
+		fmt.Print(launchUsage)
+		return
+	}
+	if options.version {
+		fmt.Printf("TrueDown %s (build %s, commit %s)\n", version, buildNumber, commit)
+		return
+	}
+	if err := runWithOptions(options); err != nil {
 		log.Printf("TrueDown stopped: %v", err)
-		showFatalError(err)
+		if options.mode == "ui" {
+			showFatalError(err)
+		}
 		os.Exit(1)
 	}
 }
 
-func run() (resultErr error) {
+func runWithOptions(options launchOptions) (resultErr error) {
 	base := exeDir()
 	stableAria2, err := resolveStableAria2(base)
 	if err != nil {
 		return err
 	}
-	dataDir := os.Getenv("TRUEDOWN_DATA_DIR")
+	dataDir := options.dataDir
+	if dataDir == "" {
+		dataDir = os.Getenv("TRUEDOWN_DATA_DIR")
+	}
 	if dataDir == "" {
 		dataDir, err = defaultDataDir(base)
 		if err != nil {
@@ -152,8 +171,8 @@ func run() (resultErr error) {
 	}
 	if alreadyRunning {
 		instance.Close()
-		log.Printf("another TrueDown instance owns %s; opening its dashboard", dataDir)
-		if os.Getenv("TRUEDOWN_NO_BROWSER") == "" {
+		log.Printf("another TrueDown instance owns %s", dataDir)
+		if options.mode == "ui" && os.Getenv("TRUEDOWN_NO_BROWSER") == "" {
 			openBrowser(browserURL)
 		}
 		return nil
@@ -190,10 +209,12 @@ func run() (resultErr error) {
 	if err != nil {
 		return err
 	}
+	startupService := startup.New(dataDir)
 	routes := func(manager *downloader.Manager) http.Handler {
 		mux := http.NewServeMux()
 		api.Register(mux, manager, auth, controller)
 		api.RegisterDiagnostics(mux, applicationLog)
+		api.RegisterStartup(mux, startupService)
 		api.RegisterLifecycle(mux, func() {
 			select {
 			case lifecycleExit <- struct{}{}:
@@ -234,7 +255,7 @@ func run() (resultErr error) {
 	} else if !authEnabled {
 		log.Printf("API Key authentication is disabled; enable it from the dashboard when needed")
 	}
-	if os.Getenv("TRUEDOWN_NO_BROWSER") == "" && !systemupdate.IsUpdateRelaunch() && !isEngineRelaunch() {
+	if options.mode == "ui" && os.Getenv("TRUEDOWN_NO_BROWSER") == "" && !systemupdate.IsUpdateRelaunch() && !isEngineRelaunch() {
 		go openBrowser(browserURL)
 	}
 	server := &http.Server{
@@ -293,7 +314,11 @@ func run() (resultErr error) {
 		}
 		resetEngineRelaunchCircuitAfterHealthyPeriod()
 	}
-	platform, platformErr := startPlatformApp()
+	var platform *platformApp
+	var platformErr error
+	if options.mode != "serve" {
+		platform, platformErr = startPlatformApp()
+	}
 	if platformErr != nil {
 		log.Printf("start system tray: %v", platformErr)
 	} else if platform != nil {
