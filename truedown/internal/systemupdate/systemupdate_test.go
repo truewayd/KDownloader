@@ -65,7 +65,8 @@ func TestFailedUpdatePreferencesPreservePublishedState(t *testing.T) {
 		},
 		lastError: "previous error",
 	}
-	if _, err := manager.SetSettings(Settings{AutoUpdateTrueDown: false}); err == nil {
+	disabled := false
+	if _, err := manager.SetSettings(Settings{AutoUpdateTrueDown: &disabled}); err == nil {
 		t.Fatal("settings write unexpectedly succeeded")
 	}
 	if !manager.Snapshot().TrueDown.AutoUpdate {
@@ -142,8 +143,8 @@ func TestManualNextInstallPersistsSelection(t *testing.T) {
 	if snapshot.Engine.Preference != EngineStable || !snapshot.Engine.NextInstalled || snapshot.Engine.RestartRequired {
 		t.Fatalf("unexpected installed engine state: %+v", snapshot.Engine)
 	}
-	if snapshot.Engine.ManualUpdatesOnly != true {
-		t.Fatal("NEXT must remain manual-update-only")
+	if !snapshot.Engine.AutoUpdate || snapshot.Engine.ManualUpdatesOnly {
+		t.Fatal("fresh profiles must enable automatic updates for explicitly installed NEXT")
 	}
 
 	selected, err := manager.SelectEngine(EngineNext)

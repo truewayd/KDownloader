@@ -42,7 +42,12 @@ func (service *testUpdateService) Snapshot() systemupdate.Snapshot {
 }
 
 func (service *testUpdateService) SetSettings(settings systemupdate.Settings) (systemupdate.Snapshot, error) {
-	service.snapshot.TrueDown.AutoUpdate = settings.AutoUpdateTrueDown
+	if settings.AutoUpdateTrueDown != nil {
+		service.snapshot.TrueDown.AutoUpdate = *settings.AutoUpdateTrueDown
+	}
+	if settings.AutoUpdateNext != nil {
+		service.snapshot.Engine.AutoUpdate = *settings.AutoUpdateNext
+	}
 	return service.snapshot, nil
 }
 

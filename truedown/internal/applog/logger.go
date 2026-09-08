@@ -15,13 +15,18 @@ const (
 	maximumBytes   = int64(4 * 1024 * 1024)
 	maximumBackups = 3
 	maximumWrite   = 64 * 1024
+	retentionAge   = 7 * 24 * time.Hour
 )
 
 type Logger struct {
-	mu   sync.Mutex
-	path string
-	file *os.File
-	size int64
+	mu       sync.Mutex
+	path     string
+	file     *os.File
+	size     int64
+	day      string
+	stop     chan struct{}
+	done     chan struct{}
+	stopOnce sync.Once
 }
 
 func Open(dataDir string) (*Logger, error) {
@@ -39,7 +44,65 @@ func Open(dataDir string) (*Logger, error) {
 	if err := logger.open(); err != nil {
 		return nil, err
 	}
+	if err := logger.maintain(time.Now()); err != nil {
+		if logger.file != nil {
+			logger.file.Close()
+		}
+		return nil, err
+	}
+	logger.stop, logger.done = make(chan struct{}), make(chan struct{})
+	go logger.runMaintenance()
 	return logger, nil
+}
+
+func (logger *Logger) runMaintenance() {
+	defer close(logger.done)
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-logger.stop:
+			return
+		case now := <-ticker.C:
+			logger.mu.Lock()
+			_ = logger.maintain(now)
+			logger.mu.Unlock()
+		}
+	}
+}
+
+// Run under the writer lock so cleanup never races rotation or a tail read.
+func (logger *Logger) maintain(now time.Time) error {
+	day := now.Local().Format("2006-01-02")
+	if logger.file != nil && logger.size > 0 && logger.day != day {
+		if err := logger.file.Close(); err != nil {
+			return err
+		}
+		logger.file = nil
+		if err := logger.rotate(); err != nil {
+			return err
+		}
+		if err := logger.open(); err != nil {
+			return err
+		}
+	}
+	logger.day = day
+	for index := 1; index <= maximumBackups; index++ {
+		path := fmt.Sprintf("%s.%d", logger.path, index)
+		info, err := regularFileInfo(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if now.Sub(info.ModTime()) >= retentionAge {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (logger *Logger) Path() string {
@@ -63,6 +126,11 @@ func (logger *Logger) Write(input []byte) (int, error) {
 	}
 	if logger.file == nil {
 		return 0, fmt.Errorf("TrueDown application log is closed")
+	}
+	if logger.day != time.Now().Local().Format("2006-01-02") {
+		if err := logger.maintain(time.Now()); err != nil {
+			return 0, err
+		}
 	}
 	if logger.size > 0 && logger.size+int64(len(data)) > maximumBytes {
 		if err := logger.file.Close(); err != nil {
@@ -146,6 +214,10 @@ func (logger *Logger) ReadTail(limit int64) (content string, truncated bool, upd
 }
 
 func (logger *Logger) Close() error {
+	if logger.stop != nil {
+		logger.stopOnce.Do(func() { close(logger.stop) })
+		<-logger.done
+	}
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
 	if logger.file == nil {
@@ -173,6 +245,7 @@ func (logger *Logger) open() error {
 	}
 	logger.file = file
 	logger.size = info.Size()
+	logger.day = info.ModTime().Local().Format("2006-01-02")
 	return nil
 }
 

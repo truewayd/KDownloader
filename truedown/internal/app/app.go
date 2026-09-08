@@ -41,9 +41,10 @@ func exeDir() string {
 
 // BuildInfo describes this binary without package-level mutable state.
 type BuildInfo struct {
-	Version     string
-	BuildNumber string
-	Commit      string
+	ProductVersion string
+	Version        string
+	BuildNumber    string
+	Commit         string
 }
 
 // Options controls the shared service independently of any executable entry point.
@@ -141,6 +142,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		Paths:                 location.Paths,
 		StableEnginePath:      stableAria2,
 		CurrentVersion:        version,
+		ProductVersion:        options.Build.ProductVersion,
 		CurrentBuild:          currentBuild,
 		CurrentCommit:         commit,
 		DisableProgramUpdates: nativeExecutable == "",
@@ -206,7 +208,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	routes := func(manager *downloader.Manager) http.Handler {
 		mux := http.NewServeMux()
 		api.Register(mux, manager, auth, controller)
-		api.RegisterInfo(mux, protocol.Info{Product: protocol.Product, ProtocolVersion: protocol.Version, Version: version, BuildNumber: buildNumber, Commit: commit, Mode: "serve"})
+		api.RegisterInfo(mux, protocol.Info{Product: protocol.Product, ProtocolVersion: protocol.Version, ProductVersion: options.Build.ProductVersion, Version: version, BuildNumber: buildNumber, Commit: commit, Mode: "serve"})
 		api.RegisterStorage(mux, location)
 		api.RegisterDiagnostics(mux, applicationLog)
 		api.RegisterStartup(mux)
@@ -260,24 +262,25 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		MaxHeaderBytes:    32 * 1024,
 	}
 	restart := make(chan struct{}, 1)
-	updates.SetRestartCallback(func() error {
+	updates.SetRestartHandler(func(automatic bool) error {
+		if !controller.selectionMu.TryLock() {
+			return fmt.Errorf("wait for the engine update operation before restarting TrueDown")
+		}
+		defer controller.selectionMu.Unlock()
 		if controller.transitionActive() {
 			return fmt.Errorf("wait for the download-engine transition before restarting TrueDown")
 		}
-		active := host.taskCount(downloader.StatusQueued) +
-			host.taskCount(downloader.StatusDownloading) +
-			host.taskCount(downloader.StatusPaused)
-		if active > 0 {
-			return fmt.Errorf("wait for queued, downloading, and paused tasks before restarting TrueDown")
-		}
-		if err := updates.LaunchPendingApply([]string{"--background", "--data-dir", dataDir}); err != nil {
-			return err
-		}
-		select {
-		case restart <- struct{}{}:
-		default:
-		}
-		return nil
+		return host.withProgramUpdateGate(automatic, func() error {
+			if err := updates.LaunchPendingApply([]string{"--background", "--data-dir", dataDir}); err != nil {
+				return err
+			}
+			controller.setTransition("program-update", "")
+			select {
+			case restart <- struct{}{}:
+			default:
+			}
+			return nil
+		})
 	})
 	serverErr := make(chan error, 1)
 	go func() {
@@ -289,6 +292,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	}()
 	updateContext, cancelUpdates := context.WithCancel(ctx)
 	defer cancelUpdates()
+	updates.ConfigureAutomaticNext(controller.checkNextAutomatically, controller.applyNextAutomatically)
 	automaticUpdatesDone := updates.RunAutomatic(updateContext, func() bool {
 		return host.taskCount(downloader.StatusQueued) == 0 &&
 			host.taskCount(downloader.StatusDownloading) == 0 &&

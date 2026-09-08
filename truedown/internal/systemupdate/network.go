@@ -170,12 +170,12 @@ func (m *Manager) InstallNext(ctx context.Context) (Snapshot, error) {
 	if err := m.begin("next-engine"); err != nil {
 		return m.Snapshot(), err
 	}
-	err := m.installNext(ctx)
+	err := m.installNext(ctx, false)
 	m.finish(err)
 	return m.Snapshot(), err
 }
 
-func (m *Manager) installNext(ctx context.Context) error {
+func (m *Manager) installNext(ctx context.Context, automatic bool) error {
 	var release githubRelease
 	if err := m.fetchJSON(ctx, m.nextReleaseURL, maxGitHubResponseBytes, &release); err != nil {
 		return fmt.Errorf("check Aria2 Next release: %w", err)
@@ -185,8 +185,23 @@ func (m *Manager) installNext(ctx context.Context) error {
 		return err
 	}
 	m.mu.Lock()
+	nextState := m.state
+	nextState.NextLastCheckedAt = m.now().UTC()
+	if err := m.persistStateLocked(nextState); err != nil {
+		m.mu.Unlock()
+		return err
+	}
 	m.availableNext = available
+	installed := m.state.NextEngine
+	skip := automatic && (!m.state.AutoUpdateNext || installed == nil || m.state.NextFailedVersion == available.Version || compareEngineVersions(available.Version, installed.Version) <= 0)
+	if !automatic && installed != nil && compareEngineVersions(available.Version, installed.Version) < 0 {
+		m.mu.Unlock()
+		return fmt.Errorf("the latest release is older than the installed Aria2 Next")
+	}
 	m.mu.Unlock()
+	if skip {
+		return nil
+	}
 	var checksumText string
 	if err := m.fetchText(ctx, available.ChecksumURL, maxChecksumsBytes, &checksumText); err != nil {
 		return fmt.Errorf("download Aria2 Next checksums: %w", err)
@@ -227,15 +242,26 @@ func (m *Manager) installNext(ctx context.Context) error {
 		return fmt.Errorf("inspect installed Aria2 Next: %w", existingErr)
 	}
 	m.mu.Lock()
+	defer m.mu.Unlock()
+	if automatic && (!m.state.AutoUpdateNext || m.state.NextEngine == nil) {
+		return nil
+	}
 	next := m.state
+	if next.NextEngine != nil && next.NextEngine.File != available.BinaryName {
+		// A second downloaded candidate must not displace the still-running
+		// version's rollback metadata while the queue remains busy.
+		if next.PreviousNextEngine == nil || m.active.Kind != EngineNext || next.PreviousNextEngine.File != m.active.File {
+			next.PreviousNextEngine = next.NextEngine
+		}
+	}
 	next.NextEngine = &installedEngine{
 		Version: version,
 		File:    available.BinaryName,
 		SHA256:  strings.ToLower(digest),
 	}
 	next.LastUpdateError = ""
+	next.NextFailedVersion = ""
 	err = m.persistStateLocked(next)
-	m.mu.Unlock()
 	return err
 }
 
@@ -309,7 +335,7 @@ func checksumForAsset(checksums, name string) (string, error) {
 
 func (m *Manager) RunAutomatic(ctx context.Context, canApply func() bool) <-chan struct{} {
 	done := make(chan struct{})
-	if m.programUpdatesDisabled || runtime.GOOS != "windows" || m.currentBuild <= 0 {
+	if runtime.GOOS != "windows" || ((m.programUpdatesDisabled || m.currentBuild <= 0) && m.checkNextAutomatically == nil) {
 		close(done)
 		return done
 	}
@@ -328,15 +354,32 @@ func (m *Manager) RunAutomatic(ctx context.Context, canApply func() bool) <-chan
 		defer checkTicker.Stop()
 		defer applyTicker.Stop()
 		m.runAutomaticCheck(ctx)
+		if m.checkNextAutomatically != nil {
+			m.checkNextAutomatically(ctx)
+		}
 		m.tryAutomaticApply(canApply)
+		if m.applyNextAutomatically != nil {
+			m.applyNextAutomatically()
+		}
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-checkTicker.C:
 				m.runAutomaticCheck(ctx)
+				if m.checkNextAutomatically != nil {
+					m.checkNextAutomatically(ctx)
+				}
 			case <-applyTicker.C:
 				m.tryAutomaticApply(canApply)
+				if m.applyNextAutomatically != nil {
+					m.applyNextAutomatically()
+				}
+			case <-m.wakeAutomatic:
+				m.runAutomaticCheck(ctx)
+				if m.checkNextAutomatically != nil {
+					m.checkNextAutomatically(ctx)
+				}
 			}
 		}
 	}()
@@ -344,6 +387,9 @@ func (m *Manager) RunAutomatic(ctx context.Context, canApply func() bool) <-chan
 }
 
 func (m *Manager) runAutomaticCheck(ctx context.Context) {
+	if m.programUpdatesDisabled || m.currentBuild <= 0 {
+		return
+	}
 	if m.nativeExecutable != "" {
 		if _, err := os.Lstat(filepath.Join(m.baseDir, nativeMarkerName)); !os.IsNotExist(err) {
 			return

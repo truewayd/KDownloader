@@ -49,7 +49,9 @@ async function until(check, timeout = 180000) {
 }
 async function exists(file) { return fs.stat(file).then(() => true, () => false); }
 
-for (const mode of ["update", "health-rollback", "interrupted-rollback"]) {
+const modes = ["update", "automatic-update", "health-rollback", "interrupted-rollback"];
+if (process.argv[4] && !modes.includes(process.argv[4])) throw new Error("Unknown acceptance mode");
+for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
   const directory = path.join(fixture, mode, "Application with spaces");
   const profile = path.join(fixture, mode, "Profile with spaces");
   await fs.mkdir(directory, { recursive: true });
@@ -84,6 +86,7 @@ for (const mode of ["update", "health-rollback", "interrupted-rollback"]) {
     const files = await Promise.all(names.map(name => metadata(stage, name)));
     const statePath = path.join(stateDirectory, "truedown.updates.json");
     const state = JSON.parse(await fs.readFile(statePath, "utf8"));
+    state.autoUpdateTrueDown = mode === "automatic-update";
     state.pendingUpdate = { version: `truedown-build-${targetBuild}`, build: targetBuild, file: path.basename(stage), sha256: "a".repeat(64), nativeFiles: files };
     await fs.writeFile(statePath, JSON.stringify(state));
     const markerPath = path.join(directory, "TrueDown.update.json");
@@ -107,18 +110,18 @@ for (const mode of ["update", "health-rollback", "interrupted-rollback"]) {
       await until(async () => await build() === "1");
       const pending = await request("/system/update");
       assert.equal(pending.trueDown.pendingBuild, targetBuild);
-      await request("/system/update/restart", "POST");
+      if (mode !== "automatic-update") await request("/system/update/restart", "POST");
       await until(() => exists(markerPath));
     }
     await until(async () => !(await exists(markerPath)));
-    const wanted = mode === "update" ? "2" : "1";
+    const wanted = ["update", "automatic-update"].includes(mode) ? "2" : "1";
     await until(async () => await build() === wanted);
-    for (const name of names) assert.deepEqual(await metadata(directory, name), await metadata(mode === "update" ? next : previous, name));
+    for (const name of names) assert.deepEqual(await metadata(directory, name), await metadata(["update", "automatic-update"].includes(mode) ? next : previous, name));
     assert.deepEqual(await metadata(directory, "aria2c.exe"), engine);
     const saved = JSON.parse(await fs.readFile(statePath, "utf8"));
-    assert.equal(saved.autoUpdateTrueDown, false);
+    assert.equal(saved.autoUpdateTrueDown, mode === "automatic-update");
     assert.equal(saved.pendingUpdate, undefined);
-    if (mode !== "update") assert.match(saved.lastUpdateError, /restored the complete previous version/);
+    if (!["update", "automatic-update"].includes(mode)) assert.match(saved.lastUpdateError, /restored the complete previous version/);
     await until(() => fetch(`http://127.0.0.1:${debugPort}/json/version`).then(response => response.ok, () => false));
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
     const page = await until(() => browser.contexts().flatMap(context => context.pages()).find(page => page.url().includes("tauri.localhost")));

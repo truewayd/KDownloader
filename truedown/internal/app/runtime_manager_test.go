@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -11,6 +12,55 @@ import (
 	"truedown/internal/downloader"
 	"truedown/internal/systemupdate"
 )
+
+func TestAutomaticEngineSwitchRechecksIdleAfterRequestsDrain(t *testing.T) {
+	root := t.TempDir()
+	manager, err := downloader.NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	host := &managerHost{}
+	host.configure(manager, systemupdate.EngineSpec{Kind: systemupdate.EngineNext, Version: "2.9.0"}, nil, func(*downloader.Manager) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/add" {
+				close(entered)
+				<-release
+				_, _, err := manager.AddTask("https://example.com/file", "file", "", nil, "", 0, downloader.Aria2Opts{})
+				if err != nil {
+					t.Error(err)
+				}
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})
+	})
+	defer host.stop()
+	host.launch = func(systemupdate.EngineSpec) (*downloader.Manager, error) {
+		t.Error("automatic switch interrupted a newly queued download")
+		return nil, context.Canceled
+	}
+	requestDone := make(chan struct{})
+	go func() {
+		host.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/add", nil))
+		close(requestDone)
+	}()
+	<-entered
+	result := make(chan error, 1)
+	go func() {
+		_, err := host.transitionGuarded(nil, systemupdate.EngineSpec{Kind: systemupdate.EngineNext, Version: "2.10.0"}, nil, 1, managerIdle)
+		result <- err
+	}()
+	close(release)
+	<-requestDone
+	if err := <-result; !errors.Is(err, errAutomaticEngineDeferred) {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	host.ServeHTTP(response, httptest.NewRequest("GET", "/", nil))
+	if response.Code != http.StatusNoContent {
+		t.Fatal("deferred update did not resume the old runtime")
+	}
+}
 
 func TestDrainingHandlerWaitsForInflightRequestAndRejectsNewWork(t *testing.T) {
 	entered := make(chan struct{})
@@ -53,6 +103,44 @@ func TestDrainingHandlerWaitsForInflightRequestAndRejectsNewWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-firstDone
+}
+
+func TestProgramUpdateGateBlocksNewAdmissionAndRestoresOnFailure(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		root := t.TempDir()
+		manager, err := downloader.NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		host := &managerHost{}
+		host.configure(manager, systemupdate.EngineSpec{Kind: systemupdate.EngineStable}, nil, func(*downloader.Manager) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+		})
+		err = host.withProgramUpdateGate(true, func() error {
+			response := httptest.NewRecorder()
+			host.ServeHTTP(response, httptest.NewRequest("POST", "/add", nil))
+			if response.Code != http.StatusServiceUnavailable {
+				t.Fatal("new work entered during apply")
+			}
+			if fail {
+				return context.Canceled
+			}
+			return nil
+		})
+		if fail != (err != nil) {
+			t.Fatal(err)
+		}
+		response := httptest.NewRecorder()
+		host.ServeHTTP(response, httptest.NewRequest("GET", "/", nil))
+		want := http.StatusServiceUnavailable
+		if fail {
+			want = http.StatusNoContent
+		}
+		if response.Code != want {
+			t.Fatal(response.Code, want)
+		}
+		host.stop()
+	}
 }
 
 func TestAppendWithoutEnvironmentReplacesCaseInsensitively(t *testing.T) {

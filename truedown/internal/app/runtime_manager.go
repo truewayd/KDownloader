@@ -15,6 +15,11 @@ import (
 )
 
 var errStaleManagerRuntime = errors.New("download manager runtime is no longer active")
+var errAutomaticEngineDeferred = errors.New("automatic engine update is waiting for an idle queue")
+
+func managerIdle(manager *downloader.Manager) bool {
+	return manager.TaskCountByStatus(downloader.StatusQueued) == 0 && manager.TaskCountByStatus(downloader.StatusDownloading) == 0 && manager.TaskCountByStatus(downloader.StatusPaused) == 0
+}
 
 type drainingHandler struct {
 	mu       sync.Mutex
@@ -155,6 +160,10 @@ func (host *managerHost) transition(
 	rollback *systemupdate.EngineSpec,
 	attempts int,
 ) (engineTransitionResult, error) {
+	return host.transitionGuarded(source, target, rollback, attempts, nil)
+}
+
+func (host *managerHost) transitionGuarded(source *downloader.Manager, target systemupdate.EngineSpec, rollback *systemupdate.EngineSpec, attempts int, guard func(*downloader.Manager) bool) (engineTransitionResult, error) {
 	host.switchMu.Lock()
 	defer host.switchMu.Unlock()
 	if attempts < 1 {
@@ -174,6 +183,10 @@ func (host *managerHost) transition(
 	if err != nil {
 		current.handler.resume()
 		return engineTransitionResult{Active: current.spec}, fmt.Errorf("wait for active TrueDown requests before switching engines: %w", err)
+	}
+	if guard != nil && !guard(current.manager) {
+		current.handler.resume()
+		return engineTransitionResult{Active: current.spec}, errAutomaticEngineDeferred
 	}
 	if target.Kind == systemupdate.EngineStable && current.spec.Kind == systemupdate.EngineNext &&
 		current.manager.HasActiveBitTorrent() {
@@ -255,6 +268,44 @@ func (host *managerHost) stop() {
 	_ = current.handler.quiesce(drainContext)
 	cancelDrain()
 	current.manager.Stop()
+}
+
+// Freeze admission before the final idle check. A manual restart owns the one
+// current handler slot; an automatic restart must see no in-flight requests.
+func (host *managerHost) withProgramUpdateGate(automatic bool, apply func() error) error {
+	host.switchMu.Lock()
+	defer host.switchMu.Unlock()
+	host.mu.RLock()
+	current := host.current
+	host.mu.RUnlock()
+	if current == nil {
+		return errStaleManagerRuntime
+	}
+	allowed := 1
+	if automatic {
+		allowed = 0
+	}
+	handler := current.handler
+	handler.mu.Lock()
+	if handler.draining || handler.active > allowed {
+		handler.mu.Unlock()
+		return fmt.Errorf("wait for active requests before updating TrueDown")
+	}
+	handler.draining = true
+	handler.drained = make(chan struct{})
+	if handler.active == 0 {
+		close(handler.drained)
+	}
+	handler.mu.Unlock()
+	if !managerIdle(current.manager) {
+		handler.resume()
+		return fmt.Errorf("wait for queued, downloading, and paused tasks before updating TrueDown")
+	}
+	if err := apply(); err != nil {
+		handler.resume()
+		return err
+	}
+	return nil
 }
 
 func sameRuntimeEngine(left, right systemupdate.EngineSpec) bool {
@@ -363,12 +414,34 @@ func (controller *engineController) schedulePreferredSwitchLocked(phase string) 
 		return nil
 	}
 	controller.setTransition(phase, "")
-	go controller.runPlannedSwitch(target, active)
+	go controller.runPlannedSwitch(target, active, false)
 	return nil
 }
 
-func (controller *engineController) runPlannedSwitch(target, previous systemupdate.EngineSpec) {
-	result, err := controller.host.transition(nil, target, &previous, 1)
+func (controller *engineController) runPlannedSwitch(target, previous systemupdate.EngineSpec, automatic bool) {
+	var releaseApply func()
+	defer func() {
+		if releaseApply != nil {
+			releaseApply()
+		}
+	}()
+	var guard func(*downloader.Manager) bool
+	if automatic {
+		guard = func(manager *downloader.Manager) bool {
+			var enabled bool
+			releaseApply, enabled = controller.updates.BeginAutomaticNextApply()
+			if !enabled {
+				return false
+			}
+			state := controller.updates.Snapshot()
+			return state.Engine.AutoUpdate && state.Engine.Preference == systemupdate.EngineNext && managerIdle(manager)
+		}
+	}
+	result, err := controller.host.transitionGuarded(nil, target, &previous, 1, guard)
+	if errors.Is(err, errAutomaticEngineDeferred) {
+		controller.finishTransition(nil)
+		return
+	}
 	if result.TargetLive {
 		if _, activateErr := controller.updates.ActivateEngine(target); activateErr != nil {
 			err = errors.Join(err, activateErr)
@@ -378,6 +451,9 @@ func (controller *engineController) runPlannedSwitch(target, previous systemupda
 		}
 	}
 	if err != nil {
+		if result.RolledBack && result.Active.Kind == systemupdate.EngineNext && result.Active.File != target.File {
+			err = errors.Join(err, controller.updates.RestorePreviousNext(result.Active))
+		}
 		if !result.Unavailable && result.Active.Kind != "" {
 			if _, preferenceErr := controller.updates.SelectEngine(result.Active.Kind); preferenceErr != nil {
 				err = errors.Join(err, fmt.Errorf("restore previous engine preference: %w", preferenceErr))
@@ -423,6 +499,34 @@ func (controller *engineController) recover(source *downloader.Manager, cause er
 		controller.updates.RecordEngineError(recoveryErr)
 		controller.requestReload(recoveryErr)
 	}()
+}
+
+func (controller *engineController) checkNextAutomatically(ctx context.Context) {
+	controller.selectionMu.Lock()
+	defer controller.selectionMu.Unlock()
+	if controller.transitionActive() {
+		return
+	}
+	_ = controller.updates.UpdateNextAutomatically(ctx)
+}
+
+func (controller *engineController) applyNextAutomatically() {
+	controller.selectionMu.Lock()
+	defer controller.selectionMu.Unlock()
+	state := controller.updates.Snapshot()
+	if controller.transitionActive() || state.Busy != "" || !state.Engine.AutoUpdate || !state.Engine.RestartRequired || state.Engine.Active != systemupdate.EngineNext || state.Engine.Preference != systemupdate.EngineNext {
+		return
+	}
+	if controller.host.taskCount(downloader.StatusQueued)+controller.host.taskCount(downloader.StatusDownloading)+controller.host.taskCount(downloader.StatusPaused) != 0 {
+		return
+	}
+	target, err := controller.updates.PreferredEngine()
+	if err != nil {
+		controller.updates.RecordEngineError(err)
+		return
+	}
+	controller.setTransition("engine-switch", "")
+	go controller.runPlannedSwitch(target, controller.updates.ActiveEngine(), true)
 }
 
 func (controller *engineController) requestReload(reason error) {

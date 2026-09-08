@@ -49,6 +49,7 @@ type Options struct {
 	Paths                 profile.Paths
 	StableEnginePath      string
 	CurrentVersion        string
+	ProductVersion        string
 	CurrentBuild          int64
 	CurrentCommit         string
 	DisableProgramUpdates bool
@@ -63,10 +64,12 @@ type Options struct {
 }
 
 type Settings struct {
-	AutoUpdateTrueDown bool `json:"autoUpdateTrueDown"`
+	AutoUpdateTrueDown *bool `json:"autoUpdateTrueDown,omitempty"`
+	AutoUpdateNext     *bool `json:"autoUpdateNext,omitempty"`
 }
 
 type TrueDownStatus struct {
+	ProductVersion   string     `json:"productVersion,omitempty"`
 	Version          string     `json:"version"`
 	Build            int64      `json:"build"`
 	Commit           string     `json:"commit,omitempty"`
@@ -82,15 +85,18 @@ type TrueDownStatus struct {
 }
 
 type EngineStatus struct {
-	Preference           string `json:"preference"`
-	Active               string `json:"active"`
-	ActiveVersion        string `json:"activeVersion,omitempty"`
-	StableVersion        string `json:"stableVersion,omitempty"`
-	NextInstalled        bool   `json:"nextInstalled"`
-	NextInstalledVersion string `json:"nextInstalledVersion,omitempty"`
-	NextAvailableVersion string `json:"nextAvailableVersion,omitempty"`
-	RestartRequired      bool   `json:"restartRequired"`
-	ManualUpdatesOnly    bool   `json:"manualUpdatesOnly"`
+	Preference           string     `json:"preference"`
+	Active               string     `json:"active"`
+	ActiveVersion        string     `json:"activeVersion,omitempty"`
+	StableVersion        string     `json:"stableVersion,omitempty"`
+	NextInstalled        bool       `json:"nextInstalled"`
+	NextInstalledVersion string     `json:"nextInstalledVersion,omitempty"`
+	NextAvailableVersion string     `json:"nextAvailableVersion,omitempty"`
+	RestartRequired      bool       `json:"restartRequired"`
+	ManualUpdatesOnly    bool       `json:"manualUpdatesOnly"`
+	AutoUpdate           bool       `json:"autoUpdate"`
+	AutoUpdateSupported  bool       `json:"autoUpdateSupported"`
+	LastCheckedAt        *time.Time `json:"lastCheckedAt,omitempty"`
 }
 
 type Snapshot struct {
@@ -117,6 +123,10 @@ type pendingAppUpdate struct {
 type persistedState struct {
 	SchemaVersion      int               `json:"schemaVersion"`
 	AutoUpdateTrueDown bool              `json:"autoUpdateTrueDown"`
+	AutoUpdateNext     bool              `json:"autoUpdateNext"`
+	NextLastCheckedAt  time.Time         `json:"nextLastCheckedAt,omitzero"`
+	PreviousNextEngine *installedEngine  `json:"previousNextEngine,omitempty"`
+	NextFailedVersion  string            `json:"nextFailedVersion,omitempty"`
 	EnginePreference   string            `json:"enginePreference"`
 	NextEngine         *installedEngine  `json:"nextEngine,omitempty"`
 	PendingUpdate      *pendingAppUpdate `json:"pendingUpdate,omitempty"`
@@ -162,7 +172,8 @@ type availableNextUpdate struct {
 }
 
 type Manager struct {
-	mu sync.RWMutex
+	mu      sync.RWMutex
+	applyMu sync.Mutex
 
 	baseDir                string
 	updatesDir             string
@@ -171,6 +182,7 @@ type Manager struct {
 	stableEnginePath       string
 	currentExe             string
 	currentVersion         string
+	productVersion         string
 	currentBuild           int64
 	programUpdatesDisabled bool
 	nativeExecutable       string
@@ -183,16 +195,20 @@ type Manager struct {
 	inspectEngine         func(string) (string, string, error)
 	now                   func() time.Time
 
-	state             persistedState
-	active            activeEngine
-	stableVersion     string
-	availableApp      *availableAppUpdate
-	availableNext     *availableNextUpdate
-	busy              string
-	lastError         string
-	restart           func() error
-	applyLaunched     bool
-	prunedNativeState bool
+	state                  persistedState
+	active                 activeEngine
+	stableVersion          string
+	availableApp           *availableAppUpdate
+	availableNext          *availableNextUpdate
+	busy                   string
+	lastError              string
+	restart                func() error
+	restartWithMode        func(bool) error
+	applyLaunched          bool
+	prunedNativeState      bool
+	wakeAutomatic          chan struct{}
+	checkNextAutomatically func(context.Context)
+	applyNextAutomatically func()
 }
 
 func New(options Options) (*Manager, error) {
@@ -252,6 +268,8 @@ func New(options Options) (*Manager, error) {
 		stableEnginePath:       filepath.Clean(stablePath),
 		currentExe:             filepath.Clean(currentExe),
 		currentVersion:         strings.TrimSpace(options.CurrentVersion),
+		productVersion:         strings.TrimSpace(options.ProductVersion),
+		wakeAutomatic:          make(chan struct{}, 1),
 		currentBuild:           options.CurrentBuild,
 		programUpdatesDisabled: options.DisableProgramUpdates || options.NativeExecutable == "",
 		currentCommit:          strings.TrimSpace(options.CurrentCommit),
@@ -264,6 +282,7 @@ func New(options Options) (*Manager, error) {
 		state: persistedState{
 			SchemaVersion:      stateSchemaVersion,
 			AutoUpdateTrueDown: true,
+			AutoUpdateNext:     true,
 			EnginePreference:   EngineStable,
 		},
 	}
@@ -376,6 +395,12 @@ func (m *Manager) SetRestartCallback(callback func() error) {
 	m.restart = callback
 }
 
+func (m *Manager) SetRestartHandler(callback func(bool) error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.restartWithMode = callback
+}
+
 func (m *Manager) Snapshot() Snapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -385,18 +410,21 @@ func (m *Manager) Snapshot() Snapshot {
 func (m *Manager) snapshotLocked() Snapshot {
 	status := Snapshot{
 		TrueDown: TrueDownStatus{
-			Version:    m.currentVersion,
-			Build:      m.currentBuild,
-			Commit:     m.currentCommit,
-			Supported:  !m.programUpdatesDisabled && runtime.GOOS == "windows" && m.currentBuild > 0,
-			AutoUpdate: m.state.AutoUpdateTrueDown,
+			ProductVersion: m.productVersion,
+			Version:        m.currentVersion,
+			Build:          m.currentBuild,
+			Commit:         m.currentCommit,
+			Supported:      !m.programUpdatesDisabled && runtime.GOOS == "windows" && m.currentBuild > 0,
+			AutoUpdate:     m.state.AutoUpdateTrueDown,
 		},
 		Engine: EngineStatus{
-			Preference:        m.state.EnginePreference,
-			Active:            m.active.Kind,
-			ActiveVersion:     m.active.Version,
-			StableVersion:     m.stableVersion,
-			ManualUpdatesOnly: true,
+			Preference:          m.state.EnginePreference,
+			Active:              m.active.Kind,
+			ActiveVersion:       m.active.Version,
+			StableVersion:       m.stableVersion,
+			ManualUpdatesOnly:   !m.state.AutoUpdateNext,
+			AutoUpdate:          m.state.AutoUpdateNext,
+			AutoUpdateSupported: runtime.GOOS == "windows",
 		},
 		Busy:  m.busy,
 		Error: firstNonEmpty(m.lastError, m.state.LastUpdateError),
@@ -404,6 +432,10 @@ func (m *Manager) snapshotLocked() Snapshot {
 	if !m.state.LastCheckedAt.IsZero() {
 		lastChecked := m.state.LastCheckedAt
 		status.TrueDown.LastCheckedAt = &lastChecked
+	}
+	if !m.state.NextLastCheckedAt.IsZero() {
+		checked := m.state.NextLastCheckedAt
+		status.Engine.LastCheckedAt = &checked
 	}
 	if m.availableApp != nil && m.availableApp.Build > m.currentBuild {
 		status.TrueDown.UpdateAvailable = true
@@ -437,12 +469,32 @@ func (m *Manager) engineRestartRequiredLocked() bool {
 }
 
 func (m *Manager) SetSettings(settings Settings) (Snapshot, error) {
+	if settings.AutoUpdateTrueDown == nil && settings.AutoUpdateNext == nil {
+		return Snapshot{}, fmt.Errorf("provide an automatic update preference")
+	}
+	m.applyMu.Lock()
+	defer m.applyMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.applyLaunched {
+		return Snapshot{}, fmt.Errorf("TrueDown is already applying an update")
+	}
 	next := m.state
-	next.AutoUpdateTrueDown = settings.AutoUpdateTrueDown
+	if settings.AutoUpdateTrueDown != nil {
+		next.AutoUpdateTrueDown = *settings.AutoUpdateTrueDown
+	}
+	if settings.AutoUpdateNext != nil {
+		next.AutoUpdateNext = *settings.AutoUpdateNext
+	}
+	wake := next.AutoUpdateTrueDown && !m.state.AutoUpdateTrueDown || next.AutoUpdateNext && !m.state.AutoUpdateNext
 	if err := m.persistStateLocked(next); err != nil {
 		return Snapshot{}, err
+	}
+	if wake {
+		select {
+		case m.wakeAutomatic <- struct{}{}:
+		default:
+		}
 	}
 	return m.snapshotLocked(), nil
 }
@@ -475,6 +527,8 @@ func (m *Manager) RequestRestart() error {
 }
 
 func (m *Manager) requestRestart(automatic bool) error {
+	m.applyMu.Lock()
+	defer m.applyMu.Unlock()
 	if m.programUpdatesDisabled {
 		return fmt.Errorf("program updates belong to the external launcher")
 	}
@@ -485,9 +539,13 @@ func (m *Manager) requestRestart(automatic bool) error {
 	}
 	pending := m.state.PendingUpdate != nil && m.state.PendingUpdate.Build > m.currentBuild
 	restart := m.restart
+	restartWithMode := m.restartWithMode
 	m.mu.RUnlock()
 	if !pending {
 		return fmt.Errorf("no staged TrueDown update is ready")
+	}
+	if restartWithMode != nil {
+		return restartWithMode(automatic)
 	}
 	if restart == nil {
 		return fmt.Errorf("restart is unavailable")
@@ -670,6 +728,17 @@ func (m *Manager) loadState() error {
 			return fmt.Errorf("invalid installed Aria2 Next SHA-256")
 		}
 		state.NextEngine.SHA256 = strings.ToLower(state.NextEngine.SHA256)
+	}
+	if state.PreviousNextEngine != nil {
+		if _, err := m.installedEnginePath(state.PreviousNextEngine); err != nil {
+			return err
+		}
+		if normalizeSHA256(state.PreviousNextEngine.SHA256) == "" {
+			return fmt.Errorf("invalid previous Aria2 Next SHA-256")
+		}
+	}
+	if state.NextFailedVersion != "" && !canonicalVersionPattern.MatchString(state.NextFailedVersion) {
+		return fmt.Errorf("invalid failed NEXT version")
 	}
 	m.prunedNativeState = false
 	if state.PendingUpdate != nil {

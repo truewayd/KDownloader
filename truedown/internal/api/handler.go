@@ -813,6 +813,10 @@ func registerUpdateEndpoints(mux *http.ServeMux, updates UpdateService) {
 			if !decodeJSONRequest(w, r, 4096, &req) {
 				return
 			}
+			if req.AutoUpdateTrueDown == nil && req.AutoUpdateNext == nil {
+				http.Error(w, "provide an automatic update preference", http.StatusBadRequest)
+				return
+			}
 			snapshot, err := updates.SetSettings(req)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)

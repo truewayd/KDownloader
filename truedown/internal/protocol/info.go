@@ -6,6 +6,7 @@ const Product = "TrueDown"
 const Version = 1
 
 type Info struct {
+	ProductVersion  string `json:"productVersion,omitempty"`
 	Product         string `json:"product"`
 	ProtocolVersion int    `json:"protocolVersion"`
 	Version         string `json:"version"`

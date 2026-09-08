@@ -8,5 +8,5 @@ import (
 )
 
 func main() {
-	os.Exit(app.Main(os.Args[1:], app.BuildInfo{Version: buildinfo.Version, BuildNumber: buildinfo.BuildNumber, Commit: buildinfo.Commit}))
+	os.Exit(app.Main(os.Args[1:], app.BuildInfo{ProductVersion: buildinfo.ProductVersion, Version: buildinfo.Version, BuildNumber: buildinfo.BuildNumber, Commit: buildinfo.Commit}))
 }

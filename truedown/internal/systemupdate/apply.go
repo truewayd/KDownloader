@@ -105,7 +105,7 @@ func launchAndAwaitHealth(transaction nativeTransaction) error {
 	go func() { done <- command.Wait() }()
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
-	timer := time.NewTimer(60 * time.Second)
+	timer := time.NewTimer(90 * time.Second)
 	defer timer.Stop()
 	for {
 		select {
