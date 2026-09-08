@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 
 pub struct Core {
     session: Mutex<Session>,
+    shutdown: Mutex<()>,
     executable: PathBuf,
     data_dir: Option<String>,
     pub closing: AtomicBool,
@@ -60,6 +61,7 @@ impl Core {
                     healthy_since: Instant::now(),
                 },
             }),
+            shutdown: Mutex::new(()),
             executable,
             data_dir,
             closing: AtomicBool::new(false),
@@ -72,6 +74,9 @@ impl Core {
             return Err("TrueDown is shutting down".into());
         }
         let mut session = self.session.lock().await;
+        if self.closing.load(Ordering::SeqCst) {
+            return Err("TrueDown is shutting down".into());
+        }
         if let Some(error) = &session.failure {
             return Err(error.clone());
         }
@@ -151,11 +156,16 @@ impl Core {
     }
 
     pub async fn shutdown(&self) {
-        if self.closing.swap(true, Ordering::SeqCst) {
-            return;
-        }
-        if let Some(bridge) = self.session.lock().await.bridge.take() {
+        self.closing.store(true, Ordering::SeqCst);
+        // All exit callers await the same cleanup. A second tray/HTTP exit
+        // must not close the shell while the first is still stopping its core.
+        let _completion = self.shutdown.lock().await;
+        let bridge = self.session.lock().await.bridge.clone();
+        if let Some(bridge) = bridge {
             bridge.shutdown().await;
+            // Retain ownership until cleanup completes, including if an async
+            // caller is cancelled. No session-state lock spans child I/O.
+            self.session.lock().await.bridge = None;
         }
     }
 }
@@ -163,6 +173,60 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn concurrent_shutdown_callers_wait_for_the_same_cleanup() {
+        use std::{
+            future::Future,
+            task::{Context, Waker},
+        };
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let core = Core::new(PathBuf::from("unused-core"), None);
+            let session = core.session.lock().await;
+            let mut first = Box::pin(core.shutdown());
+            let mut second = Box::pin(core.shutdown());
+            assert!(first
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending());
+            assert!(core.closing.load(Ordering::SeqCst));
+            assert!(second
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending());
+            drop(session);
+            first.await;
+            second.await;
+            assert!(core.shutdown.try_lock().is_ok());
+        });
+    }
+
+    #[test]
+    fn queued_connection_does_not_start_a_core_after_shutdown() {
+        use std::{
+            future::Future,
+            task::{Context, Waker},
+        };
+
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let core = Core::new(PathBuf::from("missing-core"), None);
+            let session = core.session.lock().await;
+            let mut connect = Box::pin(core.connect());
+            assert!(connect
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending());
+            core.closing.store(true, Ordering::SeqCst);
+            drop(session);
+
+            assert_eq!(
+                connect.await.err().as_deref(),
+                Some("TrueDown is shutting down")
+            );
+            assert!(!core.session.lock().await.started);
+        });
+    }
+
     #[test]
     fn recovery_is_bounded_until_a_sustained_healthy_period() {
         let now = Instant::now();

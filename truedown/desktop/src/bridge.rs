@@ -5,18 +5,19 @@ use std::{
     process::Stdio,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, LazyLock, Mutex,
     },
     time::Duration,
 };
 use tokio::{
-    io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     process::{Child, ChildStdin, Command},
     sync::{oneshot, Mutex as AsyncMutex},
 };
 
 const MAX_FRAME: usize = 20 * 1024 * 1024;
-const ROUTES: &str = include_str!("../../internal/protocol/routes.json");
+static ROUTES: LazyLock<Result<HashMap<&str, Vec<&str>>, serde_json::Error>> =
+    LazyLock::new(|| serde_json::from_str(include_str!("../../internal/protocol/routes.json")));
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -59,19 +60,21 @@ impl Request {
     }
     pub fn validate(&self) -> Result<(), String> {
         let path = self.path.split('?').next().unwrap_or("");
-        let routes: HashMap<String, Vec<String>> =
-            serde_json::from_str(ROUTES).map_err(|_| "Invalid compiled API contract")?;
+        let routes = ROUTES
+            .as_ref()
+            .map_err(|_| "Invalid compiled API contract")?;
         if self.path.len() > 8192
             || self.path.contains(['\r', '\n', '#'])
             || self.body.len() > 6 * 1024 * 1024
             || !routes
                 .get(path)
-                .is_some_and(|methods| methods.contains(&self.method))
+                .is_some_and(|methods| methods.contains(&self.method.as_str()))
         {
             return Err("Unsupported desktop request".into());
         }
         for (key, value) in &self.headers {
-            if !["content-type", "if-none-match"].contains(&key.to_ascii_lowercase().as_str())
+            if !(key.eq_ignore_ascii_case("content-type")
+                || key.eq_ignore_ascii_case("if-none-match"))
                 || value.len() > 1024
                 || value.contains(['\r', '\n', '\0'])
             {
@@ -80,12 +83,107 @@ impl Request {
         }
         Ok(())
     }
+
+    fn into_frame(self, id: u64) -> Result<Vec<u8>, String> {
+        #[derive(Serialize)]
+        struct Frame {
+            id: u64,
+            #[serde(flatten)]
+            request: Request,
+        }
+
+        let mut data = serde_json::to_vec(&Frame { id, request: self })
+            .map_err(|_| "Cannot encode core request")?;
+        data.push(b'\n');
+        if data.len() > 8 * 1024 * 1024 {
+            return Err("Desktop request frame exceeds its limit".into());
+        }
+        Ok(data)
+    }
+}
+
+type PendingMap = Mutex<HashMap<u64, oneshot::Sender<Result<Response, String>>>>;
+
+struct PendingRequest<'a> {
+    pending: &'a PendingMap,
+    id: u64,
+}
+
+impl<'a> PendingRequest<'a> {
+    fn reserve(
+        pending: &'a PendingMap,
+        alive: &AtomicBool,
+        id: u64,
+    ) -> Result<(Self, oneshot::Receiver<Result<Response, String>>), String> {
+        let mut entries = pending.lock().unwrap();
+        if !alive.load(Ordering::SeqCst) {
+            return Err("Core disconnected".into());
+        }
+        if entries.len() >= 32 {
+            return Err("Too many pending core requests".into());
+        }
+        let (sender, receiver) = oneshot::channel();
+        entries.insert(id, sender);
+        Ok((Self { pending, id }, receiver))
+    }
+}
+
+impl Drop for PendingRequest<'_> {
+    fn drop(&mut self) {
+        // Also release capacity if the caller cancels while queued for a pipe
+        // write or waiting for a response that never arrives.
+        self.pending.lock().unwrap().remove(&self.id);
+    }
+}
+
+struct WritingFrame<'a> {
+    alive: &'a AtomicBool,
+    completed: bool,
+}
+
+impl Drop for WritingFrame<'_> {
+    fn drop(&mut self) {
+        if !self.completed {
+            // A failed or cancelled write_all may already have sent a prefix.
+            // Mark it dead before releasing the pipe lock; never append a new
+            // request to an uncertain frame or replay the cancelled request.
+            self.alive.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
+async fn write_frame<W: AsyncWrite + Unpin>(
+    input: &AsyncMutex<Option<W>>,
+    alive: &AtomicBool,
+    data: &[u8],
+) -> Result<(), String> {
+    let mut input = input.lock().await;
+    // A previous writer may have failed, or shutdown may have started while
+    // this request was queued. Never send another uncertain frame afterward.
+    if !alive.load(Ordering::SeqCst) {
+        return Err("Core disconnected".into());
+    }
+    let mut writing = WritingFrame {
+        alive,
+        completed: false,
+    };
+    let result = match input.as_mut() {
+        Some(input) => {
+            match tokio::time::timeout(Duration::from_secs(10), input.write_all(data)).await {
+                Ok(result) => result.map_err(|_| "Core pipe write failed".to_string()),
+                Err(_) => Err("Core pipe write timed out".to_string()),
+            }
+        }
+        None => Err("Core disconnected".into()),
+    };
+    writing.completed = result.is_ok();
+    result
 }
 
 pub struct Bridge {
     child: AsyncMutex<Child>,
     input: AsyncMutex<Option<ChildStdin>>,
-    pending: Mutex<HashMap<u64, oneshot::Sender<Result<Response, String>>>>,
+    pending: PendingMap,
     next_id: AtomicU64,
     pub alive: AtomicBool,
     pub owned: bool,
@@ -217,48 +315,25 @@ impl Bridge {
             return Err("Core disconnected".into());
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let mut value = serde_json::to_value(request).map_err(|_| "Cannot encode core request")?;
-        value["id"] = id.into();
-        let mut data = serde_json::to_vec(&value).map_err(|_| "Cannot encode core request")?;
-        data.push(b'\n');
-        if data.len() > 8 * 1024 * 1024 {
-            return Err("Desktop request frame exceeds its limit".into());
-        }
-        let (sender, receiver) = oneshot::channel();
-        {
-            let mut pending = self.pending.lock().unwrap();
-            if pending.len() >= 32 {
-                return Err("Too many pending core requests".into());
-            }
-            pending.insert(id, sender);
-        }
-        let sent = {
-            let mut input = self.input.lock().await;
-            match input.as_mut() {
-                Some(input) => {
-                    match tokio::time::timeout(Duration::from_secs(10), input.write_all(&data))
-                        .await
-                    {
-                        Ok(result) => result.map_err(|_| "Core pipe write failed".to_string()),
-                        Err(_) => Err("Core pipe write timed out".to_string()),
-                    }
-                }
-                None => Err("Core disconnected".into()),
-            }
-        };
+        // Reserve before serializing large torrent bodies so rejected bursts
+        // do not allocate another full frame after capacity has been reached.
+        let (_pending, receiver) = PendingRequest::reserve(&self.pending, &self.alive, id)?;
+        let data = request.into_frame(id)?;
+        let sent = write_frame(&self.input, &self.alive, &data).await;
+        // Large torrent payloads need not remain allocated during resolver waits.
+        drop(data);
         if let Err(error) = sent {
             self.alive.store(false, Ordering::SeqCst);
-            self.pending.lock().unwrap().remove(&id);
             return Err(error);
         }
         let response = tokio::time::timeout(Duration::from_secs(365), receiver).await;
-        self.pending.lock().unwrap().remove(&id);
         response
             .map_err(|_| "Core request timed out".to_string())?
             .map_err(|_| "Core disconnected".to_string())?
     }
     pub async fn shutdown(&self) -> bool {
         // EOF stops an owned core gracefully and only detaches an attached bridge.
+        self.alive.store(false, Ordering::SeqCst);
         self.input.lock().await.take();
         let mut child = self.child.lock().await;
         let clean = match tokio::time::timeout(Duration::from_secs(15), child.wait()).await {
@@ -276,6 +351,106 @@ impl Bridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        future::Future,
+        task::{Context, Waker},
+    };
+
+    #[test]
+    fn queued_writers_stop_after_shutdown_without_writing_another_frame() {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let (writer, _reader) = tokio::io::duplex(16);
+            let input = AsyncMutex::new(Some(writer));
+            let alive = AtomicBool::new(true);
+            let held = input.lock().await;
+            let mut queued: Vec<_> = (0..32)
+                .map(|_| Box::pin(write_frame(&input, &alive, b"request\n")))
+                .collect();
+            for request in &mut queued {
+                assert!(request
+                    .as_mut()
+                    .poll(&mut Context::from_waker(Waker::noop()))
+                    .is_pending());
+            }
+            alive.store(false, Ordering::SeqCst);
+            drop(held);
+            for request in queued {
+                assert_eq!(request.await.unwrap_err(), "Core disconnected");
+            }
+        });
+    }
+
+    #[test]
+    fn cancelled_requests_release_capacity_and_partial_writes_poison_the_pipe() {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let pending = PendingMap::default();
+            let alive = AtomicBool::new(true);
+            let mut cancelled = Box::pin(async {
+                let (_entry, _receiver) = PendingRequest::reserve(&pending, &alive, 1).unwrap();
+                std::future::pending::<()>().await;
+            });
+            assert!(cancelled
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending());
+            assert_eq!(pending.lock().unwrap().len(), 1);
+            drop(cancelled);
+            assert!(pending.lock().unwrap().is_empty());
+            let slots: Vec<_> = (2..34)
+                .map(|id| PendingRequest::reserve(&pending, &alive, id).unwrap())
+                .collect();
+            assert!(PendingRequest::reserve(&pending, &alive, 34).is_err());
+            drop(slots);
+            assert!(pending.lock().unwrap().is_empty());
+
+            let (writer, _reader) = tokio::io::duplex(1);
+            let input = AsyncMutex::new(Some(writer));
+            let mut partial = Box::pin(write_frame(&input, &alive, b"partial-frame\n"));
+            assert!(partial
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending());
+            drop(partial);
+            assert!(!alive.load(Ordering::SeqCst));
+            assert_eq!(
+                write_frame(&input, &alive, b"next-frame\n")
+                    .await
+                    .unwrap_err(),
+                "Core disconnected"
+            );
+        });
+    }
+
+    #[test]
+    fn request_frames_preserve_the_protocol_and_bound_escaped_bodies() {
+        let mut request = Request::new("POST", "/settings/runtime");
+        request.body = "{\"value\":\"a\\b\"}\n".into();
+        request
+            .headers
+            .insert("Content-Type".into(), "application/json".into());
+        assert!(request.validate().is_ok());
+        let frame = request.into_frame(42).unwrap();
+        assert_eq!(frame.last(), Some(&b'\n'));
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&frame).unwrap(),
+            serde_json::json!({
+                "id": 42,
+                "method": "POST",
+                "path": "/settings/runtime",
+                "body": "{\"value\":\"a\\b\"}\n",
+                "headers": {"Content-Type": "application/json"},
+            })
+        );
+
+        let mut request = Request::new("POST", "/start-bt-download");
+        request.body = "\0".repeat(2 * 1024 * 1024);
+        assert!(request.validate().is_ok());
+        assert_eq!(
+            request.into_frame(43).unwrap_err(),
+            "Desktop request frame exceeds its limit"
+        );
+    }
+
     #[test]
     fn rejects_arbitrary_native_requests() {
         for path in [
