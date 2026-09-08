@@ -66,6 +66,15 @@ try {
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(`${origin}/${native ? "?window=settings" : ""}#settings/general`);
     assert.equal(await page.title(), "设置");
+    if (native) {
+      const navigation = await page.locator('[data-settings-link="general"]').boundingBox();
+      assert.equal(navigation.y, 18, `${name}: settings navigation must start near the window top`);
+      assert.equal(await page.evaluate(() => {
+        const link = document.querySelector('[data-settings-link="general"]');
+        const bounds = link.getBoundingClientRect();
+        return link.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+      }), true, `${name}: native title drag area must not cover navigation`);
+    }
     for (const category of ["general", "network", "files", "application", "modules", "engine", "security", "advanced", "experimental", "logs", "about"]) {
       await page.locator(`[data-settings-link="${category}"]`).click();
       await page.waitForFunction(category => settingsReady.has(category) || document.querySelector("#settings-load-status").textContent.includes("失败"), category);

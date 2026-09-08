@@ -16,6 +16,10 @@
 .native-titlebar-drag { display: flex; flex: 1; min-width: 0; align-items: center; padding: 0 16px; }
 .native-window-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; pointer-events: none; }
 [data-native-frame="custom"] .native-titlebar { right: 144px; }
+[data-native-frame="custom"][data-native-window="settings"] body { padding-top: 0; }
+[data-native-frame="custom"][data-native-window="settings"] .app-shell { height: 100dvh; }
+[data-native-frame="custom"][data-native-window="settings"] .native-titlebar { left: var(--settings-nav-width); }
+[data-native-frame="custom"][data-native-window="settings"] #settings-form { margin-top: var(--native-titlebar-height); }
 [data-native-frame="custom"][data-native-window="main"] .sidebar-brand {
   position: fixed;
   top: 2px;

@@ -1,5 +1,5 @@
 /* Workspace layout; controls and state visuals remain in styles.css. */
-:root { --sidebar-width: 216px; }
+:root { --sidebar-width: 216px; --settings-nav-width: 196px; }
 :root.sidebar-collapsed { --sidebar-width: 60px; }
 [hidden] { display: none !important; }
 .native-only, .sidebar .native-only { display: none; }
@@ -70,7 +70,7 @@
 .tasks-table tbody tr { contain: layout style; }
 .settings-page { display: flex; flex-direction: column; width: 100%; min-width: 0; overflow: hidden; }
 .settings-layout { display: flex; flex: 1; min-height: 0; }
-.settings-nav { align-content: start; flex: 0 0 196px; overflow-y: auto; padding: 18px 8px; background: var(--native-chrome, var(--kd-bg)); }
+.settings-nav { align-content: start; flex: 0 0 var(--settings-nav-width); overflow-y: auto; padding: 18px 8px; background: var(--native-chrome, var(--kd-bg)); }
 .settings-nav .icon { width: 18px; height: 18px; flex-shrink: 0; }
 .settings-content { background: var(--kd-surface); }
 .settings-about .about-brand { display: flex; align-items: center; gap: 16px; }
@@ -120,9 +120,8 @@
 .log-page .application-log-output { flex: 1; min-height: 120px; max-height: none; font-size: 12px; padding: 16px; }
 .log-page .application-log-toolbar { flex: 0 0 auto; }
 @media (max-width: 1180px) {
-  :root { --sidebar-width: 196px; }
+  :root { --sidebar-width: 196px; --settings-nav-width: 150px; }
 
-  .settings-nav { flex-basis: 150px; }
 }
 @media (max-width: 900px) {
   :root { --sidebar-width: 180px; }
@@ -130,14 +129,13 @@
   .task-toolbar { padding-inline: 14px; }
   .metric-strip, .task-controls { padding-inline: 18px; }
   .task-toolbar .kd-button { font-size: 12px; padding-inline: 7px; }
-  .settings-nav { flex-basis: 150px; }
   .settings-nav-link { padding: 8px 10px; }
 }
 @media (max-width: 720px) {
   body { overflow: hidden; }
   .app-shell { min-height: 0; }
   .workspace { flex-direction: row; }
-  :root, :root.sidebar-collapsed { --sidebar-width: 52px; }
+  :root, :root.sidebar-collapsed { --sidebar-width: 52px; --settings-nav-width: 48px; }
   .sidebar, .sidebar-collapsed .sidebar { padding: 10px 4px; gap: 20px; }
   .sidebar-brand { justify-content: center; }
   .sidebar-toggle, .brand-copy, .nav-section-label { display: none; }
@@ -157,7 +155,7 @@
   .pagination { width: auto; justify-content: flex-end; }
   .filter-control > span { display: none; }
   .table-scroll { min-height: 240px; flex: 1 0 240px; }
-  .settings-nav { flex-basis: 48px; padding: 14px 4px; }
+  .settings-nav { padding: 14px 4px; }
   .settings-nav-link { justify-content: center; padding: 8px; }
   .settings-nav-link span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .settings-content { min-width: 0; padding: 16px; }

@@ -225,7 +225,9 @@ async function verifyAppearance(pages, scheme, forcedColors = "none", reducedTra
     } else {
       assert.equal(view.body.alpha, 1, `${kind} fallback must cover the native backdrop`);
     }
-    // CDP captures WebView pixels; the native frame is verified by DWM above.
+    // CDP captures WebView pixels; native geometry is checked separately above.
+    // Rust tests inspect caption backing pixels. Hidden captures cannot prove
+    // visible glyphs in DWM's final composition.
     await page.screenshot({ path: path.join(fixture, `${kind}-${suffix}.png`), omitBackground: true });
   }
   await fs.writeFile(path.join(fixture, `appearance-${suffix}.json`), JSON.stringify(evidence, null, 2) + "\n");

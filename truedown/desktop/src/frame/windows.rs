@@ -6,7 +6,11 @@ use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
     Graphics::{
         Dwm::{DwmDefWindowProc, DwmExtendFrameIntoClientArea},
-        Gdi::{CombineRgn, CreateRectRgn, DeleteObject, ScreenToClient, SetWindowRgn, RGN_DIFF},
+        Gdi::{
+            BeginPaint, CombineRgn, CreateRectRgn, DeleteObject, EndPaint, FillRect,
+            GetStockObject, InvalidateRect, ScreenToClient, SetWindowRgn, BLACK_BRUSH, HDC,
+            PAINTSTRUCT, RGN_DIFF,
+        },
     },
     UI::{
         Controls::MARGINS,
@@ -55,6 +59,16 @@ unsafe fn webview(hwnd: HWND) -> HWND {
     FindWindowExW(hwnd, null_mut(), class.as_ptr(), std::ptr::null())
 }
 
+unsafe fn paint_caption(hwnd: HWND, dc: HDC) {
+    let mut rect = RECT::default();
+    if GetClientRect(hwnd, &mut rect) != 0 {
+        rect.bottom = pixels(hwnd, CAPTION_HEIGHT).min(rect.bottom);
+        // A clipped WebView alone does not initialize its parent's surface.
+        // DWM requires zero-alpha pixels underneath the extended native frame.
+        FillRect(dc, &rect, GetStockObject(BLACK_BRUSH));
+    }
+}
+
 unsafe fn refresh(hwnd: HWND) {
     let top = pixels(hwnd, CAPTION_HEIGHT);
     DwmExtendFrameIntoClientArea(
@@ -95,6 +109,9 @@ unsafe fn refresh(hwnd: HWND) {
     if !buttons.is_null() {
         DeleteObject(buttons);
     }
+    // Refresh exposed parent pixels after resize, activation and theme changes.
+    rect.bottom = top.min(rect.bottom);
+    InvalidateRect(hwnd, &rect, 1);
 }
 
 unsafe extern "system" fn procedure(
@@ -105,6 +122,17 @@ unsafe extern "system" fn procedure(
     _: usize,
     _: usize,
 ) -> LRESULT {
+    if message == WM_ERASEBKGND || message == WM_PRINTCLIENT {
+        paint_caption(hwnd, wp as HDC);
+        return 1;
+    }
+    if message == WM_PAINT {
+        let mut paint = PAINTSTRUCT::default();
+        let dc = BeginPaint(hwnd, &mut paint);
+        paint_caption(hwnd, dc);
+        EndPaint(hwnd, &paint);
+        return DefSubclassProc(hwnd, message, wp, lp);
+    }
     if message == WM_NCCALCSIZE && wp != 0 {
         let params = &mut *(lp as *mut NCCALCSIZE_PARAMS);
         let top = params.rgrc[0].top;
@@ -153,7 +181,12 @@ unsafe extern "system" fn procedure(
     let result = DefSubclassProc(hwnd, message, wp, lp);
     if matches!(
         message,
-        WM_SIZE | WM_DPICHANGED | WM_DWMCOMPOSITIONCHANGED | WM_THEMECHANGED | WM_SHOWWINDOW
+        WM_SIZE
+            | WM_DPICHANGED
+            | WM_DWMCOMPOSITIONCHANGED
+            | WM_THEMECHANGED
+            | WM_SHOWWINDOW
+            | WM_ACTIVATE
     ) {
         refresh(hwnd);
     }
@@ -183,4 +216,82 @@ pub unsafe fn install(hwnd: HWND) -> Result<(), String> {
     }
     refresh(hwnd);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows_sys::Win32::Graphics::Gdi::{
+        CreateCompatibleDC, CreateDIBSection, DeleteDC, GdiFlush, SelectObject, BITMAPINFO,
+        BITMAPINFOHEADER, DIB_RGB_COLORS,
+    };
+
+    #[test]
+    fn caption_paint_initializes_alpha_without_erasing_the_body() {
+        unsafe {
+            // Keep the whole check on one thread/process: GDI DC handles cannot
+            // be passed to another process via an arbitrary window message.
+            let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+            let hwnd = CreateWindowExW(
+                0,
+                class.as_ptr(),
+                std::ptr::null(),
+                WS_OVERLAPPEDWINDOW,
+                0,
+                0,
+                640,
+                480,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                std::ptr::null(),
+            );
+            assert!(!hwnd.is_null());
+            assert_eq!(IsWindowVisible(hwnd), 0);
+            let mut bounds = RECT::default();
+            assert_ne!(GetClientRect(hwnd, &mut bounds), 0);
+            let width = bounds.right;
+            let height = bounds.bottom;
+            let dc = CreateCompatibleDC(null_mut());
+            let info = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: width,
+                    biHeight: -height,
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut bits = null_mut();
+            let bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &mut bits, null_mut(), 0);
+            assert!(!dc.is_null() && !bitmap.is_null() && !bits.is_null());
+            let previous = SelectObject(dc, bitmap);
+            let pixels =
+                std::slice::from_raw_parts_mut(bits.cast::<u32>(), (width * height) as usize);
+            pixels.fill(0x7f11aacc);
+            assert_ne!(SetWindowSubclass(hwnd, Some(procedure), SUBCLASS, 0), 0);
+            for message in [WM_ERASEBKGND, WM_PRINTCLIENT] {
+                pixels.fill(0x7f11aacc);
+                assert_eq!(SendMessageW(hwnd, message, dc as WPARAM, 0), 1);
+                GdiFlush();
+                let caption_height = super::pixels(hwnd, CAPTION_HEIGHT).min(height) as usize;
+                let split = width as usize * caption_height;
+                assert!(
+                    pixels[..split].iter().all(|pixel| *pixel == 0),
+                    "DWM caption backing must have zero RGB and alpha"
+                );
+                assert!(
+                    pixels[split..].iter().all(|pixel| *pixel == 0x7f11aacc),
+                    "Caption painting must not clear the working surface"
+                );
+            }
+            RemoveWindowSubclass(hwnd, Some(procedure), SUBCLASS);
+            SelectObject(dc, previous);
+            DeleteObject(bitmap);
+            DeleteDC(dc);
+            DestroyWindow(hwnd);
+        }
+    }
 }
