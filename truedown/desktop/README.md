@@ -37,8 +37,9 @@ relative `dataDirectory`. Auxiliary windows do not create separate browser cache
 ## Window behavior
 
 - Main is the download workspace. Closing it hides the window while downloads run.
-- Settings, application logs and about each reuse one separate native window.
-  Settings drafts and category selection remain intact when hidden and reopened.
+- Settings reuses one native window, including application logs and About.
+  Reopening selects Download and speed; unsaved category drafts remain intact.
+  Windows/Linux retain native caption buttons and macOS retains traffic lights.
 - Ctrl/Cmd+, opens settings, Ctrl/Cmd+S saves its current category, and Escape or
   Ctrl/Cmd+W hides auxiliary windows when no confirmation dialog is active.
 - The Go resolver determines the profile; its identity scopes the desktop instance

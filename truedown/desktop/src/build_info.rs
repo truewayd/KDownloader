@@ -5,6 +5,7 @@ use serde::Deserialize;
 pub struct Info {
     product: String,
     protocol_version: u32,
+    product_version: String,
     version: String,
     build_number: String,
     commit: String,

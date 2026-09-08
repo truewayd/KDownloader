@@ -70,10 +70,12 @@ TrueDown combines a Go download core with a Tauri desktop for Windows, Linux and
 ### Highlights
 
 - Listens on `127.0.0.1:15151` by default.
-- Provides separate download, categorized settings, application-log and about windows, retaining settings drafts when reopened.
+- Provides a download window and categorized settings with integrated logs and About, retaining settings drafts when reopened. Uses native system window buttons, configurable file-group icons and system/custom/direct proxy choices.
 - Supports optional login startup, platform styling and native tray controls; Windows uses Mica and DPI-specific tray rasters, while macOS uses system materials and a Retina template icon.
 - Provides an embedded dashboard for creating, filtering, paging, column sorting, pausing, resuming, retrying, opening, and removing tasks, including whole-queue controls.
-- Lets users choose a persisted Dropbox shared-folder default—direct archive or bounded parallel expansion—while retaining per-submission overrides, optional filtering, and bulk task import.
+- Automatically groups files as images, video, music, archives, applications, documents, engineering files, or Other. Settings > File groups supports custom groups and editable suffix lists; the task-status dropdown combines with group and search filters. Updating suffixes reclassifies existing tasks without moving downloaded files.
+- Opens a task's information and settings pages from its filename. Shows size, progress, speed, remaining time and diagnostics; supports per-task speed, connection and retry settings with retained drafts.
+- Keeps download creation compact and inherits resolver behavior from application settings. Dropbox shared folders use a persisted direct-archive or bounded-expansion default with optional filtering; API clients retain explicit per-request overrides.
 - Ships Dropbox and Google Drive with embedded resolver-component baselines; each can be enabled independently or hot-updated from a bounded declarative package without replacing TrueDown.
 - Keeps component protocol profiles under the TrueDown data directory, reports their version and SHA-256 digest, and can immediately restore the embedded baseline from the dashboard.
 - Resolves public Google Drive files, large-file confirmation pages, recursive folders, and Docs/Sheets/Slides exports without a Google Developer API key.

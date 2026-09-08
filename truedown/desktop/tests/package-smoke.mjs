@@ -93,6 +93,8 @@ try {
 const location = JSON.parse((await command("--json", "paths")).stdout);
 assert.equal(location.layoutVersion, 1, "The core must commit the profile before native startup");
 assert.deepEqual(standaloneInfo, location.build, "Packaged console core and CLI must match");
+const productVersion = JSON.parse(await fs.readFile(new URL("../../../manifest.json", import.meta.url), "utf8")).version;
+assert.equal(location.build.productVersion, productVersion, "Package must carry the shared product version");
 if (process.env.TRUEDOWN_BUILD_NUMBER) assert.equal(location.build.buildNumber, process.env.TRUEDOWN_BUILD_NUMBER);
 if (process.env.TRUEDOWN_COMMIT) assert.equal(location.build.commit, process.env.TRUEDOWN_COMMIT);
 const updates = path.join(location.paths.state, "updates");
