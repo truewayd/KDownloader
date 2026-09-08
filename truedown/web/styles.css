@@ -169,6 +169,48 @@ code {
   box-shadow: var(--kd-panel-inset);
 }
 
+:is(.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link) {
+  border: 1px solid transparent;
+  border-radius: var(--kd-radius);
+  background: transparent;
+  color: var(--kd-muted);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--kd-motion-fast) ease, color var(--kd-motion-fast) ease, border-color var(--kd-motion-fast) ease;
+}
+:is(.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link):hover {
+  background: color-mix(in srgb, var(--kd-surface-raised) 60%, transparent);
+  color: var(--kd-text);
+}
+:is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current] {
+  border-color: var(--kd-border);
+  background: var(--kd-surface);
+  color: var(--kd-text);
+}
+:is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current]::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 2px;
+  top: calc(50% - 9px);
+  width: 3px;
+  height: 18px;
+  border-radius: 3px;
+  background: var(--kd-icon);
+}
+:is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current] .icon { color: var(--kd-icon); }
+:is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current]:hover { background: var(--kd-surface-raised); }
+:is(.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link):active { background: var(--kd-secondary-hover); }
+:is(.sidebar a, .sidebar-action, .settings-nav-link):focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -2px; }
+@media (forced-colors: active) {
+  :is(.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link):hover { background: ButtonFace; color: ButtonText; }
+  :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current] { border-color: Highlight; }
+  :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current]::before { background: Highlight; forced-color-adjust: none; }
+  :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current] .icon { color: Highlight; }
+}
+
 .kd-button,
 .kd-icon-button {
   display: inline-flex;

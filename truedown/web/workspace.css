@@ -1,4 +1,6 @@
 /* Workspace layout; controls and state visuals remain in styles.css. */
+:root { --sidebar-width: 216px; }
+:root.sidebar-collapsed { --sidebar-width: 60px; }
 [hidden] { display: none !important; }
 .native-only, .sidebar .native-only { display: none; }
 [data-native-window="main"] .native-only { display: inline-flex; }
@@ -13,7 +15,7 @@
 .app-shell { height: calc(100dvh - var(--native-titlebar-height, 0px)); }
 .brand { color: inherit; text-decoration: none; }
 .workspace { display: flex; flex: 1; min-height: 0; }
-.sidebar { display: flex; flex: 0 0 216px; min-width: 0; flex-direction: column; gap: 24px; padding: 12px 12px 14px; overflow-y: auto; }
+.sidebar { display: flex; flex: 0 0 var(--sidebar-width); min-width: 0; flex-direction: column; gap: 24px; padding: 12px 12px 14px; overflow-y: auto; }
 .sidebar-top { display: grid; gap: 18px; }
 .sidebar-brand { display: flex; min-height: 36px; align-items: center; justify-content: space-between; gap: 8px; }
 .brand-mark, .brand-mark img { width: 28px; height: 28px; }
@@ -23,11 +25,8 @@
 .primary-nav, .settings-nav, .sidebar-footer { display: grid; gap: 4px; }
 .primary-nav { align-content: start; }
 .nav-section-label { margin: 0 12px 6px; font-size: 11px; color: var(--kd-muted); }
-.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 8px 12px; color: var(--kd-muted); text-decoration: none; border: 1px solid transparent; border-radius: var(--kd-radius); font-size: 13px; font-weight: 400; text-align: left; background: transparent; cursor: pointer; }
+.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link { position: relative; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 8px 12px; }
 .sidebar .icon { flex: 0 0 18px; width: 18px; height: 18px; }
-.primary-nav a:hover, .sidebar-footer a:hover, .sidebar-action:hover, .settings-nav-link:hover { background: var(--kd-secondary-hover); color: var(--kd-text); }
-.primary-nav a[aria-current], .sidebar-footer a[aria-current], .settings-nav-link[aria-current] { background: var(--kd-accent-soft); color: var(--kd-text); font-weight: 600; }
-.sidebar a:focus-visible, .sidebar-action:focus-visible, .settings-nav-link:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -2px; }
 .sidebar-footer { margin-top: auto; font-size: 11px; }
 .dashboard { width: auto; margin: 0; min-width: 0; padding: 8px 12px 12px 0; }
 .dashboard > .kd-panel { box-shadow: none; }
@@ -50,7 +49,7 @@
 .filter-control .kd-select { width: 100px; font-size: 12px; }
 .pagination { flex-shrink: 0; gap: 4px; }
 .empty-icon .icon { width: 32px; height: 32px; }
-.sidebar-collapsed .sidebar { flex-basis: 60px; padding-inline: 8px; }
+.sidebar-collapsed .sidebar { padding-inline: 8px; }
 .sidebar-collapsed .sidebar-brand .brand, .sidebar-collapsed .nav-section-label { display: none; }
 .sidebar-collapsed .sidebar .nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .sidebar-collapsed .sidebar-brand { justify-content: center; }
@@ -108,12 +107,13 @@
 .log-page .application-log-output { flex: 1; min-height: 120px; max-height: none; font-size: 12px; padding: 16px; }
 .log-page .application-log-toolbar { flex: 0 0 auto; }
 @media (max-width: 1180px) {
-  .sidebar { flex-basis: 196px; }
+  :root { --sidebar-width: 196px; }
   .settings-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-nav { flex-basis: 150px; }
 }
 @media (max-width: 900px) {
-  .sidebar { flex-basis: 180px; padding-inline: 10px; }
+  :root { --sidebar-width: 180px; }
+  .sidebar { padding-inline: 10px; }
   .task-toolbar { padding-inline: 14px; }
   .metric-strip, .task-controls { padding-inline: 18px; }
   .task-toolbar .kd-button { font-size: 12px; padding-inline: 7px; }
@@ -125,7 +125,8 @@
   body { overflow: hidden; }
   .app-shell { min-height: 0; }
   .workspace { flex-direction: row; }
-  .sidebar, .sidebar-collapsed .sidebar { flex-basis: 52px; padding: 10px 4px; gap: 20px; }
+  :root, :root.sidebar-collapsed { --sidebar-width: 52px; }
+  .sidebar, .sidebar-collapsed .sidebar { padding: 10px 4px; gap: 20px; }
   .sidebar-brand { justify-content: center; }
   .sidebar-toggle, .brand-copy, .nav-section-label { display: none; }
   .sidebar-collapsed .sidebar-brand .brand { display: flex; }

@@ -23,6 +23,12 @@
 .native-caption-button[data-window-action="close"]:hover,
 .native-caption-button[data-window-action="close"]:active { color: #fff; background: #c42b1c; }
 [data-native-frame="overlay"] .native-titlebar-drag { padding-left: 84px; }
+/* Share the caption row with the main sidebar without covering its controls. */
+[data-native-window="main"][data-native-frame="custom"] body { padding-top: 0; }
+[data-native-window="main"][data-native-frame="custom"] .app-shell { height: 100dvh; }
+[data-native-window="main"][data-native-frame="custom"] .sidebar { padding-top: 2px; }
+[data-native-window="main"][data-native-frame="custom"] .native-titlebar { inset-inline-start: var(--sidebar-width); }
+[data-native-window="main"][data-native-frame="custom"] .dashboard { padding-top: calc(var(--native-titlebar-height) + 8px); }
 @media (forced-colors: active) {
   .native-titlebar, [data-material="native"] .native-titlebar { background: Canvas; color: CanvasText; }
   .native-caption-button { color: ButtonText; }
