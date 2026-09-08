@@ -97,7 +97,7 @@ def read_package(archive):
         nonlocal total
         require(len(name.encode("utf-8")) <= MAX_NAME, "Oversized package filename")
         path = PurePosixPath(name)
-        require(name and not path.is_absolute() and ".." not in path.parts
+        require(name and path.parts and not path.is_absolute() and ".." not in path.parts
                 and "\\" not in name and ":" not in name
                 and str(path) == name.rstrip("/"), f"Unsafe path: {name}")
         identity = str(path).casefold()

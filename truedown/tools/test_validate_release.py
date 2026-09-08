@@ -265,6 +265,20 @@ class ReleaseValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Non-regular entry"):
             validate_package(self.root / name, "macos", "amd64", 42)
 
+    def test_windows_archive_rejects_root_directory_entries(self):
+        name, entries = self.packages["windows", "amd64"]
+        for directory in ("./", ".//"):
+            for data in (b"", b"x"):
+                with self.subTest(directory=directory, data=data):
+                    self.write_package(name, entries)
+                    with zipfile.ZipFile(self.root / name, "a") as archive:
+                        info = zipfile.ZipInfo(directory)
+                        info.create_system = 3
+                        info.external_attr = (stat.S_IFDIR | 0o755) << 16
+                        archive.writestr(info, data)
+                    with self.assertRaisesRegex(ValueError, "Unsafe path"):
+                        validate_package(self.root / name, "windows", "amd64", 42)
+
 
 class ArchiveMetadataTests(unittest.TestCase):
     def setUp(self):
