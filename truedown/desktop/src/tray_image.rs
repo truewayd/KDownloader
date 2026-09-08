@@ -3,7 +3,7 @@ use tauri::image::Image;
 const ICO: &[u8] = include_bytes!("../../windows/truedown.ico");
 
 // Decode the matching raster, instead of decoding one ICO frame and letting
-// Explorer enlarge it. The source contains 16/20/24/32/40/48/64/128/256 pixels.
+// Explorer enlarge it. All standard 25% DPI steps through 300% have exact frames.
 pub fn image_for_pixels(pixels: u32) -> Result<Image<'static>, String> {
     let count = u16::from_le_bytes(ICO[4..6].try_into().unwrap()) as usize;
     let mut best = None;
@@ -14,13 +14,15 @@ pub fn image_for_pixels(pixels: u32) -> Result<Image<'static>, String> {
             u32::from(entry[0])
         };
         let distance = width.abs_diff(pixels);
-        if best.is_none_or(|(previous, _, _)| distance < previous) {
+        if best.is_none_or(|(previous, previous_width, _, _)| {
+            distance < previous || (distance == previous && width > previous_width)
+        }) {
             let length = u32::from_le_bytes(entry[8..12].try_into().unwrap()) as usize;
             let offset = u32::from_le_bytes(entry[12..16].try_into().unwrap()) as usize;
-            best = Some((distance, offset, length));
+            best = Some((distance, width, offset, length));
         }
     }
-    let (_, offset, length) = best.ok_or("Tray icon contains no images")?;
+    let (_, _, offset, length) = best.ok_or("Tray icon contains no images")?;
     Image::from_bytes(
         ICO.get(offset..offset + length)
             .ok_or("Invalid tray raster")?,
@@ -88,7 +90,9 @@ mod tests {
     use super::*;
     #[test]
     fn high_dpi_icons_have_exact_physical_dimensions() {
-        for pixels in [16, 20, 24, 32, 40, 48, 64, 128, 256] {
+        for pixels in [
+            16, 18, 20, 24, 28, 32, 36, 40, 44, 48, 56, 64, 72, 80, 96, 128, 256,
+        ] {
             let icon = image_for_pixels(pixels).unwrap();
             assert_eq!((icon.width(), icon.height()), (pixels, pixels));
             assert_eq!(icon.rgba().len(), (pixels * pixels * 4) as usize);

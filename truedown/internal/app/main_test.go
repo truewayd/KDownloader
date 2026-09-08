@@ -423,7 +423,10 @@ func TestWindowsIconContainsShellSizes(t *testing.T) {
 	if len(data) < 6+16*count {
 		t.Fatal("TrueDown icon directory is truncated")
 	}
-	want := map[int]bool{16: false, 20: false, 24: false, 32: false, 40: false, 48: false, 64: false, 128: false, 256: false}
+	if data[6] != 0 || data[7] != 0 {
+		t.Fatal("Tauri decodes the first ICO frame; it must be the 256px source to avoid taskbar upscaling")
+	}
+	want := map[int]bool{16: false, 20: false, 24: false, 28: false, 32: false, 36: false, 40: false, 44: false, 48: false, 64: false, 128: false, 256: false}
 	for index := 0; index < count; index++ {
 		entry := data[6+16*index : 6+16*(index+1)]
 		width := int(entry[0])
@@ -456,7 +459,7 @@ func TestMacIconContainsModernPNGRepresentations(t *testing.T) {
 	if len(data) < 8 || string(data[:4]) != "icns" || int(binary.BigEndian.Uint32(data[4:8])) != len(data) {
 		t.Fatal("TrueDown macOS icon has an invalid ICNS header")
 	}
-	want := map[string]bool{"icp4": false, "icp5": false, "icp6": false, "ic07": false, "ic08": false, "ic09": false, "ic10": false}
+	want := map[string]bool{"icp4": false, "icp5": false, "icp6": false, "ic07": false, "ic08": false, "ic09": false, "ic10": false, "ic11": false, "ic12": false, "ic13": false, "ic14": false}
 	for offset := 8; offset < len(data); {
 		if offset+8 > len(data) {
 			t.Fatal("TrueDown ICNS chunk header is truncated")

@@ -3,15 +3,21 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
+    "icons:sync": "node ../tools/generate-icons.mjs",
+    "icons:check": "node ../tools/generate-icons.mjs --check",
     "prepare:core": "node ../tools/prepare-desktop.mjs",
     "dev": "tauri dev",
     "build": "tauri build",
     "check": "cargo test --locked",
     "test:windows": "node tests/windows-smoke.mjs",
+    "test:workspace": "node tests/workspace-browser-smoke.mjs",
+    "test:forms": "node tests/task-forms-browser-smoke.mjs",
     "test:linux": "xvfb-run -a -s '-screen 0 1280x800x24' dbus-run-session -- node tests/linux-smoke.mjs"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
     "@tauri-apps/cli": "^2.0.0",
+    "lucide-static": "1.42.0",
     "playwright": "^1.63.0"
   }
 }

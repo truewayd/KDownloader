@@ -29,6 +29,7 @@ async function regularOutput(file){
 }
 const canonical=await fs.readFile(path.join(repository,"shared/components.js"));
 if(!canonical.equals(await fs.readFile(path.join(project,"web/components.js"))))throw new Error("Run npm run ui:sync before building TrueDown");
+console.log(run(process.execPath,[path.join(project,"tools/generate-icons.mjs"),"--check"]));
 const target=process.env.CARGO_BUILD_TARGET || run("rustc",["-vV"]).match(/^host: (.+)$/m)?.[1];
 const platform={
   "x86_64-pc-windows-msvc":["windows","amd64",".exe"],
