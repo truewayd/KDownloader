@@ -4,7 +4,7 @@
   const platform = window.__TRUEDOWN_PLATFORM__;
   if (!invoke || !platform) return;
   const root = document.documentElement;
-  root.dataset.nativeFrame = platform === "macos" ? "overlay" : "native";
+  root.dataset.nativeFrame = platform === "macos" ? "overlay" : platform === "windows" ? "custom" : "native";
   let disposed = false, timer, updating = false, dirty = false;
   const report = error => {
     if (typeof showToast === "function") showToast(String(error?.message || error), "error");
@@ -32,8 +32,8 @@
   const observer = new MutationObserver(syncTitle);
   const source = document.querySelector("title");
   if (source) observer.observe(source, { childList: true, characterData: true, subtree: true });
-  // macOS keeps an overlay drag strip beside its native traffic lights.
-  if (platform === "macos") {
+  // The Windows WebView is natively clipped around the DWM caption buttons.
+  if (platform === "macos" || platform === "windows") {
     const frame = document.createElement("header"), drag = document.createElement("div");
     frame.className = "native-titlebar";
     drag.className = "native-titlebar-drag";
@@ -44,6 +44,11 @@
       if (event.button !== 0) return;
       event.preventDefault();
       invoke("frame_action", { action: event.detail === 2 ? "maximize" : "drag" }).then(refresh).catch(report);
+    });
+    drag.addEventListener("contextmenu", event => {
+      if (platform !== "windows") return;
+      event.preventDefault();
+      invoke("frame_action", { action: "system-menu" }).catch(report);
     });
     document.body.prepend(frame);
   }

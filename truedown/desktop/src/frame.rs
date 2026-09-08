@@ -2,6 +2,33 @@
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, WebviewWindow, WebviewWindowBuilder, Wry};
 
+#[cfg(windows)]
+mod windows;
+
+/// Setup already runs on the UI thread; auxiliary creation dispatches here.
+pub fn install(window: &WebviewWindow) -> Result<(), String> {
+    #[cfg(windows)]
+    unsafe {
+        windows::install(window.hwnd().map_err(|error| error.to_string())?.0)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        Ok(())
+    }
+}
+
+pub async fn install_async(window: &WebviewWindow) -> Result<(), String> {
+    let owned = window.clone();
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    window
+        .run_on_main_thread(move || {
+            let _ = sender.send(install(&owned));
+        })
+        .map_err(|error| error.to_string())?;
+    receiver.await.map_err(|error| error.to_string())?
+}
+
 pub fn configure<'a, M: Manager<Wry>>(
     builder: WebviewWindowBuilder<'a, Wry, M>,
 ) -> WebviewWindowBuilder<'a, Wry, M> {

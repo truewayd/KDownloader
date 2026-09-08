@@ -89,12 +89,13 @@ test("HTTP dashboards leave the browser frame alone; macOS retains native traffi
   assert.equal(mac.buttons.length, 0);
 });
 
-test("Windows and Linux retain native captions and bound application titles", async () => {
+test("Custom Windows titles retain native buttons and bound application titles", async () => {
   for (const platform of ["windows", "linux"]) {
     const view = setup(platform, async () => ({ maximized: true, decorated: true }));
     await flush();
-    assert.equal(view.document.body.children.length, 0);
-    assert.equal(view.document.documentElement.dataset.nativeFrame, "native");
+    assert.equal(view.document.body.children.length, platform === "windows" ? 1 : 0);
+    assert.equal(view.buttons.length, 0);
+    assert.equal(view.document.documentElement.dataset.nativeFrame, platform === "windows" ? "custom" : "native");
     assert.equal(view.document.documentElement.dataset.maximized, "true");
     assert.equal(view.calls.find(call => call.command === "frame_title").args.title, "TrueDown");
     view.document.title = "x".repeat(200);

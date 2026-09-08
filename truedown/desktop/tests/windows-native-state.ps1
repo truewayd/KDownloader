@@ -17,6 +17,8 @@ public sealed class TrueDownWindowState {
     public bool minimizable;
     public bool maximizable;
     public int clientTopInset;
+    public int[] captionHits;
+    public bool captionExcludedFromWebView;
     public int dpi;
     public int iconWidth;
     public int iconHeight;
@@ -64,6 +66,23 @@ public static class TrueDownNativeState {
     private static extern int GetObjectW(IntPtr value, int size, out BITMAP bitmap);
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr value);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct TITLEBARINFOEX {
+        public uint size;
+        public RECT title;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 6)] public uint[] states;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 6)] public RECT[] rects;
+    }
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string className, string title);
+    [DllImport("user32.dll")]
+    private static extern bool ScreenToClient(IntPtr window, ref POINT point);
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+    [DllImport("user32.dll")]
+    private static extern int GetWindowRgn(IntPtr window, IntPtr region);
+    [DllImport("gdi32.dll")]
+    private static extern bool PtInRegion(IntPtr region, int x, int y);
     [DllImport("dwmapi.dll")]
     private static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
 
@@ -77,7 +96,7 @@ public static class TrueDownNativeState {
             if (process != processId) return true;
             var title = new StringBuilder(1024);
             GetWindowText(window, title, title.Capacity);
-            if (title.Length == 0 && (GetWindowLong(window, -16) & 0x00c00000) != 0x00c00000) return true;
+            if (FindWindowExW(window, IntPtr.Zero, "WRY_WEBVIEW", null) == IntPtr.Zero) return true;
             var state = new TrueDownWindowState {
                 handle = window.ToInt64().ToString("x"),
                 title = title.ToString(),
@@ -93,6 +112,30 @@ public static class TrueDownNativeState {
             if (!GetWindowRect(window, out bounds) || !ClientToScreen(window, ref origin))
                 throw new InvalidOperationException("Cannot read native frame geometry");
             state.clientTopInset = origin.y - bounds.top;
+            var caption = new TITLEBARINFOEX { size = (uint)Marshal.SizeOf(typeof(TITLEBARINFOEX)), states = new uint[6], rects = new RECT[6] };
+            var memory = Marshal.AllocHGlobal((int)caption.size);
+            var region = CreateRectRgn(0, 0, 0, 0);
+            try {
+                Marshal.StructureToPtr(caption, memory, false);
+                IntPtr ignored;
+                if (SendMessageTimeoutW(window, 0x033f, UIntPtr.Zero, memory, 2, 1000, out ignored) == IntPtr.Zero)
+                    throw new InvalidOperationException("Cannot read native caption accessibility geometry");
+                caption = (TITLEBARINFOEX)Marshal.PtrToStructure(memory, typeof(TITLEBARINFOEX));
+                var child = FindWindowExW(window, IntPtr.Zero, "WRY_WEBVIEW", null);
+                state.captionExcludedFromWebView = child != IntPtr.Zero && GetWindowRgn(child, region) > 0;
+                var hits = new List<int>();
+                foreach (var index in new int[] { 2, 3, 5 }) {
+                    var rectangle = caption.rects[index];
+                    var point = new POINT { x = (rectangle.left + rectangle.right) / 2, y = (rectangle.top + rectangle.bottom) / 2 };
+                    var position = new IntPtr((point.x & 0xffff) | ((point.y & 0xffff) << 16));
+                    IntPtr hit;
+                    SendMessageTimeoutW(window, 0x0084, UIntPtr.Zero, position, 2, 1000, out hit);
+                    hits.Add(hit.ToInt32());
+                    if (rectangle.right <= rectangle.left || rectangle.bottom <= rectangle.top || !ScreenToClient(child, ref point) || PtInRegion(region, point.x, point.y))
+                        state.captionExcludedFromWebView = false;
+                }
+                state.captionHits = hits.ToArray();
+            } finally { Marshal.FreeHGlobal(memory); DeleteObject(region); }
             IntPtr icon;
             ICONINFO information;
             if (SendMessageTimeoutW(window, 0x007f, UIntPtr.Zero, IntPtr.Zero, 2, 1000, out icon) != IntPtr.Zero

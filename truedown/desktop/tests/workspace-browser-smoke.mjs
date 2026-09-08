@@ -74,7 +74,7 @@ try {
         assert.ok((await page.locator("#tasks-title").boundingBox()).width <= 1);
         if (native) assert.equal(await page.locator(".native-window-title").isVisible(), false);
         if (native) {
-          assert.equal(await page.locator(".native-titlebar").count(), 0);
+          assert.equal(await page.locator(".native-titlebar").count(), 1);
           const sidebar = await page.locator(".sidebar").boundingBox();
           assert.ok(sidebar.y >= 0);
           for (const selector of [".sidebar-toggle", ".brand"]) assert.ok(await page.locator(selector).evaluate(element => {

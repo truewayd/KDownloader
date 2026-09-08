@@ -284,6 +284,7 @@ fn main() {
                 .visible(false)
                 .on_navigation(windows::local_navigation)
                 .build()?;
+                frame::install(&window).map_err(std::io::Error::other)?;
                 placement::fit(&window.as_ref().window(), true);
                 if config.visible && !app.state::<windows::Windows>().suppress {
                     window.show()?;

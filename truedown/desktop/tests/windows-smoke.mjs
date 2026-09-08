@@ -198,12 +198,14 @@ async function verifyAppearance(pages, scheme, forcedColors = "none", reducedTra
   const evidence = { scheme, forcedColors, reducedTransparency, windows: states, pages: {} };
   for (const [kind, page] of Object.entries(pages)) {
     const state = states.find(state => state.title === titles.find(window => window.label === kind).title);
-    assert.ok(state.clientTopInset >= 20 * state.dpi / 96, `${kind} must retain the system caption`);
+    assert.ok(state.clientTopInset <= 2 * state.dpi / 96, `${kind} must replace the system title area`);
+    assert.deepEqual(state.captionHits, [8, 9, 20], `${kind} must expose genuine minimize, maximize and close hit targets`);
+    assert.equal(state.captionExcludedFromWebView, true, `${kind} WebView must not obscure native caption controls`);
     assert.ok(state.resizable && state.minimizable && state.maximizable, `${kind} must retain OS window operations`);
     assert.equal(state.iconWidth, 256, `${kind} must supply a full-resolution native icon`);
     assert.equal(state.iconHeight, 256);
     assert.equal((await invoke(page, "frame_state")).decorated, true);
-    assert.equal(await page.locator(".native-titlebar").count(), 0);
+    assert.equal(await page.locator(".native-titlebar").count(), 1);
     assert.equal(await page.locator("[data-window-action]").count(), 0);
     assert.equal(state.visible, false, `${kind} must remain hidden during appearance acceptance`);
     const view = await appearance(page, kind);
@@ -214,7 +216,7 @@ async function verifyAppearance(pages, scheme, forcedColors = "none", reducedTra
       assert.ok(view.working.alpha === 1 || (view.material === "solid" && view.body.alpha === 1), `${kind} working surface must be opaque`);
       const working = view.working.alpha === 1 ? view.working : view.body;
       assert.equal(working.brightness > 128, scheme === "light", `${kind} working surface must match the native frame theme`);
-      assert.equal(view.inset, 8, `${kind} must retain an outer material inset`);
+      assert.equal(view.inset, kind === "settings" ? 0 : 8, `${kind} must retain an outer material inset`);
     }
     if (view.material === "native") {
       assert.equal(view.root.alpha, 0);
@@ -390,7 +392,7 @@ try {
   }
   await settings.locator('[data-settings-link="groups"]').click();
   await waitForNativeCondition(settings, () => document.querySelectorAll("[data-group-id]").length === 8 && !document.querySelector('[data-settings-page="groups"]').inert);
-  await settings.locator('[data-group-id="document"] input').fill("Documents review");
+  await settings.locator('[data-group-id="document"] .group-name-field input').fill("Documents review");
   await settings.keyboard.press("Control+s");
   await waitForNativeCondition(settings, () => document.querySelector("#file-groups-status").textContent.includes("\u5df2\u4fdd\u5b58"));
   assert.equal((await api(settings, "GET", "/settings/file-groups")).groups.find(group => group.id === "document").name, "Documents review");

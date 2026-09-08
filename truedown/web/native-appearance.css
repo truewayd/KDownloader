@@ -24,8 +24,14 @@
 [data-platform="windows"] .kd-input { border-bottom-color: var(--kd-border-strong); }
 [data-platform="windows"] .kd-input:focus { border-bottom: 2px solid var(--kd-focus); }
 [data-platform="windows"] .dashboard { padding: 8px; }
-[data-platform="windows"][data-native-window="settings"] .settings-page,
-[data-platform="windows"][data-native-window="logs"] .log-page { border: 1px solid var(--kd-border); border-radius: var(--kd-radius); }
+[data-platform][data-native-window="settings"] .dashboard { padding: 0; }
+[data-platform][data-native-window="settings"] .settings-page { border: 0; border-radius: 0; }
+[data-platform][data-native-window="settings"] #settings-form {
+  margin: 0 8px 8px 0;
+  border-radius: var(--kd-radius);
+  overflow: hidden;
+  background: var(--kd-surface);
+}
 [data-platform="windows"] body > main {
   margin: 8px;
   max-width: none;

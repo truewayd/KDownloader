@@ -94,6 +94,7 @@ pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), Str
             .on_navigation(local_navigation)
             .build()
             .map_err(|error| error.to_string())?;
+            crate::frame::install_async(&window).await?;
             crate::placement::fit(&window.as_ref().window(), true);
             window
         };

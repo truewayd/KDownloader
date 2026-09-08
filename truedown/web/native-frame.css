@@ -1,4 +1,4 @@
-:root[data-native-frame="overlay"] { --native-titlebar-height: 40px; }
+:root[data-native-frame="custom"], :root[data-native-frame="overlay"] { --native-titlebar-height: 40px; }
 :root[data-native-frame="native"] { --native-titlebar-height: 0px; }
 [data-native-frame] body { padding-top: var(--native-titlebar-height); }
 .native-titlebar {
@@ -15,6 +15,14 @@
 [data-material="native"] .native-titlebar { background: var(--native-chrome); }
 .native-titlebar-drag { display: flex; flex: 1; min-width: 0; align-items: center; padding: 0 16px; }
 .native-window-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; pointer-events: none; }
+[data-native-frame="custom"] .native-titlebar { right: 144px; }
+[data-native-frame="custom"][data-native-window="main"] .sidebar-brand {
+  position: fixed;
+  top: 2px;
+  left: 12px;
+  z-index: 31;
+  width: calc(var(--sidebar-width) - 24px);
+}
 [data-native-frame="overlay"] .native-titlebar-drag { padding-left: 84px; }
 @media (forced-colors: active) {
   .native-titlebar, [data-material="native"] .native-titlebar { background: Canvas; color: CanvasText; }

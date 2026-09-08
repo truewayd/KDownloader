@@ -73,8 +73,10 @@ try {
       const geometry = await page.evaluate(() => {
         const content = document.querySelector(".settings-content"), footer = document.querySelector(".settings-footer");
         const bounds = content.getBoundingClientRect();
-        return { root: document.documentElement.scrollWidth, width: innerWidth, content: content.scrollWidth, client: content.clientWidth, bottom: bounds.bottom, footerTop: footer.hidden ? innerHeight : footer.getBoundingClientRect().top, footerBottom: footer.hidden ? 0 : footer.getBoundingClientRect().bottom, height: innerHeight };
+        const panel = document.querySelector(".settings-page"), form = document.querySelector("#settings-form");
+        return { outerBorder: getComputedStyle(panel).borderTopWidth, radius: parseFloat(getComputedStyle(form).borderTopLeftRadius), rightInset: innerWidth - form.getBoundingClientRect().right, root: document.documentElement.scrollWidth, width: innerWidth, content: content.scrollWidth, client: content.clientWidth, bottom: bounds.bottom, footerTop: footer.hidden ? innerHeight : footer.getBoundingClientRect().top, footerBottom: footer.hidden ? 0 : footer.getBoundingClientRect().bottom, height: innerHeight };
       });
+      if (native) { assert.equal(geometry.outerBorder, "0px"); assert.equal(geometry.radius, 8); assert.equal(geometry.rightInset, 8); }
       assert.ok(geometry.root <= width && geometry.content <= geometry.client + 1, `${name}/${category}: horizontal overflow ${JSON.stringify(geometry)}`);
       assert.ok(geometry.bottom <= geometry.footerTop + 1 && geometry.footerBottom <= geometry.height, `${name}/${category}: footer overlap`);
       if (category === "files" && width > 720) {
