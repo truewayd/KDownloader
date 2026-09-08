@@ -112,6 +112,8 @@ type engineSelectionReq struct {
 
 func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, updateServices ...UpdateService) {
 	registerTaskDefaults(mux, dm)
+	registerTaskDetails(mux, dm)
+	registerFileGroups(mux, dm)
 	if len(updateServices) > 0 && updateServices[0] != nil {
 		registerUpdateEndpoints(mux, updateServices[0])
 	}
@@ -603,8 +605,13 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		page, notModified := dm.PageTaskSnapshotsSortedIfChanged(
-			offset, limit, status, search, sortField, sortOrder, r.Header.Get("If-None-Match"),
+		category := r.URL.Query().Get("category")
+		if len(category) > 64 {
+			http.Error(w, "invalid task category", http.StatusBadRequest)
+			return
+		}
+		page, notModified := dm.PageTaskSnapshotsFilteredIfChanged(
+			offset, limit, status, search, sortField, sortOrder, category, r.Header.Get("If-None-Match"),
 		)
 		w.Header().Set("ETag", page.Version)
 		if notModified {

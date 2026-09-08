@@ -8,7 +8,7 @@ import (
 )
 
 func TestExplicitProfilePrecedesEnvironmentWithoutCreatingFiles(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	t.Setenv("TRUEDOWN_DATA_DIR", filepath.Join(root, "environment"))
 	explicit := filepath.Join(root, "explicit")
 	got, err := Resolve(explicit, root)
@@ -25,7 +25,7 @@ func TestExplicitProfilePrecedesEnvironmentWithoutCreatingFiles(t *testing.T) {
 }
 
 func TestPlatformAndLegacyProfiles(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	t.Setenv("TRUEDOWN_DATA_DIR", "")
 	got, err := Resolve("", root)
 	if err != nil || got.Source != "platform" || got.DataDirectory == root {
@@ -53,11 +53,20 @@ func TestPlatformAndLegacyProfiles(t *testing.T) {
 }
 
 func TestLegacyProbeRejectsNonRegularProfileEntry(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	if err := os.Mkdir(filepath.Join(root, Database), 0700); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := hasLegacyProfile(root); err == nil {
 		t.Fatal("invalid existing profile silently ignored")
 	}
+}
+
+func canonicalTempDir(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
 }

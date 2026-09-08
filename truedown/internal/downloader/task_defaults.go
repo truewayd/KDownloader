@@ -24,6 +24,7 @@ type TaskDefaults struct {
 	MaxTries       int     `json:"maxTries"`
 	RetryWait      int     `json:"retryWait"`
 	Proxy          string  `json:"proxy"`
+	ProxyMode      string  `json:"proxyMode"`
 	UserAgent      string  `json:"userAgent"`
 	Referer        string  `json:"referer"`
 	Headers        string  `json:"headers"`
@@ -45,7 +46,7 @@ type taskDefaultsStore struct {
 }
 
 func defaultTaskDefaults() TaskDefaults {
-	return TaskDefaults{Connections: 16, SpeedUnit: 1048576, MaxTries: 5, RetryWait: 3, Allocation: "none", RemoteTime: true}
+	return TaskDefaults{Connections: 16, SpeedUnit: 1048576, MaxTries: 5, RetryWait: 3, Allocation: "none", RemoteTime: true, ProxyMode: "system"}
 }
 
 func newTaskDefaultsStoreAt(path string) (*taskDefaultsStore, error) {
@@ -61,6 +62,7 @@ func newTaskDefaultsStoreAt(path string) (*taskDefaultsStore, error) {
 	if state.Revision == 0 {
 		return nil, fmt.Errorf("invalid task defaults revision")
 	}
+	state.Values = normalizeProxyDefaults(state.Values)
 	if err := validateTaskDefaults(state.Values); err != nil {
 		return nil, err
 	}
@@ -69,6 +71,9 @@ func newTaskDefaultsStoreAt(path string) (*taskDefaultsStore, error) {
 }
 
 func validateTaskDefaults(v TaskDefaults) error {
+	if err := validateProxyDefaults(normalizeProxyDefaults(v)); err != nil {
+		return err
+	}
 	invalid := func() error { return &ValidationError{Message: "invalid task defaults"} }
 	if v.Connections < 1 || v.MaxTries < 1 || v.RetryWait < 1 {
 		return invalid()
@@ -134,8 +139,9 @@ func (v TaskDefaults) requestHeaders() (map[string]string, error) {
 }
 
 func (v TaskDefaults) options() Aria2Opts {
+	v = normalizeProxyDefaults(v)
 	extra := []string{}
-	if v.Proxy != "" {
+	if v.Proxy != "" && v.ProxyMode == "custom" {
 		extra = append(extra, "--all-proxy="+v.Proxy)
 	}
 	extra = append(extra, "--file-allocation="+v.Allocation, fmt.Sprintf("--check-integrity=%t", v.CheckIntegrity), fmt.Sprintf("--remote-time=%t", v.RemoteTime))
@@ -144,7 +150,7 @@ func (v TaskDefaults) options() Aria2Opts {
 			extra = append(extra, line)
 		}
 	}
-	return Aria2Opts{Connections: v.Connections, MaxSpeedBps: int(math.Round(v.Speed * float64(v.SpeedUnit))), MaxTries: v.MaxTries, RetryWait: v.RetryWait, ExtraArgs: extra}
+	return Aria2Opts{Connections: v.Connections, MaxSpeedBps: int(math.Round(v.Speed * float64(v.SpeedUnit))), MaxTries: v.MaxTries, RetryWait: v.RetryWait, ExtraArgs: extra, ProxyMode: v.ProxyMode}
 }
 
 func (m *Manager) TaskDefaults() TaskDefaultsSnapshot {
@@ -155,6 +161,7 @@ func (m *Manager) TaskDefaults() TaskDefaultsSnapshot {
 }
 
 func (m *Manager) SetTaskDefaults(revision uint64, values TaskDefaults) (TaskDefaultsSnapshot, error) {
+	values = normalizeProxyDefaults(values)
 	if err := validateTaskDefaults(values); err != nil {
 		return TaskDefaultsSnapshot{}, err
 	}

@@ -137,7 +137,9 @@ func (module *dropboxResolverModule) resolve(
 }
 
 func (*dropboxResolverModule) prepare(ctx context.Context, m *Manager, task *Task) (modulePreparation, error) {
-	metadata, err := resolveDropboxDirectURL(ctx, task, m.dropboxClient)
+	client, closeIdle := clientForTaskProxy(m.dropboxClient, task.Opts)
+	defer closeIdle()
+	metadata, err := resolveDropboxDirectURL(ctx, task, client)
 	if err != nil {
 		return modulePreparation{}, err
 	}

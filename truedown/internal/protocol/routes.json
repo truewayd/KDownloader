@@ -23,6 +23,10 @@
     "GET",
     "POST"
   ],
+  "/settings/file-groups": [
+    "GET",
+    "POST"
+  ],
   "/settings/tracker-research": [
     "GET",
     "POST"
@@ -58,6 +62,10 @@
   ],
   "/tasks": [
     "GET"
+  ],
+  "/tasks/detail": [
+    "GET",
+    "POST"
   ],
   "/tasks/batch": [
     "POST"

@@ -129,10 +129,12 @@ func (module *googleDriveResolverModule) resolve(
 
 	format := googleNativeFormat(reference.NativeType, options)
 	stableLink := module.profile.stableLink(reference.ID, reference.NativeType, format)
-	probeTask := &Task{Link: stableLink, Headers: identity.Headers, Name: identity.Name}
+	probeTask := &Task{Link: stableLink, Headers: identity.Headers, Name: identity.Name, Opts: identity.Opts}
 	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	metadata, _, err := resolveGoogleDriveDownloadWithProfile(probeCtx, probeTask, m.googleDriveClient, module.profile)
+	client, closeIdle := clientForTaskProxy(m.googleDriveClient, identity.Opts)
+	defer closeIdle()
+	metadata, _, err := resolveGoogleDriveDownloadWithProfile(probeCtx, probeTask, client, module.profile)
 	if err != nil {
 		return ModuleAddResult{}, true, err
 	}
@@ -160,7 +162,9 @@ func (module *googleDriveResolverModule) resolve(
 func (module *googleDriveResolverModule) prepare(ctx context.Context, m *Manager, task *Task) (modulePreparation, error) {
 	resolveCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	metadata, headers, err := resolveGoogleDriveDownloadWithProfile(resolveCtx, task, m.googleDriveClient, module.profile)
+	client, closeIdle := clientForTaskProxy(m.googleDriveClient, task.Opts)
+	defer closeIdle()
+	metadata, headers, err := resolveGoogleDriveDownloadWithProfile(resolveCtx, task, client, module.profile)
 	if err != nil {
 		return modulePreparation{}, err
 	}
@@ -344,7 +348,9 @@ func resolveGoogleDriveFolder(
 ) (ModuleAddResult, bool, error) {
 	crawlCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	files, rootName, err := crawlGoogleDriveFolderWithProfile(crawlCtx, m.googleDriveClient, reference.ID, profile)
+	client, closeIdle := clientForTaskProxy(m.googleDriveClient, identity.Opts)
+	defer closeIdle()
+	files, rootName, err := crawlGoogleDriveFolderWithProfile(crawlCtx, client, reference.ID, profile)
 	if err != nil {
 		return ModuleAddResult{}, true, err
 	}

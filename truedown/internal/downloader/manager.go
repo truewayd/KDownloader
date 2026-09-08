@@ -41,6 +41,7 @@ const (
 
 // Aria2Opts holds user-tunable aria2 download parameters.
 type Aria2Opts struct {
+	ProxyMode   string   `json:"proxyMode,omitempty"`
 	Connections int      `json:"connections"`
 	MaxSpeedBps int      `json:"maxSpeedBps"`
 	MaxTries    int      `json:"maxTries"`
@@ -57,23 +58,25 @@ type ManagerConfig struct {
 }
 
 type Task struct {
-	ID           int64             `json:"id"`
-	Name         string            `json:"name"`
-	Link         string            `json:"link"`
-	Folder       string            `json:"folder"`
-	QueueID      int               `json:"queueId"`
-	Headers      map[string]string `json:"headers"`
-	DownloadPage string            `json:"downloadPage,omitempty"`
-	Opts         Aria2Opts         `json:"opts"`
-	OutputName   string            `json:"outputName,omitempty"`
-	GID          string            `json:"gid"`
-	Status       Status            `json:"status"`
-	Progress     string            `json:"progress"`
-	Error        string            `json:"error,omitempty"`
-	CreatedAt    time.Time         `json:"createdAt"`
-	UpdatedAt    time.Time         `json:"updatedAt"`
-	Revision     int64             `json:"-"`
-	TotalLength  int64             `json:"-"`
+	ID              int64             `json:"id"`
+	Name            string            `json:"name"`
+	Link            string            `json:"link"`
+	Folder          string            `json:"folder"`
+	QueueID         int               `json:"queueId"`
+	Headers         map[string]string `json:"headers"`
+	DownloadPage    string            `json:"downloadPage,omitempty"`
+	Opts            Aria2Opts         `json:"opts"`
+	OutputName      string            `json:"outputName,omitempty"`
+	GID             string            `json:"gid"`
+	Status          Status            `json:"status"`
+	Progress        string            `json:"progress"`
+	Error           string            `json:"error,omitempty"`
+	CreatedAt       time.Time         `json:"createdAt"`
+	UpdatedAt       time.Time         `json:"updatedAt"`
+	Revision        int64             `json:"-"`
+	TotalLength     int64             `json:"-"`
+	CompletedLength int64             `json:"-"`
+	DownloadSpeed   int64             `json:"-"`
 
 	Fingerprint   string `json:"-"`
 	RequestJSON   string `json:"-"`
@@ -89,16 +92,20 @@ type Task struct {
 // TaskSnapshot contains only fields needed by the web UI. Request headers and
 // aria2 options can contain credentials and must not be exposed by the API.
 type TaskSnapshot struct {
-	ID         int64     `json:"id"`
-	Name       string    `json:"name"`
-	Link       string    `json:"link"`
-	Folder     string    `json:"folder"`
-	OutputName string    `json:"outputName,omitempty"`
-	Status     Status    `json:"status"`
-	Progress   string    `json:"progress"`
-	Error      string    `json:"error,omitempty"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	Category        string    `json:"category"`
+	TotalLength     int64     `json:"totalLength"`
+	CompletedLength int64     `json:"completedLength,omitempty"`
+	DownloadSpeed   int64     `json:"downloadSpeed"`
+	ID              int64     `json:"id"`
+	Name            string    `json:"name"`
+	Link            string    `json:"link"`
+	Folder          string    `json:"folder"`
+	OutputName      string    `json:"outputName,omitempty"`
+	Status          Status    `json:"status"`
+	Progress        string    `json:"progress"`
+	Error           string    `json:"error,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 type TaskSummary struct {
@@ -111,13 +118,14 @@ type TaskSummary struct {
 }
 
 type TaskPage struct {
-	Tasks    []TaskSnapshot `json:"tasks"`
-	Summary  TaskSummary    `json:"summary"`
-	Offset   int            `json:"offset"`
-	Limit    int            `json:"limit"`
-	Total    int            `json:"total"`
-	Revision int64          `json:"revision"`
-	Version  string         `json:"-"`
+	Groups   FileGroupsSnapshot `json:"groups"`
+	Tasks    []TaskSnapshot     `json:"tasks"`
+	Summary  TaskSummary        `json:"summary"`
+	Offset   int                `json:"offset"`
+	Limit    int                `json:"limit"`
+	Total    int                `json:"total"`
+	Revision int64              `json:"revision"`
+	Version  string             `json:"-"`
 }
 
 type TaskOperationFailure struct {
@@ -209,6 +217,9 @@ type Manager struct {
 	downloadRules    *downloadRulesStore
 	runtimeSettings  *runtimeSettingsStore
 	taskDefaults     *taskDefaultsStore
+	fileGroups       FileGroupsSnapshot
+	fileGroupsPath   string
+	fileGroupIndex   map[string]string
 	modules          *moduleRegistry
 	trackerResearch  *trackerResearchModule
 
@@ -292,6 +303,11 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		store.Close()
 		return nil, err
 	}
+	fileGroups, err := readFileGroups(paths.File(profile.FileGroups))
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
 	trackerResearch, err := newTrackerResearchModuleAt(paths.File(profile.TrackerState))
 	if err != nil {
 		store.Close()
@@ -311,6 +327,9 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		downloadRules:     downloadRules,
 		runtimeSettings:   runtimeSettings,
 		taskDefaults:      taskDefaults,
+		fileGroups:        fileGroups,
+		fileGroupsPath:    paths.File(profile.FileGroups),
+		fileGroupIndex:    indexFileGroups(fileGroups.Groups),
 		modules:           modules,
 		trackerResearch:   trackerResearch,
 		tasks:             make(map[int64]*Task, len(tasks)),
@@ -671,6 +690,12 @@ func (m *Manager) PageTaskSnapshotsSortedIfChanged(
 	status Status,
 	search, sortField, sortOrder, ifNoneMatch string,
 ) (TaskPage, bool) {
+	return m.PageTaskSnapshotsFilteredIfChanged(offset, limit, status, search, sortField, sortOrder, "", ifNoneMatch)
+}
+
+func (m *Manager) PageTaskSnapshotsFilteredIfChanged(
+	offset, limit int, status Status, search, sortField, sortOrder, category, ifNoneMatch string,
+) (TaskPage, bool) {
 	if offset < 0 {
 		offset = 0
 	}
@@ -684,19 +709,22 @@ func (m *Manager) PageTaskSnapshotsSortedIfChanged(
 	defer m.mu.RUnlock()
 
 	version := uint64(m.structureRev) ^ uint64(offset+1)*1099511628211 ^ uint64(limit)
-	for _, value := range []string{string(status), search, sortField, sortOrder} {
+	for _, value := range []string{string(status), search, sortField, sortOrder, category} {
 		for _, char := range value {
 			version ^= uint64(char) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
 		}
 		version ^= uint64(':') + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
 	}
-	usesGlobalRevision := search != "" || sortField != ""
+	usesGlobalRevision := search != "" || sortField != "" || category != ""
 	if usesGlobalRevision {
 		version ^= uint64(m.revision) * 1099511628211
 		validator := fmt.Sprintf(`"td-%x"`, version)
 		if ifNoneMatch != "" && ifNoneMatch == validator {
 			return TaskPage{Version: validator}, true
 		}
+	}
+	if category != "" {
+		return m.categoryPageLocked(offset, min(limit, 200), status, search, sortField, sortOrder, category, fmt.Sprintf(`"td-%x"`, version)), false
 	}
 
 	total := len(m.tasks)
@@ -712,6 +740,7 @@ func (m *Manager) PageTaskSnapshotsSortedIfChanged(
 		}
 	}
 	page := TaskPage{
+		Groups:   m.fileGroupsLocked(),
 		Tasks:    make([]TaskSnapshot, 0, min(limit, max(0, total-offset))),
 		Summary:  m.summaryLocked(),
 		Offset:   offset,
@@ -750,7 +779,7 @@ func (m *Manager) PageTaskSnapshotsSortedIfChanged(
 		})
 		for index := offset; index < len(ids) && len(page.Tasks) < limit; index++ {
 			task := m.tasks[ids[index]]
-			page.Tasks = append(page.Tasks, snapshotTask(task))
+			page.Tasks = append(page.Tasks, m.snapshotTask(task))
 		}
 		page.Version = fmt.Sprintf(`"td-%x"`, version)
 		return page, ifNoneMatch != "" && ifNoneMatch == page.Version
@@ -765,7 +794,7 @@ func (m *Manager) PageTaskSnapshotsSortedIfChanged(
 			skipped++
 			continue
 		}
-		page.Tasks = append(page.Tasks, snapshotTask(task))
+		page.Tasks = append(page.Tasks, m.snapshotTask(task))
 		if !usesGlobalRevision {
 			version ^= uint64(task.ID) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
 			version ^= uint64(task.Revision) * 1099511628211
@@ -779,7 +808,7 @@ func (m *Manager) appendTaskPageByID(page *TaskPage, status Status, search strin
 	skipped := 0
 	if descending {
 		for index := len(m.orderedIDs) - 1; index >= 0 && len(page.Tasks) < page.Limit; index-- {
-			appendTaskToPage(page, m.tasks[m.orderedIDs[index]], status, search, &skipped)
+			m.appendTaskToPage(page, m.tasks[m.orderedIDs[index]], status, search, &skipped)
 		}
 		return
 	}
@@ -787,7 +816,7 @@ func (m *Manager) appendTaskPageByID(page *TaskPage, status Status, search strin
 		if len(page.Tasks) >= page.Limit {
 			return
 		}
-		appendTaskToPage(page, m.tasks[id], status, search, &skipped)
+		m.appendTaskToPage(page, m.tasks[id], status, search, &skipped)
 	}
 }
 
@@ -818,7 +847,7 @@ func (m *Manager) appendTaskPageByStatus(page *TaskPage, status Status, search s
 			for index := len(m.orderedIDs) - 1; index >= 0 && len(page.Tasks) < page.Limit; index-- {
 				task := m.tasks[m.orderedIDs[index]]
 				if task != nil && taskStatusSortRank(task.Status) == rank {
-					appendTaskToPage(page, task, status, search, &skipped)
+					m.appendTaskToPage(page, task, status, search, &skipped)
 				}
 			}
 			continue
@@ -829,13 +858,13 @@ func (m *Manager) appendTaskPageByStatus(page *TaskPage, status Status, search s
 			}
 			task := m.tasks[id]
 			if task != nil && taskStatusSortRank(task.Status) == rank {
-				appendTaskToPage(page, task, status, search, &skipped)
+				m.appendTaskToPage(page, task, status, search, &skipped)
 			}
 		}
 	}
 }
 
-func appendTaskToPage(page *TaskPage, task *Task, status Status, search string, skipped *int) {
+func (m *Manager) appendTaskToPage(page *TaskPage, task *Task, status Status, search string, skipped *int) {
 	if !taskMatchesPage(task, status, search) {
 		return
 	}
@@ -843,7 +872,7 @@ func appendTaskToPage(page *TaskPage, task *Task, status Status, search string, 
 		*skipped++
 		return
 	}
-	page.Tasks = append(page.Tasks, snapshotTask(task))
+	page.Tasks = append(page.Tasks, m.snapshotTask(task))
 }
 
 func compareTasksForPage(first, second *Task, field string) int {
@@ -1078,8 +1107,10 @@ func (m *Manager) summaryLocked() TaskSummary {
 	}
 }
 
-func snapshotTask(task *Task) TaskSnapshot {
+func (m *Manager) snapshotTask(task *Task) TaskSnapshot {
 	return TaskSnapshot{
+		Category: m.classifyTask(task), TotalLength: task.TotalLength,
+		CompletedLength: task.CompletedLength, DownloadSpeed: task.DownloadSpeed,
 		ID: task.ID, Name: task.Name, Link: task.Link, Folder: task.Folder,
 		OutputName: task.OutputName, Status: task.Status, Progress: task.Progress,
 		Error: task.Error, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt,
@@ -1832,6 +1863,12 @@ func (m *Manager) submit(item submission) bool {
 		snapshot.Headers = preparedHeaders
 	}
 	options := ariaOptions(snapshot, item.recheck)
+	if snapshot.Opts.ProxyMode != "" {
+		if err := applyDownloadProxy(options, snapshot.Link, snapshot.Opts); err != nil {
+			m.failTask(snapshot.ID, err)
+			return false
+		}
+	}
 	if isBitTorrent {
 		// OutputName records the root observed from the native torrent layout.
 		// It must never become an HTTP output override on resume or restart.
@@ -1840,7 +1877,7 @@ func (m *Manager) submit(item submission) bool {
 			options["check-integrity"] = "true"
 		}
 	}
-	if preparedProxy != "" {
+	if preparedProxy != "" && snapshot.Opts.ProxyMode == "" {
 		options["https-proxy"] = preparedProxy
 	}
 	attachedToNativeTorrent := false
@@ -2055,6 +2092,7 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 		oldStatus, oldProgress, oldError, oldOutput := task.Status, task.Progress, task.Error, task.OutputName
 		task.admissionFailureStatus, task.admissionFailureRevision = "", 0
 		oldTotalLength := task.TotalLength
+		oldCompleted, oldSpeed := task.CompletedLength, task.DownloadSpeed
 		m.setStatusLocked(task, statusFromAria(state.Status))
 		if task.Status == StatusDone || task.Status == StatusError {
 			m.releaseAriaSlotLocked(task.ID)
@@ -2086,7 +2124,14 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 		if totalLength, err := strconv.ParseInt(state.TotalLength, 10, 64); err == nil && totalLength >= 0 {
 			task.TotalLength = totalLength
 		}
-		if oldStatus != task.Status || oldProgress != task.Progress || oldError != task.Error || oldOutput != task.OutputName || oldTotalLength != task.TotalLength {
+		task.CompletedLength, _ = strconv.ParseInt(state.CompletedLength, 10, 64)
+		task.DownloadSpeed, _ = strconv.ParseInt(state.DownloadSpeed, 10, 64)
+		task.CompletedLength = max(0, task.CompletedLength)
+		task.DownloadSpeed = max(0, task.DownloadSpeed)
+		if task.Status != StatusDownloading {
+			task.DownloadSpeed = 0
+		}
+		if oldStatus != task.Status || oldProgress != task.Progress || oldError != task.Error || oldOutput != task.OutputName || oldTotalLength != task.TotalLength || oldCompleted != task.CompletedLength || oldSpeed != task.DownloadSpeed {
 			m.touchTaskLocked(task)
 			updates = append(updates, snapshotTaskUpdate(task))
 		}
@@ -2584,6 +2629,9 @@ func validateRequest(identity requestIdentity) error {
 	}
 	if identity.QueueID < 0 || identity.QueueID > 1_000_000 {
 		return invalid("queueId must be between 0 and 1000000")
+	}
+	if !validProxyMode(identity.Opts.ProxyMode) {
+		return &ValidationError{Message: "invalid proxy mode"}
 	}
 	if identity.Opts.Connections < 0 || identity.Opts.Connections > 64 ||
 		identity.Opts.MaxSpeedBps < 0 || int64(identity.Opts.MaxSpeedBps) > 1<<50 ||

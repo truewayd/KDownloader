@@ -19,6 +19,7 @@ const (
 	RuntimeSettings = "truedown.settings.json"
 	DownloadRules   = "truedown.download-rules.json"
 	TaskDefaults    = "truedown.task-defaults.json"
+	FileGroups      = "truedown.file-groups.json"
 	Modules         = "truedown.modules.json"
 	TrackerState    = "truedown.tracker-research.json"
 	UpdateState     = "truedown.updates.json"
@@ -111,7 +112,7 @@ func canonical(path string) (string, error) {
 
 func hasLegacyProfile(root string) (bool, error) {
 	names := []string{LayoutFile, LayoutFile + ".bak", Database, Database + "-wal"}
-	for _, name := range []string{AuthSettings, Token, RuntimeSettings, DownloadRules, TaskDefaults, Modules, TrackerState, UpdateState} {
+	for _, name := range []string{AuthSettings, Token, RuntimeSettings, DownloadRules, TaskDefaults, FileGroups, Modules, TrackerState, UpdateState} {
 		names = append(names, name, name+".bak")
 	}
 	for _, name := range names {

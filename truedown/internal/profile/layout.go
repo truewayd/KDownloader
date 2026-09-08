@@ -43,7 +43,7 @@ func FlatPaths(root string) Paths {
 func (p Paths) File(name string) string {
 	var directory string
 	switch name {
-	case AuthSettings, Token, RuntimeSettings, DownloadRules, TaskDefaults, Modules:
+	case AuthSettings, Token, RuntimeSettings, DownloadRules, TaskDefaults, FileGroups, Modules:
 		directory = p.Config
 	case Database, ModulePackages, Engines:
 		directory = p.Data

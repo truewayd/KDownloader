@@ -18,7 +18,7 @@ import (
 const migrationFile = "truedown.profile.migration.json"
 const maxMigrationFileBytes int64 = 2 << 30
 
-var legacyFiles = []string{Database, AuthSettings, Token, RuntimeSettings, DownloadRules, TaskDefaults, Modules, TrackerState, UpdateState, ApplicationLog, AriaLog, AriaConsoleLog}
+var legacyFiles = []string{Database, AuthSettings, Token, RuntimeSettings, DownloadRules, TaskDefaults, FileGroups, Modules, TrackerState, UpdateState, ApplicationLog, AriaLog, AriaConsoleLog}
 var legacyDirectories = []string{ModulePackages, Engines, ResumeState, StagedUpdates}
 
 func legacyNames() []string {

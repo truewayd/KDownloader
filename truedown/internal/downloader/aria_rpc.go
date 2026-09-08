@@ -206,6 +206,11 @@ func (c *ariaClient) changeGlobalOptions(options map[string]string) error {
 	return c.call("aria2.changeGlobalOption", []any{options}, &result)
 }
 
+func (c *ariaClient) changeOptions(gid string, options map[string]string) error {
+	var result string
+	return c.call("aria2.changeOption", []any{gid, options}, &result)
+}
+
 func (c *ariaClient) forceRemove(gid string) error {
 	var result string
 	return c.call("aria2.forceRemove", []any{gid}, &result)

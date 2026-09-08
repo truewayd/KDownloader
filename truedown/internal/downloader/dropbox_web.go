@@ -109,7 +109,9 @@ func (m *Manager) addDropboxFolderWithProfile(
 	if m.dropboxClient == nil {
 		return DropboxExpansionResult{}, true, fmt.Errorf("Dropbox web client is unavailable")
 	}
-	webClient := newDropboxWebSessionClient(m.dropboxClient)
+	client, closeIdle := clientForTaskProxy(m.dropboxClient, opts)
+	defer closeIdle()
+	webClient := newDropboxWebSessionClient(client)
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()

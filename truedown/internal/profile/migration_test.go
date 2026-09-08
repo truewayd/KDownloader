@@ -9,7 +9,7 @@ import (
 )
 
 func TestProfileLayoutMigratesAndArchivesWithoutMovingDownloads(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	fixtures := map[string]string{Database: "database fixture", Token: "secret fixture", RuntimeSettings: `{"concurrentDownloads":8}`, ApplicationLog: "startup diagnostic", filepath.Join(ResumeState, "bittorrent.session"): "resumable bytes", filepath.Join(ModulePackages, "dropbox.json"): "module bytes", filepath.Join("downloads", "user-file.bin"): "download bytes"}
 	for name, data := range fixtures {
 		path := filepath.Join(root, name)
@@ -74,7 +74,7 @@ func TestProfileLayoutMigratesAndArchivesWithoutMovingDownloads(t *testing.T) {
 }
 
 func TestProfileMigrationFailureRemainsLegacyAndResumes(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	path := filepath.Join(root, Database)
 	if err := os.WriteFile(path, []byte("before"), 0600); err != nil {
 		t.Fatal(err)
@@ -116,7 +116,7 @@ func TestProfileMigrationFailureRemainsLegacyAndResumes(t *testing.T) {
 }
 
 func TestCommittedMigrationFinishesItsPendingArchive(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	paths, _ := planPaths(root, "explicit")
 	os.MkdirAll(paths.Config, 0700)
 	os.Mkdir(filepath.Join(root, "profile-backup-v0"), 0700)
@@ -143,7 +143,7 @@ func TestCommittedMigrationFinishesItsPendingArchive(t *testing.T) {
 }
 
 func TestReadOnlyLayoutRecoveryAndPortablePathValidation(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	paths, _ := planPaths(root, "explicit")
 	state := layoutState{Version: 1, Source: "explicit", Paths: paths}
 	if err := writeLayout(root, state); err != nil {
@@ -158,7 +158,7 @@ func TestReadOnlyLayoutRecoveryAndPortablePathValidation(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, LayoutFile)); !os.IsNotExist(err) {
 		t.Fatal("read-only resolution repaired a file")
 	}
-	state.Paths.Config = t.TempDir()
+	state.Paths.Config = canonicalTempDir(t)
 	if err := writeLayout(root, state); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestReadOnlyLayoutRecoveryAndPortablePathValidation(t *testing.T) {
 func TestProfileMigrationRejectsExistingDestinationsAndUncheckpointedWAL(t *testing.T) {
 	for _, kind := range []string{"collision", "wal"} {
 		t.Run(kind, func(t *testing.T) {
-			root := t.TempDir()
+			root := canonicalTempDir(t)
 			if err := os.WriteFile(filepath.Join(root, Database), []byte("database"), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -192,7 +192,7 @@ func TestProfileMigrationRejectsExistingDestinationsAndUncheckpointedWAL(t *test
 }
 
 func TestFreshProfilePinsItsLayoutAndDoesNotScatterPreferences(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	location, err := Resolve(root, root)
 	if err != nil {
 		t.Fatal(err)
@@ -204,7 +204,7 @@ func TestFreshProfilePinsItsLayoutAndDoesNotScatterPreferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{AuthSettings, Token, RuntimeSettings, TaskDefaults, DownloadRules, Modules} {
+	for _, name := range []string{AuthSettings, Token, RuntimeSettings, TaskDefaults, DownloadRules, FileGroups, Modules} {
 		if filepath.Dir(location.Paths.File(name)) != filepath.Join(root, "config") {
 			t.Fatal(name)
 		}
