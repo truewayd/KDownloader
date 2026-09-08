@@ -4,6 +4,9 @@ mod appearance;
 mod bridge;
 mod build_info;
 mod core;
+mod frame;
+mod menu_icons;
+mod pickers;
 mod placement;
 mod profile;
 mod startup;
@@ -16,7 +19,7 @@ use bridge::{Request, Response};
 use core::Core;
 use std::sync::{atomic::Ordering, Arc};
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{IconMenuItem, Menu},
     tray::{TrayIconBuilder, TrayIconEvent},
     Manager, State, WindowEvent,
 };
@@ -232,6 +235,7 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri::plugin::Builder::<tauri::Wry>::new("appearance")
                 .js_init_script(appearance::initialization().to_string())
@@ -239,12 +243,17 @@ fn main() {
         )
         .manage(core.clone())
         .manage(startup)
+        .manage(pickers::DirectoryPickers::default())
         .invoke_handler(tauri::generate_handler![
             core_request,
             desktop_state,
             copy_api_token,
             windows::open_auxiliary,
             windows::close_auxiliary,
+            windows::finish_task_window,
+            frame::frame_action,
+            frame::frame_state,
+            pickers::choose_download_directory,
             appearance::apply_material,
             update::desktop_ready
         ])
@@ -266,28 +275,38 @@ fn main() {
                 storage: webview::Storage::new(&profile),
             });
             for config in &app.config().app.windows {
-                let window = app
-                    .state::<windows::Windows>()
-                    .storage
-                    .configure(tauri::WebviewWindowBuilder::from_config(app, config)?)
-                    .visible(false)
-                    .on_navigation(windows::local_navigation)
-                    .build()?;
+                let window = frame::configure(
+                    app.state::<windows::Windows>()
+                        .storage
+                        .configure(tauri::WebviewWindowBuilder::from_config(app, config)?),
+                )
+                .visible(false)
+                .on_navigation(windows::local_navigation)
+                .build()?;
                 placement::fit(&window.as_ref().window(), true);
                 if config.visible && !app.state::<windows::Windows>().suppress {
                     window.show()?;
                 }
             }
-            let open = MenuItem::with_id(app, "open", "打开 TrueDown", true, None::<&str>)?;
-            let settings = MenuItem::with_id(app, "settings", "设置…", true, None::<&str>)?;
-            let logs = MenuItem::with_id(app, "logs", "应用日志…", true, None::<&str>)?;
-            let about = MenuItem::with_id(app, "about", "关于 TrueDown…", true, None::<&str>)?;
-            let exit = MenuItem::with_id(app, "exit", "退出 TrueDown", true, None::<&str>)?;
+            let item = |id, text, icon| {
+                IconMenuItem::with_id(
+                    app,
+                    id,
+                    text,
+                    true,
+                    Some(menu_icons::image(icon)?),
+                    None::<&str>,
+                )
+            };
+            let open = item("open", "打开 TrueDown", menu_icons::Icon::Download)?;
+            let settings = item("settings", "设置…", menu_icons::Icon::Settings)?;
+            let logs = item("logs", "应用日志…", menu_icons::Icon::Logs)?;
+            let about = item("about", "关于 TrueDown…", menu_icons::Icon::Info)?;
+            let exit = item("exit", "退出 TrueDown", menu_icons::Icon::Power)?;
             let menu = Menu::with_items(app, &[&open, &settings, &logs, &about, &exit])?;
-            // macOS renders an 18pt status item: keep enough source pixels for
-            // Retina instead of enlarging the previous 32px bitmap to 36px.
+            // macOS renders an 18pt status item using its exact Retina raster.
             let icon =
-                tray_image::image_for_pixels(if cfg!(target_os = "macos") { 64 } else { 32 })?;
+                tray_image::image_for_pixels(if cfg!(target_os = "macos") { 36 } else { 32 })?;
             let tray = TrayIconBuilder::new()
                 .icon(icon)
                 .tooltip("TrueDown")

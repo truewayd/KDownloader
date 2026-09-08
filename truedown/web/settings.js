@@ -122,10 +122,10 @@ async function loadSettingsOverview() {
 
 function renderSettingsOverview() {
   const values = {
-    general: settingSnapshotsKnown.has("runtime") ? `${runtimeSettings.concurrentDownloads} 个任务同时下载` : "查看下载设置 →",
-    files: !settingSnapshotsKnown.has("rules") ? "查看文件设置 →" : downloadRules.dropboxMode === "expand" ? "Dropbox 默认展开文件" : "Dropbox 默认下载压缩包",
-    application: startupSettings ? startupSettings.supported ? startupSettings.enabled ? "开机启动已开启" : "开机启动已关闭" : "当前平台使用服务启动" : "查看启动方式 →",
-    engine: systemUpdateState?.engine ? `当前内核：${systemUpdateState.engine.active === "next" ? "Aria2 Next" : "aria2 稳定版"}` : "查看内核与更新 →",
+    general: settingSnapshotsKnown.has("runtime") ? `${runtimeSettings.concurrentDownloads} 个任务同时下载` : "查看下载设置",
+    files: !settingSnapshotsKnown.has("rules") ? "查看文件设置" : downloadRules.dropboxMode === "expand" ? "Dropbox 默认展开文件" : "Dropbox 默认下载压缩包",
+    application: startupSettings ? startupSettings.supported ? startupSettings.enabled ? "开机启动已开启" : "开机启动已关闭" : "当前平台使用服务启动" : "查看启动方式",
+    engine: systemUpdateState?.engine ? `当前内核：${systemUpdateState.engine.active === "next" ? "Aria2 Next" : "aria2 稳定版"}` : "查看内核与更新",
   };
   for (const [page, value] of Object.entries(values)) {
     const card = document.querySelector(`[data-overview="${page}"]`);

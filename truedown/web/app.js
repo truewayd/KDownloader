@@ -113,6 +113,11 @@ let dialogResolver = null;
 let dialogHasInput = false;
 let dialogValidator = null;
 let apiTokenRequestPromise = null;
+let nativeTaskFormReady = false;
+let nativeTaskFormLoad = null;
+const nativeTaskPreferences = {
+  pending: null, requested: false, disposed: false, modeDirty: false, filterDirty: false,
+};
 
 document.addEventListener("DOMContentLoaded", async () => {
   cacheElements();
@@ -122,8 +127,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderDownloadSettings();
   renderTrackerResearchSettings();
   bindEvents();
-  initWorkspace();
+  if (isNativeTaskWindow()) await initNativeTaskForm();
+  else initWorkspace();
   if (nativeWindowRole === "main") {
+    subscribeToCreatedTasks();
     invokeNative("desktop_ready").catch((error) => showToast(error.message, "error"));
   }
 });
@@ -279,12 +286,17 @@ function bindEvents() {
       window.clearTimeout(pollTimer);
       return;
     }
+    if (isNativeTaskWindow()) {
+      refreshNativeTaskFormOnActivation();
+      return;
+    }
     refreshAndSchedule();
   });
   window.addEventListener("pagehide", () => window.clearTimeout(pollTimer), { once: true });
 
   els.downloadForm.addEventListener("submit", submitTask);
   els.mDropboxMode.addEventListener("change", updateDropboxOptions);
+  bindNativeTaskPreferences();
   els.refreshTasksBtn.addEventListener("click", refreshTasks);
   els.retryAllBtn.addEventListener("click", requeueAllErrorTasks);
   els.pauseQueueBtn.addEventListener("click", () => runQueueAction("pause"));
@@ -348,7 +360,7 @@ function initTheme() {
 
 function onDocumentKeydown(event) {
   const activeOverlay = els.dialogOverlay.classList.contains("open") ? els.dialogOverlay :
-    els.overlay.classList.contains("open") ? els.overlay : null;
+    !isNativeTaskWindow() && els.overlay.classList.contains("open") ? els.overlay : null;
   if (!activeOverlay) return;
   if (event.key === "Escape") {
     event.preventDefault();
@@ -381,6 +393,19 @@ function onDocumentKeydown(event) {
 
 async function openModal(mode = "single") {
   if (els.downloadForm.inert || els.newTaskBtn.getAttribute("aria-busy") === "true") return;
+  if (typeof nativeWindowRole !== "undefined" && nativeWindowRole !== "browser") {
+    KDComponents.setBusyState(els.newTaskBtn, true);
+    KDComponents.setBusyState(els.batchTaskBtn, true);
+    try {
+      await invokeNative("open_auxiliary", { kind: mode === "batch" ? "batch-task" : "new-task" });
+    } catch (error) {
+      showToast(`打开下载窗口失败：${error.message}`, "error");
+    } finally {
+      KDComponents.setBusyState(els.newTaskBtn, false);
+      KDComponents.setBusyState(els.batchTaskBtn, false);
+    }
+    return;
+  }
   const returnFocus = document.activeElement;
   const epoch = routeEpoch;
   KDComponents.setBusyState(els.newTaskBtn, true);
@@ -396,11 +421,21 @@ async function openModal(mode = "single") {
     if (epoch === routeEpoch && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
   }
   if (epoch !== routeEpoch) return;
-  modalMode = mode;
   modalReturnFocus = returnFocus;
+  configureTaskForm(mode);
+  els.overlay.classList.add("open");
+  els.overlay.setAttribute("aria-hidden", "false");
+  els.overlay.removeAttribute("inert");
+  document.body.classList.add("modal-open");
+  els.mLink.focus();
+}
+
+function configureTaskForm(mode) {
+  modalMode = mode;
   const isBatch = mode === "batch";
 	els.mTorrentFile.value = "";
 	els.mTorrentFile.disabled = isBatch;
+  if (typeof updateTorrentSelection === "function") updateTorrentSelection();
   els.modalEyebrow.textContent = isBatch ? "Batch download" : "New download";
   els.modalTitle.textContent = isBatch ? "批量下载任务" : "新建下载任务";
   els.submitTaskBtn.textContent = isBatch ? "批量开始" : "开始下载";
@@ -410,16 +445,123 @@ async function openModal(mode = "single") {
     : "https://example.com/file.zip 或 magnet:?xt=urn:btih:...";
   els.mName.disabled = isBatch;
   els.mName.placeholder = isBatch ? "批量时自动命名" : "普通 HTTP(S) 留空自动命名；BT 使用元信息名称";
+  els.mFolder.placeholder = downloadSettings.folder || "留空使用默认下载目录";
   if (isBatch) els.mName.value = "";
   els.mDropboxMode.value = downloadRules.dropboxMode;
   els.mDropboxFilter.checked = downloadRules.enabled;
   updateDropboxOptions();
 	renderModuleAvailability();
+}
+
+function isNativeTaskWindow() {
+  return typeof nativeWindowRole !== "undefined" && (nativeWindowRole === "new-task" || nativeWindowRole === "batch-task");
+}
+
+function bindNativeTaskPreferences() {
+  if (!isNativeTaskWindow()) return;
+  els.mDropboxMode.addEventListener("change", () => { nativeTaskPreferences.modeDirty = true; });
+  els.mDropboxFilter.addEventListener("change", () => { nativeTaskPreferences.filterDirty = true; });
+  window.addEventListener("focus", refreshNativeTaskFormOnActivation);
+  window.addEventListener("pagehide", () => {
+    nativeTaskPreferences.disposed = true;
+    window.removeEventListener("focus", refreshNativeTaskFormOnActivation);
+  }, { once: true });
+}
+
+function refreshNativeTaskFormOnActivation() {
+  if (!nativeTaskFormReady || document.hidden || nativeTaskPreferences.disposed) return;
+  refreshNativeTaskPreferences().catch((error) => {
+    if (!nativeTaskPreferences.disposed) showModalMsg(`读取当前下载选项失败：${error.message}`, true);
+  });
+}
+
+async function refreshNativeTaskPreferences() {
+  nativeTaskPreferences.requested = true;
+  if (nativeTaskPreferences.pending) return nativeTaskPreferences.pending;
+  nativeTaskPreferences.pending = (async () => {
+    while (nativeTaskPreferences.requested && !nativeTaskPreferences.disposed) {
+      nativeTaskPreferences.requested = false;
+      const outcomes = await Promise.allSettled([
+        requestJSON("/settings/task-defaults"), requestJSON("/settings/download-rules"), requestJSON("/modules"),
+      ]);
+      if (nativeTaskPreferences.disposed) return;
+      if (nativeTaskPreferences.requested) continue;
+      const failure = outcomes.find((outcome) => outcome.status === "rejected");
+      if (failure) throw failure.reason;
+      const [defaults, rules, modules] = outcomes.map((outcome) => outcome.value);
+      // Commit one complete snapshot. Reopening must preserve explicit form drafts.
+      applyTaskDefaults(defaults);
+      downloadRules = normalizeServerDownloadRules(rules);
+      resolverModules = normalizeResolverModules(modules);
+      if (!nativeTaskPreferences.modeDirty) els.mDropboxMode.value = downloadRules.dropboxMode;
+      if (!nativeTaskPreferences.filterDirty) els.mDropboxFilter.checked = downloadRules.enabled;
+      renderModuleAvailability();
+    }
+  })();
+  try {
+    await nativeTaskPreferences.pending;
+  } finally {
+    nativeTaskPreferences.pending = null;
+  }
+}
+
+async function initNativeTaskForm() {
+  if (nativeTaskFormLoad) return nativeTaskFormLoad;
+  currentPage = nativeWindowRole;
+  document.title = `${nativeWindowRole === "batch-task" ? "批量下载" : "新建下载"} · TrueDown`;
+  document.querySelector(".app-shell").hidden = true;
+  const surface = els.downloadForm.closest(".modal");
+  surface.setAttribute("role", "main");
+  surface.removeAttribute("aria-modal");
+  els.modalCloseBtn.hidden = true;
+  els.modalCancelBtn.title = "关闭窗口，保留未提交的内容";
   els.overlay.classList.add("open");
   els.overlay.setAttribute("aria-hidden", "false");
   els.overlay.removeAttribute("inert");
-  document.body.classList.add("modal-open");
-  els.mLink.focus();
+  els.downloadForm.inert = true;
+  KDComponents.setBusyState(els.submitTaskBtn, true);
+  showModalMsg("正在读取下载默认值…");
+  nativeTaskFormLoad = (async () => {
+    try {
+      // Form windows can read download preferences, but cannot migrate or save them.
+      await refreshNativeTaskPreferences();
+      configureTaskForm(nativeWindowRole === "batch-task" ? "batch" : "single");
+      nativeTaskFormReady = true;
+      showModalMsg("");
+    } catch (error) {
+      showModalMsg(`读取默认值失败：${error.message}。点击下方按钮重试。`, true);
+    } finally {
+      nativeTaskFormLoad = null;
+      els.downloadForm.inert = false;
+      KDComponents.setBusyState(els.submitTaskBtn, false);
+      if (!nativeTaskFormReady) els.submitTaskBtn.textContent = "重新读取默认值";
+      (nativeTaskFormReady ? els.mLink : els.submitTaskBtn).focus();
+    }
+  })();
+  return nativeTaskFormLoad;
+}
+
+async function finishNativeTaskForm(message) {
+  showModalMsg(message);
+  try {
+    await invokeNative("finish_task_window");
+  } catch (error) {
+    // Dispatch has already succeeded. A window operation must never invite replay.
+    showModalMsg(`${message}。返回主窗口失败：${error.message}`, true);
+  }
+}
+
+async function subscribeToCreatedTasks() {
+  if (!window.__TAURI__?.event?.listen) return;
+  try {
+    const unlisten = await window.__TAURI__.event.listen("truedown:tasks-created", () => {
+      if (currentPage === "tasks") refreshAndSchedule(true);
+      showToast("下载任务已添加");
+    });
+    window.addEventListener("pagehide", unlisten, { once: true });
+  } catch (error) {
+    showToast(`监听新任务失败：${error.message}`, "error");
+  }
 }
 
 function updateDropboxOptions() {
@@ -449,6 +591,10 @@ function renderModuleAvailability() {
 }
 
 function closeModal() {
+  if (isNativeTaskWindow()) {
+    invokeNative("close_auxiliary").catch((error) => showModalMsg(`关闭窗口失败：${error.message}`, true));
+    return;
+  }
   if (!els.overlay.classList.contains("open")) return;
   els.overlay.classList.remove("open");
   els.overlay.setAttribute("aria-hidden", "true");
@@ -539,6 +685,10 @@ function syncModalScrollLock() {
 async function submitTask(event) {
   event.preventDefault();
   if (els.downloadForm.inert) return;
+  if (isNativeTaskWindow() && !nativeTaskFormReady) {
+    await initNativeTaskForm();
+    return;
+  }
   const torrentFile = els.mTorrentFile.files?.[0] || null;
   let links;
   try {
@@ -562,6 +712,20 @@ async function submitTask(event) {
   if (torrentFile && modalMode === "batch") {
     showModalMsg("本地 .torrent 请使用单任务模式导入", true);
     return;
+  }
+
+  if (isNativeTaskWindow()) {
+    // Singleton windows retain explicit draft fields, while blank fields must
+    // inherit the preferences currently saved in the separate Settings window.
+    setSubmitting(true);
+    try {
+      await refreshNativeTaskPreferences();
+    } catch (error) {
+      showModalMsg(`读取当前下载默认值失败：${error.message}`, true);
+      return;
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   let headers;
@@ -598,11 +762,12 @@ async function submitTask(event) {
           opts: sharedBody.opts,
         }),
       });
-      await loadTasks({ force: true });
+      if (!isNativeTaskWindow()) await loadTasks({ force: true });
       const message = result.includes("DUPLICATE") ? "已复用现有 Torrent 任务" : "Torrent 任务已创建";
       els.mTorrentFile.value = "";
-      closeModal();
-      showToast(message);
+      if (typeof updateTorrentSelection === "function") updateTorrentSelection();
+      if (isNativeTaskWindow()) await finishNativeTaskForm(message);
+      else { closeModal(); showToast(message); }
       return;
     }
     const outcomes = await mapLimitSettled(links, 8, (link) =>
@@ -617,7 +782,7 @@ async function submitTask(event) {
     const created = outcomes.filter((outcome) => outcome.status === "fulfilled").map((outcome) => outcome.value);
     const failed = outcomes.filter((outcome) => outcome.status === "rejected");
     const duplicateCount = created.filter((text) => text.includes("DUPLICATE")).length;
-    await loadTasks({ force: true });
+    if (!isNativeTaskWindow()) await loadTasks({ force: true });
     if (failed.length) {
       els.mLink.value = failed.map((outcome) => outcome.item).join("\n");
       showModalMsg(
@@ -633,8 +798,8 @@ async function submitTask(event) {
       ? formatStartOutcome(created[0], duplicateCount > 0)
       : summary;
     els.mLink.value = "";
-    closeModal();
-    showToast(message);
+    if (isNativeTaskWindow()) await finishNativeTaskForm(message);
+    else { closeModal(); showToast(message); }
   } catch (error) {
     showModalMsg(`创建失败：${error.message}`, true);
   } finally {
@@ -1071,6 +1236,8 @@ function renderTasks(tasks) {
       else heading.removeAttribute("aria-sort");
       const button = heading.querySelector("button");
       button.dataset.sortOrder = active ? currentSortOrder : "none";
+      const icon = active ? currentSortOrder === "asc" ? "arrow-up" : "arrow-down" : "arrow-up-down";
+      button.querySelector("use").setAttribute("href", `/icons.svg#icon-${icon}`);
       button.setAttribute("aria-label", `按${labels[i]}${active && currentSortOrder === "asc" ? "降序" : "升序"}排列`);
     });
     table.dataset.sort = sortKey;
@@ -1106,7 +1273,8 @@ function sortableHeading(field, label) {
   const active = currentSort === field;
   const ariaSort = active ? ` aria-sort="${currentSortOrder === "desc" ? "descending" : "ascending"}"` : "";
   const order = active ? currentSortOrder : "none";
-  return `<th scope="col"${ariaSort}><button class="sort-button" type="button" data-sort-field="${field}" data-sort-order="${order}" aria-label="按${label}${active && currentSortOrder === "asc" ? "降序" : "升序"}排列">${label}<span class="sort-indicator" aria-hidden="true"></span></button></th>`;
+  const icon = order === "asc" ? "arrow-up" : order === "desc" ? "arrow-down" : "arrow-up-down";
+  return `<th scope="col"${ariaSort}><button class="sort-button" type="button" data-sort-field="${field}" data-sort-order="${order}" aria-label="按${label}${active && currentSortOrder === "asc" ? "降序" : "升序"}排列">${label}<span class="sort-indicator" aria-hidden="true">${iconMarkup(icon)}</span></button></th>`;
 }
 
 function onTaskSort(event) {
@@ -1215,8 +1383,8 @@ function emptyMarkup() {
   const filtered = currentFilter !== "all";
   const searched = Boolean(currentSearch);
   const title = searched ? "没有匹配的任务" : filtered ? "此筛选下暂无任务" : "暂无任务";
-  const detail = searched ? "请尝试其他文件名或链接关键词。" : filtered ? "请选择其他状态筛选。" : "点击右上角「新建下载」开始添加链接。";
-  return `<div class="empty-state"><div class="empty-icon" aria-hidden="true">↓</div><h2>${title}</h2><p>${detail}</p></div>`;
+  const detail = searched ? "请尝试其他文件名或链接关键词。" : filtered ? "请选择其他状态筛选。" : "选择「新建下载」，添加链接或导入 Torrent 文件。";
+  return `<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg></div><h2>${title}</h2><p>${detail}</p></div>`;
 }
 
 function buildBitTorrentStartBody(link, sharedBody) {

@@ -14,6 +14,11 @@
   <link rel="stylesheet" href="/workspace.css">
   <link rel="stylesheet" href="/native-appearance.css">
   <script src="/native-appearance.js" defer></script>
+  <link rel="stylesheet" href="/native-frame.css">
+  <script src="/native-frame.js" defer></script>
+  <link rel="stylesheet" href="/native-task-forms.css">
+  <link rel="stylesheet" href="/file-controls.css">
+  <script src="/file-controls.js" defer></script>
   <script src="/task-view.js" defer></script>
   <script src="/settings.js" defer></script>
   <script src="/workspace.js" defer></script>
@@ -21,35 +26,43 @@
 </head>
 <body>
   <div class="app-shell">
-    <header class="topbar">
-      <a class="brand" href="#tasks" aria-label="TrueDown 下载任务"><span class="brand-mark" aria-hidden="true"><img src="/truedown-logo.svg" alt=""></span><span class="brand-copy"><strong>TrueDown</strong><span>下载管理</span></span></a>
-      <div class="topbar-actions"><button class="kd-button secondary" id="batch-task-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-list"></use></svg>批量下载</button><button class="kd-button primary" id="new-task-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-plus"></use></svg>新建下载</button></div>
-    </header>
     <div class="workspace">
-      <aside class="sidebar">
-        <nav class="primary-nav" aria-label="主导航">
-          <a href="#tasks" data-route="tasks"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-list"></use></svg>下载任务</a>
-          <a href="#logs" data-route="logs"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-file"></use></svg>应用日志</a>
-          <a href="#settings/overview" data-route="settings" id="settings-btn"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-settings"></use></svg>设置</a>
+      <aside class="sidebar" id="workspace-sidebar" aria-label="下载与应用导航">
+        <div class="sidebar-top">
+          <div class="sidebar-brand">
+            <a class="brand" href="#tasks" aria-label="TrueDown 下载任务"><span class="brand-mark" aria-hidden="true"><img src="/truedown-logo.svg" alt=""></span><span class="brand-copy"><strong>TrueDown</strong></span></a>
+            <button class="kd-icon-button sidebar-toggle" type="button" aria-label="收起侧栏" title="收起侧栏" aria-controls="workspace-sidebar" aria-expanded="true"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-panel-left"></use></svg></button>
+          </div>
+          <button class="kd-button primary" id="new-task-btn" type="button" title="新建下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-plus"></use></svg><span class="nav-label">新建下载</span></button>
+        </div>
+        <nav class="primary-nav" aria-label="下载任务">
+          <p class="nav-section-label">下载库</p>
+          <a href="#tasks" data-route="tasks" data-task-filter="all" title="全部下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg><span class="nav-label">全部下载</span></a>
+          <a href="#tasks" data-route="tasks" data-task-filter="downloading" title="正在下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-download"></use></svg><span class="nav-label">正在下载</span></a>
+          <a href="#tasks" data-route="tasks" data-task-filter="paused" title="已暂停"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-pause"></use></svg><span class="nav-label">已暂停</span></a>
+          <a href="#tasks" data-route="tasks" data-task-filter="done" title="已完成"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-check"></use></svg><span class="nav-label">已完成</span></a>
+          <a href="#tasks" data-route="tasks" data-task-filter="error" title="下载失败"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-circle-alert"></use></svg><span class="nav-label">下载失败</span></a>
         </nav>
-        <div class="sidebar-footer"><button class="kd-button secondary compact native-only" data-native-window="about" type="button">关于 TrueDown</button><span class="hint">关闭界面，下载仍会继续</span><button class="kd-button secondary compact" id="exit-truedown-btn" type="button">退出 TrueDown</button></div>
+        <nav class="sidebar-footer" aria-label="应用工具">
+          <a href="#logs" data-route="logs" title="应用日志"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-logs"></use></svg><span class="nav-label">应用日志</span></a>
+          <a href="#settings/overview" data-route="settings" id="settings-btn" title="设置"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-settings"></use></svg><span class="nav-label">设置</span></a>
+          <button class="sidebar-action native-only" data-native-window="about" type="button" title="关于 TrueDown"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-info"></use></svg><span class="nav-label">关于 TrueDown</span></button>
+          <div class="sidebar-session"><span class="hint">关闭窗口，下载仍会继续</span><button class="kd-icon-button" id="exit-truedown-btn" type="button" title="退出 TrueDown" aria-label="退出 TrueDown"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-power"></use></svg></button></div>
+        </nav>
       </aside>
       <main class="dashboard">
       <section class="kd-panel task-panel" id="tasks-page" data-page="tasks" aria-labelledby="tasks-title">
-        <div class="panel-header">
-          <div>
-            <p class="kd-eyebrow">Downloads</p>
-            <h1 id="tasks-title">下载任务</h1>
-            <p class="panel-subtitle">管理下载、查看进度和处理失败任务。</p>
-          </div>
+        <div class="panel-header task-heading">
+          <div class="task-heading-copy"><h1 id="tasks-title">全部下载</h1><p class="panel-subtitle">管理正在进行和已完成的下载。</p></div>
+          <button class="kd-button secondary" id="batch-task-btn" type="button"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-list"></use></svg>批量下载</button>
         </div>
           <div class="panel-actions task-toolbar" aria-label="队列操作">
-            <button class="kd-button secondary" id="open-downloads-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-folder-open"></use></svg>打开下载目录</button>
+            <button class="kd-icon-button" id="open-downloads-btn" type="button" title="打开下载目录" aria-label="打开下载目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button>
             <button class="kd-button secondary" id="pause-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-pause"></use></svg>暂停队列</button>
             <button class="kd-button secondary" id="resume-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-play"></use></svg>恢复队列</button>
             <button class="kd-button secondary" id="retry-all-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-retry"></use></svg>全部重试</button>
             <button class="kd-button secondary" id="clear-done-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-trash"></use></svg>清理已完成</button>
-            <button class="kd-button secondary" id="refresh-tasks-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-refresh"></use></svg>刷新任务</button>
+            <button class="kd-icon-button" id="refresh-tasks-btn" type="button" title="刷新任务" aria-label="刷新任务"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-refresh"></use></svg></button>
           </div>
 
         <div class="metric-strip" aria-label="任务概览">
@@ -71,6 +84,7 @@
           <div class="task-query-controls">
             <label class="search-control" for="task-search">
               <span class="visually-hidden">搜索文件名或链接</span>
+              <svg class="icon search-icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-search"></use></svg>
               <input class="kd-input" id="task-search" type="search" placeholder="搜索文件名或链接" autocomplete="off">
             </label>
             <label class="filter-control" for="task-filter">
@@ -86,9 +100,9 @@
             </label>
           </div>
           <nav class="pagination" aria-label="任务分页">
-            <button class="kd-button secondary compact" id="prev-page-btn" type="button" disabled>上一页</button>
+            <button class="kd-icon-button" id="prev-page-btn" type="button" disabled title="上一页" aria-label="上一页"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-chevron-left"></use></svg></button>
             <span id="page-info" aria-live="polite">0–0 / 0</span>
-            <button class="kd-button secondary compact" id="next-page-btn" type="button" disabled>下一页</button>
+            <button class="kd-icon-button" id="next-page-btn" type="button" disabled title="下一页" aria-label="下一页"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-chevron-right"></use></svg></button>
           </nav>
         </div>
 
@@ -104,9 +118,9 @@
         <div class="table-scroll" id="tasks-wrap">
           <div id="tasks-container" class="tasks-container">
             <div class="empty-state">
-              <div class="empty-icon" aria-hidden="true">↓</div>
+              <div class="empty-icon" aria-hidden="true"><svg class="icon" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg></div>
               <h2>暂无任务</h2>
-              <p>点击右上角「新建下载」开始添加链接。</p>
+              <p>点击「新建下载」添加链接，或批量导入多个任务。</p>
             </div>
           </div>
         </div>
@@ -167,7 +181,7 @@
             <div class="form-grid">
               <div class="field field-span-2">
                 <label for="cfg-folder">默认保存目录</label>
-                <input class="kd-input" id="cfg-folder" type="text" placeholder="留空使用 TrueDown downloads 目录">
+                <div class="directory-field"><input class="kd-input" id="cfg-folder" type="text" placeholder="留空使用默认下载目录"><button class="kd-icon-button native-folder-picker" type="button" data-directory-input="cfg-folder" title="选择默认保存目录" aria-label="选择默认保存目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button></div>
               </div>
               <div class="field">
                 <label for="cfg-conns">单任务连接数</label>
@@ -458,36 +472,27 @@
           <div class="field">
             <label for="m-link">下载链接或 Magnet</label>
             <textarea id="m-link" class="kd-input link-list-field" rows="4" placeholder="https://example.com/file.zip&#10;magnet:?xt=urn:btih:..."></textarea>
-            <p class="hint">每行一个链接；Magnet 与 HTTP(S) `.torrent` 链接会进入 Aria2 Next 的 BitTorrent 流程。</p>
+            <p class="hint">每行一个链接。Magnet 和 .torrent 下载需要 Aria2 Next。</p>
           </div>
           <div class="field torrent-import-field">
-            <label for="m-torrent-file">或导入本地 .torrent</label>
-            <input class="kd-input" id="m-torrent-file" type="file" accept=".torrent,application/x-bittorrent">
-            <p class="hint">文件与链接二选一，最大 4 MiB。目录采用智能整理：单文件直接保存，多文件自动放入 torrent 同名文件夹。</p>
+            <label for="choose-torrent-btn">或导入种子文件</label>
+            <div class="file-picker">
+              <input class="visually-hidden" id="m-torrent-file" type="file" tabindex="-1" aria-label="选择 .torrent 文件" accept=".torrent,application/x-bittorrent">
+              <button class="kd-button secondary" id="choose-torrent-btn" type="button" aria-controls="m-torrent-file"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-file"></use></svg>选择文件</button>
+              <span class="file-picker-name" id="torrent-file-name" role="status">未选择文件</span>
+              <button class="kd-icon-button" id="clear-torrent-btn" type="button" aria-label="移除已选种子文件" title="移除已选种子文件" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-close"></use></svg></button>
+            </div>
+            <p class="hint">支持 .torrent，最大 4 MiB；文件和链接选择一种即可。</p>
           </div>
           <div class="form-grid">
             <div class="field">
               <label for="m-folder">保存目录</label>
-              <input class="kd-input" id="m-folder" type="text" placeholder="/downloads">
+              <div class="directory-field"><input class="kd-input" id="m-folder" type="text" placeholder="留空使用默认下载目录"><button class="kd-icon-button native-folder-picker" type="button" data-directory-input="m-folder" title="选择保存目录" aria-label="选择保存目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button></div>
             </div>
             <div class="field">
               <label for="m-name">文件名（仅普通 HTTP(S)）</label>
               <input class="kd-input" id="m-name" type="text" placeholder="BT 任务使用 torrent 元信息名称">
             </div>
-          </div>
-          <div class="form-grid">
-            <div class="field">
-              <label for="m-referer">来源页面（Referer）</label>
-              <input class="kd-input" id="m-referer" type="url" placeholder="选填，HTTP 参考源页面">
-            </div>
-            <div class="field">
-              <label for="m-queueid">队列 ID</label>
-              <input class="kd-input" id="m-queueid" type="number" min="0" max="1000000" placeholder="选填">
-            </div>
-          </div>
-          <div class="field">
-            <label for="m-headers">自定义 Headers（JSON）</label>
-            <textarea class="kd-input" id="m-headers" rows="3" placeholder='{"Cookie": "...", "User-Agent": "Mozilla/5.0"}'></textarea>
           </div>
 
 		  <fieldset class="dropbox-options" id="m-resolver-options">
@@ -515,8 +520,14 @@
 		  </fieldset>
 
           <details class="advanced-options">
-            <summary>覆盖 aria2 参数</summary>
+            <summary>高级选项</summary>
             <div class="advanced-body">
+              <p class="hint">仅覆盖本次下载。留空的选项会沿用设置中的默认值。</p>
+              <div class="form-grid">
+                <div class="field"><label for="m-referer">来源页面（Referer）</label><input class="kd-input" id="m-referer" type="url" placeholder="选填，HTTP 参考源页面"></div>
+                <div class="field"><label for="m-queueid">队列 ID</label><input class="kd-input" id="m-queueid" type="number" min="0" max="1000000" placeholder="选填"></div>
+              </div>
+              <div class="field"><label for="m-headers">自定义 Headers（JSON）</label><textarea class="kd-input" id="m-headers" rows="3" placeholder='{"Cookie": "...", "User-Agent": "Mozilla/5.0"}'></textarea></div>
               <div class="form-grid">
                 <div class="field">
                   <label for="m-conns">单任务连接数</label>

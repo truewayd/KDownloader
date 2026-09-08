@@ -3,6 +3,8 @@ name: Native desktop validation
 on:
   pull_request:
     paths:
+      - "tests/native*.test.mjs"
+      - "tests/iconAssets.test.mjs"
       - "truedown/**"
       - "shared/**"
       - "manifest.json"
@@ -10,6 +12,8 @@ on:
   push:
     branches: [main]
     paths:
+      - "tests/native*.test.mjs"
+      - "tests/iconAssets.test.mjs"
       - "truedown/**"
       - "shared/**"
       - "manifest.json"
@@ -67,9 +71,16 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: 1.98.1
         run: |
+          node --test ../../tests/nativeAppearance.test.mjs ../../tests/nativeFrame.test.mjs ../../tests/nativeTaskForms.test.mjs ../../tests/nativeLicenseBounds.test.mjs ../../tests/iconAssets.test.mjs
           cargo fmt --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
+      - name: Check responsive workspace and task-form usability
+        if: runner.os == 'Linux'
+        run: |
+          npx playwright install --with-deps chromium
+          node tests/workspace-browser-smoke.mjs
+          node tests/task-forms-browser-smoke.mjs
       - name: Check private core transport
         if: runner.os != 'Windows'
         run: node ../tools/smoke-desktop.mjs target/debug/truedown-core
@@ -87,6 +98,6 @@ jobs:
       - name: Install Linux automation driver
         if: runner.os == 'Linux'
         run: cargo +1.98.1 install tauri-driver --version 2.0.6 --locked
-      - name: Accept hidden Linux WebKitGTK windows
+      - name: Accept Linux WebKitGTK windows inside Xvfb
         if: runner.os == 'Linux'
         run: xvfb-run -a -s '-screen 0 1280x800x24' dbus-run-session -- node tests/linux-smoke.mjs target/debug/TrueDown

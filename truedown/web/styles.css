@@ -15,7 +15,7 @@
   --kd-icon: #8eb2b2;
   --kd-input: #121717;
   --kd-input-focus: #192020;
-  --kd-placeholder: rgba(166, 178, 178, 0.68);
+  --kd-placeholder: #8b9a9a;
   --kd-button-text: #ffffff;
   --kd-button-border: rgba(72, 122, 122, 0.78);
   --kd-focus: #79a8a8;
@@ -61,7 +61,7 @@
     --kd-icon: #3c6868;
     --kd-input: #fbfdfd;
     --kd-input-focus: #eef5f5;
-    --kd-placeholder: rgba(94, 111, 111, 0.58);
+    --kd-placeholder: #697676;
     --kd-button-text: #ffffff;
     --kd-button-border: rgba(72, 122, 122, 0.78);
     --kd-focus: #487a7a;
@@ -688,19 +688,20 @@ h2 {
   color: var(--kd-text);
 }
 
-.sort-indicator::before {
+.sort-indicator {
+  display: inline-flex;
+  flex: 0 0 12px;
   color: var(--kd-subtle);
-  content: "↕";
 }
 
-.sort-button[data-sort-order="asc"] .sort-indicator::before {
-  color: var(--kd-icon);
-  content: "↑";
+.sort-indicator .icon {
+  width: 12px;
+  height: 12px;
 }
 
-.sort-button[data-sort-order="desc"] .sort-indicator::before {
+.sort-button[data-sort-order="asc"] .sort-indicator,
+.sort-button[data-sort-order="desc"] .sort-indicator {
   color: var(--kd-icon);
-  content: "↓";
 }
 
 .select-cell {

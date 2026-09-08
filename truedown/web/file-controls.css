@@ -1,0 +1,12 @@
+.directory-field { display: flex; align-items: center; min-width: 0; gap: 6px; }
+.directory-field .kd-input { flex: 1; min-width: 0; width: 100%; }
+.native-folder-picker { display: none; flex: 0 0 auto; }
+:is([data-native-window="settings"], [data-native-window="new-task"], [data-native-window="batch-task"]) .native-folder-picker { display: inline-flex; }
+.file-picker { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.file-picker .kd-button, .file-picker .kd-icon-button { flex-shrink: 0; }
+.file-picker-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--kd-muted); font-size: 12px; }
+[data-platform] label, [data-platform] .field-label { font-weight: 500; }
+[data-platform] .modal-header h2 { font-size: 18px; font-weight: 600; }
+[data-platform] .modal .kd-button { font-weight: 500; }
+[data-platform] .advanced-options summary { font-weight: 500; }
+.advanced-body > .hint { margin-bottom: 14px; }

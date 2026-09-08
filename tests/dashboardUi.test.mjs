@@ -71,7 +71,7 @@ test("task submission locks the form once and closes immediately after successfu
     formatStartOutcome: () => "Created", schedulePoll() {},
     window: { setTimeout() { assert.fail("success must not schedule a close against a future dialog"); } },
   });
-  vm.runInContext(["submitTask", "setSubmitting"].map(declaration).join("\n"), context);
+  vm.runInContext(["isNativeTaskWindow", "submitTask", "setSubmitting"].map(declaration).join("\n"), context);
   const pending = vm.runInContext("submitTask({preventDefault(){}})", context);
   assert.equal(fields.downloadForm.inert, true);
   assert.equal(fields.downloadForm.getAttribute("aria-busy"), "true");
@@ -109,7 +109,7 @@ test("modal keyboard navigation recovers focus that starts outside the active di
     document: { activeElement: {} },
     event: { key: "Tab", shiftKey: true, preventDefault() { prevented = true; } },
   });
-  vm.runInContext(declaration("onDocumentKeydown"), context);
+  vm.runInContext(["isNativeTaskWindow", "onDocumentKeydown"].map(declaration).join("\n"), context);
   vm.runInContext("onDocumentKeydown(event)", context);
   assert.equal(focused, "last");
   assert.equal(prevented, true);
@@ -128,7 +128,7 @@ test("busy modal keyboard navigation keeps focus on the overlay while its form i
     els: { dialogOverlay: closedOverlay, settingsOverlay: closedOverlay, overlay },
     event: { key: "Tab", preventDefault() { prevented = true; } },
   });
-  vm.runInContext(declaration("onDocumentKeydown"), context);
+  vm.runInContext(["isNativeTaskWindow", "onDocumentKeydown"].map(declaration).join("\n"), context);
   vm.runInContext("onDocumentKeydown(event)", context);
   assert.equal(focused, true);
   assert.equal(prevented, true);

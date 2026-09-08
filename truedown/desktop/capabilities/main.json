@@ -1,13 +1,22 @@
 {
   "identifier": "main",
-  "description": "The bundled TrueDown window may use only its constrained core bridge.",
+  "description": "Bundled windows receive task events and read window geometry; mutations use the constrained Rust commands.",
   "windows": [
     "main",
     "settings",
     "logs",
-    "about"
+    "about",
+    "new-task",
+    "batch-task"
   ],
   "permissions": [
-    "core:default"
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-get-all-windows",
+    "core:window:allow-title",
+    "core:window:allow-is-visible",
+    "core:window:allow-available-monitors",
+    "core:window:allow-outer-position",
+    "core:window:allow-outer-size"
   ]
 }

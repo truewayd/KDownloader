@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
+import http from "node:http";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
@@ -45,13 +46,89 @@ function launchDesktop() { return spawn(path.join(installation, shellName), ["--
 }); }
 const child = launchDesktop();
 child.stdout.resume(); child.stderr.resume();
-let browser, main;
+let browser, main, downloadFixture;
 const invoke = (page, command, args) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
+const isNavigationContextError = error => /\bExecution context was destroyed\b|\bCannot find context with specified id\b/.test(error?.message || "");
+// Hidden WebView2 windows may suspend animation frames and page timers. Poll
+// from the driver, with one evaluation at a time and a fixed overall deadline.
+async function waitForNativeCondition(page, predicate, arg) {
+  let deadlineTimer, pollTimer, finishPoll, stopped = false, evaluating = false;
+  const deadline = new Promise((_, reject) => {
+    deadlineTimer = setTimeout(() => {
+      const error = new Error("Native condition timed out after 10000ms");
+      error.name = "TimeoutError";
+      error.conditionFailure = "deadline";
+      error.evaluationPending = evaluating;
+      reject(error);
+    }, 10000);
+  });
+  const poll = async () => {
+    while (!stopped) {
+      let ready;
+      evaluating = true;
+      try { ready = await page.evaluate(predicate, arg); }
+      catch (error) {
+        if (stopped) return;
+        // Initial navigation replaces the execution context. Only this known
+        // transient error may retry; closed pages and script errors must fail.
+        if (page.isClosed() || !isNavigationContextError(error)) throw error;
+      }
+      finally { evaluating = false; }
+      if (stopped) return;
+      if (ready) return ready;
+      await new Promise(resolve => {
+        finishPoll = resolve;
+        pollTimer = setTimeout(() => { finishPoll = undefined; resolve(); }, 100);
+      });
+    }
+  };
+  try {
+    return await Promise.race([poll(), deadline]);
+  } finally {
+    stopped = true;
+    clearTimeout(deadlineTimer);
+    clearTimeout(pollTimer);
+    finishPoll?.();
+  }
+}
 const api = async (page, method, route, body) => {
   const response = await invoke(page, "core_request", { request: { method, path: route, ...(body ? { body: JSON.stringify(body) } : {}) } });
   assert.equal(response.status, 200, response.body);
   return JSON.parse(response.body);
 };
+async function waitForNativeTaskForm(page, kind) {
+  try {
+    await waitForNativeCondition(page, () => typeof nativeTaskFormReady !== "undefined" && nativeTaskFormReady);
+  } catch (error) {
+    let timer;
+    try {
+      const diagnostic = error.evaluationPending ? { unavailable: "evaluation-pending" } : await Promise.race([
+        page.evaluate(() => {
+          const state = typeof nativeTaskPreferences === "undefined" ? null : nativeTaskPreferences;
+          const message = document.getElementById("modal-msg");
+          const text = message?.textContent || "";
+          // Classify the status locally; never return error text, drafts or credentials.
+          const modalStatus = !message ? "missing" : !text ? "empty"
+            : text.startsWith("正在读取下载默认值") ? "loading"
+            : text.startsWith("读取默认值失败") ? "initial-read-failed"
+            : text.startsWith("读取当前下载选项失败") ? "refresh-failed" : "other";
+          return {
+            documentState: document.readyState, hidden: document.hidden,
+            ready: typeof nativeTaskFormReady === "undefined" ? null : nativeTaskFormReady,
+            initializationPending: typeof nativeTaskFormLoad === "undefined" ? null : Boolean(nativeTaskFormLoad),
+            disposed: state?.disposed ?? null, requested: state?.requested ?? null,
+            pending: state ? Boolean(state.pending) : null,
+            formInert: document.getElementById("download-form")?.inert ?? null, modalStatus,
+          };
+        }).catch(() => ({ unavailable: page.isClosed() ? "page-closed" : "evaluation-failed" })),
+        new Promise(resolve => { timer = setTimeout(() => resolve({ unavailable: "diagnostic-timeout" }), 2000); }),
+      ]);
+      throw new Error(`Native task form ${kind} readiness failed: ${JSON.stringify(diagnostic)}`, { cause: error });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
 const errors = [];
 function childrenOf(pid) {
   assert.ok(Number.isSafeInteger(pid) && pid > 0);
@@ -60,6 +137,102 @@ function childrenOf(pid) {
 }
 function alive(pid) {
   try { process.kill(pid, 0); return true; } catch { return false; }
+}
+function nativeWindows() {
+  const output = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path.join(desktop, "tests/windows-native-state.ps1"), "-ProcessId", String(child.pid)], {
+    windowsHide: true, encoding: "utf8", timeout: 15000, maxBuffer: 1024 * 1024,
+  });
+  return JSON.parse(output);
+}
+async function appearance(page, kind) {
+  return page.evaluate(kind => {
+    const color = selector => {
+      const value = getComputedStyle(document.querySelector(selector)).backgroundColor;
+      const channels = value.match(/[\d.]+/g).map(Number);
+      return { value, alpha: channels[3] ?? 1, brightness: channels.slice(0, 3).reduce((sum, value) => sum + value, 0) / 3 };
+    };
+    const working = { main: "#tasks-page", settings: "#settings-form", logs: "#logs-page", about: "body > main", "new-task": "#overlay > .modal", "batch-task": "#overlay > .modal" }[kind];
+    const chrome = { main: [".native-titlebar", ".sidebar", ".app-shell", ".dashboard"], settings: [".settings-page", ".settings-nav", ".app-shell", ".dashboard"], logs: [".app-shell", ".dashboard"], about: [], "new-task": [".native-titlebar", "#overlay"], "batch-task": [".native-titlebar", "#overlay"] }[kind];
+    return {
+      scheme: getComputedStyle(document.documentElement).colorScheme,
+      material: document.documentElement.dataset.material,
+      reducedTransparency: matchMedia("(prefers-reduced-transparency: reduce)").matches,
+      root: color("html"), body: color("body"), working: color(working),
+      chrome: chrome.map(selector => ({ selector, ...color(selector) })),
+      inset: kind === "about" ? parseFloat(getComputedStyle(document.querySelector(working)).marginLeft) : parseFloat(getComputedStyle(document.querySelector(kind.endsWith("-task") ? "#overlay" : ".dashboard")).paddingLeft),
+    };
+  }, kind);
+}
+async function verifyAppearance(pages, scheme, forcedColors = "none", reducedTransparency = false) {
+  const mediaSessions = [];
+  for (const page of Object.values(pages)) {
+    await page.emulateMedia({ colorScheme: scheme, forcedColors, reducedMotion: "reduce" });
+    if (reducedTransparency) {
+      const media = await page.context().newCDPSession(page);
+      mediaSessions.push(media);
+      await media.send("Emulation.setEmulatedMedia", { features: [
+        { name: "prefers-color-scheme", value: scheme },
+        { name: "forced-colors", value: forcedColors },
+        { name: "prefers-reduced-motion", value: "reduce" },
+        { name: "prefers-reduced-transparency", value: "reduce" },
+      ] });
+    }
+  }
+  const titles = await main.evaluate(async () => Promise.all((await window.__TAURI__.window.getAllWindows()).map(async window => ({ label: window.label, title: await window.title() }))));
+  let states;
+  await waitUntil(async () => {
+    states = nativeWindows();
+    for (const { label, title } of titles) {
+      const state = states.find(state => state.title === title);
+      if (!state || state.darkResult !== 0 || Boolean(state.dark) !== (scheme === "dark")) return false;
+      const material = await pages[label].evaluate(() => document.documentElement.dataset.material);
+      if (!material || ((forcedColors === "active" || reducedTransparency) && material !== "solid")) return false;
+      const native = state.backdropResult === 0 ? state.backdrop === 2 : state.legacyMicaResult === 0 && state.legacyMica === 1;
+      if ((material === "native") !== native) return false;
+    }
+    return true;
+  }).catch(error => { throw new Error(`${error.message}: ${scheme}/${forcedColors}/reduce=${reducedTransparency} native states ${JSON.stringify(states)}`); });
+  const suffix = forcedColors === "active" ? `${scheme}-forced-colors` : reducedTransparency ? `${scheme}-reduced-transparency` : scheme;
+  const evidence = { scheme, forcedColors, reducedTransparency, windows: states, pages: {} };
+  for (const [kind, page] of Object.entries(pages)) {
+    const state = states.find(state => state.title === titles.find(window => window.label === kind).title);
+    // Tao keeps WS_CAPTION for native resize/snap behavior, but suppresses its
+    // layout through WM_NCCALCSIZE. Inspect the actual client inset instead.
+    assert.ok(state.clientTopInset <= 12 * state.dpi / 96, `${kind} must remove the system title bar`);
+    assert.ok(state.resizable && state.minimizable && state.maximizable, `${kind} must retain OS window operations`);
+    assert.equal(state.iconWidth, 256, `${kind} must supply a full-resolution native icon`);
+    assert.equal(state.iconHeight, 256);
+    assert.equal((await invoke(page, "frame_state")).decorated, false);
+    assert.equal(await page.locator(".native-titlebar").count(), 1);
+    assert.equal(await page.locator("[data-window-action]").count(), 3);
+    for (const action of ["minimize", "maximize", "close"]) {
+      const button = page.locator(`[data-window-action="${action}"]`);
+      assert.ok(await button.getAttribute("aria-label"), `${kind} ${action} must have an accessible label`);
+      assert.equal(await button.isEnabled(), true);
+    }
+    assert.equal(state.visible, false, `${kind} must remain hidden during appearance acceptance`);
+    const view = await appearance(page, kind);
+    evidence.pages[kind] = view;
+    if (reducedTransparency) assert.equal(view.reducedTransparency, true);
+    if (forcedColors !== "active") {
+      assert.equal(view.scheme, scheme);
+      assert.ok(view.working.alpha === 1 || (view.material === "solid" && view.body.alpha === 1), `${kind} working surface must be opaque`);
+      const working = view.working.alpha === 1 ? view.working : view.body;
+      assert.equal(working.brightness > 128, scheme === "light", `${kind} working surface must match the native frame theme`);
+      assert.equal(view.inset, 8, `${kind} must retain an outer material inset`);
+    }
+    if (view.material === "native") {
+      assert.equal(view.root.alpha, 0);
+      assert.equal(view.body.alpha, 0);
+      for (const chrome of view.chrome) assert.equal(chrome.alpha, 0, `${kind} ${chrome.selector} must expose native material`);
+    } else {
+      assert.equal(view.body.alpha, 1, `${kind} fallback must cover the native backdrop`);
+    }
+    // CDP captures WebView pixels; the native frame is verified by DWM above.
+    await page.screenshot({ path: path.join(fixture, `${kind}-${suffix}.png`), omitBackground: true });
+  }
+  await fs.writeFile(path.join(fixture, `appearance-${suffix}.json`), JSON.stringify(evidence, null, 2) + "\n");
+  for (const media of mediaSessions) await media.detach();
 }
 try {
   await waitUntil(async () => {
@@ -74,7 +247,43 @@ try {
     page.on("pageerror", error => errors.push(error.message));
   };
   context.pages().forEach(observe); context.on("page", observe);
-  await main.waitForFunction(() => window.__TAURI__ && document.querySelector("#task-count"));
+  try {
+    await waitForNativeCondition(main, () => Boolean(window.__TAURI__ && document.querySelector("#task-count")));
+  } catch (error) {
+    let timer;
+    try {
+      const diagnostic = error.evaluationPending ? { unavailable: "evaluation-pending" } : await Promise.race([
+        main.evaluate(() => ({
+          documentState: document.readyState,
+          tauriAvailable: Boolean(window.__TAURI__),
+          taskCountPresent: Boolean(document.querySelector("#task-count")),
+        })).catch(() => ({ unavailable: main.isClosed() ? "page-closed" : "evaluation-failed" })),
+        new Promise(resolve => { timer = setTimeout(() => resolve({ unavailable: "diagnostic-timeout" }), 2000); }),
+      ]);
+      const current = new URL(main.url() || "about:blank");
+      const conditionFailure = error.conditionFailure === "deadline" ? "deadline"
+        : main.isClosed() ? "page-closed"
+          : isNavigationContextError(error) ? "context-destroyed" : "evaluation-failed";
+      const errorName = ["Error", "TimeoutError", "TargetClosedError", "ProtocolError", "TypeError", "ReferenceError", "SyntaxError"].includes(error.name)
+        ? error.name : "OtherError";
+      // Only fixed categories leave the driver; errors may contain task data.
+      const pageErrorCategories = [...new Set(errors.map(message =>
+        /not allowed by ACL|Permissions associated with this command/.test(message) ? "acl-denied"
+          : /content security policy/i.test(message) ? "content-security-policy"
+          : /ReferenceError|is not defined/.test(message) ? "reference-error"
+          : /SyntaxError|Unexpected token|Invalid or unexpected token/.test(message) ? "syntax-error"
+          : /TypeError|is not a function/.test(message) ? "type-error" : "other"))];
+      throw new Error(`Native main window readiness failed: ${JSON.stringify({
+        ...diagnostic, conditionFailure, errorName, origin: current.origin, path: current.pathname,
+        pageCount: context.pages().length, pageErrorCount: errors.length, pageErrorCategories,
+      })}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  // Require the native ACL rejection; reaching a missing-file error is a failure.
+  await assert.rejects(invoke(main, "plugin:image|from_path", { path: path.join(profile, "__acl_image_must_not_exist__.png") }),
+    /image\.from_path not allowed\. Permissions associated with this command: [^\r\n]*core:image:allow-from-path|Command plugin:image\|from_path not allowed by ACL/);
   await api(main, "GET", "/system/info");
   assert.equal(await main.evaluate(() => window.__TRUEDOWN_PLATFORM__), "windows");
   await main.locator('[data-route="settings"]').click();
@@ -88,14 +297,14 @@ try {
   assert.equal(storage.paths.cache.toLowerCase(), path.join(profile, "cache").toLowerCase());
   await fs.access(path.join(storage.paths.cache, "webview", "EBWebView"));
   assert.equal((await fs.readdir(installation)).some(name => name.includes("WebView")), false);
-  await logs.waitForFunction(() => document.querySelector("#application-log-output").textContent.includes("starting"));
-  await about.waitForFunction(() => document.querySelector("#version").textContent.includes("build"));
+  await waitForNativeCondition(logs, () => document.querySelector("#application-log-output").textContent.includes("starting"));
+  await waitForNativeCondition(about, () => document.querySelector("#version").textContent.includes("build"));
   assert.equal(new URL(main.url()).hash, "");
   await settings.locator('[data-settings-link="general"]').click();
-  await settings.waitForFunction(() => !document.querySelector('[data-settings-page="general"]').inert);
+  await waitForNativeCondition(settings, () => !document.querySelector('[data-settings-page="general"]').inert);
   await settings.locator("#cfg-conns").fill("8");
   await settings.locator("#settings-save-btn").click();
-  await settings.waitForFunction(() => document.querySelector("#settings-save-status").textContent === "本页设置已保存。");
+  await waitForNativeCondition(settings, () => document.querySelector("#settings-save-status").textContent === "本页设置已保存。");
   assert.equal((await api(main, "GET", "/settings/task-defaults")).values.connections, 8);
   await settings.locator("#cfg-conns").fill("7");
   await invoke(settings, "close_auxiliary");
@@ -118,6 +327,61 @@ try {
   assert.equal(await settings.locator("#cfg-conns").inputValue(), "7");
   await assert.rejects(invoke(about, "core_request", { request: { method: "POST", path: "/settings/runtime", body: "{}" } }));
   await assert.rejects(invoke(logs, "copy_api_token"));
+  // Long forms are singleton windows with independent drafts and read-only
+  // preference access. Their shared app script must never poll task pages.
+  const taskForms = {};
+  for (const [kind, button] of [["new-task", "#new-task-btn"], ["batch-task", "#batch-task-btn"]]) {
+    await main.locator(button).click();
+    const form = await waitUntil(() => context.pages().find(page => page.url().includes(`window=${kind}`)));
+    taskForms[kind] = form;
+    await waitForNativeTaskForm(form, kind);
+    assert.equal(await form.locator('#overlay [role="dialog"]').count(), 0);
+    assert.equal(await form.locator('#overlay [role="main"]').isVisible(), true);
+    await form.locator("#m-link").fill(`http://127.0.0.1/draft-${kind}`);
+    await form.locator("#overlay .advanced-options summary").click();
+    await form.locator("#m-headers").fill('{"X-Draft":"retained"}');
+    await form.keyboard.press("Escape");
+    await invoke(main, "open_auxiliary", { kind });
+    assert.equal(await form.locator("#m-link").inputValue(), `http://127.0.0.1/draft-${kind}`);
+    assert.equal(await form.locator("#m-headers").inputValue(), '{"X-Draft":"retained"}');
+    assert.equal(context.pages().filter(page => page.url().includes(`window=${kind}`)).length, 1);
+    const state = await form.evaluate(async () => {
+      let reads = 0;
+      const original = window.__TAURI__.core.invoke;
+      window.__TAURI__.core.invoke = (...args) => { if (args[0] === "core_request") reads++; return original(...args); };
+      try { await refreshAndSchedule(true); return { reads, timer: pollTimer, page: currentPage }; }
+      finally { window.__TAURI__.core.invoke = original; }
+    });
+    assert.deepEqual(state, { reads: 0, timer: 0, page: kind });
+    await assert.rejects(invoke(form, "core_request", { request: { method: "GET", path: "/tasks?limit=1" } }));
+    await assert.rejects(invoke(form, "core_request", { request: { method: "POST", path: "/settings/task-defaults", body: "{}" } }));
+  }
+  assert.equal(context.pages().length, 6);
+  await assert.rejects(invoke(main, "finish_task_window"));
+  for (const page of [main, logs, about]) {
+    await assert.rejects(invoke(page, "choose_download_directory"), /only from settings or a task form/);
+  }
+  for (const page of [settings, ...Object.values(taskForms)]) {
+    // Exercise the actual role boundary without showing an OS dialog during
+    // hidden acceptance. Cancellation and path bounds have native unit tests.
+    await assert.rejects(invoke(page, "choose_download_directory"), /suppressed during hidden acceptance/);
+    await assert.rejects(invoke(page, "plugin:dialog|open", { options: { directory: true } }), /not allowed|denied|forbidden/i);
+  }
+  downloadFixture = http.createServer((_request, response) => response.end("TrueDown native task-form acceptance\n"));
+  await new Promise(resolve => downloadFixture.listen(0, "127.0.0.1", resolve));
+  const downloadOrigin = `http://127.0.0.1:${downloadFixture.address().port}`;
+  const savedDefaults = await api(settings, "GET", "/settings/task-defaults");
+  await api(settings, "POST", "/settings/task-defaults", { revision: savedDefaults.revision, values: { ...savedDefaults.values, connections: 9 } });
+  for (const [kind, links, total] of [["new-task", ["single.txt"], 1], ["batch-task", ["batch-a.txt", "batch-b.txt"], 3]]) {
+    const form = taskForms[kind];
+    await form.locator("#m-link").fill(links.map(name => `${downloadOrigin}/${name}`).join("\n"));
+    await form.locator("#submit-task-btn").click();
+    await waitForNativeCondition(form, () => !document.querySelector("#download-form").inert && document.querySelector("#m-link").value === "");
+    await waitForNativeCondition(main, total => Number(document.querySelector("#task-count").textContent) === total, total);
+    assert.equal(await form.evaluate(() => downloadSettings.connections), 9);
+    assert.equal(await main.locator("#toast").textContent(), "下载任务已添加");
+    assert.equal((await api(main, "GET", "/tasks?limit=100")).total, total);
+  }
   const auth = await api(settings, "POST", "/auth/settings", { enabled: true });
   assert.equal(auth.enabled, true);
   assert.equal(Object.hasOwn(auth, "token"), false);
@@ -130,12 +394,13 @@ try {
     assert.equal(layout.overflow, false);
     assert.ok(layout.footer <= layout.height);
   }
-  await settings.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-  await settings.screenshot({ path: path.join(fixture, "settings-dark.png") });
-  await settings.emulateMedia({ colorScheme: "light", forcedColors: "active" });
-  await settings.waitForFunction(() => document.documentElement.dataset.material === "solid");
+  await session.send("Emulation.clearDeviceMetricsOverride");
+  const pages = { main, settings, logs, about, ...taskForms };
+  for (const scheme of ["light", "dark"]) await verifyAppearance(pages, scheme);
+  await verifyAppearance(pages, "light", "active");
+  for (const scheme of ["light", "dark"]) await verifyAppearance(pages, scheme, "none", true);
   const windows = await main.evaluate(async () => Promise.all((await window.__TAURI__.window.getAllWindows()).map(async window => ({ label: window.label, visible: await window.isVisible() }))));
-  assert.equal(windows.length, 4);
+  assert.equal(windows.length, 6);
   assert.ok(windows.every(window => !window.visible), "Acceptance tests must never show native windows");
   const geometry = await main.evaluate(async () => {
     const monitors = await window.__TAURI__.window.availableMonitors();
@@ -151,11 +416,12 @@ try {
   const token = (await fs.readFile(path.join(storage.paths.config, "truedown.token"), "utf8")).trim();
   assert.equal((await fetch(`http://127.0.0.1:${port}/system/exit`, { method: "POST", headers: { "X-Api-Key": token } })).status, 202);
   await waitUntil(() => child.exitCode !== null, 20000);
-  console.log("native_windows=ok shared_cache=ok shared_settings=ok retained_drafts=ok private_auth=ok scale_layout=ok core_recovery=ok orphan_cleanup=ok external_exit=ok all_windows_hidden=ok");
+  console.log("native_windows=ok native_task_forms=ok task_form_drafts=ok task_form_permissions=ok task_creation_refresh=ok shared_cache=ok shared_settings=ok retained_drafts=ok private_auth=ok scale_layout=ok native_theme=ok material_surfaces=ok forced_colors=ok reduced_transparency=ok core_recovery=ok orphan_cleanup=ok external_exit=ok all_windows_hidden=ok");
 } finally {
   if (main && child.exitCode === null) await invoke(main, "core_request", { request: { method: "POST", path: "/system/exit" } }).catch(() => {});
   await waitUntil(() => child.exitCode !== null || child.signalCode !== null, 20000).catch(() => child.kill());
   await browser?.close().catch(() => {});
+  if (downloadFixture) await new Promise(resolve => downloadFixture.close(resolve));
   console.log(`fixture=${fixture}`);
 }
 assert.equal(child.exitCode, 0);

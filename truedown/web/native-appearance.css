@@ -9,6 +9,7 @@
   --kd-text: #f5f5f5;
   --kd-muted: #bcbcbc;
   --kd-subtle: #a8a8a8;
+  --kd-placeholder: #9b9b9b;
   --kd-border: rgb(255 255 255 / 9%);
   --kd-border-strong: rgb(255 255 255 / 20%);
   --kd-secondary-hover: #3b3b3b;
@@ -24,6 +25,17 @@
 [data-platform="windows"] .kd-input:focus { border-bottom: 2px solid var(--kd-focus); }
 [data-platform="windows"] .primary-nav a[aria-current],
 [data-platform="windows"] .settings-nav-link[aria-current] { box-shadow: inset 3px 0 var(--kd-accent); }
+[data-platform="windows"] .dashboard { padding: 8px; }
+[data-platform="windows"][data-native-window="settings"] .settings-page,
+[data-platform="windows"][data-native-window="logs"] .log-page { border: 1px solid var(--kd-border); border-radius: var(--kd-radius); }
+[data-platform="windows"] body > main {
+  margin: 8px;
+  max-width: none;
+  padding: 20px;
+  border: 1px solid var(--kd-border);
+  border-radius: var(--kd-radius);
+  background: var(--kd-surface);
+}
 [data-platform="macos"] { --kd-control-height: 32px; }
 [data-platform="macos"] body { font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", sans-serif; font-size: 13px; }
 [data-platform="macos"] .kd-button { border-radius: 6px; font-weight: 500; box-shadow: 0 1px 1px rgb(0 0 0 / 8%); }
@@ -34,7 +46,7 @@
 [data-platform] .tasks-table { font-size: 13px; }
 [data-platform] .settings-footer { background: var(--kd-surface); }
 [data-material="native"] body { background: transparent; }
-[data-material="native"] .topbar,
+[data-material="native"] .native-titlebar,
 [data-material="native"] .sidebar { background: var(--native-chrome); }
 [data-material="native"] .settings-page { background: transparent; }
 [data-material="native"] .settings-page > .panel-header,
@@ -50,6 +62,7 @@
     --kd-text: #202020;
     --kd-muted: #606060;
     --kd-subtle: #6a6a6a;
+    --kd-placeholder: #707070;
     --kd-border: rgb(0 0 0 / 8%);
     --kd-border-strong: rgb(0 0 0 / 20%);
     --kd-secondary-hover: #f0f0f0;
@@ -59,8 +72,12 @@
   }
   [data-platform="macos"] { --kd-bg: #ececec; --native-chrome: rgb(238 238 238 / 40%); }
 }
+:root[data-platform="windows"] { --native-chrome: transparent; }
 @media (prefers-reduced-transparency: reduce), (forced-colors: active) {
   [data-material="native"] body { background: var(--kd-bg); }
-  [data-material="native"] .topbar, [data-material="native"] .sidebar,
+  [data-material="native"] .native-titlebar, [data-material="native"] .sidebar,
   [data-material="native"] .settings-nav, [data-material="native"] .settings-page > .panel-header { background: var(--kd-bg); }
+}
+@media (forced-colors: active) {
+  [data-platform] body { background: Canvas; }
 }

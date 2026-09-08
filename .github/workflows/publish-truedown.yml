@@ -9,6 +9,8 @@ on:
       - "changelog/truedown/**"
       - "tools/read-latest-changelog.ps1"
       - "tests/releaseWorkflow.test.mjs"
+      - "tests/native*.test.mjs"
+      - "tests/iconAssets.test.mjs"
       - "truedown/**"
       - "shared/**"
       - "manifest.json"
