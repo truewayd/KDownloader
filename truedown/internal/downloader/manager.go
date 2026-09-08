@@ -566,6 +566,11 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		return result, true, nil
 	}
 
+	folder := m.groupedFolderLocked(identity.Folder, identity.Name, identity.Link)
+	if len(folder) > 4096 {
+		m.mu.Unlock()
+		return nil, false, &ValidationError{Message: "grouped download folder is too long"}
+	}
 	now := time.Now()
 	task := &Task{
 		ID:            m.nextID.Add(1),
@@ -573,7 +578,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		RequestJSON:   string(requestJSON),
 		Name:          identity.Name,
 		Link:          identity.Link,
-		Folder:        identity.Folder,
+		Folder:        folder,
 		Headers:       identity.Headers,
 		DownloadPage:  identity.DownloadPage,
 		QueueID:       identity.QueueID,
@@ -628,7 +633,12 @@ func (m *Manager) findModuleResumeLocked(identity requestIdentity, fingerprint s
 		if task == nil || task.ModuleID != identity.ModuleID || task.Status != StatusError || task.OutputName == "" {
 			return false
 		}
-		if !samePathName(task.Folder, identity.Folder) || !samePathName(task.Name, name) {
+		var original requestIdentity
+		sameRoot := samePathName(task.Folder, identity.Folder) || samePathName(task.Folder, m.groupedFolderLocked(identity.Folder, name, identity.Link))
+		if !sameRoot && json.Unmarshal([]byte(task.RequestJSON), &original) == nil {
+			sameRoot = samePathName(original.Folder, identity.Folder)
+		}
+		if !sameRoot || !samePathName(task.Name, name) {
 			return false
 		}
 		outputPath := filepath.Join(task.Folder, task.OutputName)
@@ -1784,10 +1794,6 @@ func (m *Manager) submit(item submission) bool {
 		// turn its recoverable queue back into failed tasks while it restarts.
 		return false
 	}
-	if err := os.MkdirAll(snapshot.Folder, 0755); err != nil {
-		m.failTask(snapshot.ID, fmt.Errorf("create download directory: %w", err))
-		return false
-	}
 	stalePartialPath := strings.TrimSpace(item.partialPath)
 	var stalePathErr error
 	if item.discardPartial && item.removeGID != "" {
@@ -1861,6 +1867,10 @@ func (m *Manager) submit(item submission) bool {
 	}
 	if preparedHeaders != nil {
 		snapshot.Headers = preparedHeaders
+	}
+	if err := os.MkdirAll(snapshot.Folder, 0755); err != nil {
+		m.failTask(snapshot.ID, fmt.Errorf("create download directory: %w", err))
+		return false
 	}
 	options := ariaOptions(snapshot, item.recheck)
 	if snapshot.Opts.ProxyMode != "" {
@@ -2940,6 +2950,7 @@ func (m *Manager) applyRemoteMetadata(id int64, metadata remoteMetadata, enforce
 		changed = true
 	}
 	if task.OutputName == "" && metadata.Name != "" {
+		m.resolveGroupDirectoryLocked(task, metadata.Name)
 		task.OutputName = m.resolveOutputNameLocked(task.Folder, metadata.Name, task.ID)
 		m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID
 		var identity requestIdentity
@@ -3249,7 +3260,7 @@ func cloneTask(task *Task) *Task {
 
 func snapshotTaskUpdate(task *Task) *Task {
 	return &Task{
-		ID: task.ID, Name: task.Name, OutputName: task.OutputName, GID: task.GID,
+		ID: task.ID, Name: task.Name, Folder: task.Folder, OutputName: task.OutputName, GID: task.GID,
 		Status: task.Status, Progress: task.Progress, Error: task.Error,
 		UpdatedAt: task.UpdatedAt, Revision: task.Revision, TotalLength: task.TotalLength,
 		RemoteDigest: task.RemoteDigest, RemoteName: task.RemoteName,

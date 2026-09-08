@@ -70,7 +70,7 @@ func TestManagerHostReloadsStableEngineInProcess(t *testing.T) {
 	host.mu.RUnlock()
 	waitForManagerStatus(t, reloaded, paused.ID, downloader.StatusPaused, 10*time.Second)
 	waitForManagerStatus(t, reloaded, task.ID, downloader.StatusDone, 45*time.Second)
-	data, err := os.ReadFile(filepath.Join(root, "downloads", "payload.bin"))
+	data, err := os.ReadFile(filepath.Join(task.Folder, "payload.bin"))
 	if err != nil {
 		t.Fatal(err)
 	}

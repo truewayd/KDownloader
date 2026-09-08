@@ -34,6 +34,7 @@ type FileGroup struct {
 	Name       string   `json:"name"`
 	Extensions []string `json:"extensions"`
 	Icon       string   `json:"icon,omitempty"`
+	Directory  string   `json:"directory"`
 }
 
 type FileGroupsSnapshot struct {
@@ -43,16 +44,20 @@ type FileGroupsSnapshot struct {
 }
 
 func defaultFileGroups() FileGroupsSnapshot {
-	return FileGroupsSnapshot{Groups: []FileGroup{
-		{"image", "\u56fe\u7247", strings.Fields(".jpg .jpeg .png .gif .webp .avif .heic .heif .bmp .tif .tiff .svg .ico"), ""},
-		{"video", "\u89c6\u9891", strings.Fields(".mp4 .mkv .webm .mov .avi .m4v .wmv .flv .mpg .mpeg .ts .m2ts .3gp"), ""},
-		{"audio", "\u97f3\u4e50", strings.Fields(".mp3 .wav .flac .aac .m4a .ogg .opus .wma .aiff .alac .mid .midi"), ""},
-		{"archive", "\u538b\u7f29\u5305", strings.Fields(".zip .rar .7z .tar .gz .bz2 .xz .zst .tgz .tbz2 .txz .iso .cab .lz .lzma"), ""},
-		{"application", "\u5e94\u7528", strings.Fields(".exe .msi .msix .appx .appxbundle .msixbundle .apk .aab .dmg .pkg .deb .rpm .appimage"), ""},
-		{"document", "\u6587\u6863", strings.Fields(".pdf .txt .md .rtf .doc .docx .xls .xlsx .csv .ppt .pptx .odt .ods .odp .epub .mobi .azw .azw3 .json .xml .html .htm"), ""},
-		{"project", "\u5de5\u7a0b", append([]string(nil), defaultExcludedExtensions...), ""},
-		{"other", "\u5176\u4ed6", []string{}, ""},
+	state := FileGroupsSnapshot{Groups: []FileGroup{
+		{"image", "\u56fe\u7247", strings.Fields(".jpg .jpeg .png .gif .webp .avif .heic .heif .bmp .tif .tiff .svg .ico"), "", ""},
+		{"video", "\u89c6\u9891", strings.Fields(".mp4 .mkv .webm .mov .avi .m4v .wmv .flv .mpg .mpeg .ts .m2ts .3gp"), "", ""},
+		{"audio", "\u97f3\u4e50", strings.Fields(".mp3 .wav .flac .aac .m4a .ogg .opus .wma .aiff .alac .mid .midi"), "", ""},
+		{"archive", "\u538b\u7f29\u5305", strings.Fields(".zip .rar .7z .tar .gz .bz2 .xz .zst .tgz .tbz2 .txz .iso .cab .lz .lzma"), "", ""},
+		{"application", "\u5e94\u7528", strings.Fields(".exe .msi .msix .appx .appxbundle .msixbundle .apk .aab .dmg .pkg .deb .rpm .appimage"), "", ""},
+		{"document", "\u6587\u6863", strings.Fields(".pdf .txt .md .rtf .doc .docx .xls .xlsx .csv .ppt .pptx .odt .ods .odp .epub .mobi .azw .azw3 .json .xml .html .htm"), "", ""},
+		{"project", "\u5de5\u7a0b", append([]string(nil), defaultExcludedExtensions...), "", ""},
+		{"other", "\u5176\u4ed6", []string{}, "", ""},
 	}}
+	for index := range state.Groups {
+		state.Groups[index].Directory = defaultGroupDirectory(state.Groups[index])
+	}
+	return state
 }
 
 func normalizeFileGroups(groups []FileGroup) ([]FileGroup, error) {
@@ -77,7 +82,14 @@ func normalizeFileGroups(groups []FileGroup) ([]FileGroup, error) {
 			return invalid("each group accepts up to 128 suffixes; Other must have none")
 		}
 		ids[group.ID], names[strings.ToLower(group.Name)] = true, true
-		normalized := FileGroup{ID: group.ID, Name: group.Name, Extensions: []string{}, Icon: group.Icon}
+		directory := strings.TrimSpace(group.Directory)
+		if directory == "" {
+			directory = defaultGroupDirectory(group)
+		}
+		if !validGroupDirectory(directory) {
+			return invalid("group directory must be a single safe folder name with at most 80 characters")
+		}
+		normalized := FileGroup{ID: group.ID, Name: group.Name, Extensions: []string{}, Icon: group.Icon, Directory: directory}
 		for _, raw := range group.Extensions {
 			suffix := strings.ToLower(strings.TrimSpace(raw))
 			if !strings.HasPrefix(suffix, ".") {

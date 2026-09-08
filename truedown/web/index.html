@@ -161,7 +161,7 @@
         </section>
         <section class="settings-section" data-settings-page="groups" hidden aria-labelledby="file-groups-title">
           <h3 id="file-groups-title">文件分组</h3>
-          <p class="hint">按文件后缀自动分类，忽略大小写。支持 .tar.gz 等复合后缀，优先匹配较长的后缀；未匹配文件归入“其他”。修改会立即更新已有任务的分组，保留文件原位置。</p>
+          <p class="hint">按文件后缀自动分类，忽略大小写。支持 .tar.gz 等复合后缀，优先匹配较长的后缀；未匹配文件归入“其他”。新文件会保存到所选目录下的分组子目录；修改规则会更新已有任务的列表分组，已有文件与续传任务保留原路径。</p>
           <div id="file-groups-editor"></div>
           <div class="group-editor-actions"><button class="kd-button secondary" id="file-group-add" type="button">新增分组</button><button class="kd-button secondary" id="file-groups-reload" type="button">重新读取</button><button class="kd-button primary" id="file-groups-save" type="button">保存分组</button></div>
           <p class="hint" id="file-groups-status" role="status"></p>

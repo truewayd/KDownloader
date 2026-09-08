@@ -28,6 +28,7 @@ type preparedTaskAdd struct {
 	identity    requestIdentity
 	requestJSON string
 	fingerprint string
+	folder      string
 }
 
 // addTasksBatch validates the complete batch first, then creates all fresh
@@ -44,12 +45,19 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 		if err := validateRequest(identity); err != nil {
 			return nil, err
 		}
+		m.mu.RLock()
+		folder := m.groupedFolderLocked(identity.Folder, identity.Name, identity.Link)
+		m.mu.RUnlock()
+		if len(folder) > 4096 {
+			return nil, &ValidationError{Message: "grouped download folder is too long"}
+		}
 		encoded, err := json.Marshal(identity)
 		if err != nil {
 			return nil, err
 		}
 		digest := sha256.Sum256(encoded)
 		prepared[index] = preparedTaskAdd{
+			folder:      folder,
 			request:     request,
 			identity:    identity,
 			requestJSON: string(encoded),
@@ -67,6 +75,10 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 	for _, task := range m.tasks {
 		if task != nil && task.ModuleID != "" && task.Status == StatusError {
 			resumeKeys[outputNameKey(task.Folder, task.Name)] = struct{}{}
+			var original requestIdentity
+			if json.Unmarshal([]byte(task.RequestJSON), &original) == nil {
+				resumeKeys[outputNameKey(original.Folder, task.Name)] = struct{}{}
+			}
 		}
 	}
 	for index, item := range prepared {
@@ -76,7 +88,8 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 		}
 		_, exactDuplicate := m.fingerprints[item.fingerprint]
 		_, possibleResume := resumeKeys[outputNameKey(item.identity.Folder, name)]
-		if exactDuplicate || possibleResume {
+		_, groupedResume := resumeKeys[outputNameKey(item.folder, name)]
+		if exactDuplicate || possibleResume || groupedResume {
 			fallback = append(fallback, index)
 			continue
 		}
@@ -86,7 +99,7 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 			RequestJSON:   item.requestJSON,
 			Name:          item.identity.Name,
 			Link:          item.identity.Link,
-			Folder:        item.identity.Folder,
+			Folder:        item.folder,
 			Headers:       item.identity.Headers,
 			DownloadPage:  item.identity.DownloadPage,
 			QueueID:       item.identity.QueueID,

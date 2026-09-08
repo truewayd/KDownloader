@@ -518,11 +518,11 @@ func TestAddTaskRenewsDropboxURLForPartialResume(t *testing.T) {
 		t.Fatalf("initial AddTask: task=%v duplicate=%v err=%v", task, duplicate, err)
 	}
 	m.flushAdmissions(false)
-	if err := os.MkdirAll(downloadDir, 0755); err != nil {
+	if err := os.MkdirAll(task.Folder, 0755); err != nil {
 		t.Fatal(err)
 	}
 	for _, suffix := range []string{"", ".aria2"} {
-		if err := os.WriteFile(filepath.Join(downloadDir, task.OutputName+suffix), []byte("partial"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(task.Folder, task.OutputName+suffix), []byte("partial"), 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -972,10 +972,10 @@ func TestRemoveActiveTaskDeletesPartialFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.flushAdmissions(false)
-	if err := os.MkdirAll(downloadDir, 0755); err != nil {
+	if err := os.MkdirAll(task.Folder, 0755); err != nil {
 		t.Fatal(err)
 	}
-	outputPath := filepath.Join(downloadDir, task.OutputName)
+	outputPath := filepath.Join(task.Folder, task.OutputName)
 	for _, path := range []string{outputPath, outputPath + ".aria2"} {
 		if err := os.WriteFile(path, []byte("partial"), 0644); err != nil {
 			t.Fatal(err)
@@ -1008,10 +1008,10 @@ func TestRemovePreservesFilesWhenAria2AlreadyCompleted(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.flushAdmissions(false)
-	if err := os.MkdirAll(downloadDir, 0755); err != nil {
+	if err := os.MkdirAll(task.Folder, 0755); err != nil {
 		t.Fatal(err)
 	}
-	outputPath := filepath.Join(downloadDir, task.OutputName)
+	outputPath := filepath.Join(task.Folder, task.OutputName)
 	if err := os.WriteFile(outputPath, []byte("complete"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -1042,7 +1042,7 @@ func TestRemoveKeepsRecordWhenPartialPathIsUnsafe(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.flushAdmissions(false)
-	if err := os.MkdirAll(filepath.Join(downloadDir, task.OutputName), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(task.Folder, task.OutputName), 0755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1147,10 +1147,10 @@ func TestRefreshOutputNameAvoidsFileWithoutControlFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(downloadDir, 0755); err != nil {
+	if err := os.MkdirAll(task.Folder, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(downloadDir, task.OutputName), []byte("existing"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(task.Folder, task.OutputName), []byte("existing"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	// The asynchronous admission must be persisted before refresh can update it.
@@ -1178,11 +1178,11 @@ func TestRefreshOutputNameKeepsPartialDownloadWithControlFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(downloadDir, 0755); err != nil {
+	if err := os.MkdirAll(task.Folder, 0755); err != nil {
 		t.Fatal(err)
 	}
 	for _, suffix := range []string{"", ".aria2"} {
-		if err := os.WriteFile(filepath.Join(downloadDir, task.OutputName+suffix), []byte("partial"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(task.Folder, task.OutputName+suffix), []byte("partial"), 0644); err != nil {
 			t.Fatal(err)
 		}
 	}

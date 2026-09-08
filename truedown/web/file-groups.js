@@ -86,6 +86,7 @@ function captureFileGroupsDraft() {
   for (const row of document.querySelectorAll("[data-group-id]")) {
     const group = fileGroupsDraft.find((item) => item.id === row.dataset.groupId);
     group.name = row.querySelector("input").value;
+    group.directory = row.querySelector("[data-group-directory]").value.trim();
     group.extensions = row.querySelector("textarea").value.split(/[\s,;\uff0c\uff1b]+/).filter(Boolean);
   }
 }
@@ -101,6 +102,11 @@ function renderFileGroupsEditor() {
     row.querySelector("input").closest(".field").classList.add("group-name-field");
     row.querySelector("textarea").closest(".field").classList.add("group-suffix-field");
     row.querySelector("textarea").value = group.extensions.join(" ");
+    const directoryField = document.createElement("div");
+    directoryField.className = "field group-directory-field";
+    directoryField.innerHTML = `<label for="group-dir-${i}">保存子目录</label><input class="kd-input" id="group-dir-${i}" data-group-directory maxlength="80" placeholder="留空使用分组名称">`;
+    directoryField.querySelector("input").value = group.directory || "";
+    row.insertBefore(directoryField, row.querySelector(".group-suffix-field"));
     row.querySelector("button").dataset.removeGroup = group.id;
     if (group.id === "other") {
       row.querySelector("textarea").disabled = true;

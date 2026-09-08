@@ -155,7 +155,7 @@ func TestImportedTorrentPersistsAndUsesAddTorrentWithIntegrityCheck(t *testing.T
 		t.Fatal("imported torrent was not admitted")
 	}
 	if stub.torrent != base64.StdEncoding.EncodeToString(data) || stub.options["check-integrity"] != "true" ||
-		stub.options["dir"] != filepath.ToSlash(filepath.Join(root, "chosen")) {
+		stub.options["dir"] != filepath.ToSlash(filepath.Join(root, "chosen", "Other")) {
 		t.Fatalf("torrent=%q options=%v", stub.torrent, stub.options)
 	}
 	if _, exists := stub.options["out"]; exists {

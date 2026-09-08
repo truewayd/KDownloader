@@ -268,7 +268,7 @@ func TestGoogleDriveFolderModuleCreatesIndependentTasks(t *testing.T) {
 		t.Fatalf("unexpected module result: %+v", result)
 	}
 	if result.Tasks[0].ModuleID != GoogleDriveModuleID || result.Tasks[1].Name != "deck.pptx" ||
-		filepath.Base(result.Tasks[0].Folder) != "Drive Root" {
+		filepath.Base(filepath.Dir(result.Tasks[0].Folder)) != "Drive Root" {
 		t.Fatalf("unexpected Google Drive tasks: %+v", result.Tasks)
 	}
 }

@@ -599,7 +599,7 @@ func TestBitTorrentStartEndpointImportsMetainfoAndUsesSelectedFolder(t *testing.
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 	tasks := manager.ListTasks()
-	if len(tasks) != 1 || tasks[0].Name != "test.bin" || tasks[0].Folder != filepath.Clean(folder) ||
+	if len(tasks) != 1 || tasks[0].Name != "test.bin" || tasks[0].Folder != filepath.Join(folder, "Other") ||
 		!strings.HasPrefix(tasks[0].Link, "torrent://") {
 		if len(tasks) == 1 {
 			t.Fatalf("imported task=%+v", *tasks[0])

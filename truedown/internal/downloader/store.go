@@ -227,9 +227,9 @@ func (s *recordStore) UpdateBatch(tasks []*Task) error {
 	}
 	for _, t := range tasks {
 		if _, err := s.db.Exec(`UPDATE download_records SET
-			name=?, output_name=?, gid=?, status=?, progress=?, error=?, updated_at=?, revision=?, total_length=?, remote_digest=?, remote_name=?
+			name=?, folder=?, output_name=?, gid=?, status=?, progress=?, error=?, updated_at=?, revision=?, total_length=?, remote_digest=?, remote_name=?
 			WHERE id=? AND revision<=?`,
-			t.Name, t.OutputName, t.GID, string(t.Status), t.Progress, t.Error,
+			t.Name, t.Folder, t.OutputName, t.GID, string(t.Status), t.Progress, t.Error,
 			formatDBTime(t.UpdatedAt), t.Revision, t.TotalLength, t.RemoteDigest, t.RemoteName, t.ID, t.Revision,
 		); err != nil {
 			_, _ = s.db.Exec(`ROLLBACK`)

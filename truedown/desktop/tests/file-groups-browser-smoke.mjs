@@ -90,7 +90,8 @@ try {
     await page.locator('[data-group-id="project"] textarea').fill(".blend");
     await page.locator("#file-group-add").click();
     const custom = page.locator('[data-group-id^="group-"]');
-    await custom.locator("input").fill("Design source");
+    await custom.locator(".group-name-field input").fill("Design source");
+    await custom.locator("[data-group-directory]").fill("Design Files");
     await custom.locator("textarea").fill(".PSD");
     await custom.locator(".group-icon-trigger").click();
     await page.locator('[data-icon-choice="star"]').click();
@@ -98,6 +99,7 @@ try {
     await page.waitForFunction(() => document.querySelector("#file-groups-status").textContent.includes("\u5df2\u4fdd\u5b58"));
     assert.equal(groups.groups.find(group => group.name === "Design source").extensions[0], ".psd");
     assert.equal(groups.groups.find(group => group.name === "Design source").icon, "star");
+    assert.equal(groups.groups.find(group => group.name === "Design source").directory, "Design Files");
     await page.screenshot({ path: path.join(screenshots, `groups-${width}-${colorScheme}.png`) });
     await page.locator('[data-task-category^="group-"]').click();
     await page.waitForFunction(() => document.querySelector("tr[data-task-id] .task-folder")?.textContent === "Design source");

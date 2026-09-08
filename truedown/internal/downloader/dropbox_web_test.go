@@ -211,11 +211,11 @@ func TestAddDropboxFolderRecursesPaginatesFiltersAndCreatesResumableFiles(t *tes
 			t.Fatalf("expanded file is not a stable resumable Dropbox task: %+v", task)
 		}
 	}
-	if got := byName["readme.txt"].Folder; got != filepath.Join(root, "target", "Shared Root") {
+	if got := byName["readme.txt"].Folder; got != filepath.Join(root, "target", "Shared Root", "Documents") {
 		t.Fatalf("root file folder=%q", got)
 	}
 	image := byName["image.png"]
-	if image == nil || image.Folder != filepath.Join(root, "target", "Shared Root", "nested") {
+	if image == nil || image.Folder != filepath.Join(root, "target", "Shared Root", "nested", "Pictures") {
 		t.Fatalf("nested file task=%+v", image)
 	}
 

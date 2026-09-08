@@ -42,7 +42,7 @@ func TestFileGroupsPersistAndReclassifyWholePages(t *testing.T) {
 	}
 	groups.Groups[6].Extensions = []string{"BLEND"}
 	groups.Groups[6].Icon = "palette"
-	groups.Groups = append(groups.Groups, FileGroup{"art-source", "Art source", []string{"PSD", ".psd", "tar.gz"}, ""})
+	groups.Groups = append(groups.Groups, FileGroup{"art-source", "Art source", []string{"PSD", ".psd", "tar.gz"}, "", ""})
 	saved, err := m.SetFileGroups(groups.Revision, groups.Groups)
 	if err != nil {
 		t.Fatal(err)
@@ -103,12 +103,12 @@ func TestFileGroupsPersistAndReclassifyWholePages(t *testing.T) {
 
 func TestFileGroupsRejectAmbiguityAndBoundedPayloads(t *testing.T) {
 	for _, groups := range [][]FileGroup{
-		{}, {{"image", "Image", []string{".png"}, ""}},
-		{{"other", "Other", []string{".bin"}, ""}},
-		{{"other", "Other", nil, ""}, {"image", "Image", []string{".png"}, ""}, {"custom", "Custom", []string{"PNG"}, ""}},
-		{{"other", "Other", nil, ""}, {"custom", "Other", nil, ""}},
-		{{"other", "Other", nil, ""}, {"custom", "Custom", []string{"../file"}, ""}},
-		{{"other", "Other", nil, ""}, {"../escape", "Custom", nil, ""}},
+		{}, {{"image", "Image", []string{".png"}, "", ""}},
+		{{"other", "Other", []string{".bin"}, "", ""}},
+		{{"other", "Other", nil, "", ""}, {"image", "Image", []string{".png"}, "", ""}, {"custom", "Custom", []string{"PNG"}, "", ""}},
+		{{"other", "Other", nil, "", ""}, {"custom", "Other", nil, "", ""}},
+		{{"other", "Other", nil, "", ""}, {"custom", "Custom", []string{"../file"}, "", ""}},
+		{{"other", "Other", nil, "", ""}, {"../escape", "Custom", nil, "", ""}},
 	} {
 		if _, err := normalizeFileGroups(groups); err == nil {
 			t.Fatalf("invalid groups accepted: %+v", groups)

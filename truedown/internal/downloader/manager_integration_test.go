@@ -92,7 +92,7 @@ func TestManagerAria2Lifecycle(t *testing.T) {
 		t.Fatalf("partial AddTask: task=%v duplicate=%v err=%v", partial, duplicate, err)
 	}
 	waitForStatus(t, m, partial.ID, 8*time.Second, StatusDownloading)
-	partialPath := filepath.Join(stateDir, "downloads", partial.OutputName)
+	partialPath := filepath.Join(partial.Folder, partial.OutputName)
 	if result := m.RemoveTasks([]int64{partial.ID}); len(result.Succeeded) != 1 || len(result.Failed) != 0 {
 		t.Fatalf("RemoveTasks: %+v", result)
 	}

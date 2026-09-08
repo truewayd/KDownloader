@@ -38,7 +38,7 @@ tr:has(.status-paused) progress::-webkit-progress-value { background: var(--kd-w
 .task-settings-footer { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .task-settings-footer > span { flex: 1; }
 #file-groups-editor { display: grid; gap: 18px; }
-.file-group-editor-row { display: grid; grid-template-columns: 36px 120px minmax(0, 1fr) 32px; gap: 12px; align-items: start; border-bottom: 1px solid var(--kd-border); padding-bottom: 18px; }
+.file-group-editor-row { display: grid; grid-template-columns: 36px 110px 130px minmax(0, 1fr) 32px; gap: 12px; align-items: start; border-bottom: 1px solid var(--kd-border); padding-bottom: 18px; }
 .group-icon-dialog { width: min(320px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 20px; color: var(--kd-text); background: var(--kd-surface); overflow: auto; }
 .group-icon-dialog::backdrop { background: rgb(0 0 0 / 35%); }
 .group-icon-dialog header { display: flex; gap: 16px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
@@ -62,7 +62,8 @@ tr:has(.status-paused) progress::-webkit-progress-value { background: var(--kd-w
   .task-settings-footer > span { flex-basis: 100%; }
   .file-group-editor-row { grid-template-columns: 32px minmax(0, 1fr) 32px; gap: 8px; }
   .file-group-editor-row .group-name-field { grid-column: 2; grid-row: 1; }
-  .file-group-editor-row .group-suffix-field { grid-column: 1 / -1; grid-row: 2; }
+  .file-group-editor-row .group-directory-field { grid-column: 1 / -1; grid-row: 2; }
+  .file-group-editor-row .group-suffix-field { grid-column: 1 / -1; grid-row: 3; }
   .file-group-editor-row > button { grid-column: 3; grid-row: 1; }
   .file-group-editor-row > .group-icon-trigger { grid-column: 1; }
 }
