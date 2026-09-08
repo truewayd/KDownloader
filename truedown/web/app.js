@@ -513,7 +513,7 @@ async function initNativeTaskForm() {
   surface.removeAttribute("aria-modal");
   els.modalCloseBtn.hidden = true;
   els.downloadForm.querySelector(".modal-header").classList.add("visually-hidden");
-  els.modalCancelBtn.title = "关闭窗口，保留未提交的内容";
+  els.modalCancelBtn.hidden = true;
   els.overlay.classList.add("open");
   els.overlay.setAttribute("aria-hidden", "false");
   els.overlay.removeAttribute("inert");

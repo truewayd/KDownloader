@@ -83,7 +83,7 @@ pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), Str
             let (width, height, min_width, min_height) = match kind {
                 Kind::Settings => (1020.0, 760.0, 640.0, 480.0),
                 Kind::Logs => (960.0, 680.0, 560.0, 360.0),
-                Kind::About => (560.0, 500.0, 420.0, 360.0),
+                Kind::About => (480.0, 360.0, 400.0, 320.0),
                 Kind::NewTask => (780.0, 840.0, 620.0, 480.0),
                 Kind::BatchTask => (860.0, 740.0, 620.0, 480.0),
             };

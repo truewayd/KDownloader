@@ -13,14 +13,15 @@
   <script src="/native-frame.js" defer></script>
   <script src="/about.js" defer></script>
 </head>
-<body>
-  <main>
-    <img src="/truedown-logo.svg" width="48" height="48" alt="">
-    <h1 class="visually-hidden">TrueDown</h1>
+<body class="about-page">
+  <main class="about-panel kd-panel">
+    <header class="about-brand">
+      <img src="/truedown-logo.svg" width="40" height="40" alt="">
+      <div><h1>TrueDown</h1><p class="hint">轻量下载管理器</p></div>
+    </header>
     <dl aria-label="版本信息"><dt>程序版本</dt><dd id="version">正在读取…</dd><dt>下载内核</dt><dd id="engine">正在读取…</dd><dt>服务连接</dt><dd id="connection">正在读取…</dd></dl>
     <p id="about-status" role="status"></p>
-    <p class="hint">第三方许可证随程序安装。</p>
-    <button class="kd-button secondary" id="close-about" type="button">关闭 <span aria-hidden="true">Esc</span></button>
+    <p class="hint about-notice">第三方许可证随程序安装。</p>
   </main>
 </body>
 </html>
