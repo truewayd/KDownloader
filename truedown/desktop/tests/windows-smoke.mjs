@@ -198,7 +198,7 @@ async function verifyAppearance(pages, scheme, forcedColors = "none", reducedTra
   const evidence = { scheme, forcedColors, reducedTransparency, windows: states, pages: {} };
   for (const [kind, page] of Object.entries(pages)) {
     const state = states.find(state => state.title === titles.find(window => window.label === kind).title);
-    assert.ok(state.clientTopInset <= 2 * state.dpi / 96, `${kind} must replace the system title area`);
+    assert.equal(state.clientTopInset, 0, `${kind} must extend the entire top edge for DWM caption painting`);
     assert.deepEqual(state.captionHits, [8, 9, 20], `${kind} must expose genuine minimize, maximize and close hit targets`);
     assert.equal(state.captionExcludedFromWebView, true, `${kind} WebView must not obscure native caption controls`);
     assert.ok(state.resizable && state.minimizable && state.maximizable, `${kind} must retain OS window operations`);

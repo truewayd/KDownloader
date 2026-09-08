@@ -145,7 +145,9 @@ unsafe extern "system" fn procedure(
                 GetSystemMetricsForDpi(SM_CYFRAME, dpi)
                     + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi)
             } else {
-                1
+                // DWM needs a fully extended top edge to draw its caption
+                // controls. Even a one-pixel inset suppresses them on Win11.
+                0
             };
         return 0;
     }
