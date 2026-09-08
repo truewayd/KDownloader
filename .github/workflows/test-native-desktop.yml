@@ -41,10 +41,10 @@ jobs:
         working-directory: truedown/desktop
         shell: bash
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: truedown/go.mod
           cache: false
@@ -81,12 +81,17 @@ jobs:
           npx playwright install --with-deps chromium
           node tests/workspace-browser-smoke.mjs
           node tests/task-forms-browser-smoke.mjs
+          node tests/file-groups-browser-smoke.mjs
       - name: Check private core transport
         if: runner.os != 'Windows'
-        run: node ../tools/smoke-desktop.mjs target/debug/truedown-core
+        run: |
+          node ../tools/smoke-desktop.mjs target/debug/truedown-core
+          node tests/task-settings-core-smoke.mjs target/debug/truedown-core
       - name: Check private core transport on Windows
         if: runner.os == 'Windows'
-        run: node ../tools/smoke-desktop.mjs target/debug/truedown-core.exe
+        run: |
+          node ../tools/smoke-desktop.mjs target/debug/truedown-core.exe
+          node tests/task-settings-core-smoke.mjs target/debug/truedown-core.exe
       - name: Accept hidden Windows WebView2 windows and crash recovery
         if: runner.os == 'Windows'
         run: npm run test:windows

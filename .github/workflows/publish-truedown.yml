@@ -41,7 +41,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -62,7 +62,7 @@ jobs:
         run: python -m unittest discover -s truedown/tools -p test_validate_release.py
 
       - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: truedown/go.mod
           cache: false
@@ -111,7 +111,7 @@ jobs:
           $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $env:UPDATE_MANIFEST -Encoding utf8NoBOM
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: TrueDown-${{ env.RELEASE_TAG }}-windows-amd64
           path: |
@@ -142,12 +142,12 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: truedown/go.mod
           cache: false
@@ -226,7 +226,7 @@ jobs:
         run: zip -r "$GITHUB_WORKSPACE/$UNIX_ARTIFACT" TrueDown.app README.md THIRD_PARTY_NOTICES.md NATIVE_LICENSES.txt
 
       - name: Upload Unix build artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: TrueDown-${{ env.RELEASE_TAG }}-${{ matrix.asset_os }}-${{ matrix.arch }}
           path: ${{ env.UNIX_ARTIFACT }}
@@ -243,12 +243,12 @@ jobs:
       contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Download release artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: TrueDown-${{ env.RELEASE_TAG }}-*
           path: release-assets
@@ -262,7 +262,7 @@ jobs:
         run: ./tools/read-latest-changelog.ps1 -Product TrueDown -OutputFile release-notes.md
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: TrueDown ${{ env.RELEASE_TAG }}
