@@ -15,9 +15,9 @@ const tasks = [
   { id: 2, status: "paused", outputName: "Illustration collection.zip" },
   { id: 3, status: "done", outputName: "Reference images.tar" },
   { id: 4, status: "error", outputName: "Architecture study.blend", error: "Server returned 503" },
-  ...Array.from({ length: 8 }, (_, index) => ({ id: index + 5, status: "queued", outputName: `Project archive ${index + 1}.zip` })),
+  ...Array.from({ length: 16 }, (_, index) => ({ id: index + 5, status: "queued", outputName: `Project archive ${index + 1}.zip` })),
 ].map(task => ({ ...task, folder: "C:\\Downloads", link: `https://example.test/downloads/${task.id}` }));
-const summary = { total: tasks.length, downloading: 1, paused: 1, done: 1, error: 1, queued: 8 };
+const summary = { total: tasks.length, downloading: 1, paused: 1, done: 1, error: 1, queued: 16 };
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/tasks") {
@@ -66,21 +66,25 @@ try {
         const errors = [];
         page.on("pageerror", error => errors.push(error.message));
         await page.goto(origin);
-        await page.waitForFunction(() => document.querySelectorAll("tr[data-task-id]").length === 12);
+        await page.waitForFunction(count => document.querySelectorAll("tr[data-task-id]").length === count, tasks.length);
+        assert.equal(await page.title(), "下载任务");
+        assert.equal(await page.locator("#exit-truedown-btn").count(), 0);
+        assert.ok((await page.locator("#tasks-title").boundingBox()).width <= 1);
+        if (native) assert.equal(await page.locator(".native-window-title").isVisible(), false);
         assert.equal(await page.locator('[data-native-window="about"]').isVisible(), native, `${name}: About is a native-only action`);
         const geometry = await page.evaluate(() => {
           const bounds = selector => {
             const { x, y, width, height, right, bottom } = document.querySelector(selector).getBoundingClientRect();
             return { x, y, width, height, right, bottom };
           };
-          return { rootWidth: document.documentElement.scrollWidth, bodyWidth: document.body.scrollWidth, width: innerWidth, height: innerHeight, sidebar: bounds(".sidebar"), main: bounds(".dashboard"), footer: bounds(".sidebar-footer"), title: bounds(".task-heading"), query: bounds(".task-controls"), table: bounds(".table-scroll") };
+          return { rootWidth: document.documentElement.scrollWidth, bodyWidth: document.body.scrollWidth, width: innerWidth, height: innerHeight, sidebar: bounds(".sidebar"), main: bounds(".dashboard"), footer: bounds(".sidebar-footer"), toolbar: bounds(".task-toolbar"), query: bounds(".task-controls"), table: bounds(".table-scroll") };
         });
         await page.screenshot({ path: path.join(screenshots, `${name}.png`) });
         await fs.writeFile(path.join(screenshots, `${name}.json`), JSON.stringify(geometry, null, 2));
         assert.ok(geometry.rootWidth <= width + 1 && geometry.bodyWidth <= width + 1, `${name}: horizontal page overflow ${JSON.stringify(geometry)}`);
         assert.ok(geometry.sidebar.right <= geometry.main.x + 1, `${name}: sidebar overlaps content`);
         assert.ok(geometry.footer.bottom <= height + 1, `${name}: bottom utilities are outside the viewport`);
-        for (const selector of ["#new-task-btn", "a[data-route=logs]", "#settings-btn", "#exit-truedown-btn", "#task-search", "#task-filter"]) {
+        for (const selector of ["#new-task-btn", "a[data-route=logs]", "#settings-btn", "#batch-task-btn", "#task-search", "#task-filter"]) {
           const reachable = await page.locator(selector).evaluate(element => {
             const box = element.getBoundingClientRect();
             return box.width > 0 && box.height > 0 && box.x >= 0 && box.right <= innerWidth && box.y >= 0 && box.bottom <= innerHeight && element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
@@ -94,7 +98,7 @@ try {
         await page.locator("#task-filter").selectOption("paused");
         await page.waitForFunction(() => document.querySelector('[data-task-filter="paused"]').getAttribute("aria-current") === "page");
         await page.locator('[data-task-filter="all"]').click();
-        await page.waitForFunction(() => document.querySelectorAll("tr[data-task-id]").length === 12);
+        await page.waitForFunction(count => document.querySelectorAll("tr[data-task-id]").length === count, tasks.length);
         for (const order of ["asc", "desc"]) {
           await page.locator('[data-sort-field="file"]').click();
           await page.waitForFunction(expected => document.querySelector('[data-sort-field="file"]').dataset.sortOrder === expected, order);

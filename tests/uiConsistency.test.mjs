@@ -607,8 +607,8 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownHtml, /id="select-stable-engine-btn"/);
   assert.match(trueDownHtml, /id="select-next-engine-btn"/);
   assert.match(trueDownHtml, /id="application-log-output"[^>]+tabindex="0"/);
-  assert.match(trueDownHtml, /id="exit-truedown-btn"/);
-  assert.match(trueDownHtml, /关闭网页后仍会继续下载/);
+  assert.doesNotMatch(trueDownHtml, /id="exit-truedown-btn"/);
+  assert.match(trueDownHtml, /id="exit-from-settings-btn"/);
   assert.match(trueDownApp, /requestJSON\("\/system\/update\/check"/);
   assert.match(trueDownApp, /requestJSON\("\/system\/engine\/next"/);
   assert.match(trueDownApp, /requestJSON\("\/system\/engine\/select"/);

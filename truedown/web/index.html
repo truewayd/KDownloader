@@ -47,21 +47,18 @@
           <a href="#logs" data-route="logs" title="应用日志"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-logs"></use></svg><span class="nav-label">应用日志</span></a>
           <a href="#settings/overview" data-route="settings" id="settings-btn" title="设置"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-settings"></use></svg><span class="nav-label">设置</span></a>
           <button class="sidebar-action native-only" data-native-window="about" type="button" title="关于 TrueDown"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-info"></use></svg><span class="nav-label">关于 TrueDown</span></button>
-          <div class="sidebar-session"><span class="hint">关闭窗口，下载仍会继续</span><button class="kd-icon-button" id="exit-truedown-btn" type="button" title="退出 TrueDown" aria-label="退出 TrueDown"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-power"></use></svg></button></div>
         </nav>
       </aside>
       <main class="dashboard">
       <section class="kd-panel task-panel" id="tasks-page" data-page="tasks" aria-labelledby="tasks-title">
-        <div class="panel-header task-heading">
-          <div class="task-heading-copy"><h1 id="tasks-title">全部下载</h1><p class="panel-subtitle">管理正在进行和已完成的下载。</p></div>
-          <button class="kd-button secondary" id="batch-task-btn" type="button"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-list"></use></svg>批量下载</button>
-        </div>
+        <h1 class="visually-hidden" id="tasks-title">全部下载</h1>
           <div class="panel-actions task-toolbar" aria-label="队列操作">
             <button class="kd-icon-button" id="open-downloads-btn" type="button" title="打开下载目录" aria-label="打开下载目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button>
             <button class="kd-button secondary" id="pause-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-pause"></use></svg>暂停队列</button>
             <button class="kd-button secondary" id="resume-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-play"></use></svg>恢复队列</button>
             <button class="kd-button secondary" id="retry-all-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-retry"></use></svg>全部重试</button>
             <button class="kd-button secondary" id="clear-done-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-trash"></use></svg>清理已完成</button>
+            <button class="kd-button secondary" id="batch-task-btn" type="button"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-list"></use></svg>批量下载</button>
             <button class="kd-icon-button" id="refresh-tasks-btn" type="button" title="刷新任务" aria-label="刷新任务"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-refresh"></use></svg></button>
           </div>
 
@@ -126,10 +123,7 @@
         </div>
       </section>
 <section class="kd-panel log-page" id="logs-page" data-page="logs" hidden aria-labelledby="settings-application-log-title">
-            <div class="settings-section-heading">
-              <h1 id="settings-application-log-title" tabindex="-1">应用日志</h1>
-              <p>查看服务启动、更新和下载内核事件。</p>
-            </div>
+            <h1 class="visually-hidden" id="settings-application-log-title" tabindex="-1">应用日志</h1>
             <div class="application-log-toolbar">
               <p class="hint" id="application-log-status" aria-live="polite">进入此页时读取最新日志，可手动刷新。</p>
               <div class="application-log-actions">
@@ -140,7 +134,7 @@
             <pre class="application-log-output" id="application-log-output" tabindex="0" aria-label="TrueDown 最新应用日志">尚未读取应用日志。</pre>
           </section>
 <section class="kd-panel settings-page" id="settings-page" data-page="settings" aria-labelledby="settings-title" hidden>
-  <div class="panel-header"><div><p class="kd-eyebrow">Preferences</p><h1 id="settings-title" tabindex="-1">设置</h1><p class="panel-subtitle">按功能管理配置。标有即时生效的选项会单独保存。</p></div></div>
+  <h1 class="visually-hidden" id="settings-title" tabindex="-1">设置</h1>
   <div class="settings-layout">
     <nav class="settings-nav" aria-label="设置分类"><a class="settings-nav-link" href="#settings/overview" data-settings-link="overview">设置总览</a>
 <a class="settings-nav-link" href="#settings/general" data-settings-link="general">下载与速度</a>
@@ -166,17 +160,15 @@
 <a class="kd-panel settings-card" href="#settings/advanced"><span class="kd-eyebrow">08</span><strong>高级参数</strong><span>额外 aria2 下载选项</span><span class="settings-card-value" data-overview="advanced">打开设置 →</span></a>
 <a class="kd-panel settings-card" href="#settings/experimental"><span class="kd-eyebrow">09</span><strong>实验功能</strong><span>Tracker 流量研究</span><span class="settings-card-value" data-overview="experimental">打开设置 →</span></a></div></section>
         <section class="settings-section" data-settings-page="application" aria-labelledby="settings-application-title" hidden>
-          <div class="settings-section-heading"><h3 id="settings-application-title">启动与运行</h3><p>下载服务独立运行，关闭网页后仍会继续下载。</p></div>
-          <label class="setting-toggle" for="startup-enabled"><input id="startup-enabled" type="checkbox" disabled><span><strong>开机自动启动</strong><small>Windows 登录后在托盘运行，不自动打开网页。即时生效。</small></span></label>
+          <div class="settings-section-heading"><h3 id="settings-application-title">启动与运行</h3></div>
+          <label class="setting-toggle" for="startup-enabled"><input id="startup-enabled" type="checkbox" disabled><span><strong>开机自动启动</strong><small>登录后在后台运行，即时生效。</small></span></label>
             <p class="hint" id="startup-status" role="status">正在读取启动设置…</p>
-            <div class="runtime-guide"><h3>数据存储</h3><div id="storage-location" class="hint" role="status">正在读取数据目录…</div><p class="hint">配置、任务和恢复状态由同一个 Profile 管理。日志单独轮转，缓存可重建。备份或搬迁前请先退出 TrueDown，并包含上方列出的配置、任务与恢复状态目录；下载文件仍保留在各任务选择的位置。</p></div>
+            <div class="runtime-guide"><h3>数据存储</h3><div id="storage-location" class="hint" role="status">正在读取数据目录…</div><p class="hint">备份或搬迁前请退出 TrueDown，保留配置、任务和恢复状态目录。下载文件保留在原位置。</p></div>
           <button class="kd-button danger compact" id="exit-from-settings-btn" type="button">退出 TrueDown</button>
-          <div class="runtime-guide"><h3>独立运行下载服务</h3><p>下载服务与桌面界面共用任务和配置，也可通过 truedown-cli 管理。</p><dl><dt><code>truedown-core serve</code></dt><dd>前台运行独立服务，使用 Ctrl+C 或 truedown-cli exit 退出。</dd><dt><code>TrueDown</code></dt><dd>打开桌面界面；已有服务时复用它。</dd><dt><code>TrueDown --background</code></dt><dd>启动桌面服务并驻留托盘，暂不显示窗口。</dd></dl></div>
         </section>
         <section data-settings-page="general" hidden class="settings-section" aria-labelledby="settings-general-title">
             <div class="settings-section-heading">
-              <h3 id="settings-general-title">常规</h3>
-              <p>保存位置、连接数与速度限制。</p>
+              <h3 id="settings-general-title">下载与速度</h3>
             </div>
             <div class="form-grid">
               <div class="field field-span-2">
@@ -190,7 +182,7 @@
               <div class="field">
                 <label for="cfg-task-concurrency">同时下载任务数</label>
                 <input class="kd-input" id="cfg-task-concurrency" type="number" min="1" max="64" placeholder="3">
-                <p class="hint">控制 aria2 同时运行的下载任务，保存后立即生效。</p>
+                <p class="hint">保存后应用于当前队列。</p>
               </div>
               <div class="field">
                 <label for="cfg-global-speed">全局总限速</label>
@@ -202,7 +194,7 @@
                     <option value="1073741824">GB/s</option>
                   </select>
                 </div>
-                <p class="hint">限制所有任务的合计速度，由 aria2 立即应用；0 表示不限速。</p>
+                <p class="hint">0 表示不限速，保存后立即生效。</p>
               </div>
               <div class="field">
                 <label for="cfg-speed">单任务限速</label>
@@ -221,7 +213,6 @@
 <section data-settings-page="network" hidden class="settings-section" aria-labelledby="settings-network-title">
             <div class="settings-section-heading">
               <h3 id="settings-network-title">网络与重试</h3>
-              <p>为普通 HTTP(S) 下载提供常用网络选项。</p>
             </div>
             <div class="form-grid">
               <div class="field">
@@ -252,8 +243,7 @@
           </section>
 <section data-settings-page="files" hidden class="settings-section" aria-labelledby="settings-file-title">
             <div class="settings-section-heading">
-              <h3 id="settings-file-title">文件处理</h3>
-              <p>控制文件预分配、完整性校验、远程时间与目录过滤。</p>
+              <h3 id="settings-file-title">文件与过滤</h3>
             </div>
             <div class="form-grid">
               <div class="field">
@@ -262,7 +252,7 @@
                   <option value="direct">直接下载目录压缩包</option>
                   <option value="expand">默认展开为独立文件任务</option>
                 </select>
-                <p class="hint">应用于仪表盘、浏览器集成和未明确指定模式的 API 请求。</p>
+                <p class="hint">新建任务时可单独更改。</p>
               </div>
               <div class="field">
                 <label for="cfg-allocation">文件预分配</label>
@@ -285,7 +275,7 @@
               </label>
               <label class="setting-toggle" for="cfg-filter-enabled">
                 <input id="cfg-filter-enabled" type="checkbox">
-                <span><strong>Dropbox 解析默认使用过滤</strong><small>新建任务时仍可逐次关闭；不会过滤普通下载。</small></span>
+                <span><strong>Dropbox 默认过滤文件</strong><small>仅用于目录展开，不影响普通下载。</small></span>
               </label>
             </div>
             <div class="field">
@@ -308,14 +298,13 @@
 <section data-settings-page="modules" hidden class="settings-section" aria-labelledby="settings-modules-title">
 			<div class="settings-section-heading">
 			  <h3 id="settings-modules-title">解析模块</h3>
-			  <p>每个模块都有随程序内置的安全基线；可单独导入声明式更新包并立即热重载，失败时自动保留基线。</p>
+			  <p>启用、停用或导入更新后即时生效。</p>
 			</div>
 			<div class="module-list" id="module-list" aria-live="polite"></div>
 		  </section>
 <section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-update-title">
             <div class="settings-section-heading">
               <h3 id="settings-update-title">程序与下载内核</h3>
-              <p>TrueDown 可以自动更新自身；安装包始终保留内置稳定版 aria2，Aria2 Next 只在你手动操作时下载或更新。</p>
             </div>
             <div class="update-list">
               <article class="update-card">
@@ -327,9 +316,9 @@
                   <p id="truedown-update-status" aria-live="polite">正在读取更新状态…</p>
                   <label class="inline-update-toggle" for="auto-update-truedown">
                     <input id="auto-update-truedown" type="checkbox">
-                    <span>自动检查、下载并在任务空闲时更新 TrueDown</span>
+                    <span>自动更新，任务空闲时安装</span>
                   </label>
-                  <small>更新包通过固定 GitHub 仓库和发布清单校验大小与 SHA-256；新版本启动失败时自动回滚。</small>
+                  <small>新版本启动失败时自动回滚。</small>
                 </div>
                 <div class="update-card-actions">
                   <button class="kd-button secondary compact" id="check-truedown-update-btn" type="button">检查更新</button>
@@ -344,7 +333,7 @@
                     <span id="engine-version">正在读取版本…</span>
                   </div>
                   <p id="engine-update-status" aria-live="polite">正在读取内核状态…</p>
-                  <small class="update-warning">Aria2 Next 是独立上游项目且发布资产未提供代码签名。TrueDown 会核对其公开 SHA-256 和版本，但是否安装、更新或启用始终由你决定。</small>
+                  <small>Aria2 Next 需手动安装和更新，用于 BitTorrent 下载。</small>
                 </div>
                 <div class="update-card-actions">
                   <button class="kd-button secondary compact" id="select-stable-engine-btn" type="button">使用稳定内核</button>
@@ -356,12 +345,10 @@
           </section>
 <section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-bt-diagnostics-title">
             <div class="settings-section-heading">
-              <h3 id="settings-bt-diagnostics-title">BitTorrent 身份与诊断</h3>
-              <p>显示 tracker 实际看到的内核身份，并说明零速诊断日志的位置。</p>
+              <h3 id="settings-bt-diagnostics-title">BitTorrent 诊断</h3>
             </div>
             <p class="hint" id="bt-client-identity" aria-live="polite">正在读取当前内核身份…</p>
-            <p class="hint">Aria2 Next 2.6.5 及以上会把脱敏的 libtorrent debug 日志轮转写入数据目录下的 <code>aria2.log</code>（单文件 10 MiB、最多 4 个）；更早内核写入精简的控制台日志。任务进度会同时显示 peer、seeder、tracker、连接候选和可用性。</p>
-            <p class="hint">Motrix Next 嵌入的是同一个 Aria2 Next 内核；qBittorrent 与 Deluge 也使用 libtorrent-rasterbar，但版本、peer fingerprint 和握手身份各自独立。只改普通 HTTP User-Agent 不能把 Aria2 Next 变成这些客户端，反而会产生不一致标识。</p>
+            <p class="hint">Aria2 Next 2.6.5 及以上将诊断日志保存至数据目录的 <code>aria2.log</code>。连接与可用性信息可在任务进度中查看。</p>
           </section>
 <section data-settings-page="experimental" hidden class="settings-section tracker-research-section" aria-labelledby="settings-tracker-research-title">
             <div class="settings-section-heading">
@@ -426,12 +413,12 @@
           </section>
 <section data-settings-page="advanced" hidden class="settings-section" aria-labelledby="settings-advanced-title">
             <div class="settings-section-heading">
-              <h3 id="settings-advanced-title">高级</h3>
-              <p>每行一个 aria2 flag，受 TrueDown 安全边界限制。</p>
+              <h3 id="settings-advanced-title">高级参数</h3>
             </div>
             <div class="field">
               <label for="cfg-extra">额外 aria2 参数</label>
               <textarea class="kd-input" id="cfg-extra" rows="4" placeholder="--min-split-size=1M"></textarea>
+              <p class="hint">每行一个参数，不支持进程、RPC 或本地文件选项。</p>
             </div>
           </section>
 <section data-settings-page="security" hidden class="settings-section token-card" aria-labelledby="settings-security-title">
@@ -439,9 +426,9 @@
               <h3 id="settings-security-title">API Key 认证</h3>
               <p>浏览器集成和远程仪表盘共用此认证。</p>
             </div>
-            <label class="token-auth-toggle" for="token-auth-enabled">
+            <label class="setting-toggle" for="token-auth-enabled">
               <input id="token-auth-enabled" type="checkbox">
-              <span>启用 API Key 认证</span>
+              <span><strong>启用 API Key 认证</strong><small>即时生效，连接的浏览器扩展需填写同一密钥。</small></span>
             </label>
             <p class="hint" id="token-auth-status" aria-live="polite">正在读取认证设置…</p>
             <button class="kd-button secondary" id="copy-api-token-btn" type="button" disabled>复制 API Key</button>

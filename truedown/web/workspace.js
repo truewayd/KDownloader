@@ -55,7 +55,7 @@ function applyWorkspaceRoute(focus = true) {
   });
   updateTaskNavigation();
   const titles = { tasks: "下载任务", logs: "应用日志", settings: "设置" };
-  document.title = `${titles[currentPage]} · TrueDown`;
+  document.title = titles[currentPage];
   if (currentPage === "tasks") refreshAndSchedule();
   if (currentPage === "logs") loadApplicationLog();
   if (currentPage === "settings") loadSettingsPage();

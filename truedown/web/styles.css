@@ -952,24 +952,24 @@ h2 {
 
 .module-list {
 	display: grid;
-	gap: 8px;
+	gap: 16px;
 }
 
 .module-card {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 14px;
+	display: grid;
+	grid-template-columns: 40px minmax(0, 1fr);
+	align-items: start;
+	gap: 16px;
 	border: 1px solid var(--kd-border);
 	border-radius: var(--kd-radius);
-	padding: 11px;
+	padding: 18px;
 	background: var(--kd-input);
 }
 
 .module-card-copy {
 	display: grid;
 	min-width: 0;
-	gap: 4px;
+	gap: 8px;
 }
 
 .module-card-heading {
@@ -981,19 +981,21 @@ h2 {
 
 .module-card-heading strong {
 	color: var(--kd-text);
-	font-size: 12px;
+	font-size: 14px;
+	font-weight: 600;
 }
 
 .module-card-heading span,
 .module-card-copy small {
 	color: var(--kd-muted);
-	font-size: 10px;
+	font-size: 11px;
+	line-height: 1.6;
 }
 
 .module-card-copy p {
 	margin: 0;
 	color: var(--kd-muted);
-	font-size: 11px;
+	font-size: 12px;
 	line-height: 1.5;
 }
 
@@ -1003,32 +1005,34 @@ h2 {
 
 .module-card-actions {
 	display: flex;
+	grid-column: 2;
 	flex: 0 0 auto;
 	flex-wrap: wrap;
-	justify-content: flex-end;
-	gap: 6px;
+	justify-content: flex-start;
+	gap: 8px;
 }
+
+.module-card-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--kd-radius); background: var(--kd-surface-raised); color: var(--kd-icon); }
+.module-card-icon .icon { width: 26px; height: 26px; }
 
 .update-list {
   display: grid;
-  gap: 8px;
+  gap: 16px;
 }
 
 .update-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  display: grid;
+  gap: 16px;
   border: 1px solid var(--kd-border);
   border-radius: var(--kd-radius);
-  padding: 11px;
+  padding: 18px;
   background: var(--kd-input);
 }
 
 .update-card-copy {
   display: grid;
   min-width: 0;
-  gap: 5px;
+  gap: 10px;
 }
 
 .update-card-heading {
@@ -1040,20 +1044,21 @@ h2 {
 
 .update-card-heading strong {
   color: var(--kd-text);
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .update-card-heading span,
 .update-card-copy small {
   color: var(--kd-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
 .update-card-copy p {
   margin: 0;
   color: var(--kd-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -1125,9 +1130,8 @@ h2 {
   display: flex;
   flex: 0 0 auto;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-  max-width: 310px;
+  justify-content: flex-start;
+  gap: 8px;
 }
 
 .application-log-section {
@@ -1267,27 +1271,6 @@ h2 {
   justify-self: start;
 }
 
-.token-auth-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: fit-content;
-  color: var(--kd-text);
-  cursor: pointer;
-}
-
-.token-auth-toggle input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--kd-accent);
-}
-
-.token-auth-toggle:has(input:disabled) {
-  cursor: not-allowed;
-  opacity: 0.68;
-}
-
 .clipboard-fallback {
   position: fixed;
   left: -10000px;
@@ -1298,6 +1281,7 @@ h2 {
 
 .field {
   display: grid;
+  align-content: start;
   min-width: 0;
   gap: 7px;
   margin-bottom: 14px;

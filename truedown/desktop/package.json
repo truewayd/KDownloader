@@ -11,6 +11,7 @@
     "check": "cargo test --locked",
     "test:windows": "node tests/windows-smoke.mjs",
     "test:workspace": "node tests/workspace-browser-smoke.mjs",
+    "test:settings": "node tests/settings-browser-smoke.mjs",
     "test:forms": "node tests/task-forms-browser-smoke.mjs",
     "test:linux": "xvfb-run -a -s '-screen 0 1280x800x24' dbus-run-session -- node tests/linux-smoke.mjs"
   },

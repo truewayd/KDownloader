@@ -38,6 +38,7 @@
 :root:is([data-native-window="new-task"], [data-native-window="batch-task"]) .modal-footer {
   padding: 16px 20px;
 }
+#download-form .modal-header.visually-hidden { padding: 0; border: 0; }
 :root[data-native-window="batch-task"] .torrent-import-field,
 :root[data-native-window="batch-task"] .field:has(> #m-name) {
   display: none;

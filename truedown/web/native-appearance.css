@@ -42,6 +42,7 @@
 [data-platform="macos"] .primary-nav a,
 [data-platform="macos"] .settings-nav-link { border: 0; padding-block: 8px; }
 [data-platform] .kd-eyebrow { display: none; }
+[data-native-window="main"] .native-window-title { display: none; }
 [data-platform] .panel-header h1 { font-size: 24px; font-weight: 600; }
 [data-platform] .tasks-table { font-size: 13px; }
 [data-platform] .settings-footer { background: var(--kd-surface); }

@@ -85,6 +85,7 @@ test("native form startup reads only its permitted preferences and retries witho
   const surface = control();
   const form = control();
   form.closest = () => surface;
+  form.querySelector = () => control();
   const shell = {};
   const context = vm.createContext({
     nativeWindowRole: "batch-task", nativeTaskFormLoad: null, nativeTaskFormReady: false,

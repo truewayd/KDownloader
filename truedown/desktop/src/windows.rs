@@ -29,11 +29,11 @@ impl Kind {
     }
     fn title(self) -> &'static str {
         match self {
-            Self::Settings => "设置 · TrueDown",
-            Self::Logs => "应用日志 · TrueDown",
+            Self::Settings => "设置",
+            Self::Logs => "应用日志",
             Self::About => "关于 TrueDown",
-            Self::NewTask => "新建下载 · TrueDown",
-            Self::BatchTask => "批量下载 · TrueDown",
+            Self::NewTask => "新建下载",
+            Self::BatchTask => "批量下载",
         }
     }
     fn url(self) -> &'static str {

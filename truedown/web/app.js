@@ -182,7 +182,6 @@ function cacheElements() {
     "dialog-overlay",
     "dialog-title",
     "error-count",
-    "exit-truedown-btn",
     "exit-from-settings-btn",
     "m-conns",
     "m-dropbox-filter",
@@ -329,7 +328,6 @@ function bindEvents() {
   els.checkTruedownUpdateBtn.addEventListener("click", checkTrueDownUpdate);
 	els.refreshApplicationLogBtn.addEventListener("click", () => loadApplicationLog(true));
 	els.copyApplicationLogBtn.addEventListener("click", copyApplicationLog);
-  els.exitTruedownBtn.addEventListener("click", exitTrueDown);
   els.exitFromSettingsBtn.addEventListener("click", exitTrueDown);
   els.restartTruedownUpdateBtn.addEventListener("click", restartForTrueDownUpdate);
   els.installNextEngineBtn.addEventListener("click", installNextEngine);
@@ -508,12 +506,13 @@ async function refreshNativeTaskPreferences() {
 async function initNativeTaskForm() {
   if (nativeTaskFormLoad) return nativeTaskFormLoad;
   currentPage = nativeWindowRole;
-  document.title = `${nativeWindowRole === "batch-task" ? "批量下载" : "新建下载"} · TrueDown`;
+  document.title = nativeWindowRole === "batch-task" ? "批量下载" : "新建下载";
   document.querySelector(".app-shell").hidden = true;
   const surface = els.downloadForm.closest(".modal");
   surface.setAttribute("role", "main");
   surface.removeAttribute("aria-modal");
   els.modalCloseBtn.hidden = true;
+  els.downloadForm.querySelector(".modal-header").classList.add("visually-hidden");
   els.modalCancelBtn.title = "关闭窗口，保留未提交的内容";
   els.overlay.classList.add("open");
   els.overlay.setAttribute("aria-hidden", "false");

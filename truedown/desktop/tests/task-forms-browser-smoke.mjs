@@ -56,6 +56,8 @@ try {
       page.on("pageerror", (error) => errors.push(error.message));
       await page.goto(`${origin}/index.html?window=${role}`);
       await page.waitForFunction(() => nativeTaskFormReady);
+      assert.equal(await page.title(), role === "batch-task" ? "批量下载" : "新建下载");
+      assert.ok((await page.locator("#download-form .modal-header").boundingBox()).height <= 1, "Native forms retain their accessible heading without a second title row");
       assert.equal(await page.locator('#overlay [role="dialog"]').count(), 0);
       assert.equal(await page.locator("#overlay [role=main]").isVisible(), true);
       const layout = await page.evaluate(() => {

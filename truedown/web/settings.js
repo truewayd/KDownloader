@@ -146,7 +146,7 @@ async function loadStorageLocation() {
     const location = await requestJSON("/system/storage");
     element.replaceChildren();
     const root = document.createElement("p");
-    root.textContent = `Profile：${location.dataDirectory}`;
+    root.textContent = `数据目录：${location.dataDirectory}`;
     element.append(root);
     if (location.paths) {
       const details = document.createElement("dl");
@@ -169,8 +169,7 @@ function renderStartupSettings() {
   els.startupEnabled.disabled = state?.supported !== true;
   els.startupStatus.textContent = !state ? "尚未读取启动设置。" : !state.supported
     ? `此实例不支持内置开机启动。${state.reason || ""}`
-    : state.enabled ? "已开启：登录 Windows 后启动此实例并驻留托盘。"
-      : "已关闭。开启后仅为当前 Windows 用户注册，不需要管理员权限。";
+    : state.enabled ? "已开启，下次登录时在后台启动。" : "已关闭。";
 }
 
 async function updateStartupSettings() {
@@ -461,7 +460,7 @@ function renderTrackerResearchSettings(settings = trackerResearchSettings) {
 
 function bitTorrentIdentityDescription(settings) {
   if (settings.engine !== "next") {
-    return "当前内置稳定版 aria2 不开放 TrueDown 的 BitTorrent 创建接口；选择 Aria2 Next 后会自动切换并启用 BT。";
+    return "BitTorrent 下载需要安装并选择 Aria2 Next。";
   }
   const version = settings.engineVersion || "当前版本";
   const libraryVersion = KNOWN_NEXT_LIBTORRENT_VERSIONS[settings.engineVersion];
@@ -663,6 +662,10 @@ function renderResolverModules() {
 	for (const module of resolverModules) {
 		const card = document.createElement("article");
 		card.className = "module-card";
+		const icon = document.createElement("span");
+		icon.className = "module-card-icon";
+		icon.setAttribute("aria-hidden", "true");
+		icon.innerHTML = iconMarkup(module.id === "google-drive" ? "google-drive" : module.id === "dropbox" ? "dropbox" : "cloud");
 		const copy = document.createElement("div");
 		copy.className = "module-card-copy";
 		const heading = document.createElement("div");
@@ -670,19 +673,12 @@ function renderResolverModules() {
 		const name = document.createElement("strong");
 		name.textContent = module.name;
 		const version = document.createElement("span");
-		version.textContent = `v${module.version} · ${module.source === "updated" ? "独立更新" : "内置基线"}`;
+		version.textContent = `v${module.version} · ${module.source === "updated" ? "已更新" : "内置"}`;
 		heading.append(name, version);
 		const description = document.createElement("p");
-		description.textContent = module.description;
-		const capabilities = document.createElement("small");
-		capabilities.textContent = module.capabilities.join(" · ");
-		const lifecycle = document.createElement("small");
-		const baseline = module.baselineVersion ? `内置 v${module.baselineVersion}` : "内置基线";
-		const released = module.releasedAt ? ` · 发布于 ${module.releasedAt}` : "";
-		const digest = module.digest ? ` · SHA-256 ${module.digest.slice(0, 12)}…` : "";
-		lifecycle.textContent = `${baseline}${released}${module.hotReload ? " · 支持热重载" : ""}${digest}`;
-		if (module.digest) lifecycle.title = `SHA-256: ${module.digest}`;
-		copy.append(heading, description, capabilities, lifecycle);
+		description.textContent = module.id === "google-drive" ? "解析公开文件、文件夹和 Google 文档。"
+			: module.id === "dropbox" ? "下载共享文件，或将文件夹展开为独立任务。" : module.description;
+		copy.append(heading, description);
 		if (module.updateError) {
 			const error = document.createElement("p");
 			error.className = "module-card-error";
@@ -715,7 +711,7 @@ function renderResolverModules() {
 			reset.textContent = "恢复基线";
 			actions.append(reset);
 		}
-		card.append(copy, actions);
+		card.append(icon, copy, actions);
 		els.moduleList.append(card);
 	}
 }
