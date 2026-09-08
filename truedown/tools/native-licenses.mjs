@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { licenseInventory, readBoundedLicenseResponse } from "./native-license-bounds.mjs";
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const desktop = path.join(project, "desktop");
@@ -34,9 +35,11 @@ async function fetchBounded(url, json = false) {
       await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
     }
   }
-  if (!response.ok) throw new Error(`Cannot read pinned license source ${url}: ${response.status}`);
-  const data = Buffer.from(await response.arrayBuffer());
-  if (data.length > 1 << 20) throw new Error("Pinned license source exceeded its size limit");
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error(`Cannot read pinned license source ${url}: ${response.status}`);
+  }
+  const data = await readBoundedLicenseResponse(response);
   return json ? JSON.parse(data.toString("utf8")) : data;
 }
 async function supplementalLicenses(pkg, directory) {
@@ -126,25 +129,31 @@ const metadata = JSON.parse(run("cargo", ["metadata", "--locked", "--format-vers
 const active = new Set(metadata.resolve.nodes.map(node => node.id));
 const packages = metadata.packages.filter(pkg => pkg.source && active.has(pkg.id)).sort((left, right) => `${left.name}@${left.version}`.localeCompare(`${right.name}@${right.version}`, "en"));
 if (!packages.length || packages.length > 2048) throw new Error("Invalid native dependency inventory");
-const output = [`TrueDown native dependency licenses (${target})`, "Generated from the locked dependency graph and packaged or pinned upstream license notices."];
+const output = licenseInventory();
+output.push(`TrueDown native dependency licenses (${target})`, "Generated from the locked dependency graph and packaged or pinned upstream license notices.");
 const missing = [];
 for (const pkg of packages) {
-  const directory = path.dirname(pkg.manifest_path);
+  const directory = path.resolve(path.dirname(pkg.manifest_path));
   const names = (await fs.readdir(directory)).filter(name => licenseName.test(name));
   if (pkg.license_file) names.push(path.relative(directory, pkg.license_file));
   const files = [...new Set(names)].sort();
-  const text = [];
+  let included = false;
+  output.push("", `${pkg.name} ${pkg.version}`, `License: ${pkg.license || "see original text"}`, `Authors: ${pkg.authors.join(", ") || "see source contributors"}`, `Source: ${pkg.repository || pkg.source}`, `Exact source package: https://crates.io/api/v1/crates/${pkg.name}/${pkg.version}/download`);
   for (const name of files) {
     const file = path.resolve(directory, name);
     if (!file.startsWith(directory + path.sep)) throw new Error(`License path escaped ${pkg.name}`);
     const stat = await fs.lstat(file);
     if (stat.isDirectory()) continue;
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1 << 20) throw new Error(`Invalid license file for ${pkg.name}`);
-    text.push(`${name}\n${await fs.readFile(file, "utf8")}`);
+    output.push(`${name}\n${await fs.readFile(file, "utf8")}`);
+    included = true;
   }
-  if (!text.length) text.push(...await supplementalLicenses(pkg, directory));
-  if (!text.length) missing.push(`${pkg.name}@${pkg.version} (${pkg.license || "unspecified"})`);
-  output.push("", `${pkg.name} ${pkg.version}`, `License: ${pkg.license || "see original text"}`, `Authors: ${pkg.authors.join(", ") || "see source contributors"}`, `Source: ${pkg.repository || pkg.source}`, `Exact source package: https://crates.io/api/v1/crates/${pkg.name}/${pkg.version}/download`, ...text);
+  if (!included) {
+    const text = await supplementalLicenses(pkg, directory);
+    output.push(...text);
+    included = text.length > 0;
+  }
+  if (!included) missing.push(`${pkg.name}@${pkg.version} (${pkg.license || "unspecified"})`);
 }
 if (missing.length) throw new Error(`Dependencies omitted their license text:\n${missing.join("\n")}`);
 const webview = packages.find(pkg => pkg.name === "webview2-com-sys");
@@ -158,8 +167,7 @@ if (webview) {
   if (digest(notice) !== sdk.sha256) throw new Error("WebView2 SDK license checksum failed");
   output.push("", `Microsoft WebView2 SDK ${sdk.version} loader`, `Source: ${sdk.source}`, notice.toString("utf8"));
 }
-const text = output.join("\n") + "\n";
-if (Buffer.byteLength(text) > 4 << 20) throw new Error("Native license inventory exceeds its package limit");
+const text = output.text();
 const directory = path.join(project, "dist");
 await fs.mkdir(directory, { recursive: true });
 const stat = await fs.lstat(directory);

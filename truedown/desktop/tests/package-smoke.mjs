@@ -14,6 +14,10 @@ assert.ok(!process.argv[3] || virtualDisplay, "Unknown package acceptance option
 assert.ok(!virtualDisplay || (process.platform === "linux" && process.env.DISPLAY), "Virtual display acceptance requires Linux under xvfb-run");
 const directory = path.dirname(application);
 const cli = path.join(directory, process.platform === "win32" ? "truedown-cli.exe" : "truedown-cli");
+const coreExecutable = path.join(directory, process.platform === "win32" ? "truedown-core.exe" : "truedown-core");
+for (const executable of [application, coreExecutable, cli]) {
+  assert.ok((await fs.lstat(executable)).isFile(), `Missing packaged executable: ${executable}`);
+}
 const profile = await fs.mkdtemp(path.join(os.tmpdir(), "truedown-package-review-"));
 const run = promisify(execFile);
 async function freePort() {
@@ -31,28 +35,64 @@ async function command(...args) {
   return run(cli, ["--data-dir", profile, ...args], { env, windowsHide: true, timeout: 15000 });
 }
 let diagnostic = "", browser;
+function request(route, options = {}) {
+  return fetch(`http://127.0.0.1:${port}${route}`, { ...options, signal: AbortSignal.timeout(5000) });
+}
+function appendDiagnostic(data) { diagnostic = (diagnostic + data).slice(-8192); }
+function launch(executable, args) {
+  const child = spawn(executable, args, { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  child.on("error", error => {
+    if (!child.pid) child.launchError = error;
+    appendDiagnostic(error);
+  });
+  for (const stream of [child.stdout, child.stderr]) stream.on("data", appendDiagnostic);
+  return child;
+}
+function exited(child) { return Boolean(child.launchError) || child.exitCode !== null || child.signalCode !== null; }
+function assertRunning(child) {
+  if (exited(child)) throw new Error(`Package process exited before readiness (${child.exitCode ?? child.signalCode ?? "spawn failed"}): ${diagnostic}`);
+}
+async function bounded(promise, timeout) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Native browser diagnostic timed out")), timeout);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+async function stop(child) {
+  if (exited(child)) return;
+  await command("exit").catch(() => {});
+  await until(() => exited(child), 15000).catch(async () => {
+    child.kill("SIGKILL");
+    await until(() => exited(child), 5000);
+  });
+}
 // Commit the profile using the packaged console entry before choosing the
 // native health path. Read-only `paths` may still describe an unmigrated root.
-const core = spawn(path.join(directory, process.platform === "win32" ? "truedown-core.exe" : "truedown-core"),
-  ["serve", "--data-dir", profile], { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
-for (const stream of [core.stdout, core.stderr]) stream.on("data", data => { diagnostic = (diagnostic + data).slice(-8192); });
+const core = launch(coreExecutable, ["serve", "--data-dir", profile]);
+let standaloneInfo;
 try {
-  await until(() => command("--json", "status").then(() => true, () => false));
-  const response = await fetch(`http://127.0.0.1:${port}/settings/updates`, {
+  await until(() => {
+    assertRunning(core);
+    return command("--json", "status").then(result => { standaloneInfo = JSON.parse(result.stdout).core; return true; }, () => false);
+  });
+  const startup = await request("/settings/startup");
+  assert.equal(startup.status, 200);
+  assert.equal((await startup.json()).supported, false, "The console core cannot own login startup");
+  const response = await request("/settings/updates", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ autoUpdateTrueDown: false }),
   });
   assert.equal(response.status, 200);
   await command("exit");
-  await until(() => core.exitCode !== null, 30000);
+  await until(() => exited(core), 30000);
   assert.equal(core.exitCode, 0, diagnostic);
 } finally {
-  if (core.exitCode === null) {
-    await command("exit").catch(() => {});
-    await until(() => core.exitCode !== null, 15000).catch(() => core.kill());
-  }
+  await stop(core);
 }
 const location = JSON.parse((await command("--json", "paths")).stdout);
 assert.equal(location.layoutVersion, 1, "The core must commit the profile before native startup");
+assert.deepEqual(standaloneInfo, location.build, "Packaged console core and CLI must match");
 if (process.env.TRUEDOWN_BUILD_NUMBER) assert.equal(location.build.buildNumber, process.env.TRUEDOWN_BUILD_NUMBER);
 if (process.env.TRUEDOWN_COMMIT) assert.equal(location.build.commit, process.env.TRUEDOWN_COMMIT);
 const updates = path.join(location.paths.state, "updates");
@@ -64,11 +104,8 @@ if (process.platform === "win32") env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = `-
 // WebKitGTK may defer loading an unmapped view. Linux exercises ordinary
 // frontend startup inside Xvfb; Windows exercises the actual hidden update
 // startup. Neither mode presents a window on the user's desktop.
-const child = spawn(application, [...(virtualDisplay ? [] : ["--background"]), "--data-dir", profile], {
-  env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
-});
 diagnostic = "";
-for (const stream of [child.stdout, child.stderr]) stream.on("data", data => { diagnostic = (diagnostic + data).slice(-8192); });
+const child = launch(application, [...(virtualDisplay ? [] : ["--background"]), "--data-dir", profile]);
 async function until(check, timeout = 60000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
@@ -79,40 +116,42 @@ async function until(check, timeout = 60000) {
 }
 try {
   if (process.platform === "win32") {
-    await until(() => fetch(`http://127.0.0.1:${debugPort}/json/version`).then(response => response.ok, () => false));
+    await until(() => {
+      assertRunning(child);
+      return fetch(`http://127.0.0.1:${debugPort}/json/version`, { signal: AbortSignal.timeout(5000) }).then(response => response.ok, () => false);
+    });
     const { chromium } = await import("playwright");
-    browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { timeout: 15000 });
     for (const page of browser.contexts()[0].pages()) {
-      page.on("pageerror", error => { diagnostic += String(error); });
-      page.on("console", message => { if (message.type() === "error") diagnostic += message.text(); });
+      page.on("pageerror", appendDiagnostic);
+      page.on("console", message => { if (message.type() === "error") appendDiagnostic(message.text()); });
     }
   }
   await until(async () => {
-    if (child.exitCode !== null) throw new Error(`Native package exited before readiness: ${diagnostic}`);
+    assertRunning(child);
     return fs.readFile(health, "utf8").then(value => value === token, () => false);
   });
-  const info = await fetch(`http://127.0.0.1:${port}/system/info`).then(response => response.json());
+  const identity = await request("/system/info");
+  assert.equal(identity.status, 200);
+  const info = await identity.json();
   assert.deepEqual(info, location.build);
-  await command("--json", "status");
+  assert.deepEqual(JSON.parse((await command("--json", "status")).stdout).core, info);
   if (browser) {
     const page = browser.contexts()[0].pages()[0];
     assert.equal(await page.evaluate(() => window.__TAURI__.window.getCurrentWindow().isVisible()), false);
   }
   await command("exit");
-  await until(() => child.exitCode !== null, 30000);
+  await until(() => exited(child), 30000);
   assert.equal(child.exitCode, 0, diagnostic);
   console.log(`native_package_ready=ok matched_shell_core_cli=ok graceful_exit=ok display=${virtualDisplay ? "virtual" : "hidden"} profile=${profile}`);
 } catch (error) {
   if (browser) {
     for (const page of browser.contexts()[0].pages()) {
-      console.error("Native page diagnostics:", await page.evaluate(() => ({ url: location.href, text: document.body?.innerText.slice(-4000) })).catch(() => null));
+      console.error("Native page diagnostics:", await bounded(page.evaluate(() => ({ url: location.href, text: document.body?.innerText.slice(-4000) })), 3000).catch(() => null));
     }
   }
   throw error;
 } finally {
-  await browser?.close().catch(() => {});
-  if (child.exitCode === null) {
-    await command("exit").catch(() => {});
-    await until(() => child.exitCode !== null, 15000).catch(() => child.kill());
-  }
+  try { await stop(child); }
+  finally { if (browser) await bounded(browser.close(), 5000).catch(() => {}); }
 }
