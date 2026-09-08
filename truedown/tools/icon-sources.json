@@ -46,6 +46,7 @@
     "trash": "trash-2",
     "upload": "upload"
   },
+  "projectIcons": ["google-drive", "dropbox"],
   "extension": ["server", "cloud", "clock", "database", "save", "refresh", "upload", "download", "search", "filter"],
   "nativeMenu": ["download", "settings", "logs", "info", "power"],
   "windowsSizes": [16, 18, 20, 24, 28, 32, 36, 40, 44, 48, 56, 64, 72, 80, 96, 128, 256],

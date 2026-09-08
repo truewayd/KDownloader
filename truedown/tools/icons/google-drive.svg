@@ -1,0 +1,5 @@
+<!-- Project-drawn provider mark, matching the shared 24px stroke icon grid. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M9 3h6l7 12-3 5H5l-3-5Z"/>
+  <path d="m9 3 7 12h6M2 15h14l3 5M5 20l7-12"/>
+</svg>
