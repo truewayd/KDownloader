@@ -206,7 +206,7 @@ function preferencesContext(requestJSON) {
       removeEventListener: (name) => events.delete(name),
     },
   });
-  vm.runInContext(declarations("isNativeTaskWindow", "isModuleInstalled", "bindNativeTaskPreferences", "refreshNativeTaskFormOnActivation", "refreshNativeTaskPreferences", "renderModuleAvailability", "updateDropboxOptions"), context);
+  vm.runInContext(declarations("isNativeTaskWindow", "isModuleInstalled", "bindNativeTaskPreferences", "refreshNativeTaskFormOnActivation", "refreshNativeTaskPreferences", "buildModuleOptions"), context);
   context.bindNativeTaskPreferences();
   return { context, events };
 }
@@ -227,7 +227,7 @@ test("native form activation updates enabled modules and untouched rules while r
   const file = { name: "draft.torrent" };
   fields.mTorrentFile.files = [file];
   await context.refreshNativeTaskPreferences();
-  assert.equal(fields.mDropboxOption.hidden, true);
+  assert.equal(context.isModuleInstalled("dropbox"), false);
   installed = true; mode = "expand"; filter = true;
   context.document.hidden = true;
   events.get("focus")();
@@ -235,30 +235,27 @@ test("native form activation updates enabled modules and untouched rules while r
   context.document.hidden = false;
   events.get("focus")();
   await context.nativeTaskPreferences.pending;
-  assert.equal(fields.mDropboxOption.hidden, false);
-  assert.equal(fields.mDropboxMode.value, "expand");
-  assert.equal(fields.mDropboxFilter.checked, true);
-  fields.mDropboxMode.emit("change"); // An explicit same-value choice remains a draft.
-  fields.mDropboxFilter.checked = false;
-  fields.mDropboxFilter.emit("change");
+  assert.equal(context.isModuleInstalled("dropbox"), true);
+  assert.equal(context.downloadRules.dropboxMode, mode);
+  assert.equal(context.buildModuleOptions().dropbox.applyFilter, true);
   mode = "direct";
   events.get("focus")();
   await context.nativeTaskPreferences.pending;
-  assert.equal(fields.mDropboxMode.value, "expand");
-  assert.equal(fields.mDropboxFilter.checked, false);
+  assert.equal(context.downloadRules.dropboxMode, mode);
+  assert.equal(context.buildModuleOptions().dropbox.applyFilter, false);
   installed = false;
   events.get("focus")();
   await context.nativeTaskPreferences.pending;
-  assert.equal(fields.mDropboxOption.hidden, true);
+  assert.equal(context.isModuleInstalled("dropbox"), false);
   installed = true;
   events.get("focus")();
   await context.nativeTaskPreferences.pending;
-  assert.equal(fields.mDropboxOption.hidden, false);
+  assert.equal(context.isModuleInstalled("dropbox"), true);
   assert.equal(fields.mLink.value, "https://example.test/draft.zip");
   assert.equal(fields.mTorrentFile.value, "draft.torrent");
   assert.equal(fields.mTorrentFile.files[0], file);
-  assert.equal(fields.mDropboxMode.value, "expand");
-  assert.equal(fields.mDropboxFilter.checked, false);
+  assert.equal(context.downloadRules.dropboxMode, mode);
+  assert.equal(context.buildModuleOptions().dropbox.applyFilter, false);
   assert.equal(calls.length, 15);
 });
 
@@ -274,16 +271,15 @@ test("overlapping activations discard an older whole snapshot and protect edits 
   await new Promise(setImmediate);
   assert.equal(pending.length, 3);
   assert.equal(context.downloadSettings.folder, undefined, "the old snapshot was never applied");
-  context.els.mDropboxMode.value = "direct";
-  context.els.mDropboxMode.emit("change");
+  context.els.mLink.value = "https://example.test/edited.zip";
   pending.shift().resolve({ values: { folder: "/current" } });
   pending.shift().resolve({ dropboxMode: "expand", enabled: true });
   pending.shift().resolve({ modules: [{ id: "dropbox", installed: false }] });
   await Promise.all([first, second]);
   assert.equal(context.downloadSettings.folder, "/current");
-  assert.equal(context.els.mDropboxMode.value, "direct");
-  assert.equal(context.els.mDropboxFilter.checked, true);
-  assert.equal(context.els.mDropboxOption.hidden, true);
+  assert.equal(context.els.mLink.value, "https://example.test/edited.zip");
+  assert.equal(context.downloadRules.enabled, true);
+  assert.equal(context.isModuleInstalled("dropbox"), false);
   assert.equal(context.nativeTaskPreferences.pending, null);
 });
 
@@ -309,7 +305,7 @@ test("failed preference cohorts leave the entire previous snapshot intact and ca
   fail = false;
   await context.refreshNativeTaskPreferences();
   assert.equal(context.downloadSettings.folder, "/new");
-  assert.equal(context.els.mDropboxMode.value, "expand");
+  assert.equal(context.downloadRules.dropboxMode, "expand");
 });
 
 test("native page teardown removes activation subscription and discards pending preference results", async () => {

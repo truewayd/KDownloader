@@ -55,6 +55,7 @@ const DEFAULT_DOWNLOAD_SETTINGS = Object.freeze({
   maxTries: 5,
   retryWait: 3,
   proxy: "",
+  proxyMode: "system",
   userAgent: "",
   referer: "",
   headers: "",
@@ -86,6 +87,7 @@ let currentSummary = emptySummary();
 let currentOffset = 0;
 let currentTotal = 0;
 let currentFilter = "all";
+let currentCategory = "";
 let currentSearch = "";
 let currentSort = "status";
 let currentSortOrder = "asc";
@@ -116,7 +118,7 @@ let apiTokenRequestPromise = null;
 let nativeTaskFormReady = false;
 let nativeTaskFormLoad = null;
 const nativeTaskPreferences = {
-  pending: null, requested: false, disposed: false, modeDirty: false, filterDirty: false,
+  pending: null, requested: false, disposed: false,
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -127,6 +129,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderDownloadSettings();
   renderTrackerResearchSettings();
   bindEvents();
+  initTaskDetails();
   if (isNativeTaskWindow()) await initNativeTaskForm();
   else initWorkspace();
   if (nativeWindowRole === "main") {
@@ -156,6 +159,7 @@ function cacheElements() {
     "cfg-global-speed-unit",
     "cfg-headers",
     "cfg-proxy",
+    "cfg-proxy-mode",
     "cfg-referer",
     "cfg-remote-time",
     "cfg-speed",
@@ -184,9 +188,6 @@ function cacheElements() {
     "error-count",
     "exit-from-settings-btn",
     "m-conns",
-    "m-dropbox-filter",
-    "m-dropbox-mode",
-	"m-dropbox-option",
     "m-extra",
     "m-folder",
     "m-headers",
@@ -194,8 +195,6 @@ function cacheElements() {
     "m-name",
     "m-queueid",
     "m-referer",
-	"m-google-drive-option",
-	"m-resolver-options",
     "m-speed",
 	"m-torrent-file",
     "m-tries",
@@ -235,6 +234,7 @@ function cacheElements() {
     "settings-reset-btn",
     "submit-task-btn",
     "task-count",
+    "task-detail-actions",
     "task-filter",
     "task-search",
     "tasks-container",
@@ -294,7 +294,6 @@ function bindEvents() {
   window.addEventListener("pagehide", () => window.clearTimeout(pollTimer), { once: true });
 
   els.downloadForm.addEventListener("submit", submitTask);
-  els.mDropboxMode.addEventListener("change", updateDropboxOptions);
   bindNativeTaskPreferences();
   els.refreshTasksBtn.addEventListener("click", refreshTasks);
   els.retryAllBtn.addEventListener("click", requeueAllErrorTasks);
@@ -325,6 +324,8 @@ function bindEvents() {
   els.tokenAuthEnabled.addEventListener("change", updateAuthSettings);
 	els.moduleList.addEventListener("click", onModuleAction);
   els.autoUpdateTruedown.addEventListener("change", updateTrueDownAutoUpdate);
+  document.getElementById("auto-update-next").addEventListener("change", updateNextAutoUpdate);
+  els.cfgProxyMode.addEventListener("change", renderProxyMode);
   els.checkTruedownUpdateBtn.addEventListener("click", checkTrueDownUpdate);
 	els.refreshApplicationLogBtn.addEventListener("click", () => loadApplicationLog(true));
 	els.copyApplicationLogBtn.addEventListener("click", copyApplicationLog);
@@ -437,7 +438,7 @@ function configureTaskForm(mode) {
   els.modalEyebrow.textContent = isBatch ? "Batch download" : "New download";
   els.modalTitle.textContent = isBatch ? "批量下载任务" : "新建下载任务";
   els.submitTaskBtn.textContent = isBatch ? "批量开始" : "开始下载";
-  els.mLink.rows = isBatch ? 7 : 4;
+  els.mLink.rows = isBatch ? 7 : 2;
   els.mLink.placeholder = isBatch
     ? "https://example.com/file-a.zip\nmagnet:?xt=urn:btih:...\nhttps://example.com/file.torrent"
     : "https://example.com/file.zip 或 magnet:?xt=urn:btih:...";
@@ -445,10 +446,7 @@ function configureTaskForm(mode) {
   els.mName.placeholder = isBatch ? "批量时自动命名" : "普通 HTTP(S) 留空自动命名；BT 使用元信息名称";
   els.mFolder.placeholder = downloadSettings.folder || "留空使用默认下载目录";
   if (isBatch) els.mName.value = "";
-  els.mDropboxMode.value = downloadRules.dropboxMode;
-  els.mDropboxFilter.checked = downloadRules.enabled;
-  updateDropboxOptions();
-	renderModuleAvailability();
+
 }
 
 function isNativeTaskWindow() {
@@ -457,8 +455,6 @@ function isNativeTaskWindow() {
 
 function bindNativeTaskPreferences() {
   if (!isNativeTaskWindow()) return;
-  els.mDropboxMode.addEventListener("change", () => { nativeTaskPreferences.modeDirty = true; });
-  els.mDropboxFilter.addEventListener("change", () => { nativeTaskPreferences.filterDirty = true; });
   window.addEventListener("focus", refreshNativeTaskFormOnActivation);
   window.addEventListener("pagehide", () => {
     nativeTaskPreferences.disposed = true;
@@ -491,9 +487,7 @@ async function refreshNativeTaskPreferences() {
       applyTaskDefaults(defaults);
       downloadRules = normalizeServerDownloadRules(rules);
       resolverModules = normalizeResolverModules(modules);
-      if (!nativeTaskPreferences.modeDirty) els.mDropboxMode.value = downloadRules.dropboxMode;
-      if (!nativeTaskPreferences.filterDirty) els.mDropboxFilter.checked = downloadRules.enabled;
-      renderModuleAvailability();
+
     }
   })();
   try {
@@ -563,30 +557,14 @@ async function subscribeToCreatedTasks() {
   }
 }
 
-function updateDropboxOptions() {
-  const expanded = els.mDropboxMode.value === "expand";
-  els.mDropboxFilter.disabled = !expanded;
-}
-
 function buildModuleOptions() {
-	const options = {};
-	if (isModuleInstalled("dropbox")) {
-		options.dropbox = {
-			mode: els.mDropboxMode.value,
-			applyFilter: els.mDropboxMode.value === "expand" && els.mDropboxFilter.checked,
-		};
-	}
-	if (isModuleInstalled("google-drive")) options["google-drive"] = {};
-	return options;
-}
-
-function renderModuleAvailability() {
-	const dropboxInstalled = isModuleInstalled("dropbox");
-	const googleDriveInstalled = isModuleInstalled("google-drive");
-	els.mDropboxOption.hidden = !dropboxInstalled;
-	els.mGoogleDriveOption.hidden = !googleDriveInstalled;
-	els.mResolverOptions.hidden = !dropboxInstalled && !googleDriveInstalled;
-	updateDropboxOptions();
+  const options = {};
+  if (isModuleInstalled("dropbox")) options.dropbox = {
+    mode: downloadRules.dropboxMode,
+    applyFilter: downloadRules.dropboxMode === "expand" && downloadRules.enabled,
+  };
+  if (isModuleInstalled("google-drive")) options["google-drive"] = {};
+  return options;
 }
 
 function closeModal() {
@@ -843,6 +821,7 @@ function buildOpts(prefix) {
     maxTries: optionalInt(`${prefix}Tries`) || downloadSettings.maxTries,
     retryWait: optionalInt(`${prefix}Wait`) || downloadSettings.retryWait,
     extraArgs: extraFromModal.length ? extraFromModal : settingsExtraArgs(),
+    proxyMode: downloadSettings.proxyMode,
   };
 }
 
@@ -851,6 +830,11 @@ async function onTaskAction(event) {
   if (!button) return;
   const id = Number(button.dataset.id);
   const action = button.dataset.action;
+  if (action === "details") {
+    taskDetailReturnID = id;
+    location.hash = `task/${id}/info`;
+    return;
+  }
   if (action === "copy-link") {
     await copyTaskLink(button.dataset.link || "");
     return;
@@ -860,7 +844,7 @@ async function onTaskAction(event) {
   setTaskActionBusy(id, true);
   try {
     if (action === "requeue") {
-      const task = currentTasks.find((candidate) => candidate.id === id);
+      const task = currentTasks.find((candidate) => candidate.id === id) || (taskDetailData?.id === id ? taskDetailData : null);
       const cleanRestart = requiresCleanHTTPRestart(task?.error);
       if (cleanRestart && !await confirmAction({
         title: "清除失效残片并重新下载",
@@ -910,12 +894,13 @@ async function runTaskAction(action, id, successMessage) {
   }
   showToast(successMessage);
   await loadTasks({ force: true });
+  if (currentPage === "task") await loadTaskDetails();
 }
 
 function setTaskActionBusy(id, busy) {
   if (busy) activeTaskActions.add(id);
   else activeTaskActions.delete(id);
-  els.tasksContainer.querySelectorAll("button[data-id]").forEach((control) => {
+  [...els.tasksContainer.querySelectorAll("button[data-id]"), ...(els.taskDetailActions?.querySelectorAll("button[data-id]") || [])].forEach((control) => {
     if (Number(control.dataset.id) === id) KDComponents.setBusyState(control, busy);
   });
 }
@@ -1128,6 +1113,16 @@ async function loadTasks({ force = false } = {}) {
         if (epoch !== routeEpoch || url !== taskPageURL()) continue;
         if (!page || !Array.isArray(page.tasks) || !page.summary) throw new Error("任务列表响应无效");
         const etag = response.headers.get("ETag");
+        if (page.groups) {
+          applyFileGroups(page.groups);
+          if (currentCategory && !page.groups.groups.some((group) => group.id === currentCategory)) {
+            currentCategory = "";
+            currentOffset = 0;
+            updateTaskNavigation();
+            force = true;
+            continue;
+          }
+        }
         if (etag) rememberPageETag(url, etag);
         currentTotal = safeCount(page.total);
         currentSummary = normalizeSummary(page.summary);
@@ -1174,6 +1169,7 @@ function taskPageURL() {
     order: currentSortOrder,
   });
   if (currentSearch) params.set("search", currentSearch);
+  if (currentCategory) params.set("category", currentCategory);
   return `/tasks?${params}`;
 }
 
@@ -1188,11 +1184,13 @@ function renderTasks(tasks) {
   const signature = JSON.stringify([
     currentOffset,
     currentFilter,
+    currentCategory,
+    fileGroupsState.revision,
     currentSearch,
     currentSort,
     currentSortOrder,
     currentTasks.map((task) => [
-      task.id, task.status, task.outputName, task.name, task.folder, task.link, task.progress, task.error,
+      task.id, task.status, task.outputName, task.name, task.folder, task.link, task.progress, task.error, task.category, task.totalLength, task.completedLength, task.downloadSpeed, task.createdAt,
     ]),
   ]);
   if (signature === lastTaskRenderSignature) {
@@ -1213,12 +1211,12 @@ function renderTasks(tasks) {
     <table class="tasks-table">
       <colgroup>
         <col class="col-select"><col class="col-index"><col class="col-file"><col class="col-status">
-        <col class="col-link"><col class="col-progress"><col class="col-actions">
+        <col class="col-progress"><col class="col-size"><col class="col-speed"><col class="col-created"><col class="col-actions">
       </colgroup>
       <thead><tr>
         <th scope="col" class="select-cell"><input type="checkbox" data-select-page aria-label="选择本页全部任务"></th>
-        ${sortableHeading("id", "#")}${sortableHeading("file", "文件")}${sortableHeading("status", "状态")}${sortableHeading("link", "链接")}
-        ${sortableHeading("progress", "进度 / 日志")}<th scope="col" class="align-right">操作</th>
+        ${sortableHeading("id", "#")}${sortableHeading("file", "文件")}${sortableHeading("status", "状态")}
+        ${sortableHeading("progress", "进度")}<th scope="col">大小</th><th scope="col">速度 / 剩余</th><th scope="col">添加时间</th><th scope="col" class="align-right">操作</th>
       </tr></thead>
       <tbody></tbody>
     </table>`;
@@ -1226,8 +1224,8 @@ function renderTasks(tasks) {
   }
   const sortKey = `${currentSort}:${currentSortOrder}`;
   if (table.dataset.sort !== sortKey) {
-    const headings = ["id", "file", "status", "link", "progress"];
-    const labels = ["#", "文件", "状态", "链接", "进度 / 日志"];
+    const headings = ["id", "file", "status", "progress"];
+    const labels = ["#", "文件", "状态", "进度"];
     headings.forEach((field, i) => {
       const heading = table.querySelectorAll("thead th")[i + 1];
       const active = currentSort === field;
@@ -1242,6 +1240,10 @@ function renderTasks(tasks) {
     table.dataset.sort = sortKey;
   }
   reconcileTaskRows(table.querySelector("tbody"), currentTasks);
+  if (taskDetailReturnID && document.activeElement === document.querySelector('#tasks-title')) {
+    table.querySelector(`[data-action="details"][data-id="${taskDetailReturnID}"]`)?.focus({ preventScroll: true });
+    taskDetailReturnID = 0;
+  }
   syncSelectionControls();
   if (focusKey && document.activeElement !== focused) {
     const controls = Array.from(els.tasksContainer.querySelectorAll("button, input"));
@@ -1309,10 +1311,12 @@ function taskRow(task, index) {
     <tr data-task-id="${task.id}">
       <td class="select-cell"><input type="checkbox" data-select-task value="${task.id}" aria-label="选择任务 ${esc(fileName)}"${selectedTaskIDs.has(task.id) ? " checked" : ""}></td>
       <td class="task-index">${currentOffset + index + 1}</td>
-      <td><div class="task-name" title="${esc(fileName)}">${esc(fileName)}</div><div class="task-folder" title="${esc(task.folder || "默认目录")}">${esc(task.folder || "默认目录")}</div></td>
+      <td><div class="task-file-cell">${iconMarkup(taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="details" data-id="${task.id}" title="${esc(fileName)}">${esc(fileName)}</button><div class="task-folder">${taskCategoryMeta(task.category).label}</div></div></div></td>
       <td><span class="status-badge status-${status}">${statusLabel}</span></td>
-      <td><button class="task-link" type="button" data-action="copy-link" data-link="${esc(task.link)}" title="点击复制：${esc(task.link)}">${esc(compactUrl(task.link))}</button></td>
-      <td><div class="progress-line" title="${esc(progress)}">${esc(progress)}</div></td>
+      <td><div class="progress-line" title="${esc(progress)}">${esc(taskProgressLabel(task))}</div><progress class="task-progress" max="100" value="${taskProgressPercent(task)}" aria-label="下载进度"></progress></td>
+      <td class="task-size">${taskBytes(task.totalLength)}</td>
+      <td><div class="task-speed">${taskSpeed(task)}</div><div class="task-remaining task-folder">${taskRemaining(task)}</div></td>
+      <td class="task-created">${esc(taskDate(task.createdAt))}</td>
       <td><div class="row-actions">${actions.join("")}</div></td>
     </tr>`;
 }
@@ -1428,7 +1432,7 @@ function settingsSpeedBps() {
 
 function settingsExtraArgs() {
   const args = [];
-  if (downloadSettings.proxy) args.push(`--all-proxy=${downloadSettings.proxy}`);
+  if (downloadSettings.proxyMode === "custom" && downloadSettings.proxy) args.push(`--all-proxy=${downloadSettings.proxy}`);
   args.push(`--file-allocation=${downloadSettings.allocation}`);
   args.push(`--check-integrity=${downloadSettings.checkIntegrity}`);
   args.push(`--remote-time=${downloadSettings.remoteTime}`);

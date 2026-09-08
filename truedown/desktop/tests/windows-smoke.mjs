@@ -12,7 +12,7 @@ if (process.platform !== "win32") throw new Error("This acceptance test requires
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = path.resolve(process.argv[2] || path.join(desktop, "target/debug"));
 const shellName = process.argv[3] || "TrueDown.exe";
-const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "truedown-window-review-"));
+const fixture = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "truedown-window-review-")));
 const installation = path.join(fixture, "Application with spaces");
 const profile = path.join(fixture, "Profile with spaces");
 await fs.mkdir(installation);
@@ -45,6 +45,8 @@ function launchDesktop() { return spawn(path.join(installation, shellName), ["--
   },
 }); }
 const child = launchDesktop();
+let launchError;
+child.on("error", error => { launchError = error; });
 child.stdout.resume(); child.stderr.resume();
 let browser, main, downloadFixture;
 const invoke = (page, command, args) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
@@ -152,7 +154,7 @@ async function appearance(page, kind) {
       return { value, alpha: channels[3] ?? 1, brightness: channels.slice(0, 3).reduce((sum, value) => sum + value, 0) / 3 };
     };
     const working = { main: "#tasks-page", settings: "#settings-form", logs: "#logs-page", about: "body > main", "new-task": "#overlay > .modal", "batch-task": "#overlay > .modal" }[kind];
-    const chrome = { main: [".native-titlebar", ".sidebar", ".app-shell", ".dashboard"], settings: [".settings-page", ".settings-nav", ".app-shell", ".dashboard"], logs: [".app-shell", ".dashboard"], about: [], "new-task": [".native-titlebar", "#overlay"], "batch-task": [".native-titlebar", "#overlay"] }[kind];
+    const chrome = { main: [".sidebar", ".app-shell", ".dashboard"], settings: [".settings-page", ".settings-nav", ".app-shell", ".dashboard"], logs: [".app-shell", ".dashboard"], about: [], "new-task": ["#overlay"], "batch-task": ["#overlay"] }[kind];
     return {
       scheme: getComputedStyle(document.documentElement).colorScheme,
       material: document.documentElement.dataset.material,
@@ -196,20 +198,13 @@ async function verifyAppearance(pages, scheme, forcedColors = "none", reducedTra
   const evidence = { scheme, forcedColors, reducedTransparency, windows: states, pages: {} };
   for (const [kind, page] of Object.entries(pages)) {
     const state = states.find(state => state.title === titles.find(window => window.label === kind).title);
-    // Tao keeps WS_CAPTION for native resize/snap behavior, but suppresses its
-    // layout through WM_NCCALCSIZE. Inspect the actual client inset instead.
-    assert.ok(state.clientTopInset <= 12 * state.dpi / 96, `${kind} must remove the system title bar`);
+    assert.ok(state.clientTopInset >= 20 * state.dpi / 96, `${kind} must retain the system caption`);
     assert.ok(state.resizable && state.minimizable && state.maximizable, `${kind} must retain OS window operations`);
     assert.equal(state.iconWidth, 256, `${kind} must supply a full-resolution native icon`);
     assert.equal(state.iconHeight, 256);
-    assert.equal((await invoke(page, "frame_state")).decorated, false);
-    assert.equal(await page.locator(".native-titlebar").count(), 1);
-    assert.equal(await page.locator("[data-window-action]").count(), 3);
-    for (const action of ["minimize", "maximize", "close"]) {
-      const button = page.locator(`[data-window-action="${action}"]`);
-      assert.ok(await button.getAttribute("aria-label"), `${kind} ${action} must have an accessible label`);
-      assert.equal(await button.isEnabled(), true);
-    }
+    assert.equal((await invoke(page, "frame_state")).decorated, true);
+    assert.equal(await page.locator(".native-titlebar").count(), 0);
+    assert.equal(await page.locator("[data-window-action]").count(), 0);
     assert.equal(state.visible, false, `${kind} must remain hidden during appearance acceptance`);
     const view = await appearance(page, kind);
     evidence.pages[kind] = view;
@@ -236,10 +231,16 @@ async function verifyAppearance(pages, scheme, forcedColors = "none", reducedTra
 }
 try {
   await waitUntil(async () => {
-    if (child.exitCode !== null) throw new Error("Desktop exited before WebView readiness");
-    return fetch(`http://127.0.0.1:${debugPort}/json/version`).then(response => response.ok, () => false);
+    if (launchError) throw launchError;
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Desktop exited before WebView readiness (code=${child.exitCode}, signal=${child.signalCode})`);
+    return fetch(`http://127.0.0.1:${debugPort}/json/version`, { signal: AbortSignal.timeout(2500) }).then(response => response.ok, () => false);
+  // The core handshake itself allows 60 seconds. Cold CI WebView2 initialization
+  // starts only after it completes, so readiness must cover both phases.
+  }, 90000).catch(async error => {
+    const coreReady = await fetch(`http://127.0.0.1:${port}/system/info`, { signal: AbortSignal.timeout(2500) }).then(response => response.ok, () => false);
+    throw new Error(`Native startup failed: ${error.message}; coreHTTPReady=${coreReady}; fixture=${fixture}`, { cause: error });
   });
-  browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
+  browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { timeout: 15000 });
   const context = browser.contexts()[0];
   main = await waitUntil(() => context.pages()[0]);
   const observe = page => {
@@ -288,17 +289,24 @@ try {
   assert.equal(await main.evaluate(() => window.__TRUEDOWN_PLATFORM__), "windows");
   await main.locator('[data-route="settings"]').click();
   const settings = await waitUntil(() => context.pages().find(page => page.url().includes("window=settings")));
-  for (const kind of ["logs", "about", "settings"]) await invoke(main, "open_auxiliary", { kind });
-  await waitUntil(() => context.pages().length === 4);
-  const logs = await waitUntil(() => context.pages().find(page => page.url().includes("window=logs")));
-  const about = await waitUntil(() => context.pages().find(page => page.url().endsWith("about.html")));
+  await waitUntil(() => context.pages().length === 2);
   const storage = await api(main, "GET", "/system/storage");
   assert.equal(storage.layoutVersion, 1);
   assert.equal(storage.paths.cache.toLowerCase(), path.join(profile, "cache").toLowerCase());
   await fs.access(path.join(storage.paths.cache, "webview", "EBWebView"));
   assert.equal((await fs.readdir(installation)).some(name => name.includes("WebView")), false);
-  await waitForNativeCondition(logs, () => document.querySelector("#application-log-output").textContent.includes("starting"));
-  await waitForNativeCondition(about, () => document.querySelector("#version").textContent.includes("build"));
+  await waitForNativeCondition(settings, () => currentSettingsPage === "general");
+  for (const kind of ["logs", "about"]) {
+    await invoke(main, "open_auxiliary", { kind });
+    await waitForNativeCondition(settings, kind => currentSettingsPage === kind, kind);
+    if (kind === "logs") {
+      await settings.evaluate(() => loadApplicationLog());
+      await waitForNativeCondition(settings, () => document.querySelector("#application-log-output").textContent.includes("starting"));
+    } else await waitForNativeCondition(settings, () => document.querySelector("#about-version").textContent !== "正在读取…");
+    assert.equal(context.pages().length, 2);
+  }
+  await invoke(main, "open_auxiliary", { kind: "settings" });
+  await waitForNativeCondition(settings, () => currentSettingsPage === "general");
   assert.equal(new URL(main.url()).hash, "");
   await settings.locator('[data-settings-link="general"]').click();
   await waitForNativeCondition(settings, () => !document.querySelector('[data-settings-page="general"]').inert);
@@ -310,7 +318,7 @@ try {
   await invoke(settings, "close_auxiliary");
   await invoke(main, "open_auxiliary", { kind: "settings" });
   assert.equal(await settings.locator("#cfg-conns").inputValue(), "7");
-  assert.equal(context.pages().length, 4);
+  assert.equal(context.pages().length, 2);
   const previousCore = childrenOf(child.pid).find(process => process.Name === "truedown-core.exe");
   assert.ok(previousCore, "Native package must own one core");
   const previousEngine = childrenOf(previousCore.ProcessId).find(process => process.Name === "aria2c.exe");
@@ -325,8 +333,6 @@ try {
   assert.equal(recoveredCores.length, 1);
   assert.notEqual(recoveredCores[0].ProcessId, previousCore.ProcessId);
   assert.equal(await settings.locator("#cfg-conns").inputValue(), "7");
-  await assert.rejects(invoke(about, "core_request", { request: { method: "POST", path: "/settings/runtime", body: "{}" } }));
-  await assert.rejects(invoke(logs, "copy_api_token"));
   // Long forms are singleton windows with independent drafts and read-only
   // preference access. Their shared app script must never poll task pages.
   const taskForms = {};
@@ -356,9 +362,9 @@ try {
     await assert.rejects(invoke(form, "core_request", { request: { method: "GET", path: "/tasks?limit=1" } }));
     await assert.rejects(invoke(form, "core_request", { request: { method: "POST", path: "/settings/task-defaults", body: "{}" } }));
   }
-  assert.equal(context.pages().length, 6);
+  assert.equal(context.pages().length, 4);
   await assert.rejects(invoke(main, "finish_task_window"));
-  for (const page of [main, logs, about]) {
+  for (const page of [main]) {
     await assert.rejects(invoke(page, "choose_download_directory"), /only from settings or a task form/);
   }
   for (const page of [settings, ...Object.values(taskForms)]) {
@@ -382,6 +388,25 @@ try {
     assert.equal(await main.locator("#toast").textContent(), "下载任务已添加");
     assert.equal((await api(main, "GET", "/tasks?limit=100")).total, total);
   }
+  await settings.locator('[data-settings-link="groups"]').click();
+  await waitForNativeCondition(settings, () => document.querySelectorAll("[data-group-id]").length === 8 && !document.querySelector('[data-settings-page="groups"]').inert);
+  await settings.locator('[data-group-id="document"] input').fill("Documents review");
+  await settings.keyboard.press("Control+s");
+  await waitForNativeCondition(settings, () => document.querySelector("#file-groups-status").textContent.includes("\u5df2\u4fdd\u5b58"));
+  assert.equal((await api(settings, "GET", "/settings/file-groups")).groups.find(group => group.id === "document").name, "Documents review");
+  await main.evaluate(() => refreshAndSchedule(true));
+  await waitForNativeCondition(main, () => document.querySelector('[data-task-category="document"]')?.textContent.includes("Documents review"));
+  const completed = await waitUntil(async () => {
+    const page = await api(main, "GET", "/tasks?limit=100");
+    return page.tasks.find(task => task.status === "done");
+  });
+  await main.locator(`[data-action="details"][data-id="${completed.id}"]`).click();
+  await waitForNativeCondition(main, () => document.querySelector("#task-info-grid").textContent.includes("Documents review"));
+  await main.locator("#task-settings-tab").click();
+  await waitForNativeCondition(main, () => document.querySelector("#task-setting-connections").value === "9");
+  assert.equal(await main.locator("#task-settings-save").isDisabled(), true);
+  await main.evaluate(() => { location.hash = "tasks"; });
+  await settings.locator('[data-settings-link="general"]').click();
   const auth = await api(settings, "POST", "/auth/settings", { enabled: true });
   assert.equal(auth.enabled, true);
   assert.equal(Object.hasOwn(auth, "token"), false);
@@ -395,12 +420,12 @@ try {
     assert.ok(layout.footer <= layout.height);
   }
   await session.send("Emulation.clearDeviceMetricsOverride");
-  const pages = { main, settings, logs, about, ...taskForms };
+  const pages = { main, settings, ...taskForms };
   for (const scheme of ["light", "dark"]) await verifyAppearance(pages, scheme);
   await verifyAppearance(pages, "light", "active");
   for (const scheme of ["light", "dark"]) await verifyAppearance(pages, scheme, "none", true);
   const windows = await main.evaluate(async () => Promise.all((await window.__TAURI__.window.getAllWindows()).map(async window => ({ label: window.label, visible: await window.isVisible() }))));
-  assert.equal(windows.length, 6);
+  assert.equal(windows.length, 4);
   assert.ok(windows.every(window => !window.visible), "Acceptance tests must never show native windows");
   const geometry = await main.evaluate(async () => {
     const monitors = await window.__TAURI__.window.availableMonitors();

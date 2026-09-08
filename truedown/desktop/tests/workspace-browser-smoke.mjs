@@ -74,19 +74,15 @@ try {
         assert.ok((await page.locator("#tasks-title").boundingBox()).width <= 1);
         if (native) assert.equal(await page.locator(".native-window-title").isVisible(), false);
         if (native) {
-          const brand = await page.locator(".sidebar-brand").boundingBox();
-          const caption = await page.locator(".native-titlebar").boundingBox();
-          assert.ok(brand.y < caption.height && brand.y + brand.height <= caption.height, `${name}: brand must fill the caption row`);
+          assert.equal(await page.locator(".native-titlebar").count(), 0);
           const sidebar = await page.locator(".sidebar").boundingBox();
-          assert.equal(caption.x, sidebar.x + sidebar.width, `${name}: caption must leave sidebar controls uncovered`);
-          for (const selector of [".sidebar-toggle", ".brand", ".native-titlebar-drag"]) {
-            assert.ok(await page.locator(selector).evaluate(element => {
-              const box = element.getBoundingClientRect();
-              return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
-            }), `${name}: ${selector} must receive pointer input`);
-          }
+          assert.ok(sidebar.y >= 0);
+          for (const selector of [".sidebar-toggle", ".brand"]) assert.ok(await page.locator(selector).evaluate(element => {
+            const box = element.getBoundingClientRect();
+            return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+          }));
         }
-        assert.equal(await page.locator('[data-native-window="about"]').isVisible(), native, `${name}: About is a native-only action`);
+        assert.equal(await page.locator('[data-native-window="about"]').count(), 0);
         const geometry = await page.evaluate(() => {
           const bounds = selector => {
             const { x, y, width, height, right, bottom } = document.querySelector(selector).getBoundingClientRect();
@@ -99,27 +95,19 @@ try {
         assert.ok(geometry.rootWidth <= width + 1 && geometry.bodyWidth <= width + 1, `${name}: horizontal page overflow ${JSON.stringify(geometry)}`);
         assert.ok(geometry.sidebar.right <= geometry.main.x + 1, `${name}: sidebar overlaps content`);
         assert.ok(geometry.footer.bottom <= height + 1, `${name}: bottom utilities are outside the viewport`);
-        for (const selector of ["#new-task-btn", "a[data-route=logs]", "#settings-btn", "#batch-task-btn", "#task-search", "#task-filter"]) {
+        for (const selector of ["#new-task-btn", "#settings-btn", "#batch-task-btn", "#task-search", "#task-filter"]) {
           const reachable = await page.locator(selector).evaluate(element => {
             const box = element.getBoundingClientRect();
             return box.width > 0 && box.height > 0 && box.x >= 0 && box.right <= innerWidth && box.y >= 0 && box.bottom <= innerHeight && element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
           });
           assert.ok(reachable, `${name}: ${selector} cannot be reached without scrolling`);
         }
-        await page.locator('[data-task-filter="done"]').click();
+        assert.equal(await page.locator('[data-task-filter]:not([data-task-filter="all"])').count(), 0, "status navigation is owned by the dropdown");
+        await page.locator("#task-filter").selectOption("done");
         await page.waitForFunction(() => document.querySelectorAll("tr[data-task-id]").length === 1 && document.querySelector("#task-filter").value === "done");
-        assert.equal(await page.locator('[data-task-filter][aria-current="page"]').getAttribute("data-task-filter"), "done");
         assert.equal(await page.locator("#tasks-title").textContent(), "已完成");
-        const selected = page.locator('[data-task-filter="done"]');
-        const selectedBounds = await selected.boundingBox();
-        await selected.hover();
-        assert.deepEqual(await selected.boundingBox(), selectedBounds, `${name}: navigation state must not shift its hit area`);
-        assert.ok(await selected.evaluate(element => {
-          const marker = getComputedStyle(element, "::before");
-          return marker.content !== "none" && parseFloat(marker.height) < element.clientHeight && parseFloat(marker.width) > 0;
-        }), `${name}: selected item needs a short inset marker`);
         await page.locator("#task-filter").selectOption("paused");
-        await page.waitForFunction(() => document.querySelector('[data-task-filter="paused"]').getAttribute("aria-current") === "page");
+        await page.waitForFunction(() => document.querySelector("#tasks-title").textContent === "已暂停");
         await page.locator('[data-task-filter="all"]').click();
         await page.waitForFunction(count => document.querySelectorAll("tr[data-task-id]").length === count, tasks.length);
         for (const order of ["asc", "desc"]) {
@@ -131,13 +119,13 @@ try {
           await page.locator(".sidebar-toggle").click();
           assert.equal(await page.locator(".sidebar-toggle").getAttribute("aria-expanded"), "false");
           const sidebar = await page.locator(".sidebar").boundingBox();
-          assert.equal((await page.locator(".native-titlebar").boundingBox()).x, sidebar.x + sidebar.width, `${name}: caption must follow the collapsed sidebar`);
+
           const accessibility = await page.locator(".sidebar").ariaSnapshot();
-          for (const label of ["全部下载", "正在下载", "应用日志", "设置", "新建下载"]) assert.ok(accessibility.includes(label), `${name}: collapsed sidebar lost ${label}`);
+          for (const label of ["全部下载", "设置", "新建下载"]) assert.ok(accessibility.includes(label), `${name}: collapsed sidebar lost ${label}`);
           await page.screenshot({ path: path.join(screenshots, `${name}-collapsed.png`) });
           await page.locator(".sidebar-toggle").click();
-          for (const kind of ["logs", "settings"]) await page.locator(`[data-route="${kind}"]`).click();
-          assert.deepEqual(await page.evaluate(() => nativeCalls.filter(call => call.command === "open_auxiliary").map(call => call.args.kind)), ["logs", "settings"]);
+          for (const kind of ["settings"]) await page.locator(`[data-route="${kind}"]`).click();
+          assert.deepEqual(await page.evaluate(() => nativeCalls.filter(call => call.command === "open_auxiliary").map(call => call.args.kind)), ["settings"]);
           assert.equal(await page.locator("#tasks-page").isVisible(), true);
         }
         const checkbox = page.locator('tr[data-task-id="1"] [data-select-task]');
@@ -181,25 +169,21 @@ try {
       const page = await context.newPage();
       const errors = [];
       page.on("pageerror", error => errors.push(error.message));
-      await page.goto(`${origin}/about.html`);
-      await page.waitForFunction(() => document.querySelector("#version").textContent.includes("build"));
-      assert.equal(await page.locator("main button").count(), 0, "About has no redundant close button");
+      await page.goto(`${origin}/?window=settings#settings/about`);
+      await page.waitForFunction(() => document.querySelector("#about-build").textContent !== "正在读取…");
+      assert.equal(await page.locator('[data-settings-link="about"]').getAttribute("aria-current"), "page");
       for (const [width, height] of [[480, 360], [400, 320]]) {
         await page.setViewportSize({ width, height });
         assert.ok(await page.evaluate(() => {
-          const panel = document.querySelector("main").getBoundingClientRect();
-          const notice = document.querySelector(".about-notice").getBoundingClientRect();
-          const header = document.querySelector(".native-titlebar").getBoundingClientRect();
-          return document.documentElement.scrollWidth <= innerWidth && panel.y >= header.bottom && panel.bottom <= innerHeight && notice.bottom < panel.bottom;
+          const panel = document.querySelector(".settings-content").getBoundingClientRect();
+          const header = document.querySelector(".native-titlebar")?.getBoundingClientRect() || { bottom: 0 };
+          return document.documentElement.scrollWidth <= innerWidth && panel.y >= header.bottom && panel.bottom <= innerHeight;
         }), `${platform} About must fit at ${width} x ${height}`);
         await page.screenshot({ path: path.join(screenshots, `about-${platform}-${colorScheme}-${width}.png`) });
       }
       for (const shortcut of ["Escape", platform === "macos" ? "Meta+w" : "Control+w"]) await page.keyboard.press(shortcut);
       assert.equal(await page.evaluate(() => nativeCalls.filter(call => call.command === "close_auxiliary").length), 2, "About retains window close shortcuts");
-      if (platform !== "macos") {
-        await page.getByRole("button", { name: "关闭窗口", exact: true }).click();
-        assert.ok(await page.evaluate(() => nativeCalls.some(call => call.command === "frame_action" && call.args.action === "close")));
-      }
+      assert.equal(await page.locator("[data-window-action]").count(), 0);
       assert.deepEqual(errors, []);
       await context.close();
       console.log(`about-${platform}-${colorScheme}: compact layout, caption close and keyboard dismissal OK`);

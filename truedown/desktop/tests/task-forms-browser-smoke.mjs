@@ -63,7 +63,9 @@ try {
       assert.equal(await page.locator("#overlay [role=main]").isVisible(), true);
       const layout = await page.evaluate(() => {
         const bounds = (selector) => {
-          const { x, y, width, height, bottom } = document.querySelector(selector).getBoundingClientRect();
+          const element = document.querySelector(selector);
+          if (!element && selector !== ".native-titlebar") throw new Error(`Missing layout element: ${selector}`);
+          const { x, y, width, height, bottom } = element?.getBoundingClientRect() || { x: 0, y: 0, width: 0, height: 0, bottom: 0 };
           return { x, y, width, height, bottom };
         };
         return { header: bounds(".native-titlebar"), form: bounds("#overlay"), footer: bounds("#overlay .modal-footer"), body: bounds("#overlay .modal-body"), height: innerHeight };
@@ -81,25 +83,22 @@ try {
         nativeTestPreferences.modules = { modules: [{ id: "dropbox", name: "Dropbox", installed: true }] };
         window.dispatchEvent(new Event("focus"));
       });
-      await page.waitForFunction(() => !nativeTaskPreferences.pending && !els.mDropboxOption.hidden);
-      assert.equal(await page.locator("#m-dropbox-mode").inputValue(), "expand");
-      assert.equal(await page.locator("#m-dropbox-filter").isChecked(), true);
+      await page.waitForFunction(() => !nativeTaskPreferences.pending && isModuleInstalled("dropbox"));
+      assert.equal(await page.evaluate(() => buildModuleOptions().dropbox.mode), "expand");
+      assert.equal(await page.evaluate(() => buildModuleOptions().dropbox.applyFilter), true);
+      assert.equal(await page.locator("#m-resolver-options").count(), 0);
       await page.evaluate(() => {
-        els.mDropboxMode.value = "direct";
-        els.mDropboxMode.dispatchEvent(new Event("change", { bubbles: true }));
-        els.mDropboxFilter.checked = false;
-        els.mDropboxFilter.dispatchEvent(new Event("change", { bubbles: true }));
         nativeTestPreferences.modules.modules[0].installed = false;
         window.dispatchEvent(new Event("focus"));
       });
-      await page.waitForFunction(() => !nativeTaskPreferences.pending && els.mDropboxOption.hidden);
+      await page.waitForFunction(() => !nativeTaskPreferences.pending && !isModuleInstalled("dropbox"));
       await page.evaluate(() => {
         nativeTestPreferences.modules.modules[0].installed = true;
         window.dispatchEvent(new Event("focus"));
       });
-      await page.waitForFunction(() => !nativeTaskPreferences.pending && !els.mDropboxOption.hidden);
-      assert.equal(await page.locator("#m-dropbox-mode").inputValue(), "direct");
-      assert.equal(await page.locator("#m-dropbox-filter").isChecked(), false);
+      await page.waitForFunction(() => !nativeTaskPreferences.pending && isModuleInstalled("dropbox"));
+      assert.equal(await page.evaluate(() => buildModuleOptions().dropbox.mode), "expand");
+      assert.equal(await page.evaluate(() => buildModuleOptions().dropbox.applyFilter), true);
       assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/draft.zip");
       if (role === "new-task") {
         const chooser = page.waitForEvent("filechooser");
@@ -134,10 +133,16 @@ try {
       assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/draft.zip");
       await page.mouse.move(layout.body.x + 100, layout.body.y + 50);
       await page.mouse.wheel(0, 3000);
-      await page.waitForFunction(() => document.querySelector("#overlay .modal-body").scrollTop > 0);
+      await page.waitForFunction(() => {
+        const body = document.querySelector("#overlay .modal-body");
+        return body.scrollHeight <= body.clientHeight || body.scrollTop > 0;
+      });
       const advanced = await page.locator("#overlay .advanced-options summary").boundingBox();
       assert.ok(advanced.y >= layout.body.y && advanced.y + advanced.height <= layout.body.y + layout.body.height);
       await page.locator("#overlay .advanced-options summary").click();
+      await page.mouse.wheel(0, 3000);
+      await page.waitForFunction(() => document.querySelector("#overlay .modal-body").scrollTop > 0);
+      await page.locator("#overlay .advanced-options summary").focus();
       await page.keyboard.press("Tab");
       assert.equal(await page.evaluate(() => document.activeElement.matches("input, textarea, select") && Boolean(document.activeElement.closest(".advanced-body"))), true);
       await page.keyboard.press("End");

@@ -167,7 +167,7 @@ test("settings navigation stays immediate and a late category read never overwri
     settingsPanels: (page) => [panels[page]],
     loadServerRuntimeSettings: () => { loads++; return new Promise((resolve) => { complete = resolve; }); },
     loadServerTaskDefaults() {}, loadServerDownloadRules() {}, loadSettingsOverview() {}, loadStartupSettings() {},
-    loadResolverModules() {}, loadAuthSettings() {}, loadTrackerResearchSettings() {},
+    loadFileGroupsEditor() {}, loadResolverModules() {}, loadAuthSettings() {}, loadTrackerResearchSettings() {},
     renderSettingsCategory() { rendered++; }, renderSettingsOverview() {},
   });
   vm.runInContext(declaration("loadSettingsPage"), context);
@@ -193,7 +193,7 @@ test("single-task removal preserves selection on failure and clears it before a 
   let fail = true;
   let synced = 0;
   const context = vm.createContext({
-    selectedTaskIDs, taskStatusByID,
+    currentPage: "tasks", selectedTaskIDs, taskStatusByID,
     requestJSON: async () => fail ? { failed: [{ error: "database unavailable" }] } : { succeeded: [7] },
     syncSelectionControls() { synced++; }, showToast() {},
     loadTasks: async () => { assert.equal(selectedTaskIDs.size, 0); assert.equal(taskStatusByID.size, 0); },
@@ -241,7 +241,7 @@ test("a changed task page preserves keyboard focus on the same row control", () 
     document: { activeElement: original },
     els: { tasksContainer: { contains: (element) => element === original, querySelectorAll: () => [replacement], querySelector: () => ({ dataset: { sort: "status:asc" }, querySelector: () => ({}) }) } },
     currentTasks: [], selectedTaskIDs: new Set(), taskStatusByID: new Map(),
-    currentOffset: 0, currentFilter: "all", currentSearch: "", currentSort: "status", currentSortOrder: "asc",
+    fileGroupsState: { revision: 0 }, taskDetailReturnID: 0, currentCategory: "", currentOffset: 0, currentFilter: "all", currentSearch: "", currentSort: "status", currentSortOrder: "asc",
     lastTaskRenderSignature: "", syncSelectionControls() {}, taskRow: () => "", sortableHeading: () => "",
     reconcileTaskRows() { context.document.activeElement = null; },
   });
@@ -257,13 +257,15 @@ test("progress polling retains every row control and changes only its progress l
   const checkbox = { checked: true };
   const row = {
     dataset: { taskId: "7" },
-    taskShape: JSON.stringify([task.status, task.outputName, task.name, task.folder, task.link, task.error]),
+    taskShape: JSON.stringify([task.status, task.outputName, task.name, task.folder, task.link, task.error, task.category, "Other", "file"]),
     querySelector: (query) => query === ".progress-line" ? progress : query === ".task-index" ? ordinal : checkbox,
   };
   const body = { children: [row], insertBefore() { assert.fail("unchanged rows must not be moved"); } };
   const context = vm.createContext({
     document: { createElement() { assert.fail("progress-only refresh must not parse replacement HTML"); } },
     currentOffset: 0, selectedTaskIDs: new Set([7]),
+    taskCategoryMeta: () => ({ label: "Other", icon: "file" }), taskProgressLabel: task => task.progress,
+    taskProgressPercent: () => 25, taskBytes: () => "-", taskSpeed: () => "-", taskRemaining: () => "-", taskDate: () => "-",
   });
   vm.runInContext(declaration("reconcileTaskRows"), context);
   context.reconcileTaskRows(body, [task]);

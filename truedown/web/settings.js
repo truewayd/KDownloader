@@ -1,9 +1,23 @@
-const SETTINGS_PAGES = ["overview", "general", "network", "files", "application", "modules", "engine", "security", "advanced", "experimental"];
+const SETTINGS_PAGES = ["general", "network", "files", "groups", "application", "modules", "engine", "security", "advanced", "experimental", "logs", "about"];
 const EDITABLE_SETTINGS_PAGES = new Set(["general", "network", "files", "advanced", "experimental"]);
 const settingsLoads = new Map();
 const settingsReady = new Set();
 const settingsMessages = new Map();
 const settingReadVersions = new Map();
+let systemUpdateTimer = 0, updatePreferenceSaving = false;
+function stopSystemUpdateRefresh() { clearTimeout(systemUpdateTimer); }
+function scheduleSystemUpdateRefresh() {
+  stopSystemUpdateRefresh();
+  if (document.hidden || currentPage !== "settings" || currentSettingsPage !== "engine") return;
+  const epoch = routeEpoch;
+  systemUpdateTimer = setTimeout(async () => {
+    try { if (!updatePreferenceSaving && epoch === routeEpoch) await loadSystemUpdateState(); }
+    catch { /* Keep the last verified status during a transient disconnect. */ }
+    finally { if (epoch === routeEpoch) scheduleSystemUpdateRefresh(); }
+  }, 3000);
+}
+document.addEventListener("visibilitychange", scheduleSystemUpdateRefresh);
+window.addEventListener("pagehide", stopSystemUpdateRefresh, { once: true });
 const settingReadRequests = new Map();
 const settingSnapshotsKnown = new Set();
 let startupSettings = null;
@@ -67,23 +81,28 @@ async function loadSettingsPage(retry = false) {
   els.settingsSaveStatus.textContent = settingsMessages.get(page) || "保存当前分类的设置。";
   els.settingsReloadBtn.hidden = true;
   if (retry) settingsReady.delete(page);
+  if (page === "logs") { loadApplicationLog(); }
+  if (page === "about") { loadAbout(); }
+  if (page === "engine") scheduleSystemUpdateRefresh();
   if (settingsReady.has(page)) {
     els.settingsLoadStatus.textContent = "";
     els.settingsSaveBtn.disabled = false;
     els.settingsResetBtn.disabled = false;
-    if (page === "overview") renderSettingsOverview();
+
     return;
   }
   els.settingsSaveBtn.disabled = true;
   els.settingsResetBtn.disabled = true;
-  settingsPanels(page).forEach((panel) => { panel.inert = page !== "overview"; });
-  els.settingsLoadStatus.textContent = page === "overview" ? "正在读取运行概览…" : "正在读取本页设置…";
+  settingsPanels(page).forEach((panel) => { panel.inert = !["logs", "about"].includes(page); });
+  els.settingsLoadStatus.textContent = ["logs", "about"].includes(page) ? "" : "正在读取本页设置…";
   try {
     if (!settingsLoads.has(page)) {
       const loaders = {
-        overview: loadSettingsOverview,
+        logs: () => {},
+        about: () => {},
         general: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings()]),
         network: loadServerTaskDefaults,
+        groups: loadFileGroupsEditor,
         files: () => Promise.all([loadServerTaskDefaults(), loadServerDownloadRules()]),
         advanced: loadServerTaskDefaults,
         application: () => Promise.all([loadStartupSettings(), loadStorageLocation()]),
@@ -99,7 +118,7 @@ async function loadSettingsPage(retry = false) {
     if (epoch !== routeEpoch || currentPage !== "settings" || currentSettingsPage !== page) return;
     renderSettingsCategory(page);
     if (page === "experimental" || page === "engine") renderTrackerResearchSettings();
-    if (page === "overview") renderSettingsOverview();
+
     els.settingsLoadStatus.textContent = "";
     els.settingsSaveBtn.disabled = false;
     els.settingsResetBtn.disabled = false;
@@ -109,27 +128,7 @@ async function loadSettingsPage(retry = false) {
     els.settingsReloadBtn.hidden = false;
   } finally {
     // A category becomes editable only after its own read has succeeded.
-    settingsPanels(page).forEach((panel) => { panel.inert = page !== "overview" && !settingsReady.has(page); });
-  }
-}
-
-async function loadSettingsOverview() {
-  const results = await Promise.allSettled([loadServerRuntimeSettings(), loadServerDownloadRules(), loadSystemUpdateState(), loadStartupSettings()]);
-  renderSettingsOverview();
-  const failure = results.find((result) => result.status === "rejected");
-  if (failure) throw failure.reason;
-}
-
-function renderSettingsOverview() {
-  const values = {
-    general: settingSnapshotsKnown.has("runtime") ? `${runtimeSettings.concurrentDownloads} 个任务同时下载` : "查看下载设置",
-    files: !settingSnapshotsKnown.has("rules") ? "查看文件设置" : downloadRules.dropboxMode === "expand" ? "Dropbox 默认展开文件" : "Dropbox 默认下载压缩包",
-    application: startupSettings ? startupSettings.supported ? startupSettings.enabled ? "开机启动已开启" : "开机启动已关闭" : "当前平台使用服务启动" : "查看启动方式",
-    engine: systemUpdateState?.engine ? `当前内核：${systemUpdateState.engine.active === "next" ? "Aria2 Next" : "aria2 稳定版"}` : "查看内核与更新",
-  };
-  for (const [page, value] of Object.entries(values)) {
-    const card = document.querySelector(`[data-overview="${page}"]`);
-    if (card) card.textContent = value;
+    settingsPanels(page).forEach((panel) => { panel.inert = !settingsReady.has(page); });
   }
 }
 
@@ -193,7 +192,7 @@ async function updateStartupSettings() {
     KDComponents.setBusyState(els.startupEnabled, false);
     els.startupEnabled.disabled = startupSettings?.supported !== true;
     if (restoreFocus && currentPage === "settings" && currentSettingsPage === "application") els.startupEnabled.focus({ preventScroll: true });
-    renderSettingsOverview();
+
   }
 }
 
@@ -235,7 +234,7 @@ async function saveDownloadSettings(event) {
       parseHeaders(els.cfgHeaders.value);
       Object.assign(next, {
         maxTries: optionalInt("cfgTries") || 5, retryWait: optionalInt("cfgWait") || 3,
-        proxy: els.cfgProxy.value.trim(), userAgent: els.cfgUserAgent.value.trim(),
+        proxy: els.cfgProxy.value.trim(), proxyMode: els.cfgProxyMode.value, userAgent: els.cfgUserAgent.value.trim(),
         referer: els.cfgReferer.value.trim(), headers: els.cfgHeaders.value.trim(),
       });
     } else if (page === "files") {
@@ -297,7 +296,7 @@ async function saveDownloadSettings(event) {
       if (page === "experimental") renderTrackerResearchSettings();
       els.settingsSaveStatus.textContent = settingsMessages.get(page);
     }
-    renderSettingsOverview();
+
     showToast("本页设置已保存。");
   } catch (error) {
     const message = `${serverSaved ? "运行或规则设置已保存，任务默认值保存失败" : "本页设置未保存"}：${error.message}`;
@@ -379,6 +378,7 @@ function loadDownloadSettings() {
       maxTries: boundedInt(stored.maxTries, 1, 100, DEFAULT_DOWNLOAD_SETTINGS.maxTries),
       retryWait: boundedInt(stored.retryWait, 1, 3600, DEFAULT_DOWNLOAD_SETTINGS.retryWait),
       proxy: stringValue(stored.proxy),
+      proxyMode: ["system", "custom", "none"].includes(stored.proxyMode) ? stored.proxyMode : (stored.proxy ? "custom" : "system"),
       userAgent: stringValue(stored.userAgent),
       referer: stringValue(stored.referer),
       headers: stringValue(stored.headers),
@@ -393,6 +393,11 @@ function loadDownloadSettings() {
   }
 }
 
+function renderProxyMode() {
+  document.getElementById("cfg-proxy-field").hidden = els.cfgProxyMode.value !== "custom";
+  els.cfgProxy.required = els.cfgProxyMode.value === "custom";
+}
+
 function renderDownloadSettings(settings = downloadSettings, rules = downloadRules, runtime = runtimeSettings) {
   const globalSpeed = displaySpeed(runtime.globalDownloadLimitBps);
   els.cfgFolder.value = settings.folder;
@@ -405,6 +410,8 @@ function renderDownloadSettings(settings = downloadSettings, rules = downloadRul
   els.cfgTries.value = settings.maxTries;
   els.cfgWait.value = settings.retryWait;
   els.cfgProxy.value = settings.proxy;
+  els.cfgProxyMode.value = settings.proxyMode || (settings.proxy ? "custom" : "system");
+  renderProxyMode();
   els.cfgUserAgent.value = settings.userAgent;
   els.cfgReferer.value = settings.referer;
   els.cfgHeaders.value = settings.headers;
@@ -641,7 +648,6 @@ async function loadResolverModules() {
   await readSettingSnapshot("modules", "/modules", (value) => {
     resolverModules = normalizeResolverModules(value);
     renderResolverModules();
-    renderModuleAvailability();
   });
 }
 
@@ -740,7 +746,6 @@ async function onModuleAction(event) {
 		resolverModules = resolverModules.map((module) => module.id === id
 			? { ...module, installed: saved.installed === true } : module);
 		renderResolverModules();
-		renderModuleAvailability();
 		showToast(`${stringValue(saved.name) || id} 模块已${installed ? "启用" : "停用"}。`);
 	} catch (error) {
 		showToast(`模块状态更新失败：${error.message}`, "error");
@@ -771,7 +776,6 @@ async function importModuleUpdate(id, button) {
 		});
 		replaceResolverModule(saved);
 		renderResolverModules();
-		renderModuleAvailability();
 		showToast(`${stringValue(saved.name) || id} v${stringValue(saved.version)} 已热重载。`);
 	} catch (error) {
 		showToast(`组件更新失败：${error.message}`, "error");
@@ -816,7 +820,6 @@ async function resetModuleUpdate(id, button) {
 		const saved = await requestJSON(`/modules/package?id=${encodeURIComponent(id)}`, { method: "DELETE" });
 		replaceResolverModule(saved);
 		renderResolverModules();
-		renderModuleAvailability();
 		showToast(`${stringValue(saved.name) || id} 已恢复到内置基线。`);
 	} catch (error) {
 		showToast(`恢复组件基线失败：${error.message}`, "error");
@@ -850,6 +853,7 @@ function normalizeSystemUpdateState(value) {
     error: stringValue(source.error),
     trueDown: {
       version: stringValue(trueDown.version) || "unknown",
+      productVersion: stringValue(trueDown.productVersion),
       build: boundedInt(trueDown.build, 0, Number.MAX_SAFE_INTEGER, 0),
       supported: trueDown.supported === true,
       autoUpdate: trueDown.autoUpdate === true,
@@ -862,6 +866,8 @@ function normalizeSystemUpdateState(value) {
     },
     engine: {
       preference: engine.preference === "next" ? "next" : "stable",
+      autoUpdate: engine.autoUpdate === true,
+      autoUpdateSupported: engine.autoUpdateSupported === true,
       active: engine.active === "next" ? "next" : "stable",
       activeVersion: stringValue(engine.activeVersion),
       stableVersion: stringValue(engine.stableVersion),
@@ -877,12 +883,12 @@ function renderSystemUpdateState() {
   if (!systemUpdateState) return;
   const { trueDown, engine, busy, error } = systemUpdateState;
   els.truedownUpdateVersion.textContent = trueDown.build > 0
-    ? `${trueDown.version} · build ${trueDown.build}` : `${trueDown.version} · 开发构建`;
+    ? `${trueDown.productVersion || trueDown.version} · build ${trueDown.build}` : `${trueDown.productVersion || trueDown.version} · 开发构建`;
   let trueDownStatus = trueDown.supported
-    ? "当前已是最新发布版本。"
-    : "当前构建未包含发布编号，不能使用自动更新。";
+    ? (trueDown.lastCheckedAt ? "当前已是最新发布版本。" : "尚未检查更新。")
+    : "自动更新适用于 Windows 正式桌面安装包。";
   if (trueDown.restartRequired) {
-    trueDownStatus = `已验证并暂存 ${trueDown.pendingVersion || `build ${trueDown.pendingBuild}`}，等待任务空闲后重启更新。`;
+    trueDownStatus = `已验证并暂存 ${trueDown.pendingVersion || `build ${trueDown.pendingBuild}`}。${trueDown.autoUpdate ? "等待任务空闲后自动重启更新。" : "自动更新已关闭，可手动重启更新。"}`;
   } else if (trueDown.updateAvailable) {
     trueDownStatus = `发现 ${trueDown.availableVersion || "新版本"}。`;
   } else if (trueDown.lastCheckedAt) {
@@ -906,9 +912,9 @@ function renderSystemUpdateState() {
   if (engine.restartRequired) {
     const selected = engine.preference === "next"
       ? `NEXT v${engine.nextInstalledVersion || "unknown"}` : "内置稳定内核";
-    engineStatus += ` 已选择 ${selected}，正在等待运行期切换。`;
+    engineStatus += ` 已准备 ${selected}。${engine.autoUpdate ? "队列空闲后自动切换。" : "可手动选择内核以应用更新。"}`;
   } else if (engine.nextInstalled) {
-    engineStatus += ` 已安装 NEXT v${engine.nextInstalledVersion}，不会自动跟随上游。`;
+    engineStatus += ` 已安装 NEXT v${engine.nextInstalledVersion}。${engine.autoUpdate ? "自动检查稳定版更新。" : "自动更新已关闭。"}`;
   } else {
     engineStatus += " 尚未安装 NEXT。";
   }
@@ -918,32 +924,45 @@ function renderSystemUpdateState() {
   if (busy === "engine-reload") engineStatus = "内核自动恢复失败，正在重载 TrueDown…";
   els.engineUpdateStatus.textContent = engineStatus;
   els.installNextEngineBtn.textContent = engine.nextInstalled ? "手动更新 NEXT" : "手动安装 NEXT";
-  els.installNextEngineBtn.disabled = Boolean(busy);
+  els.installNextEngineBtn.disabled = Boolean(busy) || !engine.autoUpdateSupported;
+  const nextToggle = document.getElementById("auto-update-next");
+  nextToggle.checked = engine.autoUpdate;
+  nextToggle.disabled = !engine.autoUpdateSupported || Boolean(busy);
   KDComponents.setBusyState(els.installNextEngineBtn, busy === "next-engine", { manageDisabled: false });
   els.selectStableEngineBtn.disabled = Boolean(busy) || engine.preference === "stable";
   els.selectStableEngineBtn.setAttribute("aria-pressed", String(engine.preference === "stable"));
-  els.selectNextEngineBtn.disabled = Boolean(busy) || !engine.nextInstalled || engine.preference === "next";
+  els.selectNextEngineBtn.disabled = Boolean(busy) || !engine.nextInstalled || (engine.preference === "next" && !engine.restartRequired);
   els.selectNextEngineBtn.setAttribute("aria-pressed", String(engine.preference === "next"));
 }
 
 async function updateTrueDownAutoUpdate() {
-  const requested = els.autoUpdateTruedown.checked;
-  KDComponents.setBusyState(els.autoUpdateTruedown, true);
+  return saveAutoUpdatePreference(els.autoUpdateTruedown, "autoUpdateTrueDown", "TrueDown");
+}
+
+async function updateNextAutoUpdate() {
+  return saveAutoUpdatePreference(document.getElementById("auto-update-next"), "autoUpdateNext", "Aria2 Next");
+}
+
+async function saveAutoUpdatePreference(control, key, name) {
+  updatePreferenceSaving = true;
+  const requested = control.checked;
+  KDComponents.setBusyState(control, true);
   invalidateSettingRead("engine");
   try {
     systemUpdateState = normalizeSystemUpdateState(await requestJSON("/settings/updates", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ autoUpdateTrueDown: requested }),
+      body: JSON.stringify({ [key]: requested }),
     }));
     renderSystemUpdateState();
-    showToast(requested ? "TrueDown 自动更新已启用。" : "TrueDown 自动更新已关闭，仍可手动检查。");
+    showToast(`${name} 自动更新已${requested ? "启用" : "关闭"}。`);
   } catch (error) {
     showToast(`自动更新设置失败：${error.message}`, "error");
     await reloadSystemUpdateStateQuietly();
   } finally {
     invalidateSettingRead("engine");
-    KDComponents.setBusyState(els.autoUpdateTruedown, false, { manageDisabled: false });
+    updatePreferenceSaving = false;
+    KDComponents.setBusyState(control, false, { manageDisabled: false });
     renderSystemUpdateState();
   }
 }
@@ -955,7 +974,7 @@ async function checkTrueDownUpdate() {
     systemUpdateState = normalizeSystemUpdateState(await requestJSON("/system/update/check", { method: "POST" }));
     renderSystemUpdateState();
     showToast(systemUpdateState.trueDown.restartRequired
-      ? "新版本已下载并验证；任务空闲时会自动重启，或现在手动重启。"
+      ? (systemUpdateState.trueDown.autoUpdate ? "新版本已验证，任务空闲时自动重启更新。" : "新版本已验证，可手动重启更新。")
       : "当前已是最新版本。")
   } catch (error) {
     showToast(`检查 TrueDown 更新失败：${error.message}`, "error");

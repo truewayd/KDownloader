@@ -1,0 +1,68 @@
+.file-group-navigation { display: grid; gap: 2px; }
+.sidebar { gap: 16px; }
+.sidebar .primary-nav { flex: 1; min-height: 0; overflow-y: auto; }
+.primary-nav a { min-height: 32px; padding-block: 6px; }
+.sidebar-footer { flex-shrink: 0; }
+.task-file-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.task-file-cell > .icon { flex-shrink: 0; color: var(--kd-icon); }
+.task-file-cell > div { min-width: 0; }
+.task-name-button { display: block; max-width: 100%; padding: 0; border: 0; background: none; color: var(--kd-text); font: inherit; text-align: left; cursor: pointer; }
+.task-name-button:hover { color: var(--kd-accent); text-decoration: underline; }
+.task-progress, #task-detail-progress { display: block; width: 100%; height: 4px; margin-top: 6px; border: 0; border-radius: 3px; accent-color: var(--kd-accent); background: var(--kd-border); }
+progress::-webkit-progress-bar { background: var(--kd-border); border-radius: 3px; }
+progress::-webkit-progress-value { background: var(--kd-accent); border-radius: 3px; }
+progress::-moz-progress-bar { background: var(--kd-accent); border-radius: 3px; }
+tr:has(.status-paused) .task-progress { accent-color: var(--kd-warning, #b98516); }
+tr:has(.status-paused) progress::-webkit-progress-value { background: var(--kd-warning, #b98516); }
+.tasks-table { min-width: 960px; }
+.tasks-table .col-file { width: 26%; }
+.tasks-table .col-progress { width: 14%; }
+.tasks-table .col-size { width: 90px; }
+.tasks-table .col-speed { width: 108px; }
+.tasks-table .col-created { width: 114px; }
+.task-speed, .task-size, .task-created { font-size: 12px; }
+.task-detail-page { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.task-detail-header { display: flex; align-items: center; gap: 16px; padding: 20px 24px; flex-shrink: 0; }
+.task-detail-header h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-detail-tabs { display: flex; gap: 8px; padding: 0 24px; border-bottom: 1px solid var(--kd-border); }
+.task-detail-tabs a { color: var(--kd-muted); text-decoration: none; padding: 12px 18px; border-bottom: 2px solid transparent; }
+.task-detail-tabs a[aria-current] { color: var(--kd-text); border-color: var(--kd-accent); }
+#task-detail-status { margin: 0; padding: 8px 24px; }
+#task-detail-status:empty { padding: 0; }
+.task-detail-scroll { overflow: auto; min-height: 0; padding: 24px; }
+#task-detail-progress { height: 6px; margin: 0 0 28px; }
+.task-info-grid { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 16px 24px; margin: 0; }
+.task-info-grid dt { color: var(--kd-muted); }
+.task-info-grid dd { margin: 0; overflow-wrap: anywhere; user-select: text; }
+#task-settings-fields { margin: 20px 0; padding: 0; border: 0; }
+.task-settings-footer { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.task-settings-footer > span { flex: 1; }
+#file-groups-editor { display: grid; gap: 18px; }
+.file-group-editor-row { display: grid; grid-template-columns: 36px 120px minmax(0, 1fr) 32px; gap: 12px; align-items: start; border-bottom: 1px solid var(--kd-border); padding-bottom: 18px; }
+.group-icon-dialog { width: min(320px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 20px; color: var(--kd-text); background: var(--kd-surface); overflow: auto; }
+.group-icon-dialog::backdrop { background: rgb(0 0 0 / 35%); }
+.group-icon-dialog header { display: flex; gap: 16px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.group-icon-dialog h2 { font-size: 15px; margin: 0; }
+.group-icon-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.group-icon-grid button { width: 100%; }
+.group-icon-grid [aria-pressed="true"] { border-color: var(--kd-accent); color: var(--kd-accent); }
+.file-group-editor-row > button { margin-top: 24px; }
+.group-editor-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+#download-form .modal-body { gap: 16px; }
+#download-form .link-list-field { min-height: 66px; }
+#download-form .torrent-import-field { gap: 6px; }
+#download-form .torrent-import-field > label, #download-form .torrent-import-field > .hint { display: none; }
+#download-form .advanced-options { margin-top: 0; }
+@media (max-width: 720px) {
+  .task-detail-header { padding: 12px; gap: 8px; flex-wrap: wrap; }
+  .task-detail-header h1 { font-size: 15px; }
+  .task-detail-tabs { padding-inline: 12px; }
+  .task-detail-scroll { padding: 16px; }
+  .task-info-grid { grid-template-columns: 78px minmax(0, 1fr); gap: 14px 10px; font-size: 12px; }
+  .task-settings-footer > span { flex-basis: 100%; }
+  .file-group-editor-row { grid-template-columns: 32px minmax(0, 1fr) 32px; gap: 8px; }
+  .file-group-editor-row .group-name-field { grid-column: 2; grid-row: 1; }
+  .file-group-editor-row .group-suffix-field { grid-column: 1 / -1; grid-row: 2; }
+  .file-group-editor-row > button { grid-column: 3; grid-row: 1; }
+  .file-group-editor-row > .group-icon-trigger { grid-column: 1; }
+}

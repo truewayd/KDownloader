@@ -1,4 +1,5 @@
-:root[data-native-frame] { --native-titlebar-height: 40px; }
+:root[data-native-frame="overlay"] { --native-titlebar-height: 40px; }
+:root[data-native-frame="native"] { --native-titlebar-height: 0px; }
 [data-native-frame] body { padding-top: var(--native-titlebar-height); }
 .native-titlebar {
   position: fixed;
@@ -14,25 +15,7 @@
 [data-material="native"] .native-titlebar { background: var(--native-chrome); }
 .native-titlebar-drag { display: flex; flex: 1; min-width: 0; align-items: center; padding: 0 16px; }
 .native-window-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; pointer-events: none; }
-.native-caption-controls { display: flex; flex-shrink: 0; }
-.native-caption-button { display: grid; place-items: center; width: 46px; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--kd-text); cursor: default; }
-.native-caption-button .icon { width: 16px; height: 16px; pointer-events: none; }
-.native-caption-button:hover { background: var(--kd-secondary-hover); }
-.native-caption-button:active { background: var(--kd-border-strong); }
-.native-caption-button:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -3px; }
-.native-caption-button[data-window-action="close"]:hover,
-.native-caption-button[data-window-action="close"]:active { color: #fff; background: #c42b1c; }
 [data-native-frame="overlay"] .native-titlebar-drag { padding-left: 84px; }
-/* Share the caption row with the main sidebar without covering its controls. */
-[data-native-window="main"][data-native-frame="custom"] body { padding-top: 0; }
-[data-native-window="main"][data-native-frame="custom"] .app-shell { height: 100dvh; }
-[data-native-window="main"][data-native-frame="custom"] .sidebar { padding-top: 2px; }
-[data-native-window="main"][data-native-frame="custom"] .native-titlebar { inset-inline-start: var(--sidebar-width); }
-[data-native-window="main"][data-native-frame="custom"] .dashboard { padding-top: calc(var(--native-titlebar-height) + 8px); }
 @media (forced-colors: active) {
   .native-titlebar, [data-material="native"] .native-titlebar { background: Canvas; color: CanvasText; }
-  .native-caption-button { color: ButtonText; }
-  .native-caption-button:hover,
-  .native-caption-button[data-window-action="close"]:hover,
-  .native-caption-button[data-window-action="close"]:active { background: Highlight; color: HighlightText; }
 }

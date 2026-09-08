@@ -11,6 +11,7 @@
   <script src="/api.js" defer></script>
   <script src="/native-windows.js" defer></script>
   <script src="/logs.js" defer></script>
+  <script src="/about.js" defer></script>
   <link rel="stylesheet" href="/workspace.css">
   <link rel="stylesheet" href="/native-appearance.css">
   <script src="/native-appearance.js" defer></script>
@@ -20,6 +21,9 @@
   <link rel="stylesheet" href="/file-controls.css">
   <script src="/file-controls.js" defer></script>
   <script src="/task-view.js" defer></script>
+  <script src="/task-details.js" defer></script>
+  <script src="/file-groups.js" defer></script>
+  <link rel="stylesheet" href="/task-details.css">
   <script src="/settings.js" defer></script>
   <script src="/workspace.js" defer></script>
   <script src="/app.js" defer></script>
@@ -38,15 +42,10 @@
         <nav class="primary-nav" aria-label="下载任务">
           <p class="nav-section-label">下载库</p>
           <a href="#tasks" data-route="tasks" data-task-filter="all" title="全部下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg><span class="nav-label">全部下载</span></a>
-          <a href="#tasks" data-route="tasks" data-task-filter="downloading" title="正在下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-download"></use></svg><span class="nav-label">正在下载</span></a>
-          <a href="#tasks" data-route="tasks" data-task-filter="paused" title="已暂停"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-pause"></use></svg><span class="nav-label">已暂停</span></a>
-          <a href="#tasks" data-route="tasks" data-task-filter="done" title="已完成"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-check"></use></svg><span class="nav-label">已完成</span></a>
-          <a href="#tasks" data-route="tasks" data-task-filter="error" title="下载失败"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-circle-alert"></use></svg><span class="nav-label">下载失败</span></a>
+          <div id="file-group-navigation" class="file-group-navigation"></div>
         </nav>
         <nav class="sidebar-footer" aria-label="应用工具">
-          <a href="#logs" data-route="logs" title="应用日志"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-logs"></use></svg><span class="nav-label">应用日志</span></a>
-          <a href="#settings/overview" data-route="settings" id="settings-btn" title="设置"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-settings"></use></svg><span class="nav-label">设置</span></a>
-          <button class="sidebar-action native-only" data-native-window="about" type="button" title="关于 TrueDown"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-info"></use></svg><span class="nav-label">关于 TrueDown</span></button>
+          <a href="#settings/general" data-route="settings" id="settings-btn" title="设置"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-settings"></use></svg><span class="nav-label">设置</span></a>
         </nav>
       </aside>
       <main class="dashboard">
@@ -122,43 +121,51 @@
           </div>
         </div>
       </section>
-<section class="kd-panel log-page" id="logs-page" data-page="logs" hidden aria-labelledby="settings-application-log-title">
+<section class="kd-panel settings-page" id="settings-page" data-page="settings" aria-labelledby="settings-title" hidden>
+  <h1 class="visually-hidden" id="settings-title" tabindex="-1">设置</h1>
+  <div class="settings-layout">
+    <nav class="settings-nav" aria-label="设置分类"><a class="settings-nav-link" href="#settings/general" data-settings-link="general" title="下载与速度"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-settings"></use></svg><span>下载与速度</span></a>
+<a class="settings-nav-link" href="#settings/network" data-settings-link="network" title="网络与重试"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-cloud"></use></svg><span>网络与重试</span></a>
+<a class="settings-nav-link" href="#settings/files" data-settings-link="files" title="文件与过滤"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder"></use></svg><span>文件与过滤</span></a>
+<a class="settings-nav-link" href="#settings/groups" data-settings-link="groups" title="文件分组"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-archive"></use></svg><span>文件分组</span></a>
+<a class="settings-nav-link" href="#settings/application" data-settings-link="application" title="启动与运行"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-power"></use></svg><span>启动与运行</span></a>
+<a class="settings-nav-link" href="#settings/modules" data-settings-link="modules" title="解析模块"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-app-window"></use></svg><span>解析模块</span></a>
+<a class="settings-nav-link" href="#settings/engine" data-settings-link="engine" title="内核与更新"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-refresh"></use></svg><span>内核与更新</span></a>
+<a class="settings-nav-link" href="#settings/security" data-settings-link="security" title="连接与认证"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-server"></use></svg><span>连接与认证</span></a>
+<a class="settings-nav-link" href="#settings/advanced" data-settings-link="advanced" title="高级参数"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-more-horizontal"></use></svg><span>高级参数</span></a>
+<a class="settings-nav-link" href="#settings/experimental" data-settings-link="experimental" title="实验功能"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-filter"></use></svg><span>实验功能</span></a>
+<a class="settings-nav-link" href="#settings/logs" data-settings-link="logs" title="应用日志"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-logs"></use></svg><span>应用日志</span></a>
+<a class="settings-nav-link" href="#settings/about" data-settings-link="about" title="关于 TrueDown"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-info"></use></svg><span>关于</span></a></nav>
+    <form id="settings-form" novalidate>
+      <div class="settings-content">
+        <p class="hint" id="settings-load-status" role="status"></p>
+        <button class="kd-button secondary compact" id="settings-reload-btn" type="button" hidden>重试读取设置</button>
+        <section class="settings-section log-page" id="logs-page" data-settings-page="logs" hidden aria-labelledby="settings-application-log-title">
             <h1 class="visually-hidden" id="settings-application-log-title" tabindex="-1">应用日志</h1>
             <div class="application-log-toolbar">
-              <p class="hint" id="application-log-status" aria-live="polite">进入此页时读取最新日志，可手动刷新。</p>
+              <p class="hint" id="application-log-status" aria-live="polite">自动刷新并滚动至最新日志；日志按天轮转，最多 3 份归档，最长保留 7 天。</p>
               <div class="application-log-actions">
+                <label class="log-follow"><input id="application-log-follow" type="checkbox" checked>跟随最新日志</label>
                 <button class="kd-button secondary compact" id="refresh-application-log-btn" type="button">刷新日志</button>
                 <button class="kd-button secondary compact" id="copy-application-log-btn" type="button" disabled>复制日志</button>
               </div>
             </div>
             <pre class="application-log-output" id="application-log-output" tabindex="0" aria-label="TrueDown 最新应用日志">尚未读取应用日志。</pre>
           </section>
-<section class="kd-panel settings-page" id="settings-page" data-page="settings" aria-labelledby="settings-title" hidden>
-  <h1 class="visually-hidden" id="settings-title" tabindex="-1">设置</h1>
-  <div class="settings-layout">
-    <nav class="settings-nav" aria-label="设置分类"><a class="settings-nav-link" href="#settings/overview" data-settings-link="overview">设置总览</a>
-<a class="settings-nav-link" href="#settings/general" data-settings-link="general">下载与速度</a>
-<a class="settings-nav-link" href="#settings/network" data-settings-link="network">网络与重试</a>
-<a class="settings-nav-link" href="#settings/files" data-settings-link="files">文件与过滤</a>
-<a class="settings-nav-link" href="#settings/application" data-settings-link="application">启动与运行</a>
-<a class="settings-nav-link" href="#settings/modules" data-settings-link="modules">解析模块</a>
-<a class="settings-nav-link" href="#settings/engine" data-settings-link="engine">内核与更新</a>
-<a class="settings-nav-link" href="#settings/security" data-settings-link="security">连接与认证</a>
-<a class="settings-nav-link" href="#settings/advanced" data-settings-link="advanced">高级参数</a>
-<a class="settings-nav-link" href="#settings/experimental" data-settings-link="experimental">实验功能</a></nav>
-    <form id="settings-form" novalidate>
-      <div class="settings-content">
-        <p class="hint" id="settings-load-status" role="status"></p>
-        <button class="kd-button secondary compact" id="settings-reload-btn" type="button" hidden>重试读取设置</button>
-        <section data-settings-page="overview" aria-label="设置总览"><div class="settings-overview"><a class="kd-panel settings-card" href="#settings/general"><span class="kd-eyebrow">01</span><strong>下载与速度</strong><span>保存位置、并发与速度限制</span><span class="settings-card-value" data-overview="general">打开设置 →</span></a>
-<a class="kd-panel settings-card" href="#settings/network"><span class="kd-eyebrow">02</span><strong>网络与重试</strong><span>代理、请求标识与重试策略</span><span class="settings-card-value" data-overview="network">打开设置 →</span></a>
-<a class="kd-panel settings-card" href="#settings/files"><span class="kd-eyebrow">03</span><strong>文件与过滤</strong><span>Dropbox 默认行为与文件处理</span><span class="settings-card-value" data-overview="files">打开设置 →</span></a>
-<a class="kd-panel settings-card" href="#settings/application"><span class="kd-eyebrow">04</span><strong>启动与运行</strong><span>开机启动与后台服务</span><span class="settings-card-value" data-overview="application">打开设置 →</span></a>
-<a class="kd-panel settings-card" href="#settings/modules"><span class="kd-eyebrow">05</span><strong>解析模块</strong><span>Dropbox 与 Google Drive</span><span class="settings-card-value" data-overview="modules">打开设置 →</span></a>
-<a class="kd-panel settings-card" href="#settings/engine"><span class="kd-eyebrow">06</span><strong>内核与更新</strong><span>下载内核、程序更新与诊断</span><span class="settings-card-value" data-overview="engine">打开设置 →</span></a>
-<a class="kd-panel settings-card" href="#settings/security"><span class="kd-eyebrow">07</span><strong>连接与认证</strong><span>API Key 与浏览器集成</span><span class="settings-card-value" data-overview="security">打开设置 →</span></a>
-<a class="kd-panel settings-card" href="#settings/advanced"><span class="kd-eyebrow">08</span><strong>高级参数</strong><span>额外 aria2 下载选项</span><span class="settings-card-value" data-overview="advanced">打开设置 →</span></a>
-<a class="kd-panel settings-card" href="#settings/experimental"><span class="kd-eyebrow">09</span><strong>实验功能</strong><span>Tracker 流量研究</span><span class="settings-card-value" data-overview="experimental">打开设置 →</span></a></div></section>
+<section class="settings-section settings-about" data-settings-page="about" hidden aria-labelledby="settings-about-title">
+          <header class="about-brand"><img src="/truedown-logo.svg" width="48" height="48" alt=""><div><h2 id="settings-about-title">TrueDown</h2><p class="hint">轻量下载管理器</p></div></header>
+          <dl class="storage-locations" aria-label="版本信息"><dt>程序版本</dt><dd id="about-version">正在读取…</dd><dt>构建编号</dt><dd id="about-build">正在读取…</dd><dt>下载内核</dt><dd id="about-engine">正在读取…</dd><dt>服务连接</dt><dd id="about-connection">正在读取…</dd></dl>
+          <p class="hint" id="about-status" role="status"></p>
+          <a class="kd-button secondary" href="#settings/engine">检查更新</a>
+          <p class="hint">第三方许可证随程序安装。</p>
+        </section>
+        <section class="settings-section" data-settings-page="groups" hidden aria-labelledby="file-groups-title">
+          <h3 id="file-groups-title">文件分组</h3>
+          <p class="hint">按文件后缀自动分类，忽略大小写。支持 .tar.gz 等复合后缀，优先匹配较长的后缀；未匹配文件归入“其他”。修改会立即更新已有任务的分组，保留文件原位置。</p>
+          <div id="file-groups-editor"></div>
+          <div class="group-editor-actions"><button class="kd-button secondary" id="file-group-add" type="button">新增分组</button><button class="kd-button secondary" id="file-groups-reload" type="button">重新读取</button><button class="kd-button primary" id="file-groups-save" type="button">保存分组</button></div>
+          <p class="hint" id="file-groups-status" role="status"></p>
+        </section>
         <section class="settings-section" data-settings-page="application" aria-labelledby="settings-application-title" hidden>
           <div class="settings-section-heading"><h3 id="settings-application-title">启动与运行</h3></div>
           <label class="setting-toggle" for="startup-enabled"><input id="startup-enabled" type="checkbox" disabled><span><strong>开机自动启动</strong><small>登录后在后台运行，即时生效。</small></span></label>
@@ -224,7 +231,11 @@
                 <input class="kd-input" id="cfg-wait" type="number" min="1" max="3600" placeholder="3">
               </div>
               <div class="field field-span-2">
-                <label for="cfg-proxy">HTTP(S) 代理</label>
+                <label for="cfg-proxy-mode">代理</label>
+                <select class="kd-select" id="cfg-proxy-mode"><option value="system">系统代理</option><option value="custom">自定义代理</option><option value="none">无代理</option></select>
+              </div>
+              <div class="field field-span-2" id="cfg-proxy-field" hidden>
+                <label for="cfg-proxy">HTTP(S) 代理地址</label>
                 <input class="kd-input" id="cfg-proxy" type="url" placeholder="http://127.0.0.1:7890">
               </div>
               <div class="field">
@@ -252,7 +263,7 @@
                   <option value="direct">直接下载目录压缩包</option>
                   <option value="expand">默认展开为独立文件任务</option>
                 </select>
-                <p class="hint">新建任务时可单独更改。</p>
+                <p class="hint">新建下载时自动使用此设置。</p>
               </div>
               <div class="field">
                 <label for="cfg-allocation">文件预分配</label>
@@ -333,7 +344,7 @@
                     <span id="engine-version">正在读取版本…</span>
                   </div>
                   <p id="engine-update-status" aria-live="polite">正在读取内核状态…</p>
-                  <small>Aria2 Next 需手动安装和更新，用于 BitTorrent 下载。</small>
+                  <label class="inline-update-toggle" for="auto-update-next"><input id="auto-update-next" type="checkbox"><span>自动更新已安装的 Aria2 Next</span></label><small>校验后等待队列空闲再切换，保留任务和原内核以便恢复。</small>
                 </div>
                 <div class="update-card-actions">
                   <button class="kd-button secondary compact" id="select-stable-engine-btn" type="button">使用稳定内核</button>
@@ -441,6 +452,40 @@
     </form>
   </div>
 </section>
+<section class="kd-panel task-detail-page" data-page="task" hidden aria-labelledby="task-detail-title">
+  <header class="task-detail-header">
+    <a class="kd-button secondary compact" href="#tasks" id="task-detail-back">返回下载</a>
+    <h1 id="task-detail-title" tabindex="-1">任务信息</h1>
+    <div id="task-detail-actions" class="row-actions"></div>
+  </header>
+  <nav class="task-detail-tabs" aria-label="单任务页面">
+    <a href="#task/0/info" id="task-info-tab">信息</a>
+    <a href="#task/0/settings" id="task-settings-tab">设置</a>
+  </nav>
+  <p class="hint" id="task-detail-status" role="status"></p>
+  <div class="task-detail-scroll">
+    <section id="task-info-panel" aria-labelledby="task-info-tab">
+      <progress id="task-detail-progress" max="100" aria-label="下载进度"></progress>
+      <dl class="task-info-grid" id="task-info-grid"></dl>
+    </section>
+    <form id="task-settings-form" hidden>
+      <p class="hint">限速即时生效。修改连接数和重试参数前请先暂停任务；已完成的任务仅供查看。</p>
+      <fieldset id="task-settings-fields" disabled>
+        <div class="form-grid">
+          <div class="field"><label for="task-setting-connections">连接数</label><input class="kd-input" id="task-setting-connections" type="number" min="1" max="64" required></div>
+          <div class="field"><label for="task-setting-speed">限速（字节/秒）</label><input class="kd-input" id="task-setting-speed" type="number" min="0" max="1125899906842624" required><p class="hint">0 表示不限速。</p></div>
+          <div class="field"><label for="task-setting-tries">最大重试次数</label><input class="kd-input" id="task-setting-tries" type="number" min="1" max="100" required></div>
+          <div class="field"><label for="task-setting-wait">重试间隔（秒）</label><input class="kd-input" id="task-setting-wait" type="number" min="1" max="3600" required></div>
+        </div>
+      </fieldset>
+      <div class="task-settings-footer">
+        <span id="task-settings-status" role="status" class="hint"></span>
+        <button class="kd-button secondary" id="task-settings-reload" type="button">重新读取</button>
+        <button class="kd-button primary" id="task-settings-save" type="submit" disabled>保存此任务</button>
+      </div>
+    </form>
+  </div>
+</section>
       </main>
     </div>
   </div>
@@ -458,7 +503,7 @@
         <div class="modal-body">
           <div class="field">
             <label for="m-link">下载链接或 Magnet</label>
-            <textarea id="m-link" class="kd-input link-list-field" rows="4" placeholder="https://example.com/file.zip&#10;magnet:?xt=urn:btih:..."></textarea>
+            <textarea id="m-link" class="kd-input link-list-field" rows="2" placeholder="https://example.com/file.zip&#10;magnet:?xt=urn:btih:..."></textarea>
             <p class="hint">每行一个链接。Magnet 和 .torrent 下载需要 Aria2 Next。</p>
           </div>
           <div class="field torrent-import-field">
@@ -477,34 +522,10 @@
               <div class="directory-field"><input class="kd-input" id="m-folder" type="text" placeholder="留空使用默认下载目录"><button class="kd-icon-button native-folder-picker" type="button" data-directory-input="m-folder" title="选择保存目录" aria-label="选择保存目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button></div>
             </div>
             <div class="field">
-              <label for="m-name">文件名（仅普通 HTTP(S)）</label>
-              <input class="kd-input" id="m-name" type="text" placeholder="BT 任务使用 torrent 元信息名称">
+              <label for="m-name">文件名</label>
+              <input class="kd-input" id="m-name" type="text" placeholder="留空自动获取">
             </div>
           </div>
-
-		  <fieldset class="dropbox-options" id="m-resolver-options">
-			<legend>链接解析模块</legend>
-			<div class="module-option-note" id="m-google-drive-option">
-			  <strong>Google Drive 自动解析</strong>
-			  <span>支持公开文件、目录、大文件确认页，以及 Docs / Sheets / Slides 导出。</span>
-			</div>
-			<div id="m-dropbox-option">
-			  <div class="form-grid">
-				<div class="field">
-				  <label for="m-dropbox-mode">Dropbox 共享目录</label>
-				  <select class="kd-select" id="m-dropbox-mode">
-					<option value="direct">直接下载目录压缩包</option>
-					<option value="expand">展开为独立文件任务</option>
-				  </select>
-				</div>
-				<label class="setting-toggle" for="m-dropbox-filter">
-				  <input id="m-dropbox-filter" type="checkbox" disabled>
-				  <span><strong>应用后缀过滤</strong><small>只在展开 Dropbox 目录时可用。</small></span>
-				</label>
-			  </div>
-			  <p class="hint">此选项仅影响 Dropbox `/scl/fo/` 共享目录；普通链接会照常下载。</p>
-			</div>
-		  </fieldset>
 
           <details class="advanced-options">
             <summary>高级选项</summary>

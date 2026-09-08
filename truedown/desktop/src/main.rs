@@ -253,6 +253,7 @@ fn main() {
             windows::finish_task_window,
             frame::frame_action,
             frame::frame_state,
+            frame::frame_title,
             pickers::choose_download_directory,
             appearance::apply_material,
             update::desktop_ready

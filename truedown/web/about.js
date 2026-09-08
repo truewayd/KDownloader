@@ -1,19 +1,19 @@
-const aboutInvoke = (command, args) => window.__TAURI__.core.invoke(command, args);
 async function loadAbout() {
-  const read = async (path) => {
-    const response = await aboutInvoke("core_request", { request: { method: "GET", path } });
-    if (response.status !== 200) throw new Error("无法读取服务状态");
-    return JSON.parse(response.body);
-  };
+  const epoch = routeEpoch;
   try {
-    const [info, update, state] = await Promise.all([read("/system/info"), read("/system/update"), aboutInvoke("desktop_state")]);
-    document.getElementById("version").textContent = `${info.version} · build ${info.buildNumber} · ${info.commit}`;
-    document.getElementById("engine").textContent = update.engine?.active === "next" ? `Aria2 Next ${update.engine.activeVersion || ""}` : "aria2 稳定版";
-    document.getElementById("connection").textContent = state.owned ? "桌面托管" : "独立本地服务";
-  } catch (error) { document.getElementById("about-status").textContent = `读取失败：${error.message || error}`; }
+    const [info, update, state] = await Promise.all([
+      requestJSON("/system/info"), requestJSON("/system/update"),
+      window.__TAURI__?.core?.invoke ? invokeNative("desktop_state") : Promise.resolve(null),
+    ]);
+    if (currentPage !== "settings" || currentSettingsPage !== "about" || routeEpoch !== epoch) return;
+    document.getElementById("about-version").textContent = info.productVersion || info.version;
+    document.getElementById("about-build").textContent = `${info.buildNumber} / ${String(info.commit || "").slice(0, 12)}`;
+    document.getElementById("about-engine").textContent = `${update.engine?.active === "next" ? "Aria2 Next" : "aria2"} ${update.engine?.activeVersion || ""}`;
+    document.getElementById("about-connection").textContent = state ? state.owned ? "\u684c\u9762\u6258\u7ba1" : "\u72ec\u7acb\u672c\u5730\u670d\u52a1" : "HTTP \u63a7\u5236\u53f0";
+    document.getElementById("about-status").textContent = "";
+  } catch (error) {
+    if (currentPage === "settings" && currentSettingsPage === "about" && routeEpoch === epoch) {
+      document.getElementById("about-status").textContent = `\u8bfb\u53d6\u5931\u8d25\uff1a${error.message}`;
+    }
+  }
 }
-const closeAbout = () => aboutInvoke("close_auxiliary").catch((error) => { document.getElementById("about-status").textContent = String(error); });
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "w")) {event.preventDefault(); closeAbout();}
-});
-loadAbout();

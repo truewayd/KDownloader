@@ -21,26 +21,23 @@ impl Kind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Settings => "settings",
-            Self::Logs => "logs",
-            Self::About => "about",
+            Self::Logs | Self::About => "settings",
             Self::NewTask => "new-task",
             Self::BatchTask => "batch-task",
         }
     }
     fn title(self) -> &'static str {
         match self {
-            Self::Settings => "设置",
-            Self::Logs => "应用日志",
-            Self::About => "关于 TrueDown",
+            Self::Settings | Self::Logs | Self::About => "",
             Self::NewTask => "新建下载",
             Self::BatchTask => "批量下载",
         }
     }
     fn url(self) -> &'static str {
         match self {
-            Self::Settings => "index.html?window=settings#settings/overview",
-            Self::Logs => "index.html?window=logs#logs",
-            Self::About => "about.html",
+            Self::Settings => "index.html?window=settings#settings/general",
+            Self::Logs => "index.html?window=settings#settings/logs",
+            Self::About => "index.html?window=settings#settings/about",
             Self::NewTask => "index.html?window=new-task",
             Self::BatchTask => "index.html?window=batch-task",
         }
@@ -81,10 +78,8 @@ pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), Str
             window
         } else {
             let (width, height, min_width, min_height) = match kind {
-                Kind::Settings => (1020.0, 760.0, 640.0, 480.0),
-                Kind::Logs => (960.0, 680.0, 560.0, 360.0),
-                Kind::About => (480.0, 360.0, 400.0, 320.0),
-                Kind::NewTask => (780.0, 840.0, 620.0, 480.0),
+                Kind::Settings | Kind::Logs | Kind::About => (960.0, 760.0, 640.0, 480.0),
+                Kind::NewTask => (660.0, 560.0, 520.0, 420.0),
                 Kind::BatchTask => (860.0, 740.0, 620.0, 480.0),
             };
             let window = crate::frame::configure(state.storage.configure(
@@ -102,6 +97,16 @@ pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), Str
             crate::placement::fit(&window.as_ref().window(), true);
             window
         };
+    if matches!(kind, Kind::Settings | Kind::Logs | Kind::About) {
+        let page = match kind {
+            Kind::Logs => "logs",
+            Kind::About => "about",
+            _ => "general",
+        };
+        window
+            .emit("truedown:settings-page", page)
+            .map_err(|error| error.to_string())?;
+    }
     if !state.suppress {
         crate::placement::fit(&window.as_ref().window(), false);
         window

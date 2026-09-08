@@ -34,13 +34,16 @@ try {
       "/settings/tracker-research": { enabled: false, engine: "stable" },
       "/auth/settings": { enabled: false, managed: false },
       "/system/storage": { dataDirectory: "C:\\Users\\Example\\AppData\\Local\\TrueDown", paths: Object.fromEntries(["config", "data", "state", "logs", "cache"].map(role => [role, `C:\\Users\\Example\\AppData\\Local\\TrueDown\\${role}`])) },
+      "/system/info": { product: "TrueDown", productVersion: "1.5.0", version: "truedown-build-42", buildNumber: "42", commit: "a".repeat(40) },
+      "/system/logs": { content: "entry\n".repeat(300), updatedAt: "2026-09-08T05:35:34Z" },
       "/system/update": { trueDown: { version: "truedown-build-42", build: 42, supported: true, autoUpdate: true, lastCheckedAt: "2026-09-08T05:35:34Z" }, engine: { preference: "stable", active: "stable", activeVersion: "1.37.0", stableVersion: "1.37.0", nextInstalled: true, nextInstalledVersion: "2.7.2" } },
       "/modules": { modules: ["google-drive", "dropbox"].map(id => ({ id, name: id === "dropbox" ? "Dropbox" : "Google Drive", version: "1.0.0", installed: true, source: "baseline" })) },
     };
-    let failSave = false;
+    let failSave = false, logReads = 0;
     await context.route(/\/(settings\/|system\/|auth\/|modules)/, async route => {
       const endpoint = new URL(route.request().url()).pathname;
       if (!(endpoint in fixture)) throw new Error(`Unexpected settings API: ${endpoint}`);
+      if (endpoint === "/system/logs") { logReads++; fixture[endpoint].content += `fresh ${logReads}\\n`; }
       if (route.request().method() === "POST") {
         if (failSave) { await route.fulfill({ status: 500, body: "Fixture persistence failure" }); return; }
         const value = route.request().postDataJSON();
@@ -61,9 +64,9 @@ try {
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
-    await page.goto(`${origin}/${native ? "?window=settings" : ""}#settings/overview`);
+    await page.goto(`${origin}/${native ? "?window=settings" : ""}#settings/general`);
     assert.equal(await page.title(), "设置");
-    for (const category of ["overview", "general", "network", "files", "application", "modules", "engine", "security", "advanced", "experimental"]) {
+    for (const category of ["general", "network", "files", "application", "modules", "engine", "security", "advanced", "experimental", "logs", "about"]) {
       await page.locator(`[data-settings-link="${category}"]`).click();
       await page.waitForFunction(category => settingsReady.has(category) || document.querySelector("#settings-load-status").textContent.includes("失败"), category);
       assert.equal(await page.evaluate(category => settingsReady.has(category), category), true, `${name}/${category}: ${await page.locator("#settings-load-status").textContent()}`);
@@ -78,6 +81,11 @@ try {
         const tops = await page.locator("#cfg-dropbox-mode, #cfg-allocation").evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top));
         assert.ok(Math.abs(tops[0] - tops[1]) <= 1, `${name}: file selectors are misaligned`);
       }
+      if (category === "logs") {
+        await page.waitForFunction(() => document.querySelector("#application-log-output").textContent.includes("fresh"));
+        assert.equal(await page.locator("#application-log-output").evaluate(e => e.scrollHeight - e.scrollTop - e.clientHeight < 2), true);
+        if (native && colorScheme === "dark") { await page.waitForTimeout(3300); assert.ok(logReads >= 2); }
+      }
       if (category === "modules") {
         assert.equal(await page.locator(".module-card-icon use").count(), 2);
         await page.locator('[data-module-toggle="dropbox"]').click();
@@ -86,6 +94,7 @@ try {
       }
       await page.screenshot({ path: path.join(screenshots, `${name}-${category}.png`) });
     }
+    await page.locator('[data-settings-link="experimental"]').click();
     // Reach the last editable experimental field with wheel input, then Tab to
     // the persistent actions without locator scrolling concealing a layout bug.
     const contentBox = await page.locator(".settings-content").boundingBox();
@@ -98,6 +107,8 @@ try {
     await page.keyboard.press("Tab");
     assert.equal(await page.evaluate(() => document.activeElement.id), "settings-save-btn");
     await page.locator('[data-settings-link="network"]').click();
+    assert.equal(await page.locator("#cfg-proxy-mode").inputValue(), "system");
+    await page.locator("#cfg-proxy-mode").selectOption("custom");
     await page.locator("#cfg-proxy").fill("http://127.0.0.1:7890");
     await page.locator('[data-settings-link="files"]').click();
     await page.locator('[data-settings-link="network"]').click();

@@ -76,7 +76,8 @@ public static class TrueDownNativeState {
             GetWindowThreadProcessId(window, out process);
             if (process != processId) return true;
             var title = new StringBuilder(1024);
-            if (GetWindowText(window, title, title.Capacity) == 0) return true;
+            GetWindowText(window, title, title.Capacity);
+            if (title.Length == 0 && (GetWindowLong(window, -16) & 0x00c00000) != 0x00c00000) return true;
             var state = new TrueDownWindowState {
                 handle = window.ToInt64().ToString("x"),
                 title = title.ToString(),

@@ -1,5 +1,4 @@
-//! Bounded operations on the calling window's custom title bar. The operating
-//! system still owns resizing, snapping, minimize/restore and the system menu.
+//! Native caption buttons and bounded operations on the calling window.
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, WebviewWindow, WebviewWindowBuilder, Wry};
 
@@ -14,7 +13,15 @@ pub fn configure<'a, M: Manager<Wry>>(
             .traffic_light_position(tauri::LogicalPosition::new(14.0, 16.0))
     }
     #[cfg(not(target_os = "macos"))]
-    builder.decorations(false).shadow(true)
+    builder.decorations(true).shadow(true)
+}
+
+#[tauri::command]
+pub fn frame_title(window: WebviewWindow, title: String) -> Result<(), String> {
+    if title.chars().count() > 160 || title.chars().any(char::is_control) {
+        return Err("Invalid window title".into());
+    }
+    window.set_title(&title).map_err(|error| error.to_string())
 }
 
 #[derive(Deserialize)]

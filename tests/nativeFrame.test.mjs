@@ -65,7 +65,7 @@ test("native capabilities permit event subscriptions and window inspection witho
   const capability = JSON.parse(await readFile(new URL("../truedown/desktop/capabilities/main.json", import.meta.url), "utf8"));
   const config = JSON.parse(await readFile(new URL("../truedown/desktop/tauri.conf.json", import.meta.url), "utf8"));
   assert.deepEqual(config.app.security.capabilities, [capability.identifier]);
-  assert.deepEqual([...capability.windows].sort(), ["about", "batch-task", "logs", "main", "new-task", "settings"]);
+  assert.deepEqual([...capability.windows].sort(), ["batch-task", "main", "new-task", "settings"]);
   assert.equal(capability.remote, undefined, "Remote documents must never acquire native commands");
   // core:default also grants image reads from arbitrary paths and tray/menu
   // mutations. Keep a closed list so a default group cannot restore them.
@@ -89,29 +89,20 @@ test("HTTP dashboards leave the browser frame alone; macOS retains native traffi
   assert.equal(mac.buttons.length, 0);
 });
 
-test("custom frame sends bounded caller-window actions and updates maximize accessibility", async () => {
-  let maximized = false;
-  const view = setup("windows", async () => ({ maximized, decorated: false }));
-  await flush();
-  assert.equal(view.buttons.length, 3);
-  assert.equal(view.buttons[1].getAttribute("aria-label"), "最大化");
-  const drag = view.drag.emit("mousedown", { button: 0, detail: 1 });
-  assert.equal(drag.prevented, true);
-  view.drag.emit("mousedown", { button: 0, detail: 2 });
-  view.drag.emit("mousedown", { button: 2, detail: 1 });
-  view.buttons[0].emit("click");
-  view.buttons[2].emit("click");
-  view.document.emit("keydown", { altKey: true, code: "Space" });
-  view.drag.emit("contextmenu");
-  await flush();
-  assert.deepEqual(view.calls.filter(call => call.command === "frame_action").map(call => call.args.action),
-    ["drag", "maximize", "minimize", "close", "system-menu", "system-menu"]);
-  maximized = true;
-  view.window.emit("focus");
-  await flush();
-  assert.equal(view.document.documentElement.dataset.maximized, "true");
-  assert.equal(view.buttons[1].getAttribute("aria-label"), "向下还原");
-  assert.equal(view.buttons[1].children[0].children[0].getAttribute("href"), "/icons.svg#icon-restore");
+test("Windows and Linux retain native captions and bound application titles", async () => {
+  for (const platform of ["windows", "linux"]) {
+    const view = setup(platform, async () => ({ maximized: true, decorated: true }));
+    await flush();
+    assert.equal(view.document.body.children.length, 0);
+    assert.equal(view.document.documentElement.dataset.nativeFrame, "native");
+    assert.equal(view.document.documentElement.dataset.maximized, "true");
+    assert.equal(view.calls.find(call => call.command === "frame_title").args.title, "TrueDown");
+    view.document.title = "x".repeat(200);
+    view.observers[0].callback();
+    await flush();
+    assert.equal(view.calls.at(-1).args.title.length, 160);
+    assert.equal(view.calls.filter(call => call.command === "frame_action").length, 0);
+  }
 });
 
 test("resize bursts coalesce and page cleanup rejects late state and detaches observers", async () => {
@@ -130,5 +121,5 @@ test("resize bursts coalesce and page cleanup rejects late state and detaches ob
   assert.ok(view.observers.every(observer => observer.disconnected));
   assert.equal(view.window.listeners.get("resize").size, 0);
   assert.equal(view.window.listeners.get("focus").size, 0);
-  assert.equal(view.document.listeners.get("keydown").size, 0);
+  assert.equal(view.document.listeners.get("keydown")?.size || 0, 0);
 });

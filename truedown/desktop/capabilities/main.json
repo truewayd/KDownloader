@@ -4,8 +4,6 @@
   "windows": [
     "main",
     "settings",
-    "logs",
-    "about",
     "new-task",
     "batch-task"
   ],

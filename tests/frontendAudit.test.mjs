@@ -296,7 +296,7 @@ function createTaskPageHarness(fetchPage) {
     const MAX_PAGE_ETAGS = 128;
     const pageETags = new Map();
     let currentOffset = 0, currentTotal = 0;
-    let currentFilter = 'all', currentSearch = '', currentSort = 'status', currentSortOrder = 'asc';
+    let currentCategory = '', currentFilter = 'all', currentSearch = '', currentSort = 'status', currentSortOrder = 'asc';
     let currentSummary = {}, loadTasksPromise = null, taskRefreshRequested = false, renderedTaskPageURL = '';
     ${["loadTasks", "taskPageURL", "rememberPageETag", "normalizeSummary", "emptySummary", "safeCount"].map((name) => declaration(trueDownSource, name)).join("\n")}
   `, context);

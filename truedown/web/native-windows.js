@@ -4,6 +4,11 @@ const nativeWindowRole = window.__TAURI__?.core?.invoke
 
 if (nativeWindowRole !== "browser") {
   document.documentElement.dataset.nativeWindow = nativeWindowRole;
+  if (nativeWindowRole === "settings" && window.__TAURI__.event?.listen) {
+    window.__TAURI__.event.listen("truedown:settings-page", ({ payload }) => {
+      if (["general", "logs", "about"].includes(payload)) location.hash = `settings/${payload}`;
+    }).then(unlisten => window.addEventListener("pagehide", unlisten, { once: true })).catch(console.error);
+  }
   document.addEventListener("click", (event) => {
     const link = event.target.closest("a[data-route], [data-native-window]");
     const kind = link?.dataset.nativeWindow || link?.dataset.route;
@@ -23,6 +28,11 @@ if (nativeWindowRole !== "browser") {
     }
     if (nativeWindowRole === "settings" && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
+      const groupsSave = document.getElementById("file-groups-save");
+      if (groupsSave?.checkVisibility() && !groupsSave.disabled && !groupsSave.closest("[inert]")) {
+        groupsSave.click();
+        return;
+      }
       const save = document.getElementById("settings-save-btn");
       if (save?.checkVisibility() && !save.disabled) document.getElementById("settings-form").requestSubmit();
     }

@@ -60,18 +60,18 @@ try {
   const info = await evaluate("return window.__TAURI__.core.invoke('core_request',{request:{method:'GET',path:'/system/info'}})");
   assert.equal(JSON.parse(info.body).product, "TrueDown");
   for (const kind of ["settings", "logs", "about", "new-task", "batch-task"]) await evaluate("return window.__TAURI__.core.invoke('open_auxiliary',{kind:arguments[0]})", [kind]);
-  const handles = await until(async () => { const handles = await command("GET", "/window/handles"); return handles.length === 6 && handles; });
+  const handles = await until(async () => { const handles = await command("GET", "/window/handles"); return handles.length === 4 && handles; });
   let settings, main;
   const forms = {};
   for (const handle of handles) {
     await command("POST", "/window", { handle });
-    const role = await evaluate("return document.documentElement.dataset.nativeWindow || (location.pathname.endsWith('about.html')?'about':'main')");
+    const role = await evaluate("return document.documentElement.dataset.nativeWindow || 'main'");
     if (role === "settings") settings = handle;
     if (role === "main") main = handle;
     if (role === "new-task" || role === "batch-task") forms[role] = handle;
-    assert.equal(await evaluate("return document.querySelectorAll('.native-titlebar').length"), 1);
-    assert.equal(await evaluate("return document.querySelectorAll('[data-window-action]').length"), 3);
-    assert.equal((await evaluate("return window.__TAURI__.core.invoke('frame_state')")).decorated, false);
+    assert.equal(await evaluate("return document.querySelectorAll('.native-titlebar').length"), 0);
+    assert.equal(await evaluate("return document.querySelectorAll('[data-window-action]').length"), 0);
+    assert.equal((await evaluate("return window.__TAURI__.core.invoke('frame_state')")).decorated, true);
   }
   assert.ok(settings && main);
   await command("POST", "/window", { handle: settings });
@@ -118,7 +118,7 @@ try {
     assert.equal(await evaluate("await refreshAndSchedule(true);return pollTimer===0 && currentPage===arguments[0]", [kind]), true);
     await assert.rejects(evaluate("return window.__TAURI__.core.invoke('core_request',{request:{method:'GET',path:'/tasks?limit=1'}})"));
     await assert.rejects(evaluate("return window.__TAURI__.core.invoke('core_request',{request:{method:'POST',path:'/settings/task-defaults',body:'{}'}})"));
-    const layout = await evaluate("const footer=document.querySelector('#overlay .modal-footer').getBoundingClientRect();const frame=document.querySelector('.native-titlebar').getBoundingClientRect();const form=document.querySelector('#overlay').getBoundingClientRect();return {footer:footer.bottom,frame:frame.bottom,form:form.top,width:innerWidth,scrollWidth:document.documentElement.scrollWidth,height:innerHeight}");
+    const layout = await evaluate("const footer=document.querySelector('#overlay .modal-footer').getBoundingClientRect();const frame={bottom:0};const form=document.querySelector('#overlay').getBoundingClientRect();return {footer:footer.bottom,frame:frame.bottom,form:form.top,width:innerWidth,scrollWidth:document.documentElement.scrollWidth,height:innerHeight}");
     assert.ok(layout.width >= 320 && layout.height >= 240 && layout.footer <= layout.height && layout.form >= layout.frame && layout.scrollWidth <= layout.width, JSON.stringify(layout));
     await evaluate("document.querySelector('#m-link').value=arguments[0];document.querySelector('#submit-task-btn').click();return true", [filenames.map(name => `${downloadOrigin}/${name}`).join("\n")]);
     await until(() => evaluate("return !document.querySelector('#download-form').inert && document.querySelector('#m-link').value===''") );
@@ -133,7 +133,7 @@ try {
   }
   await command("POST", "/window", { handle: main });
   const windows = await evaluate("return Promise.all((await window.__TAURI__.window.getAllWindows()).map(async entry=>({label:entry.label,visible:await entry.isVisible()})))");
-  assert.equal(windows.length, 6);
+  assert.equal(windows.length, 4);
   assert.ok(windows.every(window => !window.visible));
   console.log("webkit_windows=ok native_frame=ok native_task_forms=ok retained_drafts=ok live_form_preferences=ok form_permissions=ok creation_refresh=ok shared_settings=ok xvfb_layout=ok close_hides_windows=ok");
 } catch (error) {

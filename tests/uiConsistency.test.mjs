@@ -598,10 +598,10 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownHtml, /id="open-downloads-btn"/);
   assert.match(trueDownHtml, /id="cfg-task-concurrency"[^>]+placeholder="3"/);
   assert.match(trueDownHtml, /id="cfg-dropbox-mode"/);
-  assert.match(trueDownHtml, /id="m-dropbox-mode"/);
-  assert.match(trueDownHtml, /id="m-dropbox-filter"/);
+  assert.doesNotMatch(trueDownHtml, /id="m-dropbox-mode"/);
+  assert.doesNotMatch(trueDownHtml, /id="m-dropbox-filter"/);
 	assert.match(trueDownHtml, /id="module-list"/);
-	assert.match(trueDownHtml, /id="m-google-drive-option"/);
+	assert.doesNotMatch(trueDownHtml, /id="m-google-drive-option"/);
   assert.match(trueDownHtml, /id="auto-update-truedown"/);
   assert.match(trueDownHtml, /id="install-next-engine-btn"/);
   assert.match(trueDownHtml, /id="select-stable-engine-btn"/);
@@ -631,7 +631,7 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownApp, /aria-sort/);
 	assert.match(trueDownApp, /requestJSON\("\/modules"/);
 	assert.match(trueDownApp, /moduleOptions: sharedBody\.moduleOptions/);
-  assert.match(trueDownApp, /els\.mDropboxMode\.value = downloadRules\.dropboxMode/);
+  assert.match(trueDownApp, /mode: downloadRules\.dropboxMode/);
   assert.match(trueDownHtml, /id="dialog-overlay"[^>]+aria-hidden="true"[^>]+inert/);
   assert.doesNotMatch(trueDownApp, /window\.(?:alert|confirm|prompt)\s*\(/);
   assert.match(trueDownApp, /current page connection remains valid|当前页面连接保持有效/);
