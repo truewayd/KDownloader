@@ -10,11 +10,21 @@ struct WorkArea {
 
 impl From<&Monitor> for WorkArea {
     fn from(monitor: &Monitor) -> Self {
-        Self {
+        let area = Self {
             position: monitor.work_area().position,
             size: monitor.work_area().size,
             scale: monitor.scale_factor(),
+        };
+        #[cfg(all(windows, debug_assertions))]
+        if std::env::var("TRUEDOWN_DESKTOP_TEST").as_deref() == Ok("1")
+            && std::env::var("TRUEDOWN_DESKTOP_TEST_SMALL_WORK_AREA").as_deref() == Ok("1")
+        {
+            return Self {
+                size: PhysicalSize::new(area.size.width.min(1024), area.size.height.min(720)),
+                ..area
+            };
         }
+        area
     }
 }
 
@@ -66,6 +76,11 @@ fn dimensions(
 // Measure the actual native frame and monitor work area. Fixed minimum sizes
 // must not force controls below a taskbar on small screens at high scale.
 pub fn fit(window: &Window, center: bool) {
+    let owned = window.clone();
+    let _ = window.run_on_main_thread(move || fit_on_main_thread(&owned, center));
+}
+
+fn fit_on_main_thread(window: &Window, center: bool) {
     let preferred = if center && window.label() != "main" {
         window
             .app_handle()
@@ -92,14 +107,17 @@ pub fn fit(window: &Window, center: bool) {
     if !scale.is_finite() || scale <= 0.0 || !target_scale.is_finite() || target_scale <= 0.0 {
         return;
     }
+    let area = WorkArea::from(&monitor);
     if let Some(tracker) = window.try_state::<Tracker>() {
-        tracker.changed(window.label(), WorkArea::from(&monitor));
+        tracker.changed(window.label(), area.clone());
+    }
+    if window.is_maximized().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+        return;
     }
     let frame = (
         (outer.width.saturating_sub(inner.width)) as f64 / scale,
         (outer.height.saturating_sub(inner.height)) as f64 / scale,
     );
-    let area = monitor.work_area();
     let available = (
         area.size.width as f64 / target_scale - frame.0,
         area.size.height as f64 / target_scale - frame.1,
@@ -107,12 +125,17 @@ pub fn fit(window: &Window, center: bool) {
     let minimum = crate::windows::minimum_size(window.label());
     let requested = (inner.width as f64 / scale, inner.height as f64 / scale);
     let (size, minimum) = dimensions(requested, minimum, available);
-    let _ = window.set_min_size(Some(LogicalSize::new(minimum.0, minimum.1)));
-    if window.is_maximized().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+    let Ok(offset) = crate::frame::sizing_offset(window) else {
         return;
-    }
-    if size != requested {
-        let _ = window.set_size(LogicalSize::new(size.0, size.1));
+    };
+    let native_size = |size: (f64, f64)| {
+        LogicalSize::new((size.0 - offset.0).max(1.0), (size.1 - offset.1).max(1.0))
+    };
+    let _ = window.set_min_size(Some(native_size(minimum)));
+    // Tao also resizes when setting minimums. Restore the measured client size
+    // even when fitting did not shrink it, or each call adds a title-bar inset.
+    if size != requested || offset != (0.0, 0.0) {
+        let _ = window.set_size(native_size(size));
     }
     let width = ((size.0 + frame.0) * target_scale).ceil() as i32;
     let height = ((size.1 + frame.1) * target_scale).ceil() as i32;

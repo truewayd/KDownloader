@@ -29,6 +29,20 @@ pub async fn install_async(window: &WebviewWindow) -> Result<(), String> {
     receiver.await.map_err(|error| error.to_string())?
 }
 
+// Tao converts client sizes using the standard frame, even after our
+// WM_NCCALCSIZE handler extends the client into the title bar.
+pub fn sizing_offset(window: &tauri::Window) -> Result<(f64, f64), String> {
+    #[cfg(windows)]
+    unsafe {
+        windows::sizing_offset(window.hwnd().map_err(|error| error.to_string())?.0)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        Ok((0.0, 0.0))
+    }
+}
+
 pub fn configure<'a, M: Manager<Wry>>(
     builder: WebviewWindowBuilder<'a, Wry, M>,
 ) -> WebviewWindowBuilder<'a, Wry, M> {

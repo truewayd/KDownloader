@@ -14,7 +14,7 @@ use windows_sys::Win32::{
     },
     UI::{
         Controls::MARGINS,
-        HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi},
+        HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow, GetSystemMetricsForDpi},
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
@@ -23,6 +23,31 @@ use windows_sys::Win32::{
 const SUBCLASS: usize = 0x54444652;
 pub const BUTTON_WIDTH: f64 = 144.0;
 pub const CAPTION_HEIGHT: f64 = 40.0;
+
+pub unsafe fn sizing_offset(hwnd: HWND) -> Result<(f64, f64), String> {
+    let mut inner = RECT::default();
+    let mut outer = RECT::default();
+    if GetClientRect(hwnd, &mut inner) == 0 || GetWindowRect(hwnd, &mut outer) == 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    let mut standard = inner;
+    let dpi = GetDpiForWindow(hwnd).max(96);
+    if AdjustWindowRectExForDpi(
+        &mut standard,
+        GetWindowLongW(hwnd, GWL_STYLE) as u32,
+        (!GetMenu(hwnd).is_null()) as i32,
+        GetWindowLongW(hwnd, GWL_EXSTYLE) as u32,
+        dpi,
+    ) == 0
+    {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    let scale = dpi as f64 / 96.0;
+    Ok((
+        ((standard.right - standard.left) - (outer.right - outer.left)) as f64 / scale,
+        ((standard.bottom - standard.top) - (outer.bottom - outer.top)) as f64 / scale,
+    ))
+}
 
 unsafe fn caption_hit(hwnd: HWND, point: &POINT) -> Option<LRESULT> {
     // DWM does not hit-test hidden windows. The OS accessibility rectangles
@@ -227,6 +252,116 @@ mod tests {
         CreateCompatibleDC, CreateDIBSection, DeleteDC, GdiFlush, SelectObject, BITMAPINFO,
         BITMAPINFOHEADER, DIB_RGB_COLORS,
     };
+
+    #[test]
+    fn extended_caption_sizes_fit_small_work_areas_without_repeated_growth() {
+        unsafe {
+            let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+            let hwnd = CreateWindowExW(
+                0,
+                class.as_ptr(),
+                std::ptr::null(),
+                WS_OVERLAPPEDWINDOW,
+                0,
+                0,
+                976,
+                800,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                std::ptr::null(),
+            );
+            assert!(!hwnd.is_null());
+            struct HiddenWindow(HWND);
+            impl Drop for HiddenWindow {
+                fn drop(&mut self) {
+                    unsafe { DestroyWindow(self.0) };
+                }
+            }
+            let _window = HiddenWindow(hwnd);
+            assert_ne!(SetWindowSubclass(hwnd, Some(procedure), SUBCLASS, 0), 0);
+            assert_ne!(
+                SetWindowPos(
+                    hwnd,
+                    null_mut(),
+                    0,
+                    0,
+                    976,
+                    800,
+                    SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE
+                ),
+                0
+            );
+            let dpi = GetDpiForWindow(hwnd).max(96);
+            let scale = dpi as f64 / 96.0;
+            let resize = |width: i32, height: i32| {
+                // Exercise the same standard-frame conversion used by Tao.
+                let mut rect = RECT {
+                    right: width,
+                    bottom: height,
+                    ..Default::default()
+                };
+                assert_ne!(
+                    AdjustWindowRectExForDpi(
+                        &mut rect,
+                        GetWindowLongW(hwnd, GWL_STYLE) as u32,
+                        0,
+                        GetWindowLongW(hwnd, GWL_EXSTYLE) as u32,
+                        dpi
+                    ),
+                    0
+                );
+                assert_ne!(
+                    SetWindowPos(
+                        hwnd,
+                        null_mut(),
+                        0,
+                        0,
+                        rect.right - rect.left,
+                        rect.bottom - rect.top,
+                        SWP_NOZORDER | SWP_NOACTIVATE
+                    ),
+                    0
+                );
+            };
+            let bounds = || {
+                let mut inner = RECT::default();
+                let mut outer = RECT::default();
+                assert_ne!(GetClientRect(hwnd, &mut inner), 0);
+                assert_ne!(GetWindowRect(hwnd, &mut outer), 0);
+                (inner, outer)
+            };
+            for (width, height) in [(1024, 720), (640, 360)] {
+                let (inner, outer) = bounds();
+                let client_width = width - ((outer.right - outer.left) - inner.right);
+                let client_height = height - ((outer.bottom - outer.top) - inner.bottom);
+                resize(client_width, client_height);
+                let (_, overflow) = bounds();
+                assert!(
+                    overflow.bottom > height,
+                    "Standard sizing must reproduce the old overflow"
+                );
+                for _ in 0..3 {
+                    let offset = sizing_offset(hwnd).unwrap();
+                    assert!(offset.1 > 0.0);
+                    // set_min_inner_size re-applies the current client size.
+                    let (current, _) = bounds();
+                    resize(current.right, current.bottom);
+                    resize(
+                        client_width - (offset.0 * scale).round() as i32,
+                        client_height - (offset.1 * scale).round() as i32,
+                    );
+                    let (actual, outer) = bounds();
+                    assert_eq!((actual.right, actual.bottom), (client_width, client_height));
+                    assert_eq!(
+                        (outer.left, outer.top, outer.right, outer.bottom),
+                        (0, 0, width, height)
+                    );
+                    assert_eq!(IsWindowVisible(hwnd), 0);
+                }
+            }
+        }
+    }
 
     #[test]
     fn caption_paint_initializes_alpha_without_erasing_the_body() {

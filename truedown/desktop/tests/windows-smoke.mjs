@@ -41,6 +41,7 @@ function launchDesktop() { return spawn(path.join(installation, shellName), ["--
   windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
   env: {
     ...process.env, TRUEDOWN_DESKTOP_TEST: "1", TRUEDOWN_ADDR: `127.0.0.1:${port}`,
+    TRUEDOWN_DESKTOP_TEST_SMALL_WORK_AREA: "1",
     TRUEDOWN_DESKTOP_TEST_DEBUG_PORT: String(debugPort),
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: "",
     TRUEDOWN_API_TOKEN: "", TRUEDOWN_REQUIRE_TOKEN: "", TRUEDOWN_TLS_CERT: "", TRUEDOWN_TLS_KEY: "",
@@ -447,7 +448,8 @@ try {
     return { monitors, windows };
   });
   for (const entry of geometry.windows) {
-    assert.ok(geometry.monitors.some(({ workArea: area }) => entry.position.x >= area.position.x - 1 && entry.position.y >= area.position.y - 1 && entry.position.x + entry.size.width <= area.position.x + area.size.width + 1 && entry.position.y + entry.size.height <= area.position.y + area.size.height + 1), `Window escaped its monitor work area: ${JSON.stringify(entry)}`);
+    const viewport = await pages[entry.label].evaluate(() => ({ width: innerWidth, height: innerHeight, scale: devicePixelRatio }));
+    assert.ok(geometry.monitors.some(({ workArea: area }) => entry.position.x >= area.position.x - 1 && entry.position.y >= area.position.y - 1 && entry.position.x + entry.size.width <= area.position.x + Math.min(area.size.width, 1024) + 1 && entry.position.y + entry.size.height <= area.position.y + Math.min(area.size.height, 720) + 1), `Window escaped its 1024x720 acceptance work area: ${JSON.stringify({ window: entry, viewport, monitors: geometry.monitors })}`);
   }
   assert.deepEqual(errors, []);
   // An authenticated external client exit must stop the desktop, not trigger

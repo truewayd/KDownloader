@@ -40,6 +40,13 @@ elevated CI runners where [WebView2 150+ ignores environment overrides](https://
 Release builds omit this test hook. Package acceptance checks the frontend health
 acknowledgment and native window visibility without opening a debugging port.
 
+Hidden Windows acceptance also sets `TRUEDOWN_DESKTOP_TEST_SMALL_WORK_AREA=1`.
+Together with `TRUEDOWN_DESKTOP_TEST=1`, debug builds cap each monitor's test work
+area at 1024x720 physical pixels, retaining its origin and DPI. This exercises
+native window fitting on large developer displays too, without changing the
+desktop resolution. Release builds omit this override. Bounds failures report
+the window's outer bounds, WebView viewport/scale and monitor work areas.
+
 Windows and Linux windows share the resolved profile's WebView cache. The core commits storage
 migration before any WebView is created; the native builder receives the absolute
 cache path directly, because Tauri's JSON window configuration accepts only a
@@ -61,6 +68,9 @@ relative `dataDirectory`. Auxiliary windows do not create separate browser cache
 - Windows uses Mica when supported and allowed by system transparency/contrast
   preferences. macOS uses native vibrancy and system controls. Working surfaces
   stay opaque, and unsupported effects fall back to normal backgrounds.
+- Monitor fitting measures the extended Windows frame and compensates for Tao's
+  standard-frame size conversion, including its resize when setting minimums.
+  Repeated fitting must preserve client size and stay inside the work area.
 - Windows chooses a 16/20/24/32/40/48/64-pixel tray raster using the taskbar monitor
   DPI and refreshes after taskbar movement. macOS treats the icon as a template.
 
