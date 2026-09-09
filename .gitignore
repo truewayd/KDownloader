@@ -21,6 +21,8 @@ truedown/desktop/gen/
 !truedown/unix/README.md
 !truedown/windows/README.md
 !truedown/desktop/README.md
+!truedown/desktop/vendor/**/*.md
+!truedown/desktop/vendor/README.md
 !changelog/
 !changelog/*.md
 !changelog/*/

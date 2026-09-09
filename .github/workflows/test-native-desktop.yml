@@ -75,6 +75,11 @@ jobs:
           cargo fmt --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
+      - name: Check optimized GLib FFI regression
+        if: runner.os == 'Linux'
+        env:
+          RUSTUP_TOOLCHAIN: 1.98.1
+        run: cargo test --locked --release --test dependencies
       - name: Check responsive workspace and task-form usability
         if: runner.os == 'Linux'
         run: |

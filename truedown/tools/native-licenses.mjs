@@ -4,9 +4,11 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { licenseInventory, readBoundedLicenseResponse } from "./native-license-bounds.mjs";
+import { verifyNativePatches } from "./verify-native-patches.mjs";
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const desktop = path.join(project, "desktop");
+const patches = await verifyNativePatches();
 const licenseDirectory = path.join(desktop, "licenses");
 const indexPath = path.join(licenseDirectory, "index.json");
 let overrides = {};
@@ -127,7 +129,14 @@ const target = process.env.CARGO_BUILD_TARGET || run("rustc", ["-vV"]).match(/^h
 if (!target) throw new Error("Cannot resolve the native license target");
 const metadata = JSON.parse(run("cargo", ["metadata", "--locked", "--format-version", "1", "--filter-platform", target]));
 const active = new Set(metadata.resolve.nodes.map(node => node.id));
-const packages = metadata.packages.filter(pkg => pkg.source && active.has(pkg.id)).sort((left, right) => `${left.name}@${left.version}`.localeCompare(`${right.name}@${right.version}`, "en"));
+const packages = metadata.packages.filter(pkg => {
+  if (!active.has(pkg.id) || path.resolve(pkg.manifest_path) === path.join(desktop, "Cargo.toml")) return false;
+  const patch = patches.get(`${pkg.name}@${pkg.version}`);
+  if (patch ? pkg.source || path.dirname(path.resolve(pkg.manifest_path)) !== patch.path : !pkg.source) {
+    throw new Error(`Unreviewed local dependency or missing patch: ${pkg.name}@${pkg.version}`);
+  }
+  return true;
+}).sort((left, right) => `${left.name}@${left.version}`.localeCompare(`${right.name}@${right.version}`, "en"));
 if (!packages.length || packages.length > 2048) throw new Error("Invalid native dependency inventory");
 const output = licenseInventory();
 output.push(`TrueDown native dependency licenses (${target})`, "Generated from the locked dependency graph and packaged or pinned upstream license notices.");
@@ -138,7 +147,9 @@ for (const pkg of packages) {
   if (pkg.license_file) names.push(path.relative(directory, pkg.license_file));
   const files = [...new Set(names)].sort();
   let included = false;
-  output.push("", `${pkg.name} ${pkg.version}`, `License: ${pkg.license || "see original text"}`, `Authors: ${pkg.authors.join(", ") || "see source contributors"}`, `Source: ${pkg.repository || pkg.source}`, `Exact source package: https://crates.io/api/v1/crates/${pkg.name}/${pkg.version}/download`);
+  const patch = patches.get(`${pkg.name}@${pkg.version}`);
+  output.push("", `${pkg.name} ${pkg.version}`, `License: ${pkg.license || "see original text"}`, `Authors: ${pkg.authors.join(", ") || "see source contributors"}`, `Source: ${pkg.repository || pkg.source}`, `${patch ? "Original source package (locally patched)" : "Exact source package"}: https://crates.io/api/v1/crates/${pkg.name}/${pkg.version}/download`);
+  if (patch) output.push(`Original archive SHA-256: ${patch.archiveSha256}`, "TrueDown compatibility patches (desktop/vendor/patches.json):", ...Object.entries(patch.changes).map(([name, change]) => `${name}: ${change.before} -> ${change.after}`));
   for (const name of files) {
     const file = path.resolve(directory, name);
     if (!file.startsWith(directory + path.sep)) throw new Error(`License path escaped ${pkg.name}`);
