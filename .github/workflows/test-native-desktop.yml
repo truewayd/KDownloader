@@ -111,4 +111,5 @@ jobs:
         run: cargo +1.98.1 install tauri-driver --version 2.0.6 --locked
       - name: Accept Linux WebKitGTK windows inside Xvfb
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: xvfb-run -a -s '-screen 0 1280x800x24' dbus-run-session -- node tests/linux-smoke.mjs target/debug/TrueDown

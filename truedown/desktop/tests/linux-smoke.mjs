@@ -6,6 +6,7 @@ import net from "node:net";
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { readToastPlacement, assertToastBounds } from "./toast-layout.mjs";
+import { stopProcessGroup } from "./process-group.mjs";
 
 if (process.platform !== "linux" || !process.env.DISPLAY) throw new Error("Run this test inside xvfb-run and dbus-run-session");
 const application = path.resolve(process.argv[2] || "target/debug/TrueDown");
@@ -30,26 +31,33 @@ const port = await freePort(), nativePort = await freePort(), corePort = await f
 const endpoint = `http://127.0.0.1:${port}`;
 const driver = spawn("tauri-driver", ["--port", String(port), "--native-port", String(nativePort)], {
   stdio: ["ignore", "pipe", "pipe"],
+  detached: true,
   // WebKit never allocates a usable viewport for a never-mapped GTK window.
   // Map only inside this required Xvfb display, then verify close-to-hide below.
   env: { ...process.env, GDK_BACKEND: "x11", TRUEDOWN_DESKTOP_TEST: "", TRUEDOWN_ADDR: `127.0.0.1:${corePort}`, TRUEDOWN_API_TOKEN: "", TRUEDOWN_REQUIRE_TOKEN: "", TRUEDOWN_TLS_CERT: "", TRUEDOWN_TLS_KEY: "", TAURI_WEBVIEW_AUTOMATION: "true" },
 });
-let diagnostic = "", session, downloadFixture;
+let diagnostic = "", phase = "driver startup", session, downloadFixture, launchError;
+driver.on("error", error => { launchError = error; });
 for (const stream of [driver.stdout, driver.stderr]) stream.on("data", data => { diagnostic = (diagnostic + data.toString()).slice(-8192); });
-async function request(method, route, body) {
-  const response = await fetch(endpoint + route, { method, headers: { "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(route.endsWith("/screenshot") ? 5000 : 45000) });
+async function request(method, route, body, timeout = route.endsWith("/screenshot") ? 5000 : 45000) {
+  const response = await fetch(endpoint + route, { method, headers: { "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(timeout) });
   const value = await response.json();
   if (!response.ok || value.value?.error) throw new Error(value.value?.message || JSON.stringify(value));
   return value.value;
 }
-const command = (method, route, body) => request(method, `/session/${session}${route}`, body);
+const command = (method, route, body, timeout) => request(method, `/session/${session}${route}`, body, timeout);
 async function evaluate(script, args = []) {
   const result = await command("POST", "/execute/async", { script: `const done=arguments[arguments.length-1]; (async()=>{${script}})().then(value=>done({value}),error=>done({error:String(error)}));`, args });
   if (result.error) throw new Error(result.error);
   return result.value;
 }
 try {
-  await until(() => fetch(endpoint + "/status").then(response => response.ok, () => false));
+  await until(() => {
+    if (launchError) throw launchError;
+    if (driver.exitCode !== null || driver.signalCode !== null) throw new Error(`Automation driver exited: ${diagnostic}`);
+    return fetch(endpoint + "/status", { signal: AbortSignal.timeout(5000) }).then(response => response.ok, () => false);
+  });
+  phase = "create native session";
   const created = await request("POST", "/session", { capabilities: { alwaysMatch: { "tauri:options": { application, args: ["--data-dir", profile] } } } });
   session = created.sessionId;
   await command("POST", "/timeouts", { script: 15000, pageLoad: 30000, implicit: 0 });
@@ -60,6 +68,7 @@ try {
   assert.equal(await evaluate("return window.__TRUEDOWN_PLATFORM__"), "linux");
   const info = await evaluate("return window.__TAURI__.core.invoke('core_request',{request:{method:'GET',path:'/system/info'}})");
   assert.equal(JSON.parse(info.body).product, "TrueDown");
+  phase = "native windows and settings";
   for (const kind of ["settings", "logs", "about", "new-task", "batch-task"]) await evaluate("return window.__TAURI__.core.invoke('open_auxiliary',{kind:arguments[0]})", [kind]);
   const handles = await until(async () => { const handles = await command("GET", "/window/handles"); return handles.length === 4 && handles; });
   let settings, main;
@@ -90,6 +99,7 @@ try {
   await new Promise(resolve => downloadFixture.listen(0, "127.0.0.1", resolve));
   const downloadOrigin = `http://127.0.0.1:${downloadFixture.address().port}`;
   for (const [kind, filenames, total] of [["new-task", ["single.txt"], 1], ["batch-task", ["batch-a.txt", "batch-b.txt"], 3]]) {
+    phase = `${kind} form`;
     assert.ok(forms[kind]);
     await command("POST", "/window", { handle: forms[kind] });
     await until(() => evaluate("return nativeTaskFormReady"));
@@ -132,6 +142,7 @@ try {
     await until(() => evaluate("return Number(document.querySelector('#task-count').textContent)===arguments[0]", [total]));
     assert.equal(await evaluate("return document.querySelector('#toast').textContent"), "下载任务已添加");
   }
+  phase = "close windows";
   for (const handle of handles) {
     await command("POST", "/window", { handle });
     await evaluate("return window.__TAURI__.core.invoke('frame_action',{action:'close'})");
@@ -142,13 +153,22 @@ try {
   assert.ok(windows.every(window => !window.visible));
   console.log("webkit_windows=ok native_frame=ok native_task_forms=ok retained_drafts=ok live_form_preferences=ok form_permissions=ok creation_refresh=ok shared_settings=ok xvfb_layout=ok close_hides_windows=ok");
 } catch (error) {
+  error.message = `${phase}: ${error.message}`;
   await fs.writeFile(path.join(profile, "webdriver.log"), diagnostic);
   if (session) await command("GET", "/screenshot").then(image => fs.writeFile(path.join(profile, "failure.png"), Buffer.from(image, "base64"))).catch(() => {});
   throw error;
 } finally {
-  await fetch(`http://127.0.0.1:${corePort}/system/exit`, { method: "POST" }).catch(() => {});
-  if (session) await command("DELETE", "").catch(() => {});
-  driver.kill();
-  if (downloadFixture) await new Promise(resolve => downloadFixture.close(resolve));
-  console.log(`profile=${profile}`);
+  try {
+    await fetch(`http://127.0.0.1:${corePort}/system/exit`, { method: "POST", signal: AbortSignal.timeout(5000) }).catch(() => {});
+    if (session) await command("DELETE", "", undefined, 5000).catch(() => {});
+  } finally {
+    try { await stopProcessGroup(driver); }
+    finally {
+      if (downloadFixture) {
+        downloadFixture.closeAllConnections();
+        await new Promise(resolve => downloadFixture.close(resolve));
+      }
+      console.log(`profile=${profile}`);
+    }
+  }
 }
