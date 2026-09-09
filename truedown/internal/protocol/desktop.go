@@ -50,13 +50,16 @@ func AllowedDesktopRequest(request DesktopRequest) bool {
 			break
 		}
 	}
-	if !allowed || len(request.Body) > 6*1024*1024 {
+	if !allowed || len(request.Body) > 6*1024*1024 || len(request.Headers) > 2 {
 		return false
 	}
+	names := make(map[string]bool, len(request.Headers))
 	for key, value := range request.Headers {
-		if (strings.ToLower(key) != "if-none-match" && strings.ToLower(key) != "content-type") || len(value) > 1024 || strings.ContainsAny(value, "\r\n\x00") {
+		key = strings.ToLower(key)
+		if (key != "if-none-match" && key != "content-type") || names[key] || len(value) > 1024 || strings.ContainsAny(value, "\r\n\x00") {
 			return false
 		}
+		names[key] = true
 	}
 	return true
 }

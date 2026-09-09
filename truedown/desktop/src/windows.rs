@@ -46,15 +46,68 @@ impl Kind {
 
 pub fn allowed(window: &str, method: &str, path: &str) -> bool {
     match window {
-        "main" => true,
-        "settings" => {
-            !path.starts_with("/tasks")
-                && !path.starts_with("/queue/")
-                && !path.starts_with("/start-")
-                && path != "/system/exit"
-        }
-        "logs" => method == "GET" && ["/system/logs", "/system/info", "/modules"].contains(&path),
-        "about" => method == "GET" && ["/system/info", "/system/update"].contains(&path),
+        "main" => match method {
+            "GET" => [
+                "/tasks",
+                "/tasks/detail",
+                "/settings/file-groups",
+                "/system/info",
+                "/system/storage",
+                "/settings/task-defaults",
+            ]
+            .contains(&path),
+            "POST" => [
+                "/tasks/detail",
+                "/tasks/batch",
+                "/tasks/open-file",
+                "/tasks/open-folder",
+                "/tasks/clear-done",
+                "/queue/pause",
+                "/queue/resume",
+                "/system/open-downloads",
+                "/system/exit",
+            ]
+            .contains(&path),
+            _ => false,
+        },
+        "settings" => match method {
+            "GET" => [
+                "/system/info",
+                "/system/storage",
+                "/system/logs",
+                "/system/update",
+                "/settings/runtime",
+                "/settings/download-rules",
+                "/settings/task-defaults",
+                "/settings/file-groups",
+                "/settings/tracker-research",
+                "/settings/updates",
+                "/settings/startup",
+                "/modules",
+                "/auth/settings",
+            ]
+            .contains(&path),
+            "POST" => [
+                "/settings/runtime",
+                "/settings/download-rules",
+                "/settings/task-defaults",
+                "/settings/file-groups",
+                "/settings/tracker-research",
+                "/settings/updates",
+                "/settings/startup",
+                "/modules",
+                "/modules/package",
+                "/auth/settings",
+                "/system/open-downloads",
+                "/system/engine/next",
+                "/system/engine/select",
+                "/system/update/check",
+                "/system/update/restart",
+            ]
+            .contains(&path),
+            "DELETE" => path == "/modules/package",
+            _ => false,
+        },
         "new-task" | "batch-task" => match method {
             "GET" => [
                 "/settings/task-defaults",
@@ -69,6 +122,14 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
     }
 }
 
+pub fn minimum_size(label: &str) -> (f64, f64) {
+    match label {
+        "settings" => (640.0, 480.0),
+        "new-task" => (520.0, 420.0),
+        _ => (620.0, 480.0),
+    }
+}
+
 #[tauri::command]
 pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), String> {
     let state = app.state::<Windows>();
@@ -77,11 +138,12 @@ pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), Str
         if let Some(window) = app.get_webview_window(kind.label()) {
             window
         } else {
-            let (width, height, min_width, min_height) = match kind {
-                Kind::Settings | Kind::Logs | Kind::About => (960.0, 760.0, 640.0, 480.0),
-                Kind::NewTask => (660.0, 560.0, 520.0, 420.0),
-                Kind::BatchTask => (860.0, 740.0, 620.0, 480.0),
+            let (width, height) = match kind {
+                Kind::Settings | Kind::Logs | Kind::About => (960.0, 760.0),
+                Kind::NewTask => (660.0, 560.0),
+                Kind::BatchTask => (860.0, 740.0),
             };
+            let (min_width, min_height) = minimum_size(kind.label());
             let window = crate::frame::configure(state.storage.configure(
                 WebviewWindowBuilder::new(&app, kind.label(), WebviewUrl::App(kind.url().into())),
             ))
@@ -160,7 +222,18 @@ mod tests {
         assert!(!allowed("logs", "GET", "/auth/token"));
         assert!(!allowed("settings", "POST", "/system/exit"));
         assert!(allowed("settings", "POST", "/settings/runtime"));
-        assert!(allowed("about", "GET", "/system/info"));
+        assert!(!allowed("about", "GET", "/system/info"));
+        for window in ["main", "settings", "new-task", "batch-task"] {
+            assert!(!allowed(window, "GET", "/auth/token"));
+            assert!(!allowed(
+                window,
+                "POST",
+                "/settings/future-privileged-operation"
+            ));
+        }
+        assert!(!allowed("main", "POST", "/auth/settings"));
+        assert!(!allowed("main", "POST", "/settings/startup"));
+        assert!(allowed("main", "POST", "/tasks/detail"));
         for window in ["new-task", "batch-task"] {
             assert!(allowed(window, "GET", "/settings/task-defaults"));
             assert!(allowed(window, "POST", "/start-headless-download"));

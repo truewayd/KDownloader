@@ -64,19 +64,23 @@ impl Request {
             .as_ref()
             .map_err(|_| "Invalid compiled API contract")?;
         if self.path.len() > 8192
-            || self.path.contains(['\r', '\n', '#'])
+            || self.path.contains('#')
+            || self.path.bytes().any(|byte| byte.is_ascii_control())
             || self.body.len() > 6 * 1024 * 1024
+            || self.headers.len() > 2
             || !routes
                 .get(path)
                 .is_some_and(|methods| methods.contains(&self.method.as_str()))
         {
             return Err("Unsupported desktop request".into());
         }
+        let mut names = std::collections::HashSet::new();
         for (key, value) in &self.headers {
             if !(key.eq_ignore_ascii_case("content-type")
                 || key.eq_ignore_ascii_case("if-none-match"))
                 || value.len() > 1024
                 || value.contains(['\r', '\n', '\0'])
+                || !names.insert(key.to_ascii_lowercase())
             {
                 return Err("Unsupported desktop request header".into());
             }
@@ -250,10 +254,9 @@ impl Bridge {
         let output = child.stdout.take().ok_or("Core output unavailable")?;
         // The application owns a rotating log. Consume stderr to prevent a pipe
         // deadlock; request bodies and API tokens are never logged here.
-        if let Some(stderr) = child.stderr.take() {
+        if let Some(mut stderr) = child.stderr.take() {
             tauri::async_runtime::spawn(async move {
-                let mut reader = BufReader::new(stderr);
-                while read_frame(&mut reader).await.is_ok() {}
+                let _ = tokio::io::copy(&mut stderr, &mut tokio::io::sink()).await;
             });
         }
         let mut reader = BufReader::new(output);
@@ -459,6 +462,8 @@ mod tests {
             "//example.com/tasks",
             "/tasks#fragment",
             "/tasks/open-arbitrary",
+            "/tasks?search=\0",
+            "/tasks?search=\u{7f}",
         ] {
             assert!(Request::new("GET", path).validate().is_err());
         }
@@ -466,6 +471,14 @@ mod tests {
         assert!(Request::new("POST", "/tasks").validate().is_err());
         let mut request = Request::new("GET", "/tasks");
         request.headers.insert("X-Api-Key".into(), "private".into());
+        assert!(request.validate().is_err());
+        request.headers.clear();
+        request
+            .headers
+            .insert("Content-Type".into(), "application/json".into());
+        request
+            .headers
+            .insert("content-type".into(), "text/plain".into());
         assert!(request.validate().is_err());
     }
 }

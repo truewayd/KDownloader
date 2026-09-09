@@ -54,12 +54,7 @@ pub fn fit(window: &Window, center: bool) {
         area.size.width as f64 / target_scale - frame.0,
         area.size.height as f64 / target_scale - frame.1,
     );
-    let minimum = match window.label() {
-        "settings" => (640.0, 480.0),
-        "logs" => (560.0, 360.0),
-        "about" => (420.0, 360.0),
-        _ => (620.0, 480.0),
-    };
+    let minimum = crate::windows::minimum_size(window.label());
     let requested = (inner.width as f64 / scale, inner.height as f64 / scale);
     let (size, minimum) = dimensions(requested, minimum, available);
     let _ = window.set_min_size(Some(LogicalSize::new(minimum.0, minimum.1)));
@@ -100,6 +95,15 @@ mod tests {
     use super::*;
     #[test]
     fn small_high_scale_work_areas_override_fixed_minimums() {
+        assert_eq!(
+            dimensions(
+                (520.0, 420.0),
+                crate::windows::minimum_size("new-task"),
+                (1200.0, 800.0)
+            )
+            .0,
+            (520.0, 420.0)
+        );
         let (size, minimum) = dimensions((1020.0, 760.0), (640.0, 480.0), (630.0, 310.0));
         assert_eq!(size, (630.0, 310.0));
         assert_eq!(minimum, size);

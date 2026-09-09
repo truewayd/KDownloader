@@ -290,6 +290,13 @@ try {
   await assert.rejects(invoke(main, "plugin:image|from_path", { path: path.join(profile, "__acl_image_must_not_exist__.png") }),
     /image\.from_path not allowed\. Permissions associated with this command: [^\r\n]*core:image:allow-from-path|Command plugin:image\|from_path not allowed by ACL/);
   await api(main, "GET", "/system/info");
+  for (const request of [
+    { method: "GET", path: "/tasks?search=\u0000" },
+    { method: "POST", path: "/settings/startup", body: '{"enabled":true}' },
+    { method: "POST", path: "/auth/settings", body: '{"enabled":true}' },
+    { method: "GET", path: "/tasks", headers: { "Content-Type": "application/json", "content-type": "text/plain" } },
+  ]) await assert.rejects(invoke(main, "core_request", { request }));
+  assert.equal((await api(main, "GET", "/system/info")).product, "TrueDown", "Rejected requests must not disconnect the private pipe");
   assert.equal(await main.evaluate(() => window.__TRUEDOWN_PLATFORM__), "windows");
   await main.locator('[data-route="settings"]').click();
   const settings = await waitUntil(() => context.pages().find(page => page.url().includes("window=settings")));

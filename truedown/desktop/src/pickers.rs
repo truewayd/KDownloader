@@ -1,15 +1,15 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use tauri::{Manager, State, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::{oneshot, Mutex};
 
 #[derive(Default)]
 pub struct DirectoryPickers {
-    slots: [Mutex<()>; 3],
+    slots: [Arc<Mutex<()>>; 3],
 }
 
 impl DirectoryPickers {
-    fn slot(&self, role: &str) -> Result<&Mutex<()>, String> {
+    fn slot(&self, role: &str) -> Result<&Arc<Mutex<()>>, String> {
         let index = match role {
             "settings" => 0,
             "new-task" => 1,
@@ -54,9 +54,10 @@ pub async fn choose_download_directory(
 ) -> Result<Option<String>, String> {
     // Deny before showing anything, including the deterministic hidden-test
     // branch. A burst of requests never queues additional native dialogs.
-    let _pending = pickers
+    let pending = pickers
         .slot(window.label())?
-        .try_lock()
+        .clone()
+        .try_lock_owned()
         .map_err(|_| "A directory picker is already open for this window")?;
     if app.state::<crate::windows::Windows>().suppress {
         return Err("Native dialogs are suppressed during hidden acceptance".into());
@@ -67,6 +68,7 @@ pub async fn choose_download_directory(
         .set_title("选择下载目录")
         .set_parent(&window)
         .pick_folder(move |selected| {
+            let _pending = pending;
             let _ = sender.send(selected);
         });
     // The plugin drives the OS dialog asynchronously. Keep the slot until its
@@ -94,6 +96,22 @@ mod tests {
         assert!(pickers.slot("new-task").unwrap().try_lock().is_ok());
         assert!(pickers.slot("batch-task").unwrap().try_lock().is_ok());
         drop(pending);
+        assert!(slot.try_lock().is_ok());
+    }
+
+    #[test]
+    fn cancelled_receivers_do_not_release_an_open_dialog() {
+        let pickers = DirectoryPickers::default();
+        let slot = pickers.slot("settings").unwrap();
+        let pending = slot.clone().try_lock_owned().unwrap();
+        let (sender, receiver) = oneshot::channel::<Option<FilePath>>();
+        let callback = move |selected| {
+            let _pending = pending;
+            let _ = sender.send(selected);
+        };
+        drop(receiver);
+        assert!(slot.try_lock().is_err());
+        callback(None);
         assert!(slot.try_lock().is_ok());
     }
 

@@ -16,6 +16,7 @@ pub struct Core {
     data_dir: Option<String>,
     pub closing: AtomicBool,
     pub exited: AtomicBool,
+    pub owned: AtomicBool,
 }
 
 struct Session {
@@ -66,6 +67,7 @@ impl Core {
             data_dir,
             closing: AtomicBool::new(false),
             exited: AtomicBool::new(false),
+            owned: AtomicBool::new(false),
         }
     }
 
@@ -136,6 +138,7 @@ impl Core {
                     }
                 }
                 session.retry_at = None;
+                self.owned.store(bridge.owned, Ordering::SeqCst);
                 session.recovery.healthy_since = Instant::now();
                 session.bridge = Some(bridge.clone());
                 if self.closing.load(Ordering::SeqCst) {
