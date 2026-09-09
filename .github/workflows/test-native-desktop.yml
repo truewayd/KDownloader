@@ -87,6 +87,7 @@ jobs:
           node tests/workspace-browser-smoke.mjs
           node tests/task-forms-browser-smoke.mjs
           node tests/file-groups-browser-smoke.mjs
+          node tests/auxiliary-ui-browser.mjs
       - name: Check private core transport
         if: runner.os != 'Windows'
         run: |

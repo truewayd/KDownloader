@@ -21,6 +21,7 @@ document.addEventListener("visibilitychange", scheduleSystemUpdateRefresh);
 window.addEventListener("pagehide", stopSystemUpdateRefresh, { once: true });
 const settingReadRequests = new Map();
 const settingSnapshotsKnown = new Set();
+const pendingResolverModuleActions = new Set();
 let startupSettings = null;
 let taskDefaultsRevision = 0;
 let taskDefaultsLoad = null;
@@ -60,12 +61,7 @@ function settingsPanels(page = currentSettingsPage) {
 }
 
 function renderSettingsCategory(page, settings = downloadSettings, rules = downloadRules, runtime = runtimeSettings) {
-  // Retain drafts in the other categories while rendering persisted normalization.
-  const drafts = [...document.querySelectorAll("[data-settings-page] input, [data-settings-page] textarea, [data-settings-page] select")]
-    .filter((input) => input.closest("[data-settings-page]").dataset.settingsPage !== page)
-    .map((input) => ({ input, value: input.value, checked: input.checked }));
-  renderDownloadSettings(settings, rules, runtime);
-  drafts.forEach(({ input, value, checked }) => { input.value = value; input.checked = checked; });
+  renderDownloadSettings(settings, rules, runtime, page);
 }
 
 async function loadSettingsPage(retry = false) {
@@ -136,7 +132,8 @@ async function loadSettingsPage(retry = false) {
 function initializeSettingsCategory(page) {
   if (settingsRendered.has(page)) return;
   renderSettingsCategory(page);
-  if (page === "experimental" || page === "engine") renderTrackerResearchSettings();
+  if (page === "experimental") renderTrackerResearchSettings();
+  if (page === "engine") els.btClientIdentity.textContent = bitTorrentIdentityDescription(trackerResearchSettings);
   settingsRendered.add(page);
 }
 
@@ -174,9 +171,10 @@ function renderStartupSettings() {
   const state = startupSettings;
   els.startupEnabled.checked = state?.enabled === true;
   els.startupEnabled.disabled = state?.supported !== true;
-  els.startupStatus.textContent = !state ? "尚未读取启动设置。" : !state.supported
-    ? `此实例不支持内置开机启动。${state.reason || ""}`
+  const status = !state ? "尚未读取启动设置。" : !state.supported
+    ? "此实例不支持内置开机启动。"
     : state.enabled ? "已开启，下次登录时在后台启动。" : "已关闭。";
+  els.startupStatus.textContent = `${status}${stringValue(state?.reason)}`;
 }
 
 async function updateStartupSettings() {
@@ -191,7 +189,9 @@ async function updateStartupSettings() {
     });
     invalidateSettingRead("startup");
     renderStartupSettings();
-    showToast(enabled ? "已开启开机自动启动。" : "已关闭开机自动启动。");
+    const applied = startupSettings.enabled === true;
+    if (applied === enabled) showToast(applied ? "已开启开机自动启动。" : "已关闭开机自动启动。");
+    else showToast(stringValue(startupSettings.reason) || "启动状态未按请求更改，请检查系统启动项设置。", "error");
   } catch (error) {
     renderStartupSettings();
     els.startupStatus.textContent = `保存启动设置失败：${error.message}`;
@@ -406,33 +406,39 @@ function renderProxyMode() {
   els.cfgProxy.required = els.cfgProxyMode.value === "custom";
 }
 
-function renderDownloadSettings(settings = downloadSettings, rules = downloadRules, runtime = runtimeSettings) {
-  const globalSpeed = displaySpeed(runtime.globalDownloadLimitBps);
-  els.cfgFolder.value = settings.folder;
-  els.cfgConns.value = settings.connections;
-  els.cfgTaskConcurrency.value = runtime.concurrentDownloads;
-  els.cfgGlobalSpeed.value = globalSpeed.value || "";
-  els.cfgGlobalSpeedUnit.value = String(globalSpeed.unit);
-  els.cfgSpeed.value = settings.speed || "";
-  els.cfgSpeedUnit.value = String(settings.speedUnit);
-  els.cfgTries.value = settings.maxTries;
-  els.cfgWait.value = settings.retryWait;
-  els.cfgProxy.value = settings.proxy;
-  els.cfgProxyMode.value = settings.proxyMode || (settings.proxy ? "custom" : "system");
-  renderProxyMode();
-  els.cfgUserAgent.value = settings.userAgent;
-  els.cfgReferer.value = settings.referer;
-  els.cfgHeaders.value = settings.headers;
-  els.cfgAllocation.value = settings.allocation;
-  els.cfgCheckIntegrity.checked = settings.checkIntegrity;
-  els.cfgRemoteTime.checked = settings.remoteTime;
-  els.cfgDropboxMode.value = rules.dropboxMode;
-  els.cfgFilterEnabled.checked = rules.enabled;
-  const selected = new Set(rules.excludedExtensions);
-  document.querySelectorAll("[data-download-extension]").forEach((input) => {
-    input.checked = selected.has(input.value);
-  });
-  els.cfgExtra.value = settings.extra;
+function renderDownloadSettings(settings = downloadSettings, rules = downloadRules, runtime = runtimeSettings, page = "") {
+  if (!page || page === "general") {
+    const globalSpeed = displaySpeed(runtime.globalDownloadLimitBps);
+    els.cfgFolder.value = settings.folder;
+    els.cfgConns.value = settings.connections;
+    els.cfgTaskConcurrency.value = runtime.concurrentDownloads;
+    els.cfgGlobalSpeed.value = globalSpeed.value || "";
+    els.cfgGlobalSpeedUnit.value = String(globalSpeed.unit);
+    els.cfgSpeed.value = settings.speed || "";
+    els.cfgSpeedUnit.value = String(settings.speedUnit);
+  }
+  if (!page || page === "network") {
+    els.cfgTries.value = settings.maxTries;
+    els.cfgWait.value = settings.retryWait;
+    els.cfgProxy.value = settings.proxy;
+    els.cfgProxyMode.value = settings.proxyMode || (settings.proxy ? "custom" : "system");
+    renderProxyMode();
+    els.cfgUserAgent.value = settings.userAgent;
+    els.cfgReferer.value = settings.referer;
+    els.cfgHeaders.value = settings.headers;
+  }
+  if (!page || page === "files") {
+    els.cfgAllocation.value = settings.allocation;
+    els.cfgCheckIntegrity.checked = settings.checkIntegrity;
+    els.cfgRemoteTime.checked = settings.remoteTime;
+    els.cfgDropboxMode.value = rules.dropboxMode;
+    els.cfgFilterEnabled.checked = rules.enabled;
+    const selected = new Set(rules.excludedExtensions);
+    document.querySelectorAll("[data-download-extension]").forEach((input) => {
+      input.checked = selected.has(input.value);
+    });
+  }
+  if (!page || page === "advanced") els.cfgExtra.value = settings.extra;
 }
 
 function renderTrackerResearchSettings(settings = trackerResearchSettings) {
@@ -725,6 +731,9 @@ function renderResolverModules() {
 			reset.textContent = "恢复基线";
 			actions.append(reset);
 		}
+		if (pendingResolverModuleActions.has(module.id)) {
+			actions.querySelectorAll("button").forEach(button => KDComponents.setBusyState(button, true));
+		}
 		card.append(icon, copy, actions);
 		els.moduleList.append(card);
 	}
@@ -733,19 +742,20 @@ function renderResolverModules() {
 async function onModuleAction(event) {
 	const button = event.target.closest("button[data-module-toggle], button[data-module-update], button[data-module-reset]");
 	if (!button) return;
-	if (button.dataset.moduleUpdate) {
-		await importModuleUpdate(button.dataset.moduleUpdate, button);
-		return;
-	}
-	if (button.dataset.moduleReset) {
-		await resetModuleUpdate(button.dataset.moduleReset, button);
-		return;
-	}
-	const id = button.dataset.moduleToggle;
+	const id = button.dataset.moduleToggle || button.dataset.moduleUpdate || button.dataset.moduleReset;
+	if (!id || pendingResolverModuleActions.has(id)) return;
 	const installed = button.dataset.installed !== "true";
-	KDComponents.setBusyState(button, true);
+	setResolverModuleBusy(id, true);
 	invalidateSettingRead("modules");
 	try {
+		if (button.dataset.moduleUpdate) {
+			await importModuleUpdate(id);
+			return;
+		}
+		if (button.dataset.moduleReset) {
+			await resetModuleUpdate(id);
+			return;
+		}
 		const saved = await requestJSON("/modules", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -757,20 +767,29 @@ async function onModuleAction(event) {
 		showToast(`${stringValue(saved.name) || id} 模块已${installed ? "启用" : "停用"}。`);
 	} catch (error) {
 		showToast(`模块状态更新失败：${error.message}`, "error");
-		KDComponents.setBusyState(button, false);
 	} finally {
 		invalidateSettingRead("modules");
+		setResolverModuleBusy(id, false);
 	}
 }
 
-async function importModuleUpdate(id, button) {
+function setResolverModuleBusy(id, busy) {
+  if (busy) pendingResolverModuleActions.add(id);
+  else pendingResolverModuleActions.delete(id);
+  els.moduleList.querySelectorAll("button[data-module-toggle], button[data-module-update], button[data-module-reset]").forEach(button => {
+    if ((button.dataset.moduleToggle || button.dataset.moduleUpdate || button.dataset.moduleReset) === id) {
+      KDComponents.setBusyState(button, busy);
+    }
+  });
+}
+
+async function importModuleUpdate(id) {
 	const file = await chooseModulePackageFile();
 	if (!file) return;
 	if (file.size <= 0 || file.size > 64 * 1024) {
 		showToast("组件更新包必须小于 64 KiB。", "error");
 		return;
 	}
-	KDComponents.setBusyState(button, true);
 	invalidateSettingRead("modules");
 	try {
 		const parsed = JSON.parse(await file.text());
@@ -789,9 +808,6 @@ async function importModuleUpdate(id, button) {
 		showToast(`组件更新失败：${error.message}`, "error");
 	} finally {
 	  invalidateSettingRead("modules");
-		if (button.isConnected) {
-			KDComponents.setBusyState(button, false);
-		}
 	}
 }
 
@@ -813,7 +829,7 @@ function chooseModulePackageFile() {
 	});
 }
 
-async function resetModuleUpdate(id, button) {
+async function resetModuleUpdate(id) {
 	const module = resolverModules.find((candidate) => candidate.id === id);
 	const confirmed = await confirmAction({
 		title: "恢复内置组件基线",
@@ -822,7 +838,6 @@ async function resetModuleUpdate(id, button) {
 		danger: true,
 	});
 	if (!confirmed) return;
-	KDComponents.setBusyState(button, true);
 	invalidateSettingRead("modules");
 	try {
 		const saved = await requestJSON(`/modules/package?id=${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -833,9 +848,6 @@ async function resetModuleUpdate(id, button) {
 		showToast(`恢复组件基线失败：${error.message}`, "error");
 	} finally {
 	  invalidateSettingRead("modules");
-		if (button.isConnected) {
-			KDComponents.setBusyState(button, false);
-		}
 	}
 }
 

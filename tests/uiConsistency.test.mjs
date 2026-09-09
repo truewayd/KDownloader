@@ -621,7 +621,7 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownApp, /If-None-Match/);
   assert.match(trueDownApp, /while \(pageETags\.size > MAX_PAGE_ETAGS\)/);
   assert.match(trueDownApp, /if \(!selectedTaskIDs\.has\(id\)\) taskStatusByID\.delete\(id\)/);
-  assert.match(trueDownApp, /function renderDownloadSettings\(settings = downloadSettings, rules = downloadRules, runtime = runtimeSettings\)/);
+  assert.match(trueDownApp, /function renderDownloadSettings\(settings = downloadSettings, rules = downloadRules, runtime = runtimeSettings, page = ""\)/);
   assert.match(trueDownApp, /data-select-page/);
   assert.match(trueDownApp, /JSON\.stringify\(\{ action, ids \}\)/);
   assert.match(trueDownApp, /result\.remaining/);

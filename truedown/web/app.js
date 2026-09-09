@@ -1199,7 +1199,7 @@ function taskRow(task, index) {
     <tr data-task-id="${task.id}">
       <td class="select-cell"><input type="checkbox" data-select-task value="${task.id}" aria-label="选择任务 ${esc(fileName)}"${selectedTaskIDs.has(task.id) ? " checked" : ""}></td>
       <td class="task-index">${currentOffset + index + 1}</td>
-      <td><div class="task-file-cell">${iconMarkup(taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="details" data-id="${task.id}" title="${esc(fileName)}">${esc(fileName)}</button><div class="task-folder">${taskCategoryMeta(task.category).label}</div></div></div></td>
+      <td><div class="task-file-cell">${iconMarkup(taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="details" data-id="${task.id}" title="${esc(fileName)}">${esc(fileName)}</button><div class="task-folder">${esc(taskCategoryMeta(task.category).label)}</div></div></div></td>
       <td><span class="status-badge status-${status}">${statusLabel}</span></td>
       <td><div class="progress-line" title="${esc(progress)}">${esc(taskProgressLabel(task))}</div><progress class="task-progress" max="100" value="${taskProgressPercent(task)}" aria-label="下载进度"></progress></td>
       <td class="task-size">${taskBytes(task.totalLength)}</td>
