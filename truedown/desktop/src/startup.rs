@@ -14,7 +14,7 @@ pub struct Startup {
     executable: PathBuf,
     directory: String,
     unavailable: bool,
-    lock: std::sync::Mutex<()>,
+    lock: tokio::sync::Mutex<()>,
 }
 
 impl Startup {
@@ -60,15 +60,12 @@ impl Startup {
             executable,
             directory,
             unavailable,
-            lock: std::sync::Mutex::new(()),
+            lock: tokio::sync::Mutex::new(()),
         })
     }
 
-    pub fn state(&self, enabled: Option<bool>) -> Result<State, String> {
-        let _lock = self
-            .lock
-            .lock()
-            .map_err(|_| "Startup registration is unavailable")?;
+    pub async fn state(&self, enabled: Option<bool>) -> Result<State, String> {
+        let _lock = self.lock.lock().await;
         if self.unavailable {
             let reason = "此实例使用环境变量覆盖；请通过对应服务启动器配置开机启动。".to_string();
             if enabled.is_some() {
@@ -80,6 +77,19 @@ impl Startup {
                 reason,
             });
         }
+        #[cfg(target_os = "macos")]
+        {
+            // Removing our registration must remain possible when launchd cannot
+            // be queried. Enabling and reading require the authoritative state.
+            let disabled = enabled != Some(false) && self.launchd_disabled().await?;
+            let mut state = self.platform_state(enabled)?;
+            if state.enabled && disabled {
+                state.enabled = false;
+                state.reason = "已注册，但被 macOS 禁用；请在系统登录项中启用。".into();
+            }
+            Ok(state)
+        }
+        #[cfg(not(target_os = "macos"))]
         self.platform_state(enabled)
     }
 
@@ -142,6 +152,13 @@ impl Startup {
             });
         }
         let root = RegKey::predef(HKEY_CURRENT_USER);
+        let disabled_by_os = windows_approval_disabled(|| {
+            root.open_subkey(
+                "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
+            )
+            .and_then(|key| key.get_raw_value(&self.name))
+            .map(|value| value.bytes)
+        })?;
         let path = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
         let key = match root.open_subkey_with_flags(
             path,
@@ -192,18 +209,6 @@ impl Startup {
             }
         }
         let configured = enabled.unwrap_or(current.as_ref() == Some(&expected) || legacy);
-        let approved = root
-            .open_subkey(
-                "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
-            )
-            .ok()
-            .and_then(|key| key.get_raw_value(&self.name).ok());
-        let disabled_by_os = approved.is_some_and(|value| {
-            value
-                .bytes
-                .first()
-                .is_some_and(|byte| *byte == 3 || *byte == 7)
-        });
         let reason = if foreign {
             "此 profile 已有其他 TrueDown 启动项。"
         } else if configured && disabled_by_os {
@@ -216,6 +221,17 @@ impl Startup {
             enabled: configured && !disabled_by_os,
             reason: reason.into(),
         })
+    }
+}
+
+#[cfg(any(windows, test))]
+fn windows_approval_disabled(
+    read: impl FnOnce() -> std::io::Result<Vec<u8>>,
+) -> Result<bool, String> {
+    match read() {
+        Ok(bytes) => Ok(bytes.first().is_some_and(|byte| *byte == 3 || *byte == 7)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!("Cannot read Windows login approval: {error}")),
     }
 }
 
@@ -375,6 +391,20 @@ fn desktop_quote(value: &str) -> Result<String, String> {
 
 #[cfg(target_os = "macos")]
 impl Startup {
+    async fn launchd_disabled(&self) -> Result<bool, String> {
+        unsafe extern "C" {
+            fn geteuid() -> u32;
+        }
+        let domain = format!("gui/{}", unsafe { geteuid() });
+        let mut command = tokio::process::Command::new("/bin/launchctl");
+        command.args(["print-disabled", &domain]);
+        let output =
+            crate::profile::command_output(&mut command, std::time::Duration::from_secs(15))
+                .await
+                .map_err(|error| format!("Cannot read macOS login approval: {error}"))?;
+        launchd_disabled(&output, &format!("io.truewayd.{}", self.name))
+    }
+
     fn registration(&self) -> Result<(PathBuf, Vec<u8>), String> {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
@@ -399,9 +429,104 @@ impl Startup {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn launchd_disabled(output: &[u8], label: &str) -> Result<bool, String> {
+    let invalid = "Invalid macOS login approval response";
+    let text = std::str::from_utf8(output).map_err(|_| invalid)?;
+    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+    if lines.next() != Some("disabled services = {") {
+        return Err(invalid.into());
+    }
+    let mut disabled = None;
+    let mut section = "disabled services";
+    while let Some(line) = lines.next() {
+        if line == "}" {
+            match lines.next() {
+                None => return Ok(disabled.unwrap_or(false)),
+                Some("login item associations = {") if section == "disabled services" => {
+                    section = "login item associations";
+                    continue;
+                }
+                _ => return Err(invalid.into()),
+            }
+        }
+        let (name, value) = line.split_once("=>").ok_or(invalid)?;
+        let name: String = serde_json::from_str(name.trim()).map_err(|_| invalid)?;
+        if section == "login item associations" {
+            serde_json::from_str::<String>(value.trim()).map_err(|_| invalid)?;
+            continue;
+        }
+        let value = match value.trim() {
+            "true" | "disabled" => true,
+            "false" | "enabled" => false,
+            _ => return Err(invalid.into()),
+        };
+        if name == label && disabled.replace(value).is_some() {
+            return Err(invalid.into());
+        }
+    }
+    Err(invalid.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn windows_approval_read_failures_do_not_report_enabled() {
+        use std::io::{Error, ErrorKind};
+        let failed = windows_approval_disabled(|| Err(Error::from(ErrorKind::PermissionDenied)));
+        assert!(failed
+            .unwrap_err()
+            .starts_with("Cannot read Windows login approval:"));
+        assert!(!windows_approval_disabled(|| Err(Error::from(ErrorKind::NotFound))).unwrap());
+        for state in [2, 3, 6, 7] {
+            let mut bytes = vec![0; 12];
+            bytes[0] = state;
+            assert_eq!(
+                windows_approval_disabled(|| Ok(bytes)).unwrap(),
+                state == 3 || state == 7
+            );
+        }
+    }
+
+    #[test]
+    fn launchd_approval_requires_an_exact_unambiguous_label() {
+        let label = "io.truewayd.TrueDown-fixture";
+        for (entries, expected) in [
+            (format!("\"{label}\" => true"), true),
+            (format!("\"{label}\" => false"), false),
+            (format!("\"{label}\" => disabled"), true),
+            (format!("\"{label}\" => enabled"), false),
+            (format!("\"{label}-other\" => true"), false),
+            (String::new(), false),
+        ] {
+            let output = format!("disabled services = {{\n{entries}\n}}\n");
+            assert_eq!(
+                launchd_disabled(output.as_bytes(), label).unwrap(),
+                expected
+            );
+            let with_associations = format!(
+                "{output}login item associations = {{\n\"{label}\" => \"another.app\"\n}}\n"
+            );
+            assert_eq!(
+                launchd_disabled(with_associations.as_bytes(), label).unwrap(),
+                expected
+            );
+        }
+        for output in [
+            format!("disabled services = {{\n\"{label}\" => true\n\"{label}\" => false\n}}"),
+            format!("disabled services = {{\n\"{label}\" => unknown\n}}"),
+            format!("disabled services = {{\n\"{label}\" => true"),
+            "disabled services = {\n}\nunexpected".into(),
+            "disabled services = {\n}\nlogin item associations = {\n\"app\" => false\n}".into(),
+            "disabled services = {\n}\nlogin item associations = {".into(),
+            "unrecognized output".into(),
+        ] {
+            assert!(launchd_disabled(output.as_bytes(), label).is_err());
+        }
+        assert!(launchd_disabled(&[0xff], label).is_err());
+    }
+
     #[test]
     fn login_arguments_preserve_spaces_quotes_and_backslashes() {
         assert_eq!(
@@ -428,7 +553,7 @@ mod tests {
             executable: PathBuf::from("C:\\Test Application\\TrueDown.exe"),
             directory: "C:\\Test Profile".into(),
             unavailable: false,
-            lock: std::sync::Mutex::new(()),
+            lock: tokio::sync::Mutex::new(()),
         };
         let legacy =
             "\"C:\\Test Application\\TrueDown.exe\" background --data-dir \"C:\\Test Profile\"";

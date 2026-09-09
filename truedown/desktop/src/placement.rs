@@ -1,4 +1,51 @@
-use tauri::{LogicalSize, Manager, PhysicalPosition, Window};
+use std::{collections::HashMap, sync::Mutex};
+use tauri::{LogicalSize, Manager, Monitor, PhysicalPosition, PhysicalSize, Window};
+
+#[derive(Clone, PartialEq)]
+struct WorkArea {
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    scale: f64,
+}
+
+impl From<&Monitor> for WorkArea {
+    fn from(monitor: &Monitor) -> Self {
+        Self {
+            position: monitor.work_area().position,
+            size: monitor.work_area().size,
+            scale: monitor.scale_factor(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct Tracker {
+    areas: Mutex<HashMap<String, WorkArea>>,
+}
+
+impl Tracker {
+    fn changed(&self, label: &str, area: WorkArea) -> bool {
+        let Ok(mut areas) = self.areas.lock() else {
+            return false;
+        };
+        areas
+            .insert(label.to_owned(), area.clone())
+            .is_some_and(|previous| previous != area)
+    }
+}
+
+// Same-DPI monitor moves do not produce ScaleFactorChanged. Refit only when
+// the work area changes, so ordinary dragging within a screen stays OS-owned.
+pub fn moved(window: &Window) {
+    let (Some(tracker), Ok(Some(monitor))) =
+        (window.try_state::<Tracker>(), window.current_monitor())
+    else {
+        return;
+    };
+    if tracker.changed(window.label(), WorkArea::from(&monitor)) {
+        fit(window, false);
+    }
+}
 
 fn dimensions(
     requested: (f64, f64),
@@ -44,6 +91,9 @@ pub fn fit(window: &Window, center: bool) {
     let target_scale = monitor.scale_factor();
     if !scale.is_finite() || scale <= 0.0 || !target_scale.is_finite() || target_scale <= 0.0 {
         return;
+    }
+    if let Some(tracker) = window.try_state::<Tracker>() {
+        tracker.changed(window.label(), WorkArea::from(&monitor));
     }
     let frame = (
         (outer.width.saturating_sub(inner.width)) as f64 / scale,
@@ -93,6 +143,41 @@ pub fn fit(window: &Window, center: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fitting_tracks_each_window_and_ignores_moves_within_one_work_area() {
+        let tracker = Tracker::default();
+        let large = WorkArea {
+            position: PhysicalPosition::new(0, 0),
+            size: PhysicalSize::new(1920, 1040),
+            scale: 1.0,
+        };
+        let small = WorkArea {
+            position: PhysicalPosition::new(1920, 0),
+            size: PhysicalSize::new(1280, 680),
+            scale: 1.0,
+        };
+        assert!(!tracker.changed("main", large.clone()));
+        assert!(!tracker.changed("main", large.clone()));
+        assert!(!tracker.changed("settings", small.clone()));
+        assert!(tracker.changed("main", small.clone()));
+        assert!(!tracker.changed("main", small.clone()));
+        assert!(tracker.changed(
+            "main",
+            WorkArea {
+                scale: 1.5,
+                ..small
+            }
+        ));
+        assert!(!tracker.changed(
+            "settings",
+            WorkArea {
+                position: PhysicalPosition::new(1920, 0),
+                size: PhysicalSize::new(1280, 680),
+                scale: 1.0,
+            }
+        ));
+    }
+
     #[test]
     fn small_high_scale_work_areas_override_fixed_minimums() {
         assert_eq!(

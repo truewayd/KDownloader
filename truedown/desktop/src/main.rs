@@ -126,6 +126,7 @@ fn main() {
         )
         .manage(core.clone())
         .manage(startup)
+        .manage(placement::Tracker::default())
         .manage(pickers::DirectoryPickers::default())
         .invoke_handler(tauri::generate_handler![
             commands::core_request,
@@ -254,6 +255,9 @@ fn main() {
         .on_window_event(|window, event| {
             if let WindowEvent::ScaleFactorChanged { .. } = event {
                 placement::fit(window, false);
+            }
+            if let WindowEvent::Moved(_) = event {
+                placement::moved(window);
             }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

@@ -52,7 +52,7 @@ pub async fn core_request(
         } else {
             None
         };
-        let state = app.state::<startup::Startup>().state(enabled)?;
+        let state = app.state::<startup::Startup>().state(enabled).await?;
         return Ok(Response {
             id: 0,
             event: String::new(),

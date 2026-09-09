@@ -5,7 +5,10 @@ use tokio::{io::AsyncReadExt, process::Command};
 
 const MAX_PROFILE_OUTPUT: u64 = 64 * 1024;
 
-async fn command_output(command: &mut Command, timeout: Duration) -> Result<Vec<u8>, String> {
+pub(crate) async fn command_output(
+    command: &mut Command,
+    timeout: Duration,
+) -> Result<Vec<u8>, String> {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
