@@ -39,7 +39,13 @@ func Main(args []string, build BuildInfo) int {
 	runtimeOptions := Options{DataDir: options.dataDir, Build: build, RelaunchArgs: append([]string(nil), args...), DesktopAttachOnly: options.attachOnly}
 	run := func() error { return Run(ctx, runtimeOptions) }
 	if options.desktop {
-		run = func() error { return RunDesktop(ctx, runtimeOptions, os.Stdin, os.Stdout) }
+		input, err := desktopInput(os.Stdin)
+		if err != nil {
+			log.Printf("cannot prepare desktop transport: %v", err)
+			return 1
+		}
+		defer input.Close()
+		run = func() error { return RunDesktop(ctx, runtimeOptions, input, os.Stdout) }
 	}
 	if err := run(); err != nil {
 		log.Printf("TrueDown stopped: %v", err)

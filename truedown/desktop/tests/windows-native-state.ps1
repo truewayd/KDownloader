@@ -1,4 +1,7 @@
-param([Parameter(Mandatory = $true)][ValidateRange(1, 2147483647)][int]$ProcessId)
+param(
+    [Parameter(Mandatory = $true)][ValidateRange(1, 2147483647)][int]$ProcessId,
+    [switch]$VisibilityOnly
+)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
@@ -86,7 +89,7 @@ public static class TrueDownNativeState {
     [DllImport("dwmapi.dll")]
     private static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
 
-    public static TrueDownWindowState[] Read(uint processId) {
+    public static TrueDownWindowState[] Read(uint processId, bool visibilityOnly) {
         // Match the app's physical coordinate space across mixed-DPI monitors.
         var previousAwareness = SetThreadDpiAwarenessContext(new IntPtr(-4));
         var states = new List<TrueDownWindowState>();
@@ -97,6 +100,14 @@ public static class TrueDownNativeState {
             var title = new StringBuilder(1024);
             GetWindowText(window, title, title.Capacity);
             if (FindWindowExW(window, IntPtr.Zero, "WRY_WEBVIEW", null) == IntPtr.Zero) return true;
+            if (visibilityOnly) {
+                states.Add(new TrueDownWindowState {
+                    handle = window.ToInt64().ToString("x"),
+                    title = title.ToString(),
+                    visible = IsWindowVisible(window)
+                });
+                return true;
+            }
             var state = new TrueDownWindowState {
                 handle = window.ToInt64().ToString("x"),
                 title = title.ToString(),
@@ -166,4 +177,4 @@ public static class TrueDownNativeState {
 }
 '@
 
-ConvertTo-Json -InputObject @([TrueDownNativeState]::Read([uint32]$ProcessId)) -Compress
+ConvertTo-Json -InputObject @([TrueDownNativeState]::Read([uint32]$ProcessId, [bool]$VisibilityOnly)) -Compress

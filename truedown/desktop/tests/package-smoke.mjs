@@ -122,9 +122,11 @@ try {
   assert.deepEqual(info, location.build);
   assert.deepEqual(JSON.parse((await command("--json", "status")).stdout).core, info);
   if (process.platform === "win32") {
-    const state = await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
-      fileURLToPath(new URL("./windows-native-state.ps1", import.meta.url)), "-ProcessId", String(child.pid)],
-    { windowsHide: true, timeout: 15000, maxBuffer: 1024 * 1024 });
+    // Package acceptance needs visibility only. Caption hit testing belongs to
+    // native frame acceptance; allow bounded time for a cold PowerShell startup.
+    const state = await run("pwsh", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+      fileURLToPath(new URL("./windows-native-state.ps1", import.meta.url)), "-ProcessId", String(child.pid), "-VisibilityOnly"],
+    { windowsHide: true, timeout: 30000, maxBuffer: 1024 * 1024 });
     const windows = JSON.parse(state.stdout);
     assert.ok(windows.length > 0 && windows.every(window => !window.visible), "Packaged native windows must remain hidden");
   }

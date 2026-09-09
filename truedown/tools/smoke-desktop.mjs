@@ -74,7 +74,23 @@ try{
  assert.equal((await ownedRPC.send("GET","/tasks?limit=1")).status,200);
  owned.stdin.end();
  assert.equal((await bounded(owned.done)).code,0);
- console.log("native_pipe=ok attach_preserves_service=ok private_auth=ok owner_eof_exit=ok");
+ for(const mode of ["http","pipe"]){
+  const stopping=launch(true),stoppingRPC=rpc(stopping);
+  assert.equal((await bounded(stoppingRPC.ready)).owned,true);
+  assert.equal((await stoppingRPC.send("POST","/auth/settings",JSON.stringify({enabled:false}))).status,200);
+  if(mode==="http"){
+   const response=await fetch(endpoint+"/system/exit",{method:"POST",signal:AbortSignal.timeout(5000)});
+   assert.equal(response.status,202);
+  }else{
+   assert.equal((await stoppingRPC.send("POST","/system/exit")).status,202);
+  }
+  // The shell retains its writer until the core exits. Shutdown must cancel
+  // the inherited stdin read without relying on EOF from that parent.
+  assert.equal(stopping.stdin.writableEnded,false);
+  assert.equal((await bounded(stopping.done)).code,0);
+  await assert.rejects(fetch(endpoint+"/system/info",{signal:AbortSignal.timeout(5000)}));
+ }
+ console.log("native_pipe=ok attach_preserves_service=ok private_auth=ok owner_eof_exit=ok http_exit=ok pipe_exit=ok");
 }finally{
  for(const child of children){
   if(child.exitCode===null && child.signalCode===null){child.stdin.end();await bounded(child.done).catch(()=>child.kill());}

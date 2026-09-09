@@ -395,19 +395,22 @@ test('skips incomplete Pawchive posts before creating download tasks', () => {
     file: { name: 'partial.jpg', path: '/partial.jpg' },
   }), []);
 
-  const startDownloadSource = backgroundDownloadSource.match(
-    /export async function startPawchiveDownload[\s\S]*?\n}\n\n\/\/ Dispatch/
-  )?.[0];
-  assert.ok(startDownloadSource);
-  assert.ok(
-    startDownloadSource.indexOf('UTIL.extractPostExternalLinks(post)')
-      < startDownloadSource.indexOf('if (!isCompletePawchivePost(post))'),
-    'safe external links must be retained before incomplete media is rejected'
-  );
-  assert.match(
-    startDownloadSource,
-    /if \(!isCompletePawchivePost\(post\)\)[\s\S]*?externalLinks,[\s\S]*?has_full is false/
-  );
+  for (const newline of ['\n', '\r\n']) {
+    const source = backgroundDownloadSource.replace(/\r?\n/g, newline);
+    const startDownloadSource = source.match(
+      /export async function startPawchiveDownload[\s\S]*?\r?\n}\r?\n\r?\n\/\/ Dispatch/
+    )?.[0];
+    assert.ok(startDownloadSource);
+    assert.ok(
+      startDownloadSource.indexOf('UTIL.extractPostExternalLinks(post)')
+        < startDownloadSource.indexOf('if (!isCompletePawchivePost(post))'),
+      'safe external links must be retained before incomplete media is rejected'
+    );
+    assert.match(
+      startDownloadSource,
+      /if \(!isCompletePawchivePost\(post\)\)[\s\S]*?externalLinks,[\s\S]*?has_full is false/
+    );
+  }
 });
 
 test('parses an object for single posts and an array for creator pages', async () => {

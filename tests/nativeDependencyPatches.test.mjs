@@ -11,14 +11,17 @@ const desktop = fileURLToPath(new URL("../truedown/desktop/", import.meta.url));
 test("native dependency patches match the reviewed full source trees", async () => {
   const patches = await verifyNativePatches();
   assert.equal(patches.size, 4);
-  const lock = await fs.readFile(path.join(desktop, "Cargo.lock"), "utf8");
+  const source = await fs.readFile(path.join(desktop, "Cargo.lock"), "utf8");
   for (const name of ["proc-macro-error", "proc-macro-error-attr", "proc-macro-error2", "proc-macro-error-attr2", "unic-char-range", "unic-char-property", "unic-common", "unic-ucd-ident", "unic-ucd-version"]) {
-    assert.ok(!lock.includes(`name = "${name}"`), `${name} must stay removed`);
+    assert.ok(!source.includes(`name = "${name}"`), `${name} must stay removed`);
   }
-  for (const patch of patches.values()) {
-    const entry = lock.split("[[package]]").find(value => value.includes(`name = "${patch.name}"\n`));
-    assert.ok(entry?.includes(`version = "${patch.version}"`));
-    assert.ok(!entry.includes("source ="), `${patch.name} must resolve to its local patch`);
+  for (const newline of ["\n", "\r\n"]) {
+    const lock = source.replace(/\r?\n/g, newline);
+    for (const patch of patches.values()) {
+      const entry = lock.split("[[package]]").find(value => value.split(/\r?\n/).includes(`name = "${patch.name}"`));
+      assert.ok(entry?.includes(`version = "${patch.version}"`), `${patch.name} must match its reviewed version`);
+      assert.ok(!entry.includes("source ="), `${patch.name} must resolve to its local patch`);
+    }
   }
 });
 
