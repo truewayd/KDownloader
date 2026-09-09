@@ -397,6 +397,12 @@ try {
     await waitForNativeCondition(main, total => Number(document.querySelector("#task-count").textContent) === total, total);
     assert.equal(await form.evaluate(() => downloadSettings.connections), 9);
     assert.equal(await main.locator("#toast").textContent(), "下载任务已添加");
+    const toast = await main.locator("#toast").evaluate(element => {
+      const { x, y, width, right, bottom } = element.getBoundingClientRect();
+      return { x, y, width, right, bottom, viewportWidth: innerWidth, viewportHeight: innerHeight };
+    });
+    assert.ok(Math.abs(toast.x + toast.width / 2 - toast.viewportWidth / 2) < 1, JSON.stringify(toast));
+    assert.ok(toast.y >= 40 && toast.x >= 16 && toast.right <= toast.viewportWidth - 16 && toast.bottom <= toast.viewportHeight - 16, JSON.stringify(toast));
     assert.equal((await api(main, "GET", "/tasks?limit=100")).total, total);
   }
   await settings.locator('[data-settings-link="groups"]').click();

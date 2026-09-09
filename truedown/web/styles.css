@@ -384,11 +384,18 @@ textarea:disabled {
 
 .kd-toast {
   position: fixed;
-  top: 18px;
-  right: 18px;
+  top: calc(max(var(--native-titlebar-height, 0px), env(safe-area-inset-top, 0px)) + 16px);
+  right: auto;
+  bottom: auto;
+  left: 50%;
   z-index: 200;
   display: none;
-  max-width: min(360px, calc(100vw - 36px));
+  width: max-content;
+  max-width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - var(--native-titlebar-height, 0px) - 64px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  transform: translateX(-50%);
   border: 1px solid var(--kd-border);
   border-radius: var(--kd-radius);
   padding: 11px 13px;
@@ -1536,8 +1543,8 @@ label {
 }
 
 @keyframes kd-toast-in {
-  from { opacity: 0; transform: translateY(-6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translate(-50%, -6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
 }
 
 @media (max-width: 720px) {

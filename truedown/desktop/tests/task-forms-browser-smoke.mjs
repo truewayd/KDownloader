@@ -5,6 +5,7 @@ import { promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { chromium } from "playwright";
+import { assertToastPlacement } from "./toast-layout.mjs";
 
 const assets = new URL("../../web/", import.meta.url);
 const server = http.createServer(async (request, response) => {
@@ -56,6 +57,7 @@ try {
       page.on("pageerror", (error) => errors.push(error.message));
       await page.goto(`${origin}/index.html?window=${role}`);
       await page.waitForFunction(() => nativeTaskFormReady);
+      await assertToastPlacement(page);
       assert.equal(await page.title(), role === "batch-task" ? "批量下载" : "新建下载");
       assert.equal(await page.locator("#modal-cancel-btn").isVisible(), false, "Native forms use the caption close button and retain keyboard dismissal");
       assert.ok((await page.locator("#download-form .modal-header").boundingBox()).height <= 1, "Native forms retain their accessible heading without a second title row");

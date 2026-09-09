@@ -5,6 +5,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
+import { assertToastPlacement } from "./toast-layout.mjs";
 
 const assets = new URL("../../web/", import.meta.url);
 const screenshots = process.argv[2] || await fs.mkdtemp(path.join(os.tmpdir(), "truedown-workspace-"));
@@ -69,6 +70,7 @@ try {
         page.on("pageerror", error => errors.push(error.message));
         await page.goto(origin);
         await page.waitForFunction(count => document.querySelectorAll("tr[data-task-id]").length === count, tasks.length);
+        await assertToastPlacement(page, path.join(screenshots, `${name}-toast`));
         assert.equal(await page.title(), "下载任务");
         assert.equal(await page.locator("#exit-truedown-btn").count(), 0);
         assert.ok((await page.locator("#tasks-title").boundingBox()).width <= 1);
@@ -174,6 +176,7 @@ try {
       assert.equal(await page.locator('[data-settings-link="about"]').getAttribute("aria-current"), "page");
       for (const [width, height] of [[480, 360], [400, 320]]) {
         await page.setViewportSize({ width, height });
+        await assertToastPlacement(page);
         assert.ok(await page.evaluate(() => {
           const panel = document.querySelector(".settings-content").getBoundingClientRect();
           const header = document.querySelector(".native-titlebar")?.getBoundingClientRect() || { bottom: 0 };

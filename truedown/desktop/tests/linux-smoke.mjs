@@ -72,6 +72,10 @@ try {
     assert.equal(await evaluate("return document.querySelectorAll('.native-titlebar').length"), 0);
     assert.equal(await evaluate("return document.querySelectorAll('[data-window-action]').length"), 0);
     assert.equal((await evaluate("return window.__TAURI__.core.invoke('frame_state')")).decorated, true);
+    await evaluate("showToast('Native title clearance '.repeat(12),'error');return true");
+    await until(() => evaluate("const toast=document.querySelector('#toast');return toast.classList.contains('is-visible') && toast.getAnimations().every(animation=>animation.playState==='finished')"));
+    const toast = await evaluate("const element=document.querySelector('#toast');const {x,y,width,right,bottom}=element.getBoundingClientRect();return {x,y,width,right,bottom,viewportWidth:innerWidth,viewportHeight:innerHeight,textFits:element.scrollWidth<=element.clientWidth}");
+    assert.ok(Math.abs(toast.x+toast.width/2-toast.viewportWidth/2)<1 && Math.abs(toast.y-16)<1 && toast.x>=16 && toast.right<=toast.viewportWidth-16 && toast.bottom<=toast.viewportHeight-24 && toast.textFits, JSON.stringify(toast));
   }
   assert.ok(settings && main);
   await command("POST", "/window", { handle: settings });
@@ -105,14 +109,15 @@ try {
         await command("POST", "/window", { handle: main });
         await evaluate("return window.__TAURI__.core.invoke('open_auxiliary',{kind:'new-task'})");
         await command("POST", "/window", { handle: forms[kind] });
-        await until(() => evaluate("return !nativeTaskPreferences.pending && downloadRules.dropboxMode==='expand' && downloadRules.enabled && els.mDropboxOption.hidden===!arguments[0]", [installed]));
+        await until(() => evaluate("return !nativeTaskPreferences.pending && downloadRules.dropboxMode==='expand' && downloadRules.enabled && isModuleInstalled('dropbox')===arguments[0]", [installed]));
       };
       await reopenWithDropbox(true);
-      assert.equal(await evaluate("return els.mDropboxMode.value==='expand' && els.mDropboxFilter.checked"), true);
-      await evaluate("els.mDropboxMode.value='direct';els.mDropboxMode.dispatchEvent(new Event('change',{bubbles:true}));els.mDropboxFilter.checked=false;els.mDropboxFilter.dispatchEvent(new Event('change',{bubbles:true}));return true");
+      assert.deepEqual(await evaluate("return buildModuleOptions().dropbox"), { mode: "expand", applyFilter: true });
+      assert.equal(await evaluate("return document.querySelector('#m-resolver-options')===null"), true);
       await reopenWithDropbox(false);
+      assert.equal(await evaluate("return 'dropbox' in buildModuleOptions()"), false);
       await reopenWithDropbox(true);
-      assert.equal(await evaluate("return els.mDropboxMode.value==='direct' && !els.mDropboxFilter.checked"), true);
+      assert.deepEqual(await evaluate("return buildModuleOptions().dropbox"), { mode: "expand", applyFilter: true });
       assert.equal(await evaluate("return els.mLink.value==='http://127.0.0.1/draft' && els.mHeaders.value==='{\"X-Draft\":\"retained\"}'"), true);
     }
     assert.equal(await evaluate("await refreshAndSchedule(true);return pollTimer===0 && currentPage===arguments[0]", [kind]), true);
