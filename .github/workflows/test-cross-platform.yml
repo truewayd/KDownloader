@@ -30,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -44,6 +44,11 @@ jobs:
         with:
           go-version-file: truedown/go.mod
           cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
 
       - name: Install aria2 on Linux
         if: runner.os == 'Linux'
@@ -69,21 +74,23 @@ jobs:
       - name: Test Unix build safety
         run: bash truedown/tools/test-unix-build-safety.sh
 
-      - name: Build native package
-        working-directory: truedown
-        run: bash ./build-unix.sh
-
   package-matrix:
     strategy:
       fail-fast: false
       matrix:
         target:
-          - { os: linux, arch: amd64 }
-          - { os: linux, arch: arm64 }
-          - { os: darwin, arch: amd64 }
-          - { os: darwin, arch: arm64 }
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+          - { os: linux, arch: amd64, runner: ubuntu-24.04 }
+          - { os: linux, arch: arm64, runner: ubuntu-24.04-arm }
+          - { os: darwin, arch: amd64, runner: macos-15-intel }
+          - { os: darwin, arch: arm64, runner: macos-15 }
+    runs-on: ${{ matrix.target.runner }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUSTUP_TOOLCHAIN: 1.98.1
+      PACKAGE_DIRECTORY: truedown/dist/TrueDown-${{ matrix.target.os }}-${{ matrix.target.arch }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -96,6 +103,44 @@ jobs:
           go-version-file: truedown/go.mod
           cache: false
 
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Set up native build tools
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          npm ci --prefix truedown/desktop
+
+      - name: Install Linux native runtime and build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aria2 libwebkit2gtk-4.1-dev build-essential libxdo-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev pkg-config xvfb xauth dbus-x11
+
+      - name: Install aria2 on macOS
+        if: runner.os == 'macOS'
+        run: brew install aria2
+
       - name: Build package
         working-directory: truedown
         run: bash ./build-unix.sh "${{ matrix.target.os }}" "${{ matrix.target.arch }}"
+
+      - name: Smoke test packaged Linux core
+        if: runner.os == 'Linux'
+        run: bash truedown/tools/smoke-linux.sh "$PACKAGE_DIRECTORY/truedown-core"
+
+      - name: Accept packaged Linux native startup and CLI
+        if: runner.os == 'Linux'
+        run: xvfb-run -a dbus-run-session -- node truedown/desktop/tests/package-smoke.mjs "$PACKAGE_DIRECTORY/TrueDown" --virtual-display
+
+      - name: Accept packaged macOS native startup and CLI
+        if: runner.os == 'macOS'
+        run: node truedown/desktop/tests/package-smoke.mjs "$PACKAGE_DIRECTORY/TrueDown.app/Contents/MacOS/TrueDown"
+
+      - name: Validate macOS bundle
+        if: runner.os == 'macOS'
+        run: |
+          plutil -lint "$PACKAGE_DIRECTORY/TrueDown.app/Contents/Info.plist"
+          codesign --verify --deep --strict "$PACKAGE_DIRECTORY/TrueDown.app"

@@ -64,6 +64,14 @@ host=$(rustc -vV | sed -n 's/^host: //p')
 export CARGO_BUILD_TARGET="$target"
 export TRUEDOWN_VERSION="$version" TRUEDOWN_BUILD_NUMBER="$build_number" TRUEDOWN_COMMIT="$commit"
 if [[ "$target_os" == darwin ]]; then
+  # GitHub exposes missing optional secrets as empty variables. Tauri checks
+  # presence, so remove wholly empty credential groups before it imports them.
+  if [[ -z "${APPLE_CERTIFICATE:-}" && -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]]; then
+    unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
+  fi
+  if [[ -z "${APPLE_ID:-}" && -z "${APPLE_PASSWORD:-}" && -z "${APPLE_TEAM_ID:-}" ]]; then
+    unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+  fi
   # Developer ID credentials use Tauri's signing environment. Ad-hoc signing
   # is the explicit credential-free default and does not imply notarization.
   export APPLE_SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"

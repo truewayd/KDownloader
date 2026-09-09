@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { access, mkdtemp, mkdir, readFile, readdir, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -9,6 +9,12 @@ import test from "node:test";
 const root = path.resolve(import.meta.dirname, "..");
 const read = (relativePath) => readFile(path.join(root, relativePath), "utf8");
 const run = promisify(execFile);
+
+async function temporaryDirectory(prefix) {
+  // macOS exposes temporary storage through /var -> /private/var. Resolve only
+  // the fixture root; links deliberately created inside it must still fail.
+  return realpath(await mkdtemp(path.join(tmpdir(), prefix)));
+}
 
 async function unlinkIfPresent(linkPath) {
   try {
@@ -115,7 +121,7 @@ test("KDownloader releases use one product version plus a monotonic build compon
 });
 
 test("release-note selector cannot cross product boundaries", async (t) => {
-  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "kdownloader-release-notes-"));
+  const fixtureRoot = await temporaryDirectory("kdownloader-release-notes-");
   t.after(() => rm(fixtureRoot, { recursive: true, force: true }));
 
   const kDownloaderDirectory = path.join(fixtureRoot, "kdownloader");
@@ -159,9 +165,30 @@ test("release-note selector cannot cross product boundaries", async (t) => {
   );
 });
 
+test("release-note fixtures support a temporary directory reached through an OS alias", async (t) => {
+  const fixtureRoot = await temporaryDirectory("kdownloader-temp-alias-");
+  const physical = path.join(fixtureRoot, "physical");
+  const alias = path.join(fixtureRoot, "alias");
+  await mkdir(physical);
+  await symlink(physical, alias, "junction");
+  t.after(async () => {
+    await unlinkIfPresent(alias);
+    await rm(fixtureRoot, { recursive: true, force: true });
+  });
+  const env = { ...process.env, TMPDIR: alias, TMP: alias, TEMP: alias };
+  delete env.NODE_TEST_CONTEXT;
+  const { stdout } = await run(process.execPath, [
+    "--test", "--test-reporter=tap", "--test-name-pattern=^release-note selector", import.meta.filename,
+  ], {
+    env,
+    timeout: 30000,
+  });
+  assert.match(stdout, /# pass 3\b/);
+});
+
 test("release-note selector refuses a reparse-point product directory", async (t) => {
-  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "kdownloader-release-link-"));
-  const outside = await mkdtemp(path.join(tmpdir(), "kdownloader-release-outside-"));
+  const fixtureRoot = await temporaryDirectory("kdownloader-release-link-");
+  const outside = await temporaryDirectory("kdownloader-release-outside-");
   t.after(() => rm(fixtureRoot, { recursive: true, force: true }));
   t.after(() => rm(outside, { recursive: true, force: true }));
   await writeFile(path.join(outside, "2026-08-30-001-secret.md"), "must not be copied\n");
@@ -179,8 +206,8 @@ test("release-note selector refuses a reparse-point product directory", async (t
 });
 
 test("release-note selector refuses a reparse point in an input ancestor", async (t) => {
-  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "kdownloader-release-ancestor-"));
-  const outside = await mkdtemp(path.join(tmpdir(), "kdownloader-release-ancestor-outside-"));
+  const fixtureRoot = await temporaryDirectory("kdownloader-release-ancestor-");
+  const outside = await temporaryDirectory("kdownloader-release-ancestor-outside-");
   const holder = path.join(fixtureRoot, "holder");
   const link = path.join(holder, "linked-root");
   await mkdir(path.join(outside, "changelog", "kdownloader"), { recursive: true });
@@ -329,8 +356,51 @@ test("TrueDown publishes all native packages only after every build succeeds", a
   assert.match(publish, /release-assets\/\$\{\{ env\.UPDATE_MANIFEST \}\}/);
 });
 
+test("cross-platform validation builds and starts all packages on matching native runners", async () => {
+  const workflow = await read(".github/workflows/test-cross-platform.yml");
+  const [repository, native] = workflow.split("  repository-tests:")[1].split("  package-matrix:");
+  assert.match(repository, /actions\/setup-node@[a-f0-9]{40}/);
+  assert.match(repository, /node-version: 22/);
+  assert.match(repository, /run: npm test/);
+  assert.match(repository, /TRUEDOWN_INTEGRATION: "1"/);
+  assert.match(repository, /go test \.\/\.\.\./);
+  assert.match(repository, /go vet \.\/\.\.\./);
+  assert.match(repository, /test-unix-build-safety\.sh/);
+  assert.doesNotMatch(repository, /build-unix\.sh/);
+
+  const targets = [...native.matchAll(/- \{ os: (\w+), arch: (\w+), runner: ([\w.-]+) \}/g)]
+    .map(([, os, arch, runner]) => [os, arch, runner]);
+  assert.deepEqual(targets, [
+    ["linux", "amd64", "ubuntu-24.04"],
+    ["linux", "arm64", "ubuntu-24.04-arm"],
+    ["darwin", "amd64", "macos-15-intel"],
+    ["darwin", "arm64", "macos-15"],
+  ]);
+  assert.match(native, /runs-on: \$\{\{ matrix\.target\.runner \}\}/);
+  assert.match(native, /RUSTUP_TOOLCHAIN: 1\.98\.1/);
+  const build = native.indexOf("- name: Build package");
+  assert.ok(build > 0);
+  const preparation = native.slice(0, build);
+  for (const required of ["actions/setup-go@", "actions/setup-node@", "node-version: 22",
+    "rustup toolchain install 1.98.1", "npm ci --prefix truedown/desktop",
+    "libwebkit2gtk-4.1-dev", "libayatana-appindicator3-dev", "libxdo-dev", "libssl-dev",
+    "pkg-config", "xvfb", "xauth", "dbus-x11", "brew install aria2"]) {
+    assert.ok(preparation.includes(required), `${required} must be prepared before native compilation`);
+  }
+  const acceptance = native.slice(build);
+  assert.match(acceptance, /build-unix\.sh "\$\{\{ matrix\.target\.os \}\}" "\$\{\{ matrix\.target\.arch \}\}"/);
+  assert.match(acceptance, /smoke-linux\.sh "\$PACKAGE_DIRECTORY\/truedown-core"/);
+  assert.match(acceptance, /xvfb-run -a dbus-run-session -- node .*package-smoke\.mjs "\$PACKAGE_DIRECTORY\/TrueDown" --virtual-display/);
+  assert.match(acceptance, /package-smoke\.mjs "\$PACKAGE_DIRECTORY\/TrueDown\.app\/Contents\/MacOS\/TrueDown"/);
+  assert.match(acceptance, /codesign --verify --deep --strict/);
+  assert.doesNotMatch(native, /continue-on-error|contents: write/);
+  for (const { reference } of actionReferences(workflow)) {
+    assert.match(reference, /^[\w.-]+\/[\w.-]+@[a-f0-9]{40}$/);
+  }
+});
+
 test("extension build refuses to clean through a directory junction", async (t) => {
-  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "kdownloader-build-boundary-"));
+  const fixtureRoot = await temporaryDirectory("kdownloader-build-boundary-");
   const target = path.join(fixtureRoot, "outside-target");
   const marker = path.join(target, "must-survive.txt");
   const junction = path.join(root, "dist", `unsafe-build-${process.pid}-${Date.now()}`);
@@ -355,7 +425,7 @@ test("extension build refuses to clean through a directory junction", async (t) 
 });
 
 test("extension build refuses to clean a tree containing a directory junction", async (t) => {
-  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "kdownloader-build-tree-boundary-"));
+  const fixtureRoot = await temporaryDirectory("kdownloader-build-tree-boundary-");
   const target = path.join(fixtureRoot, "outside-target");
   const marker = path.join(target, "must-survive.txt");
   const output = path.join(root, "dist", `unsafe-tree-${process.pid}-${Date.now()}`);
@@ -382,7 +452,7 @@ test("extension build refuses to clean a tree containing a directory junction", 
 });
 
 test("TrueDown build refuses an output directory junction before compilation", async (t) => {
-  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "truedown-build-boundary-"));
+  const fixtureRoot = await temporaryDirectory("truedown-build-boundary-");
   const target = path.join(fixtureRoot, "outside-target");
   const marker = path.join(target, "must-survive.txt");
   const trueDownRoot = path.join(root, "truedown");
@@ -404,7 +474,7 @@ test("TrueDown build refuses an output directory junction before compilation", a
 });
 
 test("TrueDown build refuses an internal directory junction before compilation", async (t) => {
-  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "truedown-build-tree-boundary-"));
+  const fixtureRoot = await temporaryDirectory("truedown-build-tree-boundary-");
   const target = path.join(fixtureRoot, "outside-target");
   const marker = path.join(target, "must-survive.txt");
   const trueDownRoot = path.join(root, "truedown");
@@ -428,7 +498,7 @@ test("TrueDown build refuses an internal directory junction before compilation",
 });
 
 test("TrueDown build refuses a junction in embedded source inputs before compilation", async (t) => {
-  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "truedown-build-source-boundary-"));
+  const fixtureRoot = await temporaryDirectory("truedown-build-source-boundary-");
   const target = path.join(fixtureRoot, "outside-web");
   const trueDownRoot = path.join(root, "truedown");
   const junction = path.join(trueDownRoot, "web", `unsafe-source-${process.pid}-${Date.now()}`);
