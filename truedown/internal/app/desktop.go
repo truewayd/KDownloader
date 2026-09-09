@@ -129,13 +129,22 @@ func existingDesktopHandler(ctx context.Context, endpoint string, location profi
 			return
 		}
 		defer response.Body.Close()
+		body, err := io.ReadAll(io.LimitReader(response.Body, protocol.MaxDesktopResponse+1))
+		if err != nil {
+			http.Error(w, "cannot read complete core response", http.StatusBadGateway)
+			return
+		}
+		if len(body) > protocol.MaxDesktopResponse {
+			http.Error(w, "core response exceeded its limit", http.StatusBadGateway)
+			return
+		}
 		for _, key := range []string{"Content-Type", "ETag", "Retry-After", "X-TrueDown-Duplicate"} {
 			if value := response.Header.Get(key); value != "" {
 				w.Header().Set(key, value)
 			}
 		}
 		w.WriteHeader(response.StatusCode)
-		_, _ = io.Copy(w, io.LimitReader(response.Body, protocol.MaxDesktopResponse+1))
+		_, _ = w.Write(body)
 	}), nil
 }
 
