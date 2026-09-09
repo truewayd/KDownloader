@@ -68,10 +68,11 @@ test("native task completion confirms in the main window without changing the se
     window: {
       __TAURI__: { event: { listen: async (_event, callback) => { receive = callback; return () => {}; } } },
       addEventListener() {},
+      removeEventListener() {},
     },
     refreshAndSchedule: (force) => refreshes.push(force), showToast: (message) => messages.push(message),
   });
-  vm.runInContext(declarations("subscribeToCreatedTasks"), context);
+  vm.runInContext(declarations("listenNativeEvent", "subscribeToCreatedTasks"), context);
   await context.subscribeToCreatedTasks();
   receive();
   assert.deepEqual(refreshes, [true]);

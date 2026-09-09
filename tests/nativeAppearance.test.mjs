@@ -17,6 +17,7 @@ function appearance(platform = "windows", dark = false) {
       return new Promise((resolve, reject) => calls.push({ command, args: { ...args }, resolve, reject }));
     } } },
     addEventListener(name, listener) { events.set(name, listener); },
+    removeEventListener(name) { events.delete(name); },
   };
   vm.runInNewContext(source, {
     window,
@@ -24,6 +25,7 @@ function appearance(platform = "windows", dark = false) {
     matchMedia(query) {
       const media = { matches: query === darkQuery && dark, listeners: [] };
       media.addEventListener = (_, listener) => media.listeners.push(listener);
+      media.removeEventListener = (_, listener) => { media.listeners = media.listeners.filter(value => value !== listener); };
       queries.set(query, media);
       return media;
     },
@@ -35,6 +37,7 @@ function appearance(platform = "windows", dark = false) {
       media.listeners.forEach(listener => listener({ matches }));
     },
     focus() { events.get("focus")(); },
+    dispose() { events.get("pagehide")(); },
   };
 }
 
@@ -58,6 +61,17 @@ test("native material follows the web color scheme while browser dashboards stay
     await setImmediate();
     assert.equal(app.dataset.material, "native");
   }
+});
+
+test("closing a page releases material listeners and ignores an in-flight result", async () => {
+  const app = appearance();
+  app.change(darkQuery, true);
+  app.dispose();
+  app.calls[0].resolve(true);
+  await setImmediate();
+  assert.equal(app.calls.length, 1);
+  assert.equal(app.dataset.material, undefined);
+  for (const media of app.queries.values()) assert.equal(media.listeners.length, 0);
 });
 
 test("material changes coalesce behind one native call and stale results cannot restore transparency", async () => {

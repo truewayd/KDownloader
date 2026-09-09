@@ -27,7 +27,7 @@
   title.className = "native-window-title";
   const syncTitle = () => {
     title.textContent = root.dataset.nativeWindow === "settings" ? "" : document.title;
-    invoke("frame_title", { title: [...title.textContent].slice(0, 160).join("").replace(/[\u0000-\u001f\u007f]/g, " ") }).catch(report);
+    invoke("frame_title", { title: [...title.textContent].slice(0, 160).join("").replace(/[\u0000-\u001f\u007f-\u009f]/g, " ") }).catch(report);
   };
   const observer = new MutationObserver(syncTitle);
   const source = document.querySelector("title");

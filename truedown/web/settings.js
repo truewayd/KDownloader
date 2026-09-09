@@ -2,6 +2,7 @@ const SETTINGS_PAGES = ["general", "network", "files", "groups", "application", 
 const EDITABLE_SETTINGS_PAGES = new Set(["general", "network", "files", "advanced", "experimental"]);
 const settingsLoads = new Map();
 const settingsReady = new Set();
+const settingsRendered = new Set();
 const settingsMessages = new Map();
 const settingReadVersions = new Map();
 let systemUpdateTimer = 0, updatePreferenceSaving = false;
@@ -80,11 +81,12 @@ async function loadSettingsPage(retry = false) {
   els.settingsFooter.hidden = !EDITABLE_SETTINGS_PAGES.has(page);
   els.settingsSaveStatus.textContent = settingsMessages.get(page) || "保存当前分类的设置。";
   els.settingsReloadBtn.hidden = true;
-  if (retry) settingsReady.delete(page);
+  if (retry) { settingsReady.delete(page); settingsRendered.delete(page); }
   if (page === "logs") { loadApplicationLog(); }
   if (page === "about") { loadAbout(); }
   if (page === "engine") scheduleSystemUpdateRefresh();
   if (settingsReady.has(page)) {
+    initializeSettingsCategory(page);
     els.settingsLoadStatus.textContent = "";
     els.settingsSaveBtn.disabled = false;
     els.settingsResetBtn.disabled = false;
@@ -116,8 +118,7 @@ async function loadSettingsPage(retry = false) {
     await settingsLoads.get(page);
     settingsReady.add(page);
     if (epoch !== routeEpoch || currentPage !== "settings" || currentSettingsPage !== page) return;
-    renderSettingsCategory(page);
-    if (page === "experimental" || page === "engine") renderTrackerResearchSettings();
+    initializeSettingsCategory(page);
 
     els.settingsLoadStatus.textContent = "";
     els.settingsSaveBtn.disabled = false;
@@ -130,6 +131,13 @@ async function loadSettingsPage(retry = false) {
     // A category becomes editable only after its own read has succeeded.
     settingsPanels(page).forEach((panel) => { panel.inert = !settingsReady.has(page); });
   }
+}
+
+function initializeSettingsCategory(page) {
+  if (settingsRendered.has(page)) return;
+  renderSettingsCategory(page);
+  if (page === "experimental" || page === "engine") renderTrackerResearchSettings();
+  settingsRendered.add(page);
 }
 
 async function loadStartupSettings() {

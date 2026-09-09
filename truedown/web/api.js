@@ -60,11 +60,12 @@ async function invokeNative(command, args) {
   catch (error) { throw error instanceof Error ? error : new Error(String(error)); }
 }
 async function nativeFetch(path, options = {}) {
-  const signal = options.signal;
+  const method = (options.method || "GET").toUpperCase();
+  const signal = options.signal || (method === "GET" ? AbortSignal.timeout(15_000) : undefined);
   signal?.throwIfAborted();
   const headers = Object.fromEntries(new Headers(options.headers || {}));
   const operation = invokeNative("core_request", {
-    request: { method: options.method || "GET", path, body: options.body || "", headers },
+    request: { method, path, body: options.body || "", headers },
   });
   let abort;
   const canceled = signal && new Promise((_, reject) => {

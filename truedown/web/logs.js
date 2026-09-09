@@ -7,6 +7,8 @@ function stopApplicationLog() {
   clearTimeout(applicationLogTimer);
   applicationLogRequest++;
   applicationLogAbort?.abort();
+  applicationLogAbort = null;
+  if (els.refreshApplicationLogBtn) KDComponents.setBusyState(els.refreshApplicationLogBtn, false);
 }
 document.addEventListener("visibilitychange", () => {
   stopApplicationLog();
@@ -15,7 +17,7 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pagehide", stopApplicationLog, { once: true });
 
 async function loadApplicationLog(announce = false) {
-  if (!isApplicationLogPage()) return;
+  if (!isApplicationLogPage() || document.hidden) return;
   clearTimeout(applicationLogTimer);
   const request = ++applicationLogRequest;
   const epoch = routeEpoch;

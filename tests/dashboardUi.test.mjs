@@ -161,7 +161,7 @@ test("settings navigation stays immediate and a late category read never overwri
   const fields = Object.fromEntries(["settingsFooter", "settingsSaveStatus", "settingsReloadBtn", "settingsSaveBtn", "settingsResetBtn", "settingsLoadStatus"].map((name) => [name, control()]));
   const context = vm.createContext({
     els: fields, currentPage: "settings", currentSettingsPage: "general", routeEpoch: 1,
-    settingsLoads: new Map(), settingsReady: new Set(), settingsMessages: new Map(),
+    settingsLoads: new Map(), settingsReady: new Set(), settingsRendered: new Set(), settingsMessages: new Map(),
     EDITABLE_SETTINGS_PAGES: new Set(["general", "network"]),
     document: { querySelectorAll: () => [] },
     settingsPanels: (page) => [panels[page]],
@@ -170,7 +170,7 @@ test("settings navigation stays immediate and a late category read never overwri
     loadFileGroupsEditor() {}, loadResolverModules() {}, loadAuthSettings() {}, loadTrackerResearchSettings() {},
     renderSettingsCategory() { rendered++; }, renderSettingsOverview() {},
   });
-  vm.runInContext(declaration("loadSettingsPage"), context);
+  vm.runInContext(declaration("initializeSettingsCategory") + "\n" + declaration("loadSettingsPage"), context);
   const first = context.loadSettingsPage();
   const second = context.loadSettingsPage();
   await Promise.resolve();

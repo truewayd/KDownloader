@@ -2,12 +2,32 @@
 const nativeWindowRole = window.__TAURI__?.core?.invoke
   ? new URLSearchParams(location.search).get("window") || "main" : "browser";
 
+async function listenNativeEvent(name, callback) {
+  if (!window.__TAURI__?.event?.listen) return;
+  let disposed = false, unlisten;
+  const dispose = () => {
+    disposed = true;
+    window.removeEventListener("pagehide", dispose);
+    unlisten?.();
+  };
+  window.addEventListener("pagehide", dispose, { once: true });
+  try {
+    unlisten = await window.__TAURI__.event.listen(name, (event) => { if (!disposed) callback(event); });
+    if (disposed) unlisten();
+  } catch (error) {
+    const closing = disposed;
+    dispose();
+    // Registration may fail because the WebView is already closing.
+    if (!closing) throw error;
+  }
+}
+
 if (nativeWindowRole !== "browser") {
   document.documentElement.dataset.nativeWindow = nativeWindowRole;
   if (nativeWindowRole === "settings" && window.__TAURI__.event?.listen) {
-    window.__TAURI__.event.listen("truedown:settings-page", ({ payload }) => {
+    listenNativeEvent("truedown:settings-page", ({ payload }) => {
       if (["general", "logs", "about"].includes(payload)) location.hash = `settings/${payload}`;
-    }).then(unlisten => window.addEventListener("pagehide", unlisten, { once: true })).catch(console.error);
+    }).catch(console.error);
   }
   document.addEventListener("click", (event) => {
     const link = event.target.closest("a[data-route], [data-native-window]");

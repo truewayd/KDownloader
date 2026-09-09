@@ -102,6 +102,9 @@ test("Custom Windows titles retain native buttons and bound application titles",
     view.observers[0].callback();
     await flush();
     assert.equal(view.calls.at(-1).args.title.length, 160);
+    view.document.title = "download\u0085name\u009f.zip";
+    view.observers[0].callback();
+    assert.equal(view.calls.at(-1).args.title, "download name .zip");
     assert.equal(view.calls.filter(call => call.command === "frame_action").length, 0);
   }
 });
