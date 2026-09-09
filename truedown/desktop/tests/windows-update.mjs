@@ -61,7 +61,8 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
   const apiPort = await port(), debugPort = await port();
   const origin = `http://127.0.0.1:${apiPort}`;
   const env = { ...process.env, TRUEDOWN_DESKTOP_TEST: "1", TRUEDOWN_ADDR: `127.0.0.1:${apiPort}`,
-    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}`, TRUEDOWN_API_TOKEN: "", TRUEDOWN_REQUIRE_TOKEN: "", TRUEDOWN_TLS_CERT: "", TRUEDOWN_TLS_KEY: "" };
+    TRUEDOWN_DESKTOP_TEST_DEBUG_PORT: String(debugPort), WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: "",
+    TRUEDOWN_API_TOKEN: "", TRUEDOWN_REQUIRE_TOKEN: "", TRUEDOWN_TLS_CERT: "", TRUEDOWN_TLS_KEY: "" };
   const launch = () => {
     const child = spawn(path.join(directory, "TrueDown.exe"), ["--background", "--data-dir", profile], { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.resume(); child.stderr.resume(); return child;

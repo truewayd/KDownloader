@@ -7,6 +7,7 @@ import http from "node:http";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { readToastPlacement, assertToastBounds } from "./toast-layout.mjs";
 
 if (process.platform !== "win32") throw new Error("This acceptance test requires Windows WebView2");
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -40,7 +41,8 @@ function launchDesktop() { return spawn(path.join(installation, shellName), ["--
   windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
   env: {
     ...process.env, TRUEDOWN_DESKTOP_TEST: "1", TRUEDOWN_ADDR: `127.0.0.1:${port}`,
-    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}`,
+    TRUEDOWN_DESKTOP_TEST_DEBUG_PORT: String(debugPort),
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: "",
     TRUEDOWN_API_TOKEN: "", TRUEDOWN_REQUIRE_TOKEN: "", TRUEDOWN_TLS_CERT: "", TRUEDOWN_TLS_KEY: "",
   },
 }); }
@@ -397,12 +399,7 @@ try {
     await waitForNativeCondition(main, total => Number(document.querySelector("#task-count").textContent) === total, total);
     assert.equal(await form.evaluate(() => downloadSettings.connections), 9);
     assert.equal(await main.locator("#toast").textContent(), "下载任务已添加");
-    const toast = await main.locator("#toast").evaluate(element => {
-      const { x, y, width, right, bottom } = element.getBoundingClientRect();
-      return { x, y, width, right, bottom, viewportWidth: innerWidth, viewportHeight: innerHeight };
-    });
-    assert.ok(Math.abs(toast.x + toast.width / 2 - toast.viewportWidth / 2) < 1, JSON.stringify(toast));
-    assert.ok(toast.y >= 40 && toast.x >= 16 && toast.right <= toast.viewportWidth - 16 && toast.bottom <= toast.viewportHeight - 16, JSON.stringify(toast));
+    assertToastBounds(await waitForNativeCondition(main, readToastPlacement));
     assert.equal((await api(main, "GET", "/tasks?limit=100")).total, total);
   }
   await settings.locator('[data-settings-link="groups"]').click();

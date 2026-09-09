@@ -5,6 +5,7 @@ import path from "node:path";
 import net from "node:net";
 import http from "node:http";
 import { spawn } from "node:child_process";
+import { readToastPlacement, assertToastBounds } from "./toast-layout.mjs";
 
 if (process.platform !== "linux" || !process.env.DISPLAY) throw new Error("Run this test inside xvfb-run and dbus-run-session");
 const application = path.resolve(process.argv[2] || "target/debug/TrueDown");
@@ -73,9 +74,8 @@ try {
     assert.equal(await evaluate("return document.querySelectorAll('[data-window-action]').length"), 0);
     assert.equal((await evaluate("return window.__TAURI__.core.invoke('frame_state')")).decorated, true);
     await evaluate("showToast('Native title clearance '.repeat(12),'error');return true");
-    await until(() => evaluate("const toast=document.querySelector('#toast');return toast.classList.contains('is-visible') && toast.getAnimations().every(animation=>animation.playState==='finished')"));
-    const toast = await evaluate("const element=document.querySelector('#toast');const {x,y,width,right,bottom}=element.getBoundingClientRect();return {x,y,width,right,bottom,viewportWidth:innerWidth,viewportHeight:innerHeight,textFits:element.scrollWidth<=element.clientWidth}");
-    assert.ok(Math.abs(toast.x+toast.width/2-toast.viewportWidth/2)<1 && Math.abs(toast.y-16)<1 && toast.x>=16 && toast.right<=toast.viewportWidth-16 && toast.bottom<=toast.viewportHeight-24 && toast.textFits, JSON.stringify(toast));
+    const toast = await until(() => evaluate(`return (${readToastPlacement.toString()})()`));
+    assertToastBounds(toast);
   }
   assert.ok(settings && main);
   await command("POST", "/window", { handle: settings });

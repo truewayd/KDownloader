@@ -22,6 +22,15 @@ impl Storage {
         builder: WebviewWindowBuilder<'a, Wry, M>,
     ) -> WebviewWindowBuilder<'a, Wry, M> {
         let builder = builder.data_directory(self.cache.clone());
+        #[cfg(all(windows, debug_assertions))]
+        let builder = match test_browser_arguments(
+            std::env::var("TRUEDOWN_DESKTOP_TEST_DEBUG_PORT")
+                .ok()
+                .as_deref(),
+        ) {
+            Some(arguments) => builder.additional_browser_args(&arguments),
+            None => builder,
+        };
         #[cfg(target_os = "macos")]
         {
             // WKWebView ignores data_directory. Named stores are available
@@ -39,6 +48,20 @@ impl Storage {
     }
 }
 
+#[cfg(any(all(windows, debug_assertions), test))]
+fn test_browser_arguments(port: Option<&str>) -> Option<String> {
+    let port = port?;
+    if port.is_empty() || port.len() > 5 || !port.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let port = port.parse::<u16>().ok().filter(|port| *port != 0)?;
+    // Elevated WebView2 150+ ignores WEBVIEW2_* overrides. Debug fixtures use
+    // the native API, retaining Wry's default arguments; release builds omit it.
+    Some(format!(
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port={port}"
+    ))
+}
+
 #[cfg(any(target_os = "macos", test))]
 fn identifier(profile: &str) -> [u8; 16] {
     use sha2::{Digest, Sha256};
@@ -48,6 +71,28 @@ fn identifier(profile: &str) -> [u8; 16] {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn acceptance_debugging_accepts_only_a_nonzero_port() {
+        for port in [
+            None,
+            Some(""),
+            Some("0"),
+            Some("65536"),
+            Some("+9222"),
+            Some(" 9222"),
+            Some("9222 "),
+            Some("9222 --no-sandbox"),
+        ] {
+            assert!(super::test_browser_arguments(port).is_none());
+        }
+        for port in ["1", "9222", "65535"] {
+            assert_eq!(
+                super::test_browser_arguments(Some(port)).unwrap(),
+                format!("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port={port}")
+            );
+        }
+    }
+
     #[test]
     fn website_stores_are_stable_and_profile_scoped() {
         assert_eq!(

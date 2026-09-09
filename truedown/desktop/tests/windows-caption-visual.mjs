@@ -28,7 +28,8 @@ const child = spawn(path.join(fixture, "TrueDown.exe"), ["--data-dir", path.join
   windowsHide: true, stdio: "ignore", env: { ...process.env,
     TRUEDOWN_DESKTOP_TEST: "0", TRUEDOWN_ADDR: `127.0.0.1:${apiPort}`,
     TRUEDOWN_API_TOKEN: "", TRUEDOWN_REQUIRE_TOKEN: "", TRUEDOWN_TLS_CERT: "", TRUEDOWN_TLS_KEY: "",
-    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}`,
+    TRUEDOWN_DESKTOP_TEST_DEBUG_PORT: String(debugPort),
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: "",
   },
 });
 let browser, launchError;

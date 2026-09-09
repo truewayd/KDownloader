@@ -34,6 +34,12 @@ commands, contrast fallback, scaled layouts and graceful exit. No separate
 Chromium download or interactive confirmation is needed. Test screenshots and
 profile fixtures remain in the reported temporary directory for diagnosis.
 
+Debug fixtures set `TRUEDOWN_DESKTOP_TEST_DEBUG_PORT` to a nonzero TCP port. The
+shell passes this bounded setting through the native WebView2 API, including on
+elevated CI runners where [WebView2 150+ ignores environment overrides](https://github.com/MicrosoftEdge/WebView2Feedback/issues/5640).
+Release builds omit this test hook. Package acceptance checks the frontend health
+acknowledgment and native window visibility without opening a debugging port.
+
 Windows and Linux windows share the resolved profile's WebView cache. The core commits storage
 migration before any WebView is created; the native builder receives the absolute
 cache path directly, because Tauri's JSON window configuration accepts only a

@@ -6,6 +6,7 @@ import net from "node:net";
 import { randomBytes } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 const application = path.resolve(process.argv[2] || "");
 assert.ok(process.argv[2], "Pass the packaged native executable");
@@ -27,14 +28,15 @@ async function freePort() {
   await new Promise(resolve => server.close(resolve));
   return port;
 }
-const port = await freePort(), debugPort = await freePort();
+const port = await freePort();
 const env = { ...process.env, TRUEDOWN_ADDR: `127.0.0.1:${port}`,
+  TRUEDOWN_DESKTOP_TEST_DEBUG_PORT: "", WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: "",
   TRUEDOWN_API_TOKEN: "", TRUEDOWN_REQUIRE_TOKEN: "", TRUEDOWN_TLS_CERT: "", TRUEDOWN_TLS_KEY: "" };
 if (process.platform === "linux") env.GDK_BACKEND = "x11";
 async function command(...args) {
   return run(cli, ["--data-dir", profile, ...args], { env, windowsHide: true, timeout: 15000 });
 }
-let diagnostic = "", browser;
+let diagnostic = "";
 function request(route, options = {}) {
   return fetch(`http://127.0.0.1:${port}${route}`, { ...options, signal: AbortSignal.timeout(5000) });
 }
@@ -51,14 +53,6 @@ function launch(executable, args) {
 function exited(child) { return Boolean(child.launchError) || child.exitCode !== null || child.signalCode !== null; }
 function assertRunning(child) {
   if (exited(child)) throw new Error(`Package process exited before readiness (${child.exitCode ?? child.signalCode ?? "spawn failed"}): ${diagnostic}`);
-}
-async function bounded(promise, timeout) {
-  let timer;
-  try {
-    return await Promise.race([promise, new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error("Native browser diagnostic timed out")), timeout);
-    })]);
-  } finally { clearTimeout(timer); }
 }
 async function stop(child) {
   if (exited(child)) return;
@@ -102,7 +96,6 @@ await fs.mkdir(updates, { recursive: true });
 const token = randomBytes(24).toString("hex"), health = path.join(updates, `native-health-${token}`);
 Object.assign(env, { TRUEDOWN_UPDATE_HEALTH_FILE: health, TRUEDOWN_UPDATE_HEALTH_TOKEN: token,
   TRUEDOWN_UPDATE_EXPECTED_BUILD: location.build.buildNumber });
-if (process.platform === "win32") env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = `--remote-debugging-port=${debugPort}`;
 // WebKitGTK may defer loading an unmapped view. Linux exercises ordinary
 // frontend startup inside Xvfb; Windows exercises the actual hidden update
 // startup. Neither mode presents a window on the user's desktop.
@@ -117,18 +110,8 @@ async function until(check, timeout = 60000) {
   throw new Error(`Native package acceptance timed out: ${diagnostic}`);
 }
 try {
-  if (process.platform === "win32") {
-    await until(() => {
-      assertRunning(child);
-      return fetch(`http://127.0.0.1:${debugPort}/json/version`, { signal: AbortSignal.timeout(5000) }).then(response => response.ok, () => false);
-    });
-    const { chromium } = await import("playwright");
-    browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { timeout: 15000 });
-    for (const page of browser.contexts()[0].pages()) {
-      page.on("pageerror", appendDiagnostic);
-      page.on("console", message => { if (message.type() === "error") appendDiagnostic(message.text()); });
-    }
-  }
+  // The native health acknowledgment comes from the initialized frontend.
+  // Release acceptance must also work where elevated WebView2 rejects CDP env overrides.
   await until(async () => {
     assertRunning(child);
     return fs.readFile(health, "utf8").then(value => value === token, () => false);
@@ -138,22 +121,17 @@ try {
   const info = await identity.json();
   assert.deepEqual(info, location.build);
   assert.deepEqual(JSON.parse((await command("--json", "status")).stdout).core, info);
-  if (browser) {
-    const page = browser.contexts()[0].pages()[0];
-    assert.equal(await page.evaluate(() => window.__TAURI__.window.getCurrentWindow().isVisible()), false);
+  if (process.platform === "win32") {
+    const state = await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+      fileURLToPath(new URL("./windows-native-state.ps1", import.meta.url)), "-ProcessId", String(child.pid)],
+    { windowsHide: true, timeout: 15000, maxBuffer: 1024 * 1024 });
+    const windows = JSON.parse(state.stdout);
+    assert.ok(windows.length > 0 && windows.every(window => !window.visible), "Packaged native windows must remain hidden");
   }
   await command("exit");
   await until(() => exited(child), 30000);
   assert.equal(child.exitCode, 0, diagnostic);
   console.log(`native_package_ready=ok matched_shell_core_cli=ok graceful_exit=ok display=${virtualDisplay ? "virtual" : "hidden"} profile=${profile}`);
-} catch (error) {
-  if (browser) {
-    for (const page of browser.contexts()[0].pages()) {
-      console.error("Native page diagnostics:", await bounded(page.evaluate(() => ({ url: location.href, text: document.body?.innerText.slice(-4000) })), 3000).catch(() => null));
-    }
-  }
-  throw error;
 } finally {
-  try { await stop(child); }
-  finally { if (browser) await bounded(browser.close(), 5000).catch(() => {}); }
+  await stop(child);
 }
