@@ -35,6 +35,12 @@ The CLI resolves the profile for Rust, so platform defaults and migration rules
 have one implementation. Profile identity scopes the native single instance and
 login registration. The core's own lock remains authoritative across all clients.
 
+`desktop/src/commands.rs` owns native IPC authorization and credential redaction;
+`main.rs` composes the shell. Each window role has an explicit method/path
+allowlist. Native-local startup and exit operations remain available without a
+healthy core connection. CLI profile probes have a 15-second deadline and read
+at most 64 KiB before rejecting output; failed and cancelled helpers terminate.
+
 Bundled windows use bounded, correlated JSON frames over inherited stdio.
 `internal/protocol/routes.json` defines the exact method/path allowlist for both
 Go and Rust; arbitrary URLs, commands and paths never cross that adapter. HTTP
@@ -55,20 +61,25 @@ release identity binds the shell, local CLI and every owned core connection.
 
 ## UI and preferences
 
-The main window contains downloads. Settings, application logs and about each
-reuse one separate native window. Closing a window hides it while the core keeps
-running; settings category, scroll position and unsaved controls survive reopen.
+The main window contains downloads. Settings, application logs and about share
+one separate native window. Reopening settings selects Download and speed while
+retaining unsaved controls. New and batch downloads each have a singleton native
+form window. Closing a window hides it while the core keeps running.
 Ctrl/Cmd+, opens settings; Ctrl/Cmd+S saves the active settings category.
 Auxiliary commands are restricted by window role.
 
 The browser and native frontend share `api.js`, `task-view.js`, `settings.js`,
-`logs.js`, `workspace.js`, and the canonical component runtime. Task rows are
+`logs.js`, `workspace.js`, and the canonical component runtime. `task-forms.js`
+owns the native form lifecycle and preference refresh. Task rows are
 reconciled by identity, hidden task views stop polling, and late responses must
-match the current route/query. Settings have an overview and typed categories.
+match the current route/query. Settings have typed categories without an overview.
+Categories loaded while hidden initialize once when reopened and retain later
+drafts. Cancelled reads release their busy controls; native event/material
+listeners release on page teardown, including in-flight registrations.
 Working surfaces stay readable with Windows Fluent and macOS system styling;
 Mica/vibrancy respects transparency/contrast preferences and has solid fallbacks.
 Windows tray icons choose the exact raster for the taskbar monitor's DPI.
-The macOS status item uses a 64px source for its 18pt Retina rendering. Window
+The macOS status item uses an exact 36px source for its 18pt Retina rendering. Window
 sizes and minimums fit the monitor's work area, including native frame metrics,
 and are recalculated when moving between display scale factors.
 

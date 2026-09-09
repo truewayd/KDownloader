@@ -21,6 +21,11 @@ The build prepares target-suffixed sidecars and verifies the canonical shared
 components before copying frontend assets. Windows includes the reviewed stable
 aria2 executable. Linux and macOS require an installed aria2 or a packaged copy.
 
+Use the Tauri build command above before native acceptance. Plain `cargo build`
+emits `truedown-desktop.exe` on Windows and does not refresh a previously renamed
+`TrueDown.exe`; mixing that older executable with new sidecars fails the release
+identity check.
+
 On Windows, run `npm run test:windows` after building. This uses the installed
 WebView2 runtime through Playwright CDP. It copies the debug package into an
 isolated temporary directory with spaces, keeps every native window hidden, and
@@ -37,6 +42,8 @@ relative `dataDirectory`. Auxiliary windows do not create separate browser cache
 ## Window behavior
 
 - Main is the download workspace. Closing it hides the window while downloads run.
+- New and batch downloads use separate singleton native forms with retained drafts.
+  Creation and monitor fitting use the same role-specific minimum sizes.
 - Settings reuses one native window, including application logs and About.
   Reopening selects Download and speed; unsaved category drafts remain intact.
   Windows/Linux retain native caption buttons and macOS retains traffic lights.
@@ -50,6 +57,17 @@ relative `dataDirectory`. Auxiliary windows do not create separate browser cache
   stay opaque, and unsupported effects fall back to normal backgrounds.
 - Windows chooses a 16/20/24/32/40/48/64-pixel tray raster using the taskbar monitor
   DPI and refreshes after taskbar movement. macOS treats the icon as a template.
+
+Native IPC dispatch and credential handling live in `src/commands.rs`; explicit
+window permissions and sizes live in `src/windows.rs`. Native form lifecycle is
+in `../web/task-forms.js`. The [Tauri audit](../docs/tauri-audit-2026-09-08.md)
+records cancellation, request-boundary and UI regressions plus dependency risks.
+The [reviewed dependency patches](vendor/README.md) retain exact upstream
+provenance and licenses. `node ../tools/verify-native-patches.mjs` checks every
+vendored source file; native license generation runs the same check. On Linux,
+also run `cargo test --locked --release --test dependencies` for the optimized
+GLib FFI regression. Version-only GLib advisories must be assessed against the
+patched source rather than hidden with a global ignore rule.
 
 ## Native packages
 
