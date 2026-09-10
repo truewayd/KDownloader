@@ -20,6 +20,7 @@ truedown/desktop/gen/
 !truedown/docs/ab-download-manager-review.md
 !truedown/docs/tauri-audit-2026-09-08.md
 !truedown/docs/tauri-auxiliary-audit-2026-09-09.md
+!truedown/docs/download-retry-rules.md
 !truedown/unix/README.md
 !truedown/windows/README.md
 !truedown/desktop/README.md

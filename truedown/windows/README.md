@@ -23,6 +23,12 @@ directory. `truedown-cli.exe --json paths` reports the actual locations.
 `--data-dir <absolute directory>` or `TRUEDOWN_DATA_DIR` selects an explicit
 profile; known old profiles are migrated while preserving task and download data.
 
+HTTP retries keep the task's existing output name. Valid `.aria2` resume files
+preserve progress; missing or confirmed damaged resume data restarts only that
+task's file from zero. New tasks may receive a numbered filename on collision.
+Old numbered siblings are never deleted automatically. Full rules are in
+`truedown/docs/download-retry-rules.md` in the source repository.
+
 For terminal use, run `truedown-core.exe serve` and use `truedown-cli.exe --help`.
 The native interface can attach to an already running core for the same profile.
 Core and CLI do not require WebView2. The browser dashboard remains available

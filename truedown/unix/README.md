@@ -45,6 +45,12 @@ profiles migrate automatically while preserving tasks and downloaded files.
 `truedown-cli --json paths` reports actual paths without starting the application.
 On macOS the CLI and core are in `TrueDown.app/Contents/MacOS`.
 
+HTTP retries keep the task's existing output name. Valid `.aria2` resume files
+preserve progress; missing or confirmed damaged resume data restarts only that
+task's file from zero. New tasks may receive a numbered filename on collision.
+Old numbered siblings are never deleted automatically. Full rules are in
+`truedown/docs/download-retry-rules.md` in the source repository.
+
 Linux packages include a
 `truedown.desktop` template for installations that place `TrueDown` on `PATH`.
 For terminal use, run `truedown-core serve`, then `truedown-cli --help` for commands.
