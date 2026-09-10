@@ -84,6 +84,8 @@ type Task struct {
 	DropboxDirect bool   `json:"-"`
 	RemoteDigest  string `json:"-"`
 	RemoteName    string `json:"-"`
+	TransferState string `json:"-"`
+	PreviousGID   string `json:"-"`
 
 	admissionFailureStatus   Status
 	admissionFailureRevision int64
@@ -172,6 +174,7 @@ type requestIdentity struct {
 
 type submission struct {
 	id             int64
+	gid            string
 	recheck        bool
 	removeGID      string
 	discardPartial bool
@@ -508,8 +511,9 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 
 	m.mu.Lock()
 	if task := m.findModuleResumeLocked(identity, fingerprint); task != nil {
-		removeGID := task.GID
+		removeGID := firstNonEmptyString(task.PreviousGID, task.GID)
 		proposed := cloneTask(task)
+		proposed.PreviousGID = removeGID
 		proposed.GID = m.newGIDLocked()
 		proposed.Fingerprint = fingerprint
 		proposed.RequestJSON = string(requestJSON)
@@ -521,6 +525,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		proposed.ModuleID = moduleID
 		proposed.DropboxDirect = moduleID == DropboxModuleID
 		proposed.Status = StatusQueued
+		proposed.TransferState = retryTransferState(task)
 		proposed.Error = ""
 		proposed.Progress = "Waiting for aria2 to verify and resume partial data"
 		proposed.Revision = m.revision + 1
@@ -546,12 +551,20 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 			m.mu.Unlock()
 			return result, true, nil
 		}
-		removeGID := task.GID
+		removeGID := firstNonEmptyString(task.PreviousGID, task.GID)
 		proposed := cloneTask(task)
+		proposed.PreviousGID = removeGID
 		proposed.GID = m.newGIDLocked()
 		proposed.Status = StatusQueued
+		proposed.TransferState = retryTransferState(task)
+		if task.Status == StatusDone {
+			proposed.TransferState = transferRecheck
+		}
 		proposed.Error = ""
-		proposed.Progress = "Checking whether the remote content has changed"
+		proposed.Progress = "Waiting for aria2 to resume partial data"
+		if task.Status == StatusDone {
+			proposed.Progress = "Checking whether the remote content has changed"
+		}
 		proposed.Revision = m.revision + 1
 		proposed.UpdatedAt = time.Now()
 		if err := m.store.Update(proposed); err != nil {
@@ -562,7 +575,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		m.replaceTaskLocked(task, proposed)
 		result := cloneTask(task)
 		m.mu.Unlock()
-		m.enqueue(submission{id: id, recheck: true, removeGID: removeGID})
+		m.enqueue(submission{id: id, recheck: result.TransferState == transferRecheck, removeGID: removeGID})
 		return result, true, nil
 	}
 
@@ -590,6 +603,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		Progress:      "Waiting for aria2",
 		CreatedAt:     now,
 		UpdatedAt:     now,
+		TransferState: transferPending,
 	}
 	m.touchTaskLocked(task)
 	if identity.BitTorrent == nil {
@@ -597,6 +611,10 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 			task.OutputName = m.resolveOutputNameLocked(task.Folder, task.Name, task.ID)
 		} else {
 			task.Name = displayName(task.Link)
+		}
+		if task.OutputName == "" && identity.Name != "" {
+			m.mu.Unlock()
+			return nil, false, fmt.Errorf("no available output name for %q", task.Name)
 		}
 	} else if task.Name == "" {
 		task.Name = torrentLinkName(task.Link)
@@ -1127,9 +1145,8 @@ func (m *Manager) snapshotTask(task *Task) TaskSnapshot {
 	}
 }
 
-// RequeueTask normally keeps aria2's partial data. Aria2 Next HTTP range
-// mismatches are restarted cleanly because those bytes cannot be safely joined
-// to the current remote object.
+// RequeueTask preserves usable partial data at the task's fixed output path.
+// Unusable HTTP resume state is persisted as a clean restart before queuing.
 func (m *Manager) RequeueTask(id int64) error {
 	return singleOperationError(m.RequeueTasks([]int64{id}), id)
 }
@@ -1160,7 +1177,8 @@ func (m *Manager) RequeueTasks(ids []int64) TaskOperationResult {
 			continue
 		}
 		originals[id] = cloneTask(task)
-		discardPartials[id] = m.aria2Next && requiresCleanHTTPRestart(task.Error)
+		task.TransferState = retryTransferState(task)
+		discardPartials[id] = task.TransferState == transferRestart
 		removeGIDs[id] = m.rotateGIDLocked(task)
 		m.setStatusLocked(task, StatusQueued)
 		task.Error = ""
@@ -1607,6 +1625,11 @@ func (m *Manager) ClearDone() int {
 }
 
 func (m *Manager) enqueue(item submission) {
+	m.mu.RLock()
+	if task := m.tasks[item.id]; task != nil && item.gid == "" {
+		item.gid = task.GID
+	}
+	m.mu.RUnlock()
 	m.pendingMu.Lock()
 	m.pending = append(m.pending, item)
 	m.pendingMu.Unlock()
@@ -1778,7 +1801,7 @@ func (m *Manager) submit(item submission) bool {
 	defer m.opMu.Unlock()
 	m.mu.RLock()
 	task, ok := m.tasks[item.id]
-	if !ok || m.ariaAdmitted[item.id] {
+	if !ok || m.ariaAdmitted[item.id] || (item.gid != "" && item.gid != task.GID) {
 		m.mu.RUnlock()
 		return false
 	}
@@ -1789,6 +1812,11 @@ func (m *Manager) submit(item submission) bool {
 	}
 	var identity requestIdentity
 	isBitTorrent := snapshot.RequestJSON != "" && json.Unmarshal([]byte(snapshot.RequestJSON), &identity) == nil && identity.BitTorrent != nil
+	item.recheck = item.recheck || snapshot.TransferState == transferRecheck
+	item.discardPartial = !isBitTorrent && (item.discardPartial || snapshot.TransferState == transferRestart)
+	if snapshot.PreviousGID != "" {
+		item.removeGID = snapshot.PreviousGID
+	}
 	if m.engineExited.Load() || m.lifecycleCtx.Err() != nil {
 		// The exit handler owns recovery intent. Pending submissions must not
 		// turn its recoverable queue back into failed tasks while it restarts.
@@ -1805,19 +1833,15 @@ func (m *Manager) submit(item submission) bool {
 	}
 	if item.removeGID != "" {
 		if err := m.rpc.removeResult(item.removeGID); err != nil && !isGIDNotFound(err) {
-			log.Printf("remove stale aria2 result %s: %v", item.removeGID, err)
-		}
-	}
-	if item.discardPartial {
-		if stalePartialPath == "" && snapshot.OutputName == "" && stalePathErr != nil {
-			m.failTask(snapshot.ID, fmt.Errorf("download engine became unavailable while locating stale partial data; restart TrueDown: %w", stalePathErr))
+			m.failTask(snapshot.ID, fmt.Errorf("retire previous download before retry: %w", err))
 			return false
 		}
-		if err := removePartialFiles(snapshot, stalePartialPath); err != nil {
-			m.failTask(snapshot.ID, fmt.Errorf("discard stale HTTP partial data: %w", err))
-			return false
+		if snapshot.PreviousGID != "" {
+			if err := m.setTask(snapshot.ID, func(task *Task) { task.PreviousGID = "" }); err != nil {
+				m.failTask(snapshot.ID, fmt.Errorf("persist previous download retirement: %w", err))
+				return false
+			}
 		}
-		log.Printf("task %d discarded stale HTTP partial data after a byte-range mismatch; restarting from zero", snapshot.ID)
 	}
 	preparedProxy := ""
 	preparedLink := ""
@@ -1854,9 +1878,20 @@ func (m *Manager) submit(item submission) bool {
 		preparedHeaders = prepared.Headers
 		preparedProxy = prepared.ProxyURL
 	}
-	if !isBitTorrent && !item.recheck && snapshot.OutputName != "" {
+	if item.discardPartial {
+		if stalePartialPath == "" && snapshot.OutputName == "" && stalePathErr != nil {
+			m.failTask(snapshot.ID, fmt.Errorf("download engine became unavailable while locating stale partial data; restart TrueDown: %w", stalePathErr))
+			return false
+		}
+		if err := m.removeOwnedPartialFiles(snapshot, stalePartialPath); err != nil {
+			m.failTask(snapshot.ID, fmt.Errorf("discard stale HTTP partial data: %w", err))
+			return false
+		}
+		log.Printf("task %d discarded unusable HTTP partial data; restarting from zero", snapshot.ID)
+	}
+	if !isBitTorrent {
 		var err error
-		snapshot, err = m.refreshOutputName(snapshot.ID)
+		snapshot, err = m.prepareHTTPOutput(snapshot.ID, item.recheck)
 		if err != nil {
 			m.failTask(snapshot.ID, err)
 			return false
@@ -2100,6 +2135,7 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 			continue
 		}
 		oldStatus, oldProgress, oldError, oldOutput := task.Status, task.Progress, task.Error, task.OutputName
+		oldTransferState := task.TransferState
 		task.admissionFailureStatus, task.admissionFailureRevision = "", 0
 		oldTotalLength := task.TotalLength
 		oldCompleted, oldSpeed := task.CompletedLength, task.DownloadSpeed
@@ -2123,6 +2159,15 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 			if task.Error == "" {
 				task.Error = "aria2 error code " + state.ErrorCode
 			}
+			var identity requestIdentity
+			isHTTP := json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.BitTorrent == nil
+			if isHTTP && (state.ErrorCode == "8" || state.ErrorCode == "10" || requiresCleanHTTPRestart(task.Error)) {
+				task.TransferState = transferRestart
+			}
+			if isHTTP && state.ErrorCode == "1" && invalidHTTPResumeControl(task, state.TotalLength) {
+				task.TransferState = transferRestart
+				task.Error = "HTTP resume control file is damaged; retry will restart this file from zero"
+			}
 			if requiresCleanHTTPRestart(task.Error) && oldError != task.Error {
 				diagnosticLogs = append(diagnosticLogs, fmt.Sprintf("task %d HTTP byte-range resume state no longer matches the remote object; retry will discard only this task's partial file and restart from zero", task.ID))
 			}
@@ -2141,7 +2186,7 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 		if task.Status != StatusDownloading {
 			task.DownloadSpeed = 0
 		}
-		if oldStatus != task.Status || oldProgress != task.Progress || oldError != task.Error || oldOutput != task.OutputName || oldTotalLength != task.TotalLength || oldCompleted != task.CompletedLength || oldSpeed != task.DownloadSpeed {
+		if oldStatus != task.Status || oldProgress != task.Progress || oldError != task.Error || oldOutput != task.OutputName || oldTotalLength != task.TotalLength || oldCompleted != task.CompletedLength || oldSpeed != task.DownloadSpeed || oldTransferState != task.TransferState {
 			m.touchTaskLocked(task)
 			updates = append(updates, snapshotTaskUpdate(task))
 		}
@@ -2187,11 +2232,14 @@ func (m *Manager) setStatusLocked(task *Task, status Status) {
 
 func (m *Manager) rotateGIDLocked(task *Task) string {
 	oldGID := task.GID
+	if task.PreviousGID == "" {
+		task.PreviousGID = oldGID
+	}
 	task.admissionFailureStatus, task.admissionFailureRevision = "", 0
 	delete(m.gids, oldGID)
 	task.GID = m.newGIDLocked()
 	m.gids[task.GID] = task.ID
-	return oldGID
+	return task.PreviousGID
 }
 
 func (m *Manager) newGIDLocked() string {
@@ -2952,6 +3000,10 @@ func (m *Manager) applyRemoteMetadata(id int64, metadata remoteMetadata, enforce
 	if task.OutputName == "" && metadata.Name != "" {
 		m.resolveGroupDirectoryLocked(task, metadata.Name)
 		task.OutputName = m.resolveOutputNameLocked(task.Folder, metadata.Name, task.ID)
+		if task.OutputName == "" {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("no available output name for %q", metadata.Name)
+		}
 		m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID
 		var identity requestIdentity
 		if task.RequestJSON != "" && json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.Name == "" {
@@ -3011,7 +3063,17 @@ func validHeaderName(value string) bool {
 }
 
 func requiresCleanHTTPRestart(message string) bool {
-	return strings.Contains(strings.ToLower(message), "the requested byte range is no longer satisfiable")
+	message = strings.ToLower(message)
+	for _, marker := range []string{
+		"the requested byte range is no longer satisfiable", "invalid range header", "cannot resume download",
+		"unsupported ctrl file version", "failed to read segment file", "total length mismatch",
+		"invalid info hash length", "piece length must not be 0", "invalid bitfield length",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return message == "aria2 error code 8" || message == "aria2 error code 10"
 }
 
 func ariaOptions(task *Task, recheck bool) map[string]any {
@@ -3031,6 +3093,9 @@ func ariaOptions(task *Task, recheck bool) map[string]any {
 		"gid":                       task.GID,
 		"dir":                       filepath.ToSlash(task.Folder),
 		"continue":                  "true",
+		"auto-file-renaming":        "false",
+		"allow-overwrite":           "false",
+		"always-resume":             "true",
 		"remote-time":               "true",
 		"split":                     strconv.Itoa(connections),
 		"max-connection-per-server": strconv.Itoa(connections),
@@ -3083,6 +3148,7 @@ func ariaOptions(task *Task, recheck bool) map[string]any {
 	}
 	if recheck {
 		options["conditional-get"] = "true"
+		options["continue"] = "false"
 		options["allow-overwrite"] = "true"
 		options["auto-file-renaming"] = "false"
 	}
@@ -3092,6 +3158,7 @@ func ariaOptions(task *Task, recheck bool) map[string]any {
 func isProtectedAriaOption(name string) bool {
 	switch name {
 	case "gid", "dir", "out", "pause", "continue", "conditional-get", "allow-overwrite", "auto-file-renaming",
+		"always-resume", "remove-control-file", "allow-piece-length-change", "force-save",
 		"max-concurrent-downloads", "max-overall-download-limit",
 		"header", "referer", "enable-rpc", "input-file", "save-session", "log",
 		"ca-certificate", "certificate", "private-key", "load-cookies", "save-cookies", "netrc-path",
@@ -3264,6 +3331,7 @@ func snapshotTaskUpdate(task *Task) *Task {
 		Status: task.Status, Progress: task.Progress, Error: task.Error,
 		UpdatedAt: task.UpdatedAt, Revision: task.Revision, TotalLength: task.TotalLength,
 		RemoteDigest: task.RemoteDigest, RemoteName: task.RemoteName,
+		TransferState: task.TransferState, PreviousGID: task.PreviousGID,
 	}
 }
 
@@ -3279,7 +3347,7 @@ func resolveAvailableOutputName(name string, available func(string) bool) string
 			return candidate
 		}
 	}
-	return name
+	return ""
 }
 
 func (m *Manager) resolveOutputNameLocked(dir, name string, excludeID int64) string {
@@ -3292,33 +3360,6 @@ func (m *Manager) resolveOutputNameLocked(dir, name string, excludeID int64) str
 		}
 		return true
 	})
-}
-
-func (m *Manager) refreshOutputName(id int64) (*Task, error) {
-	m.mu.Lock()
-	task, ok := m.tasks[id]
-	if !ok {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("task %d not found", id)
-	}
-	changed := false
-	outputPath := filepath.Join(task.Folder, task.OutputName)
-	controlPath := outputPath + ".aria2"
-	if pathExists(outputPath) && !pathExists(controlPath) {
-		delete(m.outputNames, outputNameKey(task.Folder, task.OutputName))
-		task.OutputName = m.resolveOutputNameLocked(task.Folder, task.Name, task.ID)
-		m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID
-		m.touchTaskLocked(task)
-		changed = true
-	}
-	snapshot := cloneTask(task)
-	m.mu.Unlock()
-	if changed {
-		if err := m.store.Update(snapshot); err != nil {
-			return nil, fmt.Errorf("persist corrected output name: %w", err)
-		}
-	}
-	return snapshot, nil
 }
 
 func outputNameKey(dir, name string) string {
@@ -3347,7 +3388,7 @@ func taskOutputRootName(folder, ariaPath string) string {
 }
 
 func pathExists(path string) bool {
-	_, err := os.Stat(path)
+	_, err := os.Lstat(path)
 	return err == nil || !os.IsNotExist(err)
 }
 
@@ -3379,7 +3420,8 @@ func removePartialFiles(task *Task, ariaPath string) error {
 	if task.OutputName != "" && !samePathName(relative, task.OutputName) {
 		return fmt.Errorf("partial download path does not match the task output name")
 	}
-	for _, path := range []string{target, target + ".aria2"} {
+	paths := []string{target, target + ".aria2"}
+	for _, path := range paths {
 		info, statErr := os.Lstat(path)
 		if os.IsNotExist(statErr) {
 			continue
@@ -3390,6 +3432,8 @@ func removePartialFiles(task *Task, ariaPath string) error {
 		if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
 			return fmt.Errorf("refuse to remove non-file partial download %q", filepath.Base(path))
 		}
+	}
+	for _, path := range paths {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove partial download %q: %w", filepath.Base(path), err)
 		}

@@ -1156,7 +1156,7 @@ func TestRefreshOutputNameAvoidsFileWithoutControlFile(t *testing.T) {
 	// The asynchronous admission must be persisted before refresh can update it.
 	m.flushAdmissions(false)
 
-	refreshed, err := m.refreshOutputName(task.ID)
+	refreshed, err := m.prepareHTTPOutput(task.ID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1187,8 +1187,11 @@ func TestRefreshOutputNameKeepsPartialDownloadWithControlFile(t *testing.T) {
 		}
 	}
 	m.flushAdmissions(false)
+	if err := m.setTask(task.ID, func(current *Task) { current.TransferState = transferResume }); err != nil {
+		t.Fatal(err)
+	}
 
-	refreshed, err := m.refreshOutputName(task.ID)
+	refreshed, err := m.prepareHTTPOutput(task.ID, false)
 	if err != nil {
 		t.Fatal(err)
 	}

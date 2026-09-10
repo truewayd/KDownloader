@@ -111,10 +111,15 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 			Progress:      "Waiting for aria2",
 			CreatedAt:     now,
 			UpdatedAt:     now,
+			TransferState: transferPending,
 		}
 		m.touchTaskLocked(task)
 		if task.Name != "" {
 			task.OutputName = m.resolveOutputNameLocked(task.Folder, task.Name, task.ID)
+			if task.OutputName == "" {
+				fallback = append(fallback, index)
+				continue
+			}
 		} else {
 			task.Name = name
 		}
