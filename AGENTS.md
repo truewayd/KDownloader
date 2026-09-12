@@ -1,6 +1,6 @@
 # KDownloader Agent Guide
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-12
 
 This file is the current engineering contract for the extension. Historical release notes live in `changelog/`; do not append dated entries here.
 
@@ -29,6 +29,8 @@ Do not edit `dist/` by hand. It is generated and ignored.
 
 - Configuration saves, legacy secret migrations, and restore-default writes share one mutation queue so older reads cannot overwrite newer preferences or resurrect cleared credentials. TrueDown rule synchronization and Watch alarm replacement each serialize their external side effects and await completion. Import session IDs must never address reserved history-generation metadata.
 - Accepted creator and page batches send `downloadComplete` with `batch=true`, the request ID, and aggregate post counts only after history writes and link TXT declarations finish. Individual media progress and per-post completion must not terminate a batch UI. Fetch failures must produce a failed terminal result rather than silently omit creator pages.
+- Creator flag key bounds must accommodate JSON escaping of every accepted identity. Creator-cache reads await queued writes; pending page requests cannot deliver cached responses or start fallback network work after page cleanup or a bfcache lifecycle change.
+- Gist uploads keep network work outside the configuration queue and commit returned IDs only when the current enabled state, token, and Gist ID still match their starting snapshot. A conflicting completion preserves newer settings and reports the conflict.
 
 - `background/constants.js` is the only source for `CONFIG`, storage keys, `API`, and `PAW`.
 - `API.HOSTS` contains only hosts that use the shared `/api/v1` and creator override flows. `API.COOMERFANS_ORIGIN` is separate. `PAW` is fixed to `pawchive.pw` and `file.pawchive.pw`; do not reintroduce old Pawchive domains.
@@ -96,6 +98,8 @@ Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps
 
 ## TrueDown Runtime
 
+- HTTP output ownership includes both the payload and its `.aria2` control file, with relative directory keys resolved to absolute paths. Reservation, recovery, and cleanup reject overlap with either member of another task's pair, including legacy overlapping records.
+- Authentication setting writes require an explicit boolean `enabled`; omitted, null, or mistyped fields never change authentication or session cookies. Frontend GET deadlines remain active alongside caller cancellation signals. Settings values and their revision are captured together before any awaited operation, and task-route focus restoration also runs after unchanged responses.
 - Native desktop requests use a bounded inherited stdio protocol, with the method/path allowlist in `internal/protocol/routes.json` shared by Go and Rust. A desktop-owned core stops on pipe EOF; attachment to an independently running same-profile core must preserve that service on desktop exit. Unix desktop input uses a pollable duplicate so HTTP/CLI and private-pipe exit can cancel an idle read while the parent writer stays open. HTTP product, protocol and profile identity must all match before attachment. Tokens remain in Go; native API Key copying writes directly to the system clipboard without returning the key to a WebView.
 - Native dependency compatibility patches live under `truedown/desktop/vendor` with original archive provenance and complete source hashes. Native license generation verifies those trees and includes patched dependencies and their change hashes. GLib 0.18 retains the upstream mutable FFI output-pointer security fix; run its optimized Linux regression. URLPattern must use ID_Start/ID_Continue, not XID properties. Never remove an advisory by changing version labels or silently omitting local packages from the audit or license inventory.
 - Tauri capabilities use explicit event-subscription and window-inspection permissions. Never grant `core:default`, image-path reads or direct menu/tray mutation to the WebView; native actions use the bounded Rust commands.
