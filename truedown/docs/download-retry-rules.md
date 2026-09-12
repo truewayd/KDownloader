@@ -24,6 +24,12 @@ without deleting either task's data.
 
 ## Retry behavior
 
+Retry and Retry all execute immediately, without an additional confirmation.
+The manager still validates output ownership and the payload/control-file pair
+before any required clean restart. Removing an unfinished task requires a
+separate native confirmation window in the desktop app; the HTTP dashboard
+uses its page dialog.
+
 | Situation | Behavior |
 | --- | --- |
 | Failed HTTP task with usable payload and `.aria2` map | Resume at the same path; keep downloaded pieces. |

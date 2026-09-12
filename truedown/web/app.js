@@ -538,8 +538,17 @@ function settleDialog(value) {
   resolve(value);
 }
 
-function confirmAction(options) {
-  return showDialog(options);
+async function confirmAction(options) {
+  if (!window.__TAURI__?.core?.invoke) return showDialog(options);
+  const returnFocus = document.activeElement;
+  try {
+    return await invokeNative("confirm_action", { options: {
+      title: options.title, message: options.message, confirmLabel: options.confirmLabel || "确认",
+      cancelLabel: options.cancelLabel || "取消", danger: options.danger === true,
+    } });
+  } finally {
+    if (returnFocus?.isConnected && !returnFocus.closest("[inert]")) returnFocus.focus({ preventScroll: true });
+  }
 }
 
 function syncModalScrollLock() {
@@ -732,15 +741,7 @@ async function onTaskAction(event) {
   setTaskActionBusy(id, true);
   try {
     if (action === "requeue") {
-      const task = currentTasks.find((candidate) => candidate.id === id) || (taskDetailData?.id === id ? taskDetailData : null);
-      const cleanRestart = requiresCleanHTTPRestart(task?.error);
-      if (cleanRestart && !await confirmAction({
-        title: "清除失效残片并重新下载",
-        message: "服务器已拒绝旧的续传位置。TrueDown 将删除这个任务的未完成文件和恢复状态，然后从 0 开始；其他文件不会被删除。此操作无法撤销。",
-        confirmLabel: "清除并重下",
-        danger: true,
-      })) return;
-      await runTaskAction("requeue", id, cleanRestart ? "已安排清除失效残片，将从 0 重新下载。" : "任务已重新排队。");
+      await runTaskAction("requeue", id, "任务已重新排队。");
     }
     if (action === "pause") await runTaskAction("pause", id, "任务已暂停。");
     if (action === "resume") await runTaskAction("resume", id, "任务已继续。");
@@ -900,16 +901,11 @@ async function openDownloadsDirectory() {
 }
 
 async function requeueAllErrorTasks() {
+  if (els.retryAllBtn.getAttribute("aria-busy") === "true") return;
   if (!currentSummary.error) {
     showToast("没有需要重试的任务。");
     return;
   }
-  if (!await confirmAction({
-    title: `重试 ${currentSummary.error} 个失败任务`,
-    message: "普通错误会保留断点数据；HTTP 416 续传位置失效的任务会删除其未完成文件和恢复状态，再从 0 开始。",
-    confirmLabel: "全部重试",
-    danger: currentTasks.some((task) => task.status === "error" && requiresCleanHTTPRestart(task.error)),
-  })) return;
   KDComponents.setBusyState(els.retryAllBtn, true);
   try {
     let succeeded = 0;
@@ -1183,13 +1179,12 @@ function onTaskSort(event) {
 function taskRow(task, index) {
   const status = statusMeta[task.status] ? task.status : "queued";
   const statusLabel = statusMeta[status].label;
-  const cleanRestart = requiresCleanHTTPRestart(task.error);
   const progress = task.error ? `! ${formatTaskError(task)}` : task.progress || "-";
   const fileName = task.outputName || task.name || `任务 #${task.id}`;
   const actions = [];
   actions.push(actionButton("open-folder", task.id, "打开下载目录", false, "folder-open"));
   if (status === "done") actions.push(actionButton("open-file", task.id, "打开文件", false, "file"));
-  if (status === "error") actions.push(actionButton("requeue", task.id, cleanRestart ? "清除残片并重下" : "重试", cleanRestart, "retry"));
+  if (status === "error") actions.push(actionButton("requeue", task.id, "重试", false, "retry"));
   if (status === "queued" || status === "downloading") actions.push(actionButton("pause", task.id, "暂停", false, "pause"));
   if (status === "paused") actions.push(actionButton("resume", task.id, "继续", false, "play"));
   actions.push(actionButton("remove", task.id, "移除", true, "trash"));
@@ -1215,9 +1210,9 @@ function formatTaskError(task) {
   if (!requiresCleanHTTPRestart(task.error)) return task.error;
   const link = String(task.link || "");
   if (/^https?:/i.test(link) && isBitTorrentLink(link)) {
-    return "HTTP 416：获取 .torrent 元数据时的旧续传位置已失效，BT 连接尚未开始。请使用“清除残片并重下”。";
+    return "HTTP 416：获取 .torrent 元数据时的旧续传位置已失效，BT 连接尚未开始。";
   }
-  return "HTTP 416：旧续传位置与当前远端文件不一致。请使用“清除残片并重下”，TrueDown 会删除该任务的临时数据并从 0 开始。";
+  return "HTTP 416：旧续传位置与当前远端文件不一致。";
 }
 
 function actionButton(action, id, label, danger = false, icon = "file") {

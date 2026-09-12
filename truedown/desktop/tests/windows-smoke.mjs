@@ -377,6 +377,11 @@ try {
     await assert.rejects(invoke(form, "core_request", { request: { method: "POST", path: "/settings/task-defaults", body: "{}" } }));
   }
   assert.equal(context.pages().length, 4);
+  for (const page of [main, settings, ...Object.values(taskForms)]) {
+    await assert.rejects(invoke(page, "confirm_action", { options: {
+      title: "Confirm", message: "Remove this fixture?", confirmLabel: "Remove", cancelLabel: "Cancel", danger: true,
+    } }), /suppressed during hidden acceptance/);
+  }
   await assert.rejects(invoke(main, "finish_task_window"));
   for (const page of [main]) {
     await assert.rejects(invoke(page, "choose_download_directory"), /only from settings or a task form/);

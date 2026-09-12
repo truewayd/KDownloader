@@ -8,6 +8,20 @@ use std::sync::{atomic::Ordering, Arc};
 use tauri::{Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
+#[tauri::command]
+pub async fn confirm_action(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    options: crate::confirmations::Options,
+) -> Result<bool, String> {
+    if !["main", "settings", "new-task", "batch-task"].contains(&window.label()) {
+        return Err("Confirmations are unavailable in this window".into());
+    }
+    app.state::<crate::confirmations::Confirmations>()
+        .show(app.clone(), window, options)
+        .await
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopState {

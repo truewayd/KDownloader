@@ -4,6 +4,7 @@ mod appearance;
 mod bridge;
 mod build_info;
 mod commands;
+mod confirmations;
 mod core;
 mod frame;
 #[cfg(all(debug_assertions, target_os = "macos"))]
@@ -130,10 +131,12 @@ fn main() {
         .manage(startup)
         .manage(placement::Tracker::default())
         .manage(pickers::DirectoryPickers::default())
+        .manage(confirmations::Confirmations::default())
         .invoke_handler(tauri::generate_handler![
             commands::core_request,
             commands::desktop_state,
             commands::copy_api_token,
+            commands::confirm_action,
             windows::open_auxiliary,
             windows::close_auxiliary,
             windows::finish_task_window,
