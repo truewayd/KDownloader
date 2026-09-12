@@ -404,9 +404,9 @@ try {
     assert.equal((await api(main, "GET", "/tasks?limit=100")).total, total);
   }
   await settings.locator('[data-settings-link="files"]').click();
-  await waitForNativeCondition(settings, () => document.querySelectorAll("[data-group-id]").length === 8 && !document.querySelector('[data-settings-page="groups"]').inert);
+  await waitForNativeCondition(settings, () => document.querySelectorAll("[data-group-id]").length === 8 && !document.querySelector('[data-settings-page="files"]').inert);
   await settings.locator('[data-group-id="document"] .group-name-field input').fill("Documents review");
-  await settings.keyboard.press("Control+s");
+  await settings.locator("#file-groups-save").click();
   await waitForNativeCondition(settings, () => document.querySelector("#file-groups-status").textContent.includes("\u5df2\u4fdd\u5b58"));
   assert.equal((await api(settings, "GET", "/settings/file-groups")).groups.find(group => group.id === "document").name, "Documents review");
   await main.evaluate(() => refreshAndSchedule(true));
