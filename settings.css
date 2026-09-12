@@ -45,7 +45,7 @@ body {
 .status-chip {
   min-width: 116px;
   max-width: min(420px, 45%);
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   padding: 8px 11px;
   background: color-mix(in srgb, var(--kd-surface) 72%, transparent);
@@ -145,7 +145,7 @@ body {
   align-items: center;
   min-height: var(--kd-control-height);
   gap: 8px;
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   padding: 0 10px;
   background: var(--kd-input);
@@ -184,7 +184,7 @@ body {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 12px;
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   padding: 12px;
   background: color-mix(in srgb, var(--kd-bg) 96%, transparent);
@@ -193,7 +193,7 @@ body {
 
 .backend-warning {
   margin: 0 0 14px;
-  border: 1px solid color-mix(in srgb, var(--kd-warning) 45%, var(--kd-border));
+  border: 0;
   border-radius: var(--kd-radius);
   padding: 10px 12px;
   background: color-mix(in srgb, var(--kd-warning) 10%, transparent);

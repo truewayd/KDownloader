@@ -151,10 +151,10 @@ textarea {
 
 .kd-panel {
   min-width: 0;
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   background: var(--kd-surface);
-  box-shadow: var(--kd-panel-inset);
+  box-shadow: none;
 }
 
 .kd-panel > .kd-panel-heading {
@@ -168,7 +168,7 @@ textarea {
   justify-content: center;
   gap: 8px;
   min-height: var(--kd-control-height);
-  border: 1px solid var(--kd-border-strong);
+  border: 0;
   border-radius: var(--kd-radius);
   padding: 8px 12px;
   background: var(--kd-surface-raised);
@@ -221,6 +221,10 @@ textarea {
 .kd-icon-button[aria-busy="true"],
 .kd-toggle[aria-busy="true"] {
   cursor: progress;
+}
+
+@media (forced-colors: active) {
+  .kd-button, .kd-icon-button { border: 1px solid ButtonText; }
 }
 
 .kd-button.primary {
@@ -351,7 +355,7 @@ textarea.kd-input {
 .kd-segment {
   min-width: 0;
   min-height: var(--kd-control-height);
-  border: 1px solid var(--kd-border);
+  border: 0;
   padding: 6px 8px;
   background: var(--kd-input);
   color: var(--kd-muted);
@@ -375,6 +379,11 @@ textarea.kd-input {
   border-color: var(--kd-button-border);
   background: var(--kd-accent-soft);
   color: var(--kd-text);
+}
+
+@media (forced-colors: active) {
+  .kd-segment { border: 1px solid ButtonText; }
+  .kd-segment.is-active { outline: 2px solid Highlight; outline-offset: -2px; }
 }
 
 .kd-list-row {

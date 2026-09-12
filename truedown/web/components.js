@@ -56,12 +56,12 @@
       min-width: 0;
       min-height: 36px;
       margin: 0;
-      border: 1px solid color-mix(in srgb, var(--kd-content-accent) 70%, transparent);
+      border: 0;
       border-radius: 8px;
       padding: 8px 12px;
       background: var(--kd-content-accent);
       color: var(--kd-content-accent-text);
-      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset;
+      box-shadow: none;
       cursor: pointer;
       font: inherit;
       font-size: 13px;
@@ -258,6 +258,9 @@
       }
     }
 
+    @media (forced-colors: active) {
+      button { border: 1px solid ButtonText; }
+    }
     @media (prefers-reduced-motion: reduce) {
       button { transition-duration: 1ms !important; }
       :host([data-status="SCANNING"]) button::before,
@@ -325,7 +328,7 @@
     a:hover { text-decoration: underline; }
     a:focus-visible,
     button:focus-visible { outline: 2px solid var(--kd-content-focus); outline-offset: 2px; }
-    button { width: 100%; min-height: 36px; border: 1px solid rgba(72, 122, 122, 0.78); border-radius: 8px; padding: 8px 12px; background: #487a7a; color: #fff; cursor: pointer; font: inherit; font-size: 13px; font-weight: 700; }
+    button { width: 100%; min-height: 36px; border: 0; border-radius: 8px; padding: 8px 12px; background: #487a7a; color: #fff; cursor: pointer; font: inherit; font-size: 13px; font-weight: 700; }
     button:hover { border-color: #3c6868; background: #3c6868; }
     .dialog::-webkit-scrollbar { width: 8px; }
     .dialog::-webkit-scrollbar-track { border-radius: 4px; background: color-mix(in srgb, var(--kd-content-surface-raised) 45%, transparent); }
@@ -344,6 +347,7 @@
     }
 
     @media (max-width: 480px) { .dialog { padding: 16px; } }
+    @media (forced-colors: active) { button { border: 1px solid ButtonText; } }
     @media (prefers-reduced-motion: reduce) {
       .overlay,
       .dialog { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
