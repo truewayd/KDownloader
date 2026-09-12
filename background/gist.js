@@ -61,7 +61,7 @@ export async function gistUpload() {
     });
     if (res.ok) {
       const data = await readGistApiJson(res);
-      await saveGistConfig({ gistId: data.id });
+      await saveGistConfig({ gistId: data.id }, cfg);
       return { gistId: data.id };
     }
     if (res.status !== 404) {
@@ -85,7 +85,7 @@ export async function gistUpload() {
   }
   const created = await readGistApiJson(createRes);
   if (created && created.id) {
-    await saveGistConfig({ gistId: created.id });
+    await saveGistConfig({ gistId: created.id }, cfg);
     return { gistId: created.id };
   }
   throw new Error('Gist create returned unexpected response');

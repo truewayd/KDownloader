@@ -17,7 +17,8 @@
   let stateReceived = false;
   let stateRequestTimer = 0;
   let stateSequence = 0;
-  let cacheWritePromise = Promise.resolve();
+  let pageSequence = 0;
+  let cacheWritePromise = Promise.resolve(true);
 
   function openDB() {
     if (dbInstance) return Promise.resolve(dbInstance);
@@ -61,6 +62,7 @@
 
   function closeDB() {
     stateSequence++;
+    pageSequence++;
     dbOpenSequence++;
     overrideEnabled = false;
     stateReceived = false;
@@ -112,8 +114,11 @@
     })).then(() => true);
   }
 
-  function readCache() {
-    if (!overrideEnabled) return Promise.resolve(null);
+  async function readCache() {
+    if (!overrideEnabled) return null;
+    const sequence = stateSequence;
+    const written = await cacheWritePromise;
+    if (!written || !overrideEnabled || sequence !== stateSequence) return null;
     return transactionRequest('readonly', (store) => store.get(host));
   }
 
@@ -163,11 +168,10 @@
     stateRequestTimer = 0;
     if (overrideEnabled && message.payload) {
       cacheWritePromise = cacheWritePromise
-        .catch(() => {})
         .then(() => {
           if (!overrideEnabled || sequence !== stateSequence) return false;
           return writeCache(message.payload);
-        });
+        }).catch(() => false);
     }
   });
 
@@ -198,6 +202,7 @@
       || (typeof Request === 'function' && input instanceof Request && input.body != null);
     if (overrideEnabled && method === 'GET' && !hasBody && creatorRequestUrl(input)) {
       const interceptionSequence = stateSequence;
+      const interceptionPage = pageSequence;
       const signal = init?.signal
         || (typeof Request === 'function' && input instanceof Request ? input.signal : null);
       if (signal?.aborted) throw createAbortError(signal);
@@ -208,6 +213,7 @@
         // Fall through to the site's request after checking cancellation.
       }
       if (signal?.aborted) throw createAbortError(signal);
+      if (interceptionPage !== pageSequence) throw createAbortError(null);
       if (!overrideEnabled || interceptionSequence !== stateSequence) {
         return originalFetch(input, init);
       }
@@ -288,7 +294,9 @@
 
     meta.pending = true;
     const interceptionSequence = stateSequence;
-    const isCurrent = () => requestMeta.get(xhr) === meta && !meta.aborted;
+    const interceptionPage = pageSequence;
+    const isCurrent = () => requestMeta.get(xhr) === meta && !meta.aborted
+      && interceptionPage === pageSequence;
     const sendOriginal = () => {
       if (!isCurrent() || meta.dispatched) return;
       meta.pending = false;

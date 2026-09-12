@@ -27,6 +27,8 @@ const MAX_HISTORY_BATCH_BYTES = 16 * 1024 * 1024;
 const MAX_IDENTITY_LENGTH = 4096;
 const MAX_CREATOR_FLAGS = 10_000;
 const MAX_FLAG_IDENTITY_LENGTH = 512;
+// Two JSON strings may double in length when quotes or backslashes are escaped.
+const MAX_FLAG_KEY_LENGTH = 4 * MAX_FLAG_IDENTITY_LENGTH + 7;
 const MAX_CREATOR_FLAGS_BYTES = 2 * 1024 * 1024;
 const HISTORY_SOURCES = new Set(["default", "coomerfans"]);
 const ISO_TIMESTAMP_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|([+-])(\d{2}):(\d{2}))$/i;
@@ -1319,7 +1321,7 @@ async function loadCreatorFlags() {
   for (const key in raw) {
     if (!Object.hasOwn(raw, key)) continue;
     const value = raw[key];
-    if (key.length > 2048 || value !== true) continue;
+    if (key.length > MAX_FLAG_KEY_LENGTH || value !== true) continue;
     const entryBytes = new TextEncoder().encode(JSON.stringify(key)).byteLength + 6;
     if (count >= MAX_CREATOR_FLAGS || bytes + entryBytes > MAX_CREATOR_FLAGS_BYTES) {
       overflow = true;

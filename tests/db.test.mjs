@@ -1028,6 +1028,16 @@ test("creator flag reads preserve overflow entries and mutations refuse lossy re
   assert.deepEqual((await chrome.storage.local.get("creatorFlags")).creatorFlags, oversized);
 });
 
+test("creator flag rewrites preserve valid identities whose tuple keys require JSON escaping", async () => {
+  const db = await loadDBModule();
+  const service = "\\".repeat(512);
+  const userId = '"'.repeat(512);
+  await db.setCreatorFlag(service, userId, true);
+  await db.setCreatorFlag("patreon", "other-creator", true);
+  const flags = await db.getCreatorFlagsMany([{ service, userId }]);
+  assert.equal(flags[JSON.stringify([service, userId])], true);
+});
+
 test("legacy lastAccess sync metadata is removed idempotently", async () => {
   const db = await loadDBModule();
   await chrome.storage.sync.set({ lastAccess: { patreon: { creator: "2026-01-01" } } });

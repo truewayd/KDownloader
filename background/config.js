@@ -363,12 +363,17 @@ async function readGistConfig() {
   return config;
 }
 
-export function saveGistConfig(cfg) {
-  return withConfigMutation(() => writeGistConfig(cfg));
+export function saveGistConfig(cfg, expectedConfig) {
+  const expected = expectedConfig === undefined ? undefined : { ...expectedConfig };
+  return withConfigMutation(() => writeGistConfig(cfg, expected));
 }
 
-async function writeGistConfig(cfg) {
+async function writeGistConfig(cfg, expected) {
   const current = await readGistConfig();
+  // Uploads finish outside this queue; compare and save in the same mutation.
+  if (expected && ['enabled', 'token', 'gistId'].some((key) => current[key] !== expected[key])) {
+    throw new Error('Gist upload completed, but configuration changed; current settings were preserved');
+  }
   const input = cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? { ...cfg } : {};
   if (Object.hasOwn(input, 'token')) {
     input.token = validatedHeaderSecret(input.token, 'Gist token');

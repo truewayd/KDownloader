@@ -87,6 +87,19 @@ test("an in-flight legacy secret migration cannot undo a later restore defaults"
   assert.deepEqual(data.local.backendSecrets, { apiKey: "", gopeedToken: "" });
 });
 
+test("Gist upload snapshot checks run after earlier queued configuration saves", async (t) => {
+  const data = useMemoryStorage(t);
+  const expected = await saveGistConfig({ enabled: true, token: "original-token", gistId: "original-id" });
+  const newerSave = saveGistConfig({ token: "replacement-token", gistId: "selected-id" });
+  const uploadSave = saveGistConfig({ gistId: "uploaded-id" }, expected);
+  await assert.rejects(uploadSave, /configuration changed/);
+  await newerSave;
+  assert.deepEqual(data.sync.gistConfig, { enabled: true, gistId: "selected-id" });
+  assert.deepEqual(data.local.gistSecrets, { token: "replacement-token" });
+  await saveGistConfig({ enabled: false });
+  assert.equal((await loadGistConfig()).enabled, false);
+});
+
 test("legacy synced secrets migrate to local storage on first read", async () => {
   syncWrites.length = 0;
   localWrites.length = 0;
