@@ -36,7 +36,7 @@
   margin: 8px;
   max-width: none;
   padding: 20px;
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   background: var(--kd-surface);
 }

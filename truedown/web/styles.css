@@ -163,10 +163,10 @@ code {
 
 .kd-panel {
   min-width: 0;
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   background: var(--kd-surface);
-  box-shadow: var(--kd-panel-inset);
+  box-shadow: none;
 }
 
 :is(.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link) {
@@ -186,7 +186,6 @@ code {
   color: var(--kd-text);
 }
 :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current] {
-  border-color: var(--kd-border);
   background: var(--kd-surface);
   color: var(--kd-text);
 }
@@ -218,7 +217,7 @@ code {
   justify-content: center;
   gap: 8px;
   min-height: var(--kd-control-height);
-  border: 1px solid var(--kd-border-strong);
+  border: 0;
   border-radius: var(--kd-radius);
   padding: 8px 12px;
   background: var(--kd-surface-raised);
@@ -271,6 +270,10 @@ input[type="checkbox"]:focus-visible,
   cursor: not-allowed;
   opacity: 0.58;
   transform: none;
+}
+
+@media (forced-colors: active) {
+  .kd-button, .kd-icon-button { border: 1px solid ButtonText; }
 }
 
 .kd-button.primary {
@@ -574,7 +577,7 @@ h2 {
 
 .metric-card {
   margin: 0;
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   padding: 10px 12px;
   background: var(--kd-input);
@@ -919,7 +922,7 @@ h2 {
   display: grid;
   width: 44px;
   height: 44px;
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   background: var(--kd-surface-raised);
   color: var(--kd-icon);
@@ -948,7 +951,7 @@ h2 {
 }
 
 .settings-section {
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   padding: 14px;
   background: var(--kd-surface);
@@ -1009,7 +1012,7 @@ h2 {
 	grid-template-columns: 40px minmax(0, 1fr);
 	align-items: start;
 	gap: 16px;
-	border: 1px solid var(--kd-border);
+	border: 0;
 	border-radius: var(--kd-radius);
 	padding: 18px;
 	background: var(--kd-input);
@@ -1072,7 +1075,7 @@ h2 {
 .update-card {
   display: grid;
   gap: 16px;
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   padding: 18px;
   background: var(--kd-input);
@@ -1126,7 +1129,7 @@ h2 {
 
 .tracker-research-warning {
   margin: 0;
-  border: 1px solid var(--kd-error-border);
+  border: 0;
   border-radius: var(--kd-radius);
   padding: 10px;
   background: var(--kd-error-bg);
@@ -1230,7 +1233,7 @@ h2 {
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   padding: 10px;
   background: var(--kd-input);
@@ -1285,7 +1288,7 @@ h2 {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   padding: 8px;
   background: var(--kd-input);
@@ -1417,7 +1420,7 @@ label {
 .dropbox-options {
   min-width: 0;
   margin: 0 0 14px;
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   padding: 12px;
   background: var(--kd-input);
@@ -1443,7 +1446,7 @@ label {
 	display: grid;
 	gap: 3px;
 	margin-bottom: 10px;
-	border: 1px solid var(--kd-border);
+	border: 0;
 	border-radius: var(--kd-radius);
 	padding: 10px;
 	background: var(--kd-surface);
@@ -1465,7 +1468,7 @@ label {
 }
 
 .advanced-options {
-  border: 1px solid var(--kd-border);
+  border: 0;
   border-radius: var(--kd-radius);
   background: var(--kd-input);
 }
