@@ -94,6 +94,8 @@ func TestHTTPLegacyControlFileConflictsPreserveBothFiles(t *testing.T) {
 
 func TestHTTPOutputReservationsUnifyRelativeAndAbsoluteFolders(t *testing.T) {
 	m, _ := transferTestManager(t)
+	// CI may put the checkout and temporary files on different Windows volumes.
+	t.Chdir(filepath.Dir(m.defaultDir))
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)

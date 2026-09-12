@@ -81,9 +81,7 @@ pub async fn drop_download_links(
         }
         *pending = Some(crate::drops::Source::Links(links));
     }
-    if let Err(error) = windows::open_auxiliary(app.clone(), windows::Kind::NewTask).await {
-        return Err(error);
-    }
+    windows::open_auxiliary(app.clone(), windows::Kind::NewTask).await?;
     app.emit_to("new-task", "truedown:drop-ready", ())
         .map_err(|error| error.to_string())
 }

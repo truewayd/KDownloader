@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -99,7 +100,11 @@ func TestQueuedAssetRealEngineProgressAndPause(t *testing.T) {
 	}
 	engine := os.Getenv("TRUEDOWN_ARIA2_PATH")
 	if engine == "" {
-		t.Fatal("set TRUEDOWN_ARIA2_PATH")
+		var err error
+		engine, err = exec.LookPath("aria2c")
+		if err != nil {
+			t.Fatalf("install aria2c on PATH or set TRUEDOWN_ARIA2_PATH: %v", err)
+		}
 	}
 	payload := bytes.Repeat([]byte("update-payload"), 100000)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
