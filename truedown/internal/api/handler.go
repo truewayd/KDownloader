@@ -103,7 +103,7 @@ type batchReq struct {
 }
 
 type authSettingsReq struct {
-	Enabled bool `json:"enabled"`
+	Enabled *bool `json:"enabled"`
 }
 
 type engineSelectionReq struct {
@@ -205,7 +205,11 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			if !decodeJSONRequest(w, r, 4096, &req) {
 				return
 			}
-			token, err := auth.SetEnabled(req.Enabled)
+			if req.Enabled == nil {
+				http.Error(w, "enabled must be an explicit boolean", http.StatusBadRequest)
+				return
+			}
+			token, err := auth.SetEnabled(*req.Enabled)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return

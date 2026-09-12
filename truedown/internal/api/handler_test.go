@@ -377,6 +377,28 @@ func TestAuthSettingsToggleReturnsSessionWithoutBreakingDashboardRequests(t *tes
 	}
 }
 
+func TestAuthSettingsRejectMissingOrNullEnabledWithoutDisablingAuthentication(t *testing.T) {
+	_, manager := testHandler(t)
+	defer manager.Stop()
+	for _, managed := range []bool{false, true} {
+		auth := &testTokenAuth{enabled: true, token: strings.Repeat("t", 32), managed: managed}
+		mux := http.NewServeMux()
+		Register(mux, manager, auth)
+		for _, body := range []string{`{}`, `{"enabled":null}`, `{"enabled":"false"}`, `{"enabled":0}`} {
+			request := httptest.NewRequest(http.MethodPost, "/auth/settings", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			mux.ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest || !auth.enabled {
+				t.Fatalf("invalid auth mutation %s (managed=%v): status=%d enabled=%v", body, managed, response.Code, auth.enabled)
+			}
+			if len(response.Result().Cookies()) != 0 {
+				t.Fatal("rejected auth mutation changed the session cookie")
+			}
+		}
+	}
+}
+
 func TestStartDownloadValidatesContentTypeAndURL(t *testing.T) {
 	mux, manager := testHandler(t)
 	defer manager.Stop()
