@@ -34,6 +34,22 @@ commands, contrast fallback, scaled layouts and graceful exit. No separate
 Chromium download or interactive confirmation is needed. Test screenshots and
 profile fixtures remain in the reported temporary directory for diagnosis.
 
+On macOS, run `npm run test:macos` after the debug build. The fixture launches
+with an isolated temporary profile and `--background`, then shows only its own
+windows to check startup, native close-to-hide, singleton windows, and retained
+settings and single/batch task-form drafts. It verifies that the core survives
+hidden windows and exits cleanly afterward. This checks native visibility and
+document state; it does not claim screenshot or visual-composition coverage.
+
+The macOS runner enables `TRUEDOWN_MACOS_ACCEPTANCE=1`, which exists only in
+macOS debug builds. Its fixed scenario uses public Tauri evaluation and window
+APIs, without a private inspector or extra WebView permissions. Native polling
+has a two-minute shared deadline; the Node driver bounds startup and cleanup,
+and CI has a five-minute outer timeout. Shutdown verifies the temporary profile
+identity before sending an exit request, then uses the same bounded Unix
+process-group cleanup as Linux. Failure logs remain in the reported profile
+directory and are uploaded by CI.
+
 Debug fixtures set `TRUEDOWN_DESKTOP_TEST_DEBUG_PORT` to a nonzero TCP port. The
 shell passes this bounded setting through the native WebView2 API, including on
 elevated CI runners where [WebView2 150+ ignores environment overrides](https://github.com/MicrosoftEdge/WebView2Feedback/issues/5640).
@@ -109,4 +125,5 @@ Xvfb because WebKitGTK can defer loading an unmapped view.
 macOS packaging uses Tauri's [signing environment](https://v2.tauri.app/distribute/sign/macos/).
 Without Developer ID credentials it uses an ad-hoc signature and verifies it;
 this is not notarization. Configured certificate and notarization credentials
-are passed only to the build step. No local macOS runtime is available for acceptance.
+are passed only to the build step. The native CI matrix runs macOS acceptance
+on `macos-15`; local execution requires a macOS host.

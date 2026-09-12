@@ -6,6 +6,8 @@ mod build_info;
 mod commands;
 mod core;
 mod frame;
+#[cfg(all(debug_assertions, target_os = "macos"))]
+mod macos_acceptance;
 mod menu_icons;
 mod pickers;
 mod placement;
@@ -250,6 +252,8 @@ fn main() {
                     }
                 }
             });
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            macos_acceptance::start(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {

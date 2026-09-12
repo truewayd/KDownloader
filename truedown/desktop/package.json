@@ -10,6 +10,7 @@
     "build": "tauri build",
     "check": "cargo test --locked",
     "test:windows": "node tests/windows-smoke.mjs",
+    "test:macos": "node tests/macos-smoke.mjs",
     "test:workspace": "node tests/workspace-browser-smoke.mjs",
     "test:settings": "node tests/settings-browser-smoke.mjs",
     "test:auxiliary": "node tests/auxiliary-ui-browser.mjs",
