@@ -4,4 +4,8 @@
 - Flatten injected action buttons and external-link dialog buttons through the canonical shared component runtime.
 - Preserve input boundaries, keyboard focus indicators, status cues and forced-color button boundaries.
 
-No configuration or storage changes. Verified with `npm run ui:check`, `npm test` and the clean extension build.
+No configuration or storage changes.
+
+## Verification
+
+Verified with `npm run ui:check`, `npm test` and the clean extension build.
