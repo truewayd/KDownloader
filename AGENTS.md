@@ -98,6 +98,8 @@ Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps
 
 ## TrueDown Runtime
 
+- Windows tray left press opens the main window, left double-click opens the singleton new-task form, and right-click shows the native menu. Do not handle the trailing left release by focusing main; it would steal focus from the new-task form. Other platforms retain their native menu behavior.
+
 - Desktop OS drops accept one regular `.torrent` file of at most 4 MiB, read only an OS-supplied path, and deliver its bounded contents to the singleton new-task form after initialization. Native file reads retain a concurrency slot through completion. HTTP(S)/Magnet drops use the same source validation and draft-replacement confirmation; dropping never starts a task automatically. Browser dashboards retain DOM file drops.
 - Program and NEXT update assets use visible downloader tasks. A temporary, token-bound, single-asset loopback relay retains the updater's upstream URL/redirect and response-size checks; installation still requires published size, SHA-256 and executable identity verification. Queue pause/resume/removal remain available, and staging copies never consume retained task outputs. POST update/check and engine/next requests with `background=true` return 202 plus a busy snapshot, run under the application update context, and expose completion through GET /system/update. Failed or interrupted attempts are restarted from update actions; retrying an old task alone never applies an update.
 

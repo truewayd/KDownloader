@@ -15,6 +15,7 @@ mod pickers;
 mod placement;
 mod profile;
 mod startup;
+mod tray_actions;
 mod tray_image;
 mod update;
 mod webview;
@@ -24,7 +25,7 @@ use core::Core;
 use std::sync::{atomic::Ordering, Arc};
 use tauri::{
     menu::{IconMenuItem, Menu},
-    tray::{TrayIconBuilder, TrayIconEvent},
+    tray::TrayIconBuilder,
     Manager, WindowEvent,
 };
 use tokio::sync::Mutex;
@@ -209,6 +210,7 @@ fn main() {
                 .icon(icon)
                 .tooltip("TrueDown")
                 .menu(&menu)
+                .show_menu_on_left_click(!cfg!(windows))
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => show_main(app),
                     "settings" | "logs" | "about" => {
@@ -233,8 +235,19 @@ fn main() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if matches!(event, TrayIconEvent::DoubleClick { .. }) {
-                        show_main(tray.app_handle())
+                    match tray_actions::action(&event, cfg!(windows)) {
+                        Some(tray_actions::Action::Main) => show_main(tray.app_handle()),
+                        Some(tray_actions::Action::NewTask) => {
+                            let app = tray.app_handle().clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(error) =
+                                    windows::open_auxiliary(app, windows::Kind::NewTask).await
+                                {
+                                    eprintln!("Cannot open new task window: {error}");
+                                }
+                            });
+                        }
+                        None => {}
                     }
                 })
                 .build(app)?;
