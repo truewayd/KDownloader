@@ -314,9 +314,12 @@ func sameRuntimeEngine(left, right systemupdate.EngineSpec) bool {
 }
 
 type engineController struct {
-	updates *systemupdate.Manager
-	host    *managerHost
-	reload  func() error
+	updates         *systemupdate.Manager
+	updateContext   context.Context
+	requestedUpdate string
+	updateWorkers   sync.WaitGroup
+	host            *managerHost
+	reload          func() error
 
 	selectionMu sync.Mutex
 	mu          sync.RWMutex
@@ -331,13 +334,16 @@ type engineExitNotice struct {
 }
 
 func newEngineController(updates *systemupdate.Manager, host *managerHost, reload func() error) *engineController {
-	return &engineController{updates: updates, host: host, reload: reload}
+	return &engineController{updates: updates, host: host, reload: reload, updateContext: context.Background()}
 }
 
 func (controller *engineController) Snapshot() systemupdate.Snapshot {
 	snapshot := controller.updates.Snapshot()
 	controller.mu.RLock()
 	defer controller.mu.RUnlock()
+	if snapshot.Busy == "" {
+		snapshot.Busy = controller.requestedUpdate
+	}
 	if controller.phase != "" {
 		snapshot.Busy = controller.phase
 	}
@@ -572,6 +578,9 @@ func (controller *engineController) finishTransition(err error) {
 func (controller *engineController) overlay(snapshot systemupdate.Snapshot) systemupdate.Snapshot {
 	controller.mu.RLock()
 	defer controller.mu.RUnlock()
+	if snapshot.Busy == "" {
+		snapshot.Busy = controller.requestedUpdate
+	}
 	if controller.phase != "" {
 		snapshot.Busy = controller.phase
 	}

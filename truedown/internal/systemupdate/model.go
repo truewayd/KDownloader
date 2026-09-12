@@ -56,6 +56,7 @@ type Options struct {
 	NativeExecutable      string
 
 	HTTPClient            *http.Client
+	DownloadAsset         func(context.Context, string, string, string, int64) (string, error)
 	TrueDownReleasesURL   string
 	NextReleaseURL        string
 	AllowInsecureLoopback bool
@@ -189,6 +190,7 @@ type Manager struct {
 	currentCommit          string
 
 	client                *http.Client
+	downloadAsset         func(context.Context, string, string, string, int64) (string, error)
 	trueDownReleasesURL   string
 	nextReleaseURL        string
 	allowInsecureLoopback bool
@@ -274,6 +276,7 @@ func New(options Options) (*Manager, error) {
 		programUpdatesDisabled: options.DisableProgramUpdates || options.NativeExecutable == "",
 		currentCommit:          strings.TrimSpace(options.CurrentCommit),
 		client:                 client,
+		downloadAsset:          options.DownloadAsset,
 		trueDownReleasesURL:    trueDownURL,
 		nextReleaseURL:         nextURL,
 		allowInsecureLoopback:  options.AllowInsecureLoopback,

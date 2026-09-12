@@ -152,7 +152,7 @@ func (m *Manager) stageTrueDown(ctx context.Context, available *availableAppUpda
 		return err
 	}
 	updatesDir := m.updatesDir
-	archivePath, digest, size, err := m.downloadFile(ctx, available.ArchiveURL, updatesDir, maxReleaseArchiveBytes)
+	archivePath, digest, size, err := m.downloadFile(ctx, available.ArchiveURL, available.ArchiveName, updatesDir, maxReleaseArchiveBytes)
 	if err != nil {
 		return fmt.Errorf("download TrueDown update: %w", err)
 	}
@@ -211,7 +211,7 @@ func (m *Manager) installNext(ctx context.Context, automatic bool) error {
 		return err
 	}
 	enginesDir := m.enginesDir
-	temporaryPath, digest, size, err := m.downloadFile(ctx, available.BinaryURL, enginesDir, maxEngineBytes)
+	temporaryPath, digest, size, err := m.downloadFile(ctx, available.BinaryURL, available.BinaryName, enginesDir, maxEngineBytes)
 	if err != nil {
 		return fmt.Errorf("download Aria2 Next: %w", err)
 	}
@@ -487,7 +487,10 @@ func (m *Manager) fetch(ctx context.Context, rawURL string, maximum int64) ([]by
 	return data, nil
 }
 
-func (m *Manager) downloadFile(ctx context.Context, rawURL, directory string, maximum int64) (string, string, int64, error) {
+func (m *Manager) downloadFile(ctx context.Context, rawURL, name, directory string, maximum int64) (string, string, int64, error) {
+	if m.downloadAsset != nil {
+		return m.downloadQueuedAsset(ctx, rawURL, name, directory, maximum)
+	}
 	request, err := m.newRequest(ctx, rawURL)
 	if err != nil {
 		return "", "", 0, err

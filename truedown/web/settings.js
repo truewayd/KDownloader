@@ -917,7 +917,7 @@ function renderSystemUpdateState() {
   } else if (trueDown.lastCheckedAt) {
     trueDownStatus += ` 上次检查：${formatUpdateTime(trueDown.lastCheckedAt)}。`;
   }
-  if (busy === "truedown") trueDownStatus = "正在检查、下载并验证 TrueDown 更新…";
+  if (busy === "truedown") trueDownStatus = "正在检查并验证 TrueDown 更新，更新包下载进度可在任务列表查看…";
   if (error) trueDownStatus += ` 最近一次更新操作：${error}`;
   els.truedownUpdateStatus.textContent = trueDownStatus;
   els.autoUpdateTruedown.checked = trueDown.autoUpdate;
@@ -941,7 +941,7 @@ function renderSystemUpdateState() {
   } else {
     engineStatus += " 尚未安装 NEXT。";
   }
-  if (busy === "next-engine") engineStatus = "正在从 aria2-next 官方 Release 下载、校验并安装 NEXT…";
+  if (busy === "next-engine") engineStatus = "正在下载、校验并安装 NEXT，下载进度可在任务列表查看…";
   if (busy === "engine-switch") engineStatus = "正在保存任务状态并切换下载内核…";
   if (busy === "engine-recovery") engineStatus = "下载内核意外退出，正在自动恢复任务…";
   if (busy === "engine-reload") engineStatus = "内核自动恢复失败，正在重载 TrueDown…";
@@ -992,10 +992,15 @@ async function saveAutoUpdatePreference(control, key, name) {
 
 async function checkTrueDownUpdate() {
   setUpdateButtonBusy(els.checkTruedownUpdateBtn, true);
+  showToast("正在检查更新，发现新版本后会加入下载任务列表。");
   invalidateSettingRead("engine");
   try {
-    systemUpdateState = normalizeSystemUpdateState(await requestJSON("/system/update/check", { method: "POST" }));
+    systemUpdateState = normalizeSystemUpdateState(await requestJSON("/system/update/check?background=true", { method: "POST" }));
     renderSystemUpdateState();
+    if (systemUpdateState.busy === "truedown") {
+      showToast("更新检查已开始，更新包进度可在任务列表查看。");
+      return;
+    }
     showToast(systemUpdateState.trueDown.restartRequired
       ? (systemUpdateState.trueDown.autoUpdate ? "新版本已验证，任务空闲时自动重启更新。" : "新版本已验证，可手动重启更新。")
       : "当前已是最新版本。")
@@ -1030,15 +1035,19 @@ async function installNextEngine() {
   const action = systemUpdateState?.engine.nextInstalled ? "更新" : "安装";
   const confirmed = await confirmAction({
     title: `手动${action} Aria2 Next`,
-    message: `这会从 AnInsomniacy/aria2-next 的官方 GitHub Release 下载 Windows 内核，核对发布的 SHA-256 和版本后保存到 TrueDown 数据目录。NEXT 不会自动跟随上游；如果当前已选择 NEXT，验证完成后会自动保存任务状态并切换到新版本。`,
+    message: `这会将官方 GitHub Release 的 Windows 内核加入下载队列，可在任务列表查看进度、暂停或继续。下载后核对 SHA-256 和版本；如果当前已选择 NEXT，验证完成后会保存任务状态并切换到新版本。后续自动更新由 NEXT 自动更新开关控制。`,
     confirmLabel: `手动${action}`,
   });
   if (!confirmed) return;
   setUpdateButtonBusy(els.installNextEngineBtn, true);
   invalidateSettingRead("engine");
   try {
-    systemUpdateState = normalizeSystemUpdateState(await requestJSON("/system/engine/next", { method: "POST" }));
+    systemUpdateState = normalizeSystemUpdateState(await requestJSON("/system/engine/next?background=true", { method: "POST" }));
     renderSystemUpdateState();
+    if (systemUpdateState.busy === "next-engine") {
+      showToast("NEXT 下载已安排，可在任务列表查看进度、暂停或继续。");
+      return;
+    }
     if (systemUpdateState.busy === "engine-switch") {
       showToast("Aria2 Next 已验证，正在热切换下载内核…");
       systemUpdateState = await waitForEngineTransition();

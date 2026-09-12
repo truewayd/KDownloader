@@ -839,6 +839,9 @@ func registerUpdateEndpoints(mux *http.ServeMux, updates UpdateService) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if startBackgroundUpdate(w, r, updates, "truedown") {
+			return
+		}
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(10 * time.Minute))
 		snapshot, err := updates.UpdateTrueDown(r.Context())
 		if err != nil {
@@ -865,6 +868,9 @@ func registerUpdateEndpoints(mux *http.ServeMux, updates UpdateService) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if startBackgroundUpdate(w, r, updates, "next-engine") {
 			return
 		}
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(10 * time.Minute))

@@ -136,7 +136,11 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	if options.desktop != nil && runtime.GOOS == "windows" && currentBuild > 0 {
 		nativeExecutable = os.Getenv("TRUEDOWN_DESKTOP_EXECUTABLE")
 	}
+	host := &managerHost{}
+	updateContext, cancelUpdates := context.WithCancel(ctx)
+	defer cancelUpdates()
 	updates, err := systemupdate.New(systemupdate.Options{
+		DownloadAsset:         host.downloadUpdate,
 		BaseDir:               base,
 		DataDir:               dataDir,
 		Paths:                 location.Paths,
@@ -182,7 +186,6 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	}
 	lifecycleExit := make(chan struct{}, 1)
 	engineReload := make(chan struct{}, 1)
-	host := &managerHost{}
 	controller := newEngineController(updates, host, func() error {
 		if engineRelaunchAttempt() >= 1 {
 			return fmt.Errorf("automatic TrueDown reload was already attempted during this engine recovery incident")
@@ -205,6 +208,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 			},
 		})
 	}
+	controller.updateContext = updateContext
 	routes := func(manager *downloader.Manager) http.Handler {
 		mux := http.NewServeMux()
 		api.Register(mux, manager, auth, controller)
@@ -228,6 +232,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	}
 	host.configure(dm, activeSpec, buildManager, routes)
 	defer host.stop()
+	defer func() { cancelUpdates(); controller.waitUpdates() }()
 	startErr := dm.Start()
 	if startErr != nil && activeSpec.Kind == systemupdate.EngineNext && downloader.IsEngineStartError(startErr) {
 		dm.Stop()
@@ -290,8 +295,6 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		}
 		serverErr <- server.ListenAndServe()
 	}()
-	updateContext, cancelUpdates := context.WithCancel(ctx)
-	defer cancelUpdates()
 	updates.ConfigureAutomaticNext(controller.checkNextAutomatically, controller.applyNextAutomatically)
 	automaticUpdatesDone := updates.RunAutomatic(updateContext, func() bool {
 		return host.taskCount(downloader.StatusQueued) == 0 &&
@@ -343,6 +346,7 @@ waitForExit:
 	}
 	cancelUpdates()
 	<-automaticUpdatesDone
+	controller.waitUpdates()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
