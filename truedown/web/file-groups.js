@@ -205,6 +205,6 @@ async function saveFileGroups() {
   } finally {
     panel.inert = false;
     KDComponents.setBusyState(button, false);
-    if (currentPage === "settings" && currentSettingsPage === "groups") button.focus();
+    if (currentPage === "settings" && currentSettingsPage === "files") button.focus();
   }
 }

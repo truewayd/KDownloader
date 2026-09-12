@@ -126,13 +126,9 @@
   <h1 class="visually-hidden" id="settings-title" tabindex="-1">设置</h1>
   <div class="settings-layout">
     <nav class="settings-nav" aria-label="设置分类"><a class="settings-nav-link" href="#settings/general" data-settings-link="general" title="下载与速度"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-settings"></use></svg><span>下载与速度</span></a>
-<a class="settings-nav-link" href="#settings/network" data-settings-link="network" title="网络与重试"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-cloud"></use></svg><span>网络与重试</span></a>
-<a class="settings-nav-link" href="#settings/files" data-settings-link="files" title="文件与过滤"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder"></use></svg><span>文件与过滤</span></a>
-<a class="settings-nav-link" href="#settings/groups" data-settings-link="groups" title="文件分组"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-archive"></use></svg><span>文件分组</span></a>
-<a class="settings-nav-link" href="#settings/application" data-settings-link="application" title="启动与运行"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-power"></use></svg><span>启动与运行</span></a>
-<a class="settings-nav-link" href="#settings/modules" data-settings-link="modules" title="解析模块"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-app-window"></use></svg><span>解析模块</span></a>
-<a class="settings-nav-link" href="#settings/engine" data-settings-link="engine" title="内核与更新"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-refresh"></use></svg><span>内核与更新</span></a>
-<a class="settings-nav-link" href="#settings/security" data-settings-link="security" title="连接与认证"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-server"></use></svg><span>连接与认证</span></a>
+<a class="settings-nav-link" href="#settings/files" data-settings-link="files" title="文件管理"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder"></use></svg><span>文件管理</span></a>
+<a class="settings-nav-link" href="#settings/application" data-settings-link="application" title="应用与连接"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-power"></use></svg><span>应用与连接</span></a>
+<a class="settings-nav-link" href="#settings/engine" data-settings-link="engine" title="内核与模块"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-refresh"></use></svg><span>内核与模块</span></a>
 <a class="settings-nav-link" href="#settings/advanced" data-settings-link="advanced" title="高级参数"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-more-horizontal"></use></svg><span>高级参数</span></a>
 <a class="settings-nav-link" href="#settings/experimental" data-settings-link="experimental" title="实验功能"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-filter"></use></svg><span>实验功能</span></a>
 <a class="settings-nav-link" href="#settings/logs" data-settings-link="logs" title="应用日志"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-logs"></use></svg><span>应用日志</span></a>
@@ -160,15 +156,8 @@
           <a class="kd-button secondary" href="#settings/engine">检查更新</a>
           <p class="hint">第三方许可证随程序安装。</p>
         </section>
-        <section class="settings-section" data-settings-page="groups" hidden aria-labelledby="file-groups-title">
-          <h3 id="file-groups-title">文件分组</h3>
-          <p class="hint">按文件后缀自动分类，忽略大小写。支持 .tar.gz 等复合后缀，优先匹配较长的后缀；未匹配文件归入“其他”。新文件会保存到所选目录下的分组子目录；修改规则会更新已有任务的列表分组，已有文件与续传任务保留原路径。</p>
-          <div id="file-groups-editor"></div>
-          <div class="group-editor-actions"><button class="kd-button secondary" id="file-group-add" type="button">新增分组</button><button class="kd-button secondary" id="file-groups-reload" type="button">重新读取</button><button class="kd-button primary" id="file-groups-save" type="button">保存分组</button></div>
-          <p class="hint" id="file-groups-status" role="status"></p>
-        </section>
         <section class="settings-section" data-settings-page="application" aria-labelledby="settings-application-title" hidden>
-          <div class="settings-section-heading"><h3 id="settings-application-title">启动与运行</h3></div>
+          <div class="settings-section-heading"><h3 id="settings-application-title">应用与连接</h3><p>管理后台启动、数据存储和浏览器扩展连接。启动与认证开关即时保存。</p></div>
           <label class="setting-toggle" for="startup-enabled"><input id="startup-enabled" type="checkbox" disabled><span><strong>开机自动启动</strong><small>登录后在后台运行，即时生效。</small></span></label>
             <p class="hint" id="startup-status" role="status">正在读取启动设置…</p>
             <div class="runtime-guide"><h3>数据存储</h3><div id="storage-location" class="hint" role="status">正在读取数据目录…</div><p class="hint">备份或搬迁前请退出 TrueDown，保留配置、任务和恢复状态目录。下载文件保留在原位置。</p></div>
@@ -177,32 +166,21 @@
         <section data-settings-page="general" hidden class="settings-section" aria-labelledby="settings-general-title">
             <div class="settings-section-heading">
               <h3 id="settings-general-title">下载与速度</h3>
+              <p>设置新任务的保存位置与传输默认值，以及当前下载队列的并发和总速度。</p>
             </div>
-            <div class="form-grid">
+            <fieldset class="settings-group">
+              <legend>新任务默认值</legend>
+              <p class="hint">保存后用于新建任务；已有任务可在任务详情中单独调整连接数和限速。</p>
+              <div class="form-grid">
               <div class="field field-span-2">
                 <label for="cfg-folder">默认保存目录</label>
                 <div class="directory-field"><input class="kd-input" id="cfg-folder" type="text" placeholder="留空使用默认下载目录"><button class="kd-icon-button native-folder-picker" type="button" data-directory-input="cfg-folder" title="选择默认保存目录" aria-label="选择默认保存目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button></div>
+                <p class="hint" id="cfg-folder-help">此处选择保存根目录，文件会按分组存入子目录。留空使用默认下载目录；修改不会移动已有文件。子目录规则见<a href="#settings/files">文件管理</a>。</p>
               </div>
               <div class="field">
                 <label for="cfg-conns">单任务连接数</label>
-                <input class="kd-input" id="cfg-conns" type="number" min="1" max="64" placeholder="16">
-              </div>
-              <div class="field">
-                <label for="cfg-task-concurrency">同时下载任务数</label>
-                <input class="kd-input" id="cfg-task-concurrency" type="number" min="1" max="64" placeholder="3">
-                <p class="hint">保存后应用于当前队列。</p>
-              </div>
-              <div class="field">
-                <label for="cfg-global-speed">全局总限速</label>
-                <div class="input-group">
-                  <input class="kd-input" id="cfg-global-speed" type="number" min="0" step="any" placeholder="0">
-                  <select class="kd-select" id="cfg-global-speed-unit" aria-label="全局限速单位">
-                    <option value="1048576">MB/s</option>
-                    <option value="1024">KB/s</option>
-                    <option value="1073741824">GB/s</option>
-                  </select>
-                </div>
-                <p class="hint">0 表示不限速，保存后立即生效。</p>
+                <input class="kd-input" id="cfg-conns" type="number" min="1" max="64" placeholder="16" aria-describedby="cfg-conns-help">
+                <p class="hint" id="cfg-conns-help">默认 16，范围 1–64。控制单个任务的并行连接，实际数量受服务器支持情况限制。</p>
               </div>
               <div class="field">
                 <label for="cfg-speed">单任务限速</label>
@@ -214,59 +192,100 @@
                     <option value="1073741824">GB/s</option>
                   </select>
                 </div>
-                <p class="hint">0 表示不限速。</p>
+                <p class="hint">默认 0，表示单任务不限速；仍受全局总限速约束。</p>
               </div>
-            </div>
+              </div>
+            </fieldset>
+            <fieldset class="settings-group">
+              <legend>当前下载队列</legend>
+              <p class="hint">以下两项保存后立即应用于当前队列。</p>
+              <div class="form-grid">
+                <div class="field">
+                  <label for="cfg-task-concurrency">同时下载任务数</label>
+                  <input class="kd-input" id="cfg-task-concurrency" type="number" min="1" max="64" placeholder="3" aria-describedby="cfg-task-concurrency-help">
+                  <p class="hint" id="cfg-task-concurrency-help">默认 3，范围 1–64。超过并发数量的任务等待队列调度。</p>
+                </div>
+                <div class="field">
+                  <label for="cfg-global-speed">全局总限速</label>
+                  <div class="input-group">
+                    <input class="kd-input" id="cfg-global-speed" type="number" min="0" step="any" placeholder="0">
+                    <select class="kd-select" id="cfg-global-speed-unit" aria-label="全局限速单位">
+                      <option value="1048576">MB/s</option>
+                      <option value="1024">KB/s</option>
+                      <option value="1073741824">GB/s</option>
+                    </select>
+                  </div>
+                  <p class="hint">限制所有下载任务的合计速度。默认 0，表示不限速。</p>
+                </div>
+              </div>
+            </fieldset>
           </section>
-<section data-settings-page="network" hidden class="settings-section" aria-labelledby="settings-network-title">
+<section data-settings-page="general" hidden class="settings-section" aria-labelledby="settings-network-title">
             <div class="settings-section-heading">
               <h3 id="settings-network-title">网络与重试</h3>
+              <p>保存后作为新任务的网络默认值，已有任务保留原设置。</p>
             </div>
-            <div class="form-grid">
+            <fieldset class="settings-group">
+              <legend>失败重试</legend>
+              <div class="form-grid">
               <div class="field">
-                <label for="cfg-tries">最大重试次数</label>
+                <label for="cfg-tries">最大尝试次数</label>
                 <input class="kd-input" id="cfg-tries" type="number" min="1" max="100" placeholder="5">
+                <p class="hint">默认 5，范围 1–100。达到尝试上限后显示失败，可在任务列表中手动重试。</p>
               </div>
               <div class="field">
                 <label for="cfg-wait">重试间隔（秒）</label>
                 <input class="kd-input" id="cfg-wait" type="number" min="1" max="3600" placeholder="3">
+                <p class="hint">默认 3 秒，范围 1–3600 秒。遇到服务器繁忙时可适当延长等待。</p>
               </div>
+              </div>
+            </fieldset>
+            <fieldset class="settings-group">
+              <legend>代理连接</legend>
+              <p class="hint">用于普通下载及 Dropbox、Google Drive 链接解析。本机服务连接保持直连。</p>
+              <div class="form-grid">
               <div class="field field-span-2">
                 <label for="cfg-proxy-mode">代理</label>
                 <select class="kd-select" id="cfg-proxy-mode"><option value="system">系统代理</option><option value="custom">自定义代理</option><option value="none">无代理</option></select>
+                <p class="hint">默认使用系统代理；选择自定义时填写 HTTP(S) 地址，选择无代理时直接连接下载来源。</p>
               </div>
               <div class="field field-span-2" id="cfg-proxy-field" hidden>
                 <label for="cfg-proxy">HTTP(S) 代理地址</label>
                 <input class="kd-input" id="cfg-proxy" type="url" placeholder="http://127.0.0.1:7890">
               </div>
+              </div>
+            </fieldset>
+            <fieldset class="settings-group">
+              <legend>请求身份与请求头</legend>
+              <p class="hint">仅在下载来源要求时填写。默认请求头会被新任务继承，请确认其中的凭据适用于下载来源。</p>
+              <div class="form-grid">
               <div class="field">
                 <label for="cfg-user-agent">User-Agent</label>
                 <input class="kd-input" id="cfg-user-agent" type="text" placeholder="留空使用 aria2 默认值">
+                <p class="hint">向服务器标识下载客户端，留空使用内核默认值。</p>
               </div>
               <div class="field">
                 <label for="cfg-referer">默认 Referer</label>
                 <input class="kd-input" id="cfg-referer" type="url" placeholder="https://example.com/">
+                <p class="hint">来源页面地址，供要求来源校验的服务器使用。</p>
               </div>
               <div class="field field-span-2">
                 <label for="cfg-headers">默认 Headers（JSON）</label>
                 <textarea class="kd-input" id="cfg-headers" rows="3" placeholder='{"Authorization": "Bearer ..."}'></textarea>
+                <p class="hint">填写 JSON 对象，键和值均为字符串，例如 {"Accept": "application/octet-stream"}；留空不添加。</p>
               </div>
-            </div>
+              </div>
+            </fieldset>
           </section>
 <section data-settings-page="files" hidden class="settings-section" aria-labelledby="settings-file-title">
             <div class="settings-section-heading">
-              <h3 id="settings-file-title">文件与过滤</h3>
+              <h3 id="settings-file-title">文件管理</h3>
+              <p>管理文件写入、Dropbox 过滤和文件分组。底部“保存文件选项”保存写入与过滤设置；分组在下方单独保存。</p>
             </div>
+            <fieldset class="settings-group">
+              <legend>文件写入与校验</legend>
             <div class="form-grid">
-              <div class="field">
-                <label for="cfg-dropbox-mode">Dropbox 目录默认行为</label>
-                <select class="kd-select" id="cfg-dropbox-mode">
-                  <option value="direct">直接下载目录压缩包</option>
-                  <option value="expand">默认展开为独立文件任务</option>
-                </select>
-                <p class="hint">新建下载时自动使用此设置。</p>
-              </div>
-              <div class="field">
+              <div class="field field-span-2">
                 <label for="cfg-allocation">文件预分配</label>
                 <select class="kd-select" id="cfg-allocation">
                   <option value="none">不预分配（速度优先）</option>
@@ -274,17 +293,31 @@
                   <option value="trunc">快速截断</option>
                   <option value="falloc">falloc（Linux）</option>
                 </select>
+                <p class="hint">默认不预分配。预分配会提前准备文件空间；快速截断和 falloc 的支持情况取决于操作系统与文件系统。</p>
               </div>
             </div>
             <div class="toggle-grid">
               <label class="setting-toggle" for="cfg-check-integrity">
                 <input id="cfg-check-integrity" type="checkbox">
-                <span><strong>完整性校验</strong><small>下载完成后校验文件分块。</small></span>
+                <span><strong>完整性校验</strong><small>默认关闭。有可用校验信息时检查文件或分块；普通链接未提供校验信息时无法据此验证内容。</small></span>
               </label>
               <label class="setting-toggle" for="cfg-remote-time">
                 <input id="cfg-remote-time" type="checkbox">
-                <span><strong>保留远程时间</strong><small>使用服务器的文件修改时间。</small></span>
+                <span><strong>保留远程时间</strong><small>默认开启。下载完成后使用服务器提供的文件修改时间，需要服务器返回相应时间信息。</small></span>
               </label>
+            </div>
+            </fieldset>
+            <fieldset class="settings-group">
+              <legend>Dropbox 目录展开与过滤</legend>
+              <div class="field">
+                <label for="cfg-dropbox-mode">Dropbox 目录默认行为</label>
+                <select class="kd-select" id="cfg-dropbox-mode">
+                  <option value="direct">直接下载目录压缩包</option>
+                  <option value="expand">默认展开为独立文件任务</option>
+                </select>
+                <p class="hint">默认下载目录压缩包；展开后每个文件作为独立任务下载，可分别重试。仅展开模式支持以下后缀过滤。</p>
+              </div>
+            <div class="toggle-grid">
               <label class="setting-toggle" for="cfg-filter-enabled">
                 <input id="cfg-filter-enabled" type="checkbox">
                 <span><strong>Dropbox 默认过滤文件</strong><small>仅用于目录展开，不影响普通下载。</small></span>
@@ -305,18 +338,22 @@
                 <label><input type="checkbox" value=".blend" data-download-extension><span>.blend</span></label>
               </div>
               <p class="hint">不区分大小写，仅在 Dropbox 目录展开且该次选择过滤时生效。</p>
+              <p class="hint">勾选的后缀会被排除。支持规则同步的浏览器扩展也可更新此列表；文件的分类和保存子目录在下方“文件分组”中设置。</p>
             </div>
+            </fieldset>
           </section>
-<section data-settings-page="modules" hidden class="settings-section" aria-labelledby="settings-modules-title">
-			<div class="settings-section-heading">
-			  <h3 id="settings-modules-title">解析模块</h3>
-			  <p>启用、停用或导入更新后即时生效。</p>
-			</div>
-			<div class="module-list" id="module-list" aria-live="polite"></div>
-		  </section>
+        <section class="settings-section" data-settings-page="files" data-settings-independent hidden aria-labelledby="file-groups-title">
+          <h3 id="file-groups-title">文件分组</h3>
+          <p class="hint">按文件后缀自动分类，忽略大小写。支持 .tar.gz 等复合后缀，优先匹配较长的后缀；未匹配文件归入“其他”。新文件会保存到所选目录下的分组子目录；修改规则会更新已有任务的列表分组，已有文件与续传任务保留原路径。</p>
+          <p class="hint">修改后点击“保存分组”。底部保存和恢复默认按钮只处理文件写入与过滤选项。</p>
+          <div id="file-groups-editor"></div>
+          <div class="group-editor-actions"><button class="kd-button secondary" id="file-group-add" type="button">新增分组</button><button class="kd-button secondary" id="file-groups-reload" type="button">重新读取</button><button class="kd-button primary" id="file-groups-save" type="button">保存分组</button></div>
+          <p class="hint" id="file-groups-status" role="status"></p>
+        </section>
 <section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-update-title">
             <div class="settings-section-heading">
-              <h3 id="settings-update-title">程序与下载内核</h3>
+              <h3 id="settings-update-title">内核与模块</h3>
+              <p>TrueDown 管理界面和任务，aria2 负责文件传输。两者的版本与更新状态分别显示；自动更新开关即时保存。</p>
             </div>
             <div class="update-list">
               <article class="update-card">
@@ -354,6 +391,14 @@
                 </div>
               </article>
             </div>
+          </section>
+<section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-modules-title">
+            <div class="settings-section-heading">
+              <h3 id="settings-modules-title">解析模块</h3>
+              <p>将支持的分享链接解析为下载任务。启用、停用或导入更新后即时生效。</p>
+            </div>
+            <p class="hint">Dropbox 和 Google Drive 使用各自的解析模块。停用后不再接管新链接，已有任务仍保留模块信息以便恢复；Dropbox 目录展开方式在<a href="#settings/files">文件管理</a>中设置。</p>
+            <div class="module-list" id="module-list" aria-live="polite"></div>
           </section>
 <section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-bt-diagnostics-title">
             <div class="settings-section-heading">
@@ -426,14 +471,16 @@
 <section data-settings-page="advanced" hidden class="settings-section" aria-labelledby="settings-advanced-title">
             <div class="settings-section-heading">
               <h3 id="settings-advanced-title">高级参数</h3>
+              <p>为新任务补充下载内核参数。日常连接、限速和重试设置可在对应分类中调整。</p>
             </div>
             <div class="field">
               <label for="cfg-extra">额外 aria2 参数</label>
               <textarea class="kd-input" id="cfg-extra" rows="4" placeholder="--min-split-size=1M"></textarea>
               <p class="hint">每行一个参数，不支持进程、RPC 或本地文件选项。</p>
+              <p class="hint">使用 --名称=值 格式，例如 --min-split-size=1M。只接受 TrueDown 允许的任务参数；留空不添加额外参数。</p>
             </div>
           </section>
-<section data-settings-page="security" hidden class="settings-section token-card" aria-labelledby="settings-security-title">
+<section data-settings-page="application" hidden class="settings-section token-card" aria-labelledby="settings-security-title">
             <div class="settings-section-heading">
               <h3 id="settings-security-title">API Key 认证</h3>
               <p>浏览器集成和远程仪表盘共用此认证。</p>
@@ -444,6 +491,7 @@
             </label>
             <p class="hint" id="token-auth-status" aria-live="polite">正在读取认证设置…</p>
             <button class="kd-button secondary" id="copy-api-token-btn" type="button" disabled>复制 API Key</button>
+            <div class="runtime-guide"><h3>连接浏览器扩展</h3><ol class="settings-steps"><li>在兼容扩展的下载后端设置中选择 TrueDown，并填写本机服务地址。</li><li>开启认证后，点击“复制 API Key”，将密钥粘贴到扩展的 API Key 输入框并保存。</li><li>若连接失败，确认 TrueDown 正在运行，且服务地址与认证设置一致；更多诊断信息见<a href="#settings/logs">应用日志</a>。</li></ol></div>
           </section>
       </div>
       <div class="settings-footer" id="settings-footer" hidden>

@@ -30,6 +30,7 @@ try {
       "/settings/task-defaults": { revision: 1, values: {} },
       "/settings/runtime": { concurrentDownloads: 3, globalDownloadLimitBps: 0 },
       "/settings/download-rules": { enabled: true, dropboxMode: "direct", excludedExtensions: [".psd", ".clip", ".sai", ".sai2", ".kra", ".xcf", ".procreate", ".afphoto", ".afdesign", ".blend"] },
+      "/settings/file-groups": { revision: 1, groups: [{ id: "other", name: "其他", extensions: [], directory: "Other" }] },
       "/settings/startup": { supported: true, enabled: false },
       "/settings/tracker-research": { enabled: false, engine: "stable" },
       "/auth/settings": { enabled: false, managed: false },
@@ -75,7 +76,8 @@ try {
         return link.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
       }), true, `${name}: native title drag area must not cover navigation`);
     }
-    for (const category of ["general", "network", "files", "application", "modules", "engine", "security", "advanced", "experimental", "logs", "about"]) {
+    assert.equal(await page.locator("[data-settings-link]").count(), 8);
+    for (const category of ["general", "files", "application", "engine", "advanced", "experimental", "logs", "about"]) {
       await page.locator(`[data-settings-link="${category}"]`).click();
       await page.waitForFunction(category => settingsReady.has(category) || document.querySelector("#settings-load-status").textContent.includes("失败"), category);
       assert.equal(await page.evaluate(category => settingsReady.has(category), category), true, `${name}/${category}: ${await page.locator("#settings-load-status").textContent()}`);
@@ -88,16 +90,16 @@ try {
       if (native) { assert.equal(geometry.outerBorder, "0px"); assert.equal(geometry.radius, 8); assert.equal(geometry.rightInset, 8); }
       assert.ok(geometry.root <= width && geometry.content <= geometry.client + 1, `${name}/${category}: horizontal overflow ${JSON.stringify(geometry)}`);
       assert.ok(geometry.bottom <= geometry.footerTop + 1 && geometry.footerBottom <= geometry.height, `${name}/${category}: footer overlap`);
-      if (category === "files" && width > 720) {
-        const tops = await page.locator("#cfg-dropbox-mode, #cfg-allocation").evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top));
-        assert.ok(Math.abs(tops[0] - tops[1]) <= 1, `${name}: file selectors are misaligned`);
+      if (category === "files") {
+        assert.equal(await page.locator("#cfg-allocation").evaluate(element => element.closest("fieldset").querySelector("legend").textContent), "文件写入与校验");
+        assert.equal(await page.locator("#cfg-dropbox-mode").evaluate(element => element.closest("fieldset").querySelector("legend").textContent), "Dropbox 目录展开与过滤");
       }
       if (category === "logs") {
         await page.waitForFunction(() => document.querySelector("#application-log-output").textContent.includes("fresh"));
         assert.equal(await page.locator("#application-log-output").evaluate(e => e.scrollHeight - e.scrollTop - e.clientHeight < 2), true);
         if (native && colorScheme === "dark") { await page.waitForTimeout(3300); assert.ok(logReads >= 2); }
       }
-      if (category === "modules") {
+      if (category === "engine") {
         assert.equal(await page.locator(".module-card-icon use").count(), 2);
         await page.locator('[data-module-toggle="dropbox"]').click();
         await page.waitForFunction(() => document.querySelector('[data-module-toggle="dropbox"]').getAttribute("aria-pressed") === "false");
@@ -117,15 +119,31 @@ try {
     assert.equal(await page.evaluate(() => document.activeElement.id), "settings-reset-btn");
     await page.keyboard.press("Tab");
     assert.equal(await page.evaluate(() => document.activeElement.id), "settings-save-btn");
-    await page.locator('[data-settings-link="network"]').click();
+    await page.locator('[data-settings-link="files"]').click();
+    await page.locator('[data-group-id="other"] .group-name-field input').fill("");
+    await page.locator("#cfg-allocation").selectOption("trunc");
+    await page.locator("#settings-save-btn").click();
+    await page.waitForFunction(() => document.querySelector("#settings-save-status").textContent.includes("文件选项已保存"));
+    assert.equal(fixture["/settings/task-defaults"].values.allocation, "trunc", "an incomplete group draft must not block file-option saves");
+    assert.equal(fixture["/settings/file-groups"].groups[0].name, "其他", "file-option saves must not write group drafts");
+    await page.locator("#settings-reset-btn").click();
+    assert.equal(await page.locator('[data-group-id="other"] .group-name-field input').inputValue(), "", "file-option reset preserves group drafts");
+    for (const [oldPage, newPage] of Object.entries({ network: "general", groups: "files", security: "application", modules: "engine" })) {
+      await page.evaluate(oldPage => { location.hash = `settings/${oldPage}`; }, oldPage);
+      await page.waitForFunction(newPage => currentSettingsPage === newPage && settingsReady.has(newPage), newPage);
+      assert.equal(await page.locator(`[data-settings-link="${newPage}"]`).getAttribute("aria-current"), "page");
+    }
+    await page.locator('[data-settings-link="general"]').click();
     assert.equal(await page.locator("#cfg-proxy-mode").inputValue(), "system");
     await page.locator("#cfg-proxy-mode").selectOption("custom");
     await page.locator("#cfg-proxy").fill("http://127.0.0.1:7890");
     await page.locator('[data-settings-link="files"]').click();
-    await page.locator('[data-settings-link="network"]').click();
+    await page.locator('[data-settings-link="general"]').click();
     assert.equal(await page.locator("#cfg-proxy").inputValue(), "http://127.0.0.1:7890");
     await page.locator("#settings-save-btn").click();
     await page.waitForFunction(() => document.querySelector("#settings-save-status").textContent.includes("已保存"));
+    assert.equal(fixture["/settings/task-defaults"].values.proxy, "http://127.0.0.1:7890", "merged download page saves network defaults");
+    assert.equal(fixture["/settings/task-defaults"].values.connections, 16, "merged download page saves transfer defaults together");
     failSave = true;
     await page.locator("#cfg-proxy").fill("http://127.0.0.1:7891");
     await page.locator("#settings-save-btn").click();

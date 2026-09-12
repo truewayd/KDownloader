@@ -89,8 +89,15 @@
 .settings-content .settings-section-heading { margin: 0; }
 .settings-section-heading h3, .runtime-guide h3 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.5; }
 .settings-content .form-grid { gap: 20px; }
+.settings-group { min-width: 0; margin: 0; padding: 18px 0 0; border: 0; border-top: 1px solid var(--kd-border); }
+.settings-group legend { padding: 0 12px 0 0; font-size: 14px; font-weight: 600; }
+.settings-group > * + * { margin-top: 16px; }
+.settings-group > .hint { margin-top: 0; margin-bottom: 16px; }
+.settings-steps { margin: 0; padding-left: 22px; color: var(--kd-muted); font-size: 13px; line-height: 1.7; }
+.settings-steps li + li { margin-top: 8px; }
 .settings-content .toggle-grid { gap: 12px; }
-.settings-content [data-settings-page="files"] .toggle-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.settings-content [data-settings-page="files"] .toggle-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.settings-content [data-settings-page="files"] .toggle-grid > :only-child { grid-column: 1 / -1; }
 .settings-content .field { gap: 8px; }
 .settings-content .field > label, .settings-content .field-label { font-size: 12px; font-weight: 500; }
 .settings-content .setting-toggle { padding: 14px; gap: 10px; }

@@ -509,7 +509,7 @@ test("TrueDown saves only the current category, excludes duplicates, and retains
     settingsReady: new Set(["general"]), settingsMessages: new Map(),
     EDITABLE_SETTINGS_PAGES: new Set(["general"]), settingsPanels: () => [],
     downloadSettings: { connections: 16 }, DEFAULT_DOWNLOAD_SETTINGS: { connections: 16 },
-    optionalInt: () => 4, validateSettingsSpeed() {}, renderSettingsCategory() {}, renderSettingsOverview() {}, invalidateSettingRead() {},
+    optionalInt: () => 4, parseHeaders() {}, validateSettingsSpeed() {}, renderSettingsCategory() {}, renderSettingsOverview() {}, invalidateSettingRead() {},
     displaySpeed: () => ({ value: 0, unit: 1048576 }),
     normalizeServerRuntimeSettings: (value) => value,
     requestJSON: (url) => {

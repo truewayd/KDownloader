@@ -12,6 +12,8 @@ const fixture = {
   "/settings/task-defaults": { revision: 1, values: {} },
   "/settings/runtime": { concurrentDownloads: 3, globalDownloadLimitBps: 0 },
   "/settings/download-rules": { enabled: false, dropboxMode: "direct", excludedExtensions: [] },
+  "/settings/file-groups": groups,
+  "/auth/settings": { enabled: false, managed: false },
   "/settings/tracker-research": { enabled: false, minimumLeechers: 3, engine: "stable" },
   "/settings/startup": { supported: true, enabled: false },
   "/system/storage": { dataDirectory: "C:\\TestProfile" },
@@ -58,14 +60,14 @@ try {
   await page.locator('[data-settings-link="experimental"]').click();
   await page.waitForFunction(() => currentSettingsPage === "experimental");
   assert.equal(await page.locator("#tracker-minimum-leechers").inputValue(), "77", "first engine visit must retain experimental drafts");
-  await page.locator('[data-settings-link="network"]').click();
-  await page.waitForFunction(() => settingsReady.has("network"));
+  await page.locator('[data-settings-link="general"]').click();
+  await page.waitForFunction(() => settingsReady.has("general"));
   await page.locator("#cfg-proxy-mode").selectOption("custom");
   await page.locator("#cfg-proxy").fill("http://127.0.0.1:7890");
   await page.locator('[data-settings-link="files"]').click();
   await page.waitForFunction(() => settingsReady.has("files"));
-  await page.locator('[data-settings-link="network"]').click();
-  await page.waitForFunction(() => currentSettingsPage === "network");
+  await page.locator('[data-settings-link="general"]').click();
+  await page.waitForFunction(() => currentSettingsPage === "general");
   assert.equal(await page.locator("#cfg-proxy-mode").inputValue(), "custom");
   assert.equal(await page.locator("#cfg-proxy").inputValue(), "http://127.0.0.1:7890");
   assert.equal(await page.locator("#cfg-proxy").isVisible(), true, "retained custom proxy stays editable");
@@ -88,8 +90,8 @@ try {
     if (change.id === "dropbox") await new Promise(resolve => { releaseModule = resolve; });
     await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...change, name: change.id }) });
   });
-  await page.locator('[data-settings-link="modules"]').click();
-  await page.waitForFunction(() => settingsReady.has("modules"));
+  await page.locator('[data-settings-link="engine"]').click();
+  await page.waitForFunction(() => settingsReady.has("engine"));
   await page.locator('[data-module-toggle="dropbox"]').click();
   await page.waitForFunction(() => pendingResolverModuleActions.has("dropbox"));
   await page.locator('[data-module-toggle="google-drive"]').click();

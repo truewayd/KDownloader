@@ -1,5 +1,6 @@
-const SETTINGS_PAGES = ["general", "network", "files", "groups", "application", "modules", "engine", "security", "advanced", "experimental", "logs", "about"];
-const EDITABLE_SETTINGS_PAGES = new Set(["general", "network", "files", "advanced", "experimental"]);
+const SETTINGS_PAGES = ["general", "files", "application", "engine", "advanced", "experimental", "logs", "about"];
+const SETTINGS_PAGE_ALIASES = { network: "general", groups: "files", security: "application", modules: "engine" };
+const EDITABLE_SETTINGS_PAGES = new Set(["general", "files", "advanced", "experimental"]);
 const settingsLoads = new Map();
 const settingsReady = new Set();
 const settingsRendered = new Set();
@@ -50,7 +51,8 @@ async function readSettingSnapshot(key, url, apply) {
   return promise;
 }
 
-function markSettingsDraft() {
+function markSettingsDraft(event) {
+  if (event?.target?.closest("[data-settings-independent]")) return;
   if (!EDITABLE_SETTINGS_PAGES.has(currentSettingsPage)) return;
   settingsMessages.set(currentSettingsPage, "本页有未保存的修改。");
   els.settingsSaveStatus.textContent = settingsMessages.get(currentSettingsPage);
@@ -75,7 +77,9 @@ async function loadSettingsPage(retry = false) {
     else link.removeAttribute("aria-current");
   });
   els.settingsFooter.hidden = !EDITABLE_SETTINGS_PAGES.has(page);
-  els.settingsSaveStatus.textContent = settingsMessages.get(page) || "保存当前分类的设置。";
+  els.settingsSaveBtn.textContent = page === "files" ? "保存文件选项" : "保存本页";
+  els.settingsResetBtn.textContent = page === "files" ? "恢复文件选项默认" : "恢复本页默认";
+  els.settingsSaveStatus.textContent = settingsMessages.get(page) || (page === "files" ? "保存文件选项；文件分组单独保存。" : "保存当前分类的设置。");
   els.settingsReloadBtn.hidden = true;
   if (retry) { settingsReady.delete(page); settingsRendered.delete(page); }
   if (page === "logs") { loadApplicationLog(); }
@@ -99,14 +103,10 @@ async function loadSettingsPage(retry = false) {
         logs: () => {},
         about: () => {},
         general: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings()]),
-        network: loadServerTaskDefaults,
-        groups: loadFileGroupsEditor,
-        files: () => Promise.all([loadServerTaskDefaults(), loadServerDownloadRules()]),
+        files: () => Promise.all([loadServerTaskDefaults(), loadServerDownloadRules(), loadFileGroupsEditor()]),
         advanced: loadServerTaskDefaults,
-        application: () => Promise.all([loadStartupSettings(), loadStorageLocation()]),
-        modules: loadResolverModules,
-        engine: () => Promise.all([loadSystemUpdateState(), loadTrackerResearchSettings()]),
-        security: loadAuthSettings,
+        application: () => Promise.all([loadStartupSettings(), loadStorageLocation(), loadAuthSettings()]),
+        engine: () => Promise.all([loadSystemUpdateState(), loadTrackerResearchSettings(), loadResolverModules()]),
         experimental: loadTrackerResearchSettings,
       };
       settingsLoads.set(page, Promise.resolve().then(() => loaders[page]?.()).finally(() => settingsLoads.delete(page)));
@@ -209,6 +209,7 @@ async function saveDownloadSettings(event) {
   const page = currentSettingsPage;
   if (els.settingsForm.inert || !settingsReady.has(page) || !EDITABLE_SETTINGS_PAGES.has(page)) return;
   for (const panel of settingsPanels(page)) {
+    if (panel.hasAttribute("data-settings-independent")) continue;
     const invalid = [...panel.querySelectorAll("input, textarea, select")].find((input) => !input.disabled && !input.checkValidity());
     if (invalid) { invalid.reportValidity(); return; }
   }
@@ -219,6 +220,12 @@ async function saveDownloadSettings(event) {
   try {
     const next = { ...downloadSettings };
     if (page === "general") {
+      parseHeaders(els.cfgHeaders.value);
+      Object.assign(next, {
+        maxTries: optionalInt("cfgTries") || 5, retryWait: optionalInt("cfgWait") || 3,
+        proxy: els.cfgProxy.value.trim(), proxyMode: els.cfgProxyMode.value, userAgent: els.cfgUserAgent.value.trim(),
+        referer: els.cfgReferer.value.trim(), headers: els.cfgHeaders.value.trim(),
+      });
       next.folder = els.cfgFolder.value.trim();
       next.connections = optionalInt("cfgConns") || DEFAULT_DOWNLOAD_SETTINGS.connections;
       next.speed = Number(els.cfgSpeed.value || 0);
@@ -238,13 +245,6 @@ async function saveDownloadSettings(event) {
       els.cfgTaskConcurrency.value = runtimeSettings.concurrentDownloads;
       els.cfgGlobalSpeed.value = normalizedSpeed.value || "";
       els.cfgGlobalSpeedUnit.value = String(normalizedSpeed.unit);
-    } else if (page === "network") {
-      parseHeaders(els.cfgHeaders.value);
-      Object.assign(next, {
-        maxTries: optionalInt("cfgTries") || 5, retryWait: optionalInt("cfgWait") || 3,
-        proxy: els.cfgProxy.value.trim(), proxyMode: els.cfgProxyMode.value, userAgent: els.cfgUserAgent.value.trim(),
-        referer: els.cfgReferer.value.trim(), headers: els.cfgHeaders.value.trim(),
-      });
     } else if (page === "files") {
       Object.assign(next, { allocation: els.cfgAllocation.value, checkIntegrity: els.cfgCheckIntegrity.checked, remoteTime: els.cfgRemoteTime.checked });
       invalidateSettingRead("rules");
@@ -298,14 +298,14 @@ async function saveDownloadSettings(event) {
         throw error;
       }
     }
-    settingsMessages.set(page, "本页设置已保存。");
+    settingsMessages.set(page, page === "files" ? "文件选项已保存；文件分组单独保存。" : "本页设置已保存。");
     if (currentPage === "settings" && currentSettingsPage === page) {
       renderSettingsCategory(page);
       if (page === "experimental") renderTrackerResearchSettings();
       els.settingsSaveStatus.textContent = settingsMessages.get(page);
     }
 
-    showToast("本页设置已保存。");
+    showToast(settingsMessages.get(page));
   } catch (error) {
     const message = `${serverSaved ? "运行或规则设置已保存，任务默认值保存失败" : "本页设置未保存"}：${error.message}`;
     settingsMessages.set(page, message);
@@ -333,7 +333,9 @@ function resetDownloadSettings() {
     engine: trackerResearchSettings.engine, engineVersion: trackerResearchSettings.engineVersion,
     supportKnown: trackerResearchSettings.supportKnown, supported: trackerResearchSettings.supported,
   });
-  els.settingsSaveStatus.textContent = "本页已恢复默认值，保存后生效。";
+  const message = page === "files" ? "文件选项已恢复默认值，保存后生效；文件分组保持不变。" : "本页已恢复默认值，保存后生效。";
+  settingsMessages.set(page, message);
+  els.settingsSaveStatus.textContent = message;
 }
 
 function applyTaskDefaults(state) {
@@ -417,7 +419,7 @@ function renderDownloadSettings(settings = downloadSettings, rules = downloadRul
     els.cfgSpeed.value = settings.speed || "";
     els.cfgSpeedUnit.value = String(settings.speedUnit);
   }
-  if (!page || page === "network") {
+  if (!page || page === "general") {
     els.cfgTries.value = settings.maxTries;
     els.cfgWait.value = settings.retryWait;
     els.cfgProxy.value = settings.proxy;

@@ -157,12 +157,12 @@ test("settings navigation stays immediate and a late category read never overwri
   let complete;
   let loads = 0;
   let rendered = 0;
-  const panels = { general: { inert: false }, network: { inert: false } };
+  const panels = { general: { inert: false }, advanced: { inert: false } };
   const fields = Object.fromEntries(["settingsFooter", "settingsSaveStatus", "settingsReloadBtn", "settingsSaveBtn", "settingsResetBtn", "settingsLoadStatus"].map((name) => [name, control()]));
   const context = vm.createContext({
     els: fields, currentPage: "settings", currentSettingsPage: "general", routeEpoch: 1,
     settingsLoads: new Map(), settingsReady: new Set(), settingsRendered: new Set(), settingsMessages: new Map(),
-    EDITABLE_SETTINGS_PAGES: new Set(["general", "network"]),
+    EDITABLE_SETTINGS_PAGES: new Set(["general", "advanced"]),
     document: { querySelectorAll: () => [] },
     settingsPanels: (page) => [panels[page]],
     loadServerRuntimeSettings: () => { loads++; return new Promise((resolve) => { complete = resolve; }); },
@@ -176,14 +176,14 @@ test("settings navigation stays immediate and a late category read never overwri
   await Promise.resolve();
   assert.equal(loads, 1);
   assert.equal(panels.general.inert, true);
-  context.currentSettingsPage = "network";
+  context.currentSettingsPage = "advanced";
   context.routeEpoch++;
   await context.loadSettingsPage();
   assert.equal(rendered, 1);
-  assert.equal(panels.network.inert, false);
+  assert.equal(panels.advanced.inert, false);
   complete();
   await Promise.all([first, second]);
-  assert.equal(rendered, 1, "late runtime settings must not reset a network draft");
+  assert.equal(rendered, 1, "late runtime settings must not reset an advanced draft");
   assert.equal(context.settingsReady.has("general"), true);
 });
 

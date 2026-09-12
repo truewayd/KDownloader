@@ -27,6 +27,8 @@ const server = http.createServer(async (request, response) => {
     const filtered = tasks.filter(task => (!url.searchParams.get("category") || category(task) === url.searchParams.get("category")) && (!url.searchParams.get("search") || task.name.toLowerCase().includes(url.searchParams.get("search").toLowerCase())) && ([null, "all"].includes(url.searchParams.get("status")) || task.status === url.searchParams.get("status")));
     return json({ tasks: filtered.map(task => ({ ...task, category: category(task) })), total: filtered.length, groups, summary: { total: tasks.length, downloading: 1, done: 1, paused: 7 } });
   }
+  if (url.pathname === "/settings/task-defaults") return json({ revision: 1, values: {} });
+  if (url.pathname === "/settings/download-rules") return json({ enabled: false, dropboxMode: "direct", excludedExtensions: [] });
   if (url.pathname === "/settings/file-groups") {
     if (request.method === "POST") {
       const next = await body(request);

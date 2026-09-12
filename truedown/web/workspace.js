@@ -56,7 +56,8 @@ function applyWorkspaceRoute(focus = true) {
   currentPage = ["tasks", "task", "settings"].includes(page) ? page : "tasks";
   if (currentPage === "task" && (!/^[1-9]\d*$/.test(category) || !Number.isSafeInteger(Number(category)))) currentPage = "tasks";
   if (typeof nativeWindowRole !== "undefined" && nativeWindowRole === "settings") currentPage = nativeWindowRole;
-  currentSettingsPage = SETTINGS_PAGES.includes(category) ? category : "general";
+  const settingsCategory = Object.hasOwn(SETTINGS_PAGE_ALIASES, category) ? SETTINGS_PAGE_ALIASES[category] : category;
+  currentSettingsPage = SETTINGS_PAGES.includes(settingsCategory) ? settingsCategory : "general";
   routeEpoch++;
   stopTaskDetails();
   stopApplicationLog();

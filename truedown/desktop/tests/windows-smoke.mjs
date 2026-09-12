@@ -403,7 +403,7 @@ try {
     assertToastBounds(await waitForNativeCondition(main, readToastPlacement));
     assert.equal((await api(main, "GET", "/tasks?limit=100")).total, total);
   }
-  await settings.locator('[data-settings-link="groups"]').click();
+  await settings.locator('[data-settings-link="files"]').click();
   await waitForNativeCondition(settings, () => document.querySelectorAll("[data-group-id]").length === 8 && !document.querySelector('[data-settings-page="groups"]').inert);
   await settings.locator('[data-group-id="document"] .group-name-field input').fill("Documents review");
   await settings.keyboard.press("Control+s");
