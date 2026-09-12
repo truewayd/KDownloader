@@ -235,11 +235,11 @@ def validate_release(directory, build):
     manifest_name = f"truedown-update-{build}.json"
     packages = [(windows_name, "windows", "amd64")]
     for system, extension in (("linux", "tar.gz"), ("macos", "zip")):
-        for arch in ("amd64", "arm64"):
+        for arch in (("amd64", "arm64") if system == "linux" else ("arm64",)):
             packages.append((f"TrueDown-build-{build}-{system}-{arch}.{extension}", system, arch))
     expected = {name for name, _, _ in packages} | {manifest_name}
     require({item.name for item in directory.iterdir()} == expected,
-            "Release must contain exactly five platform archives and the Windows update manifest")
+            "Release must contain exactly four platform archives and the Windows update manifest")
     for name in expected:
         asset = directory / name
         require(not asset.is_symlink() and asset.is_file() and asset.stat().st_size > 0,

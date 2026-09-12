@@ -15,6 +15,9 @@ case "$target_arch" in
   amd64|arm64) ;;
   *) echo "target architecture must be amd64 or arm64" >&2; exit 2 ;;
 esac
+if [[ "$target_os" == darwin && "$target_arch" != arm64 ]]; then
+  echo "macOS builds require Apple Silicon (arm64)" >&2; exit 2
+fi
 
 version=${TRUEDOWN_VERSION:-dev}
 build_number=${TRUEDOWN_BUILD_NUMBER:-0}
@@ -36,7 +39,7 @@ output="$dist_root/TrueDown-$target_os-$target_arch"
 [[ ! -L "$dist_root" ]] || { echo "refusing to traverse a symbolic-link dist directory" >&2; exit 1; }
 mkdir -p "$dist_root"
 case "$output" in
-  "$dist_root"/TrueDown-linux-amd64|"$dist_root"/TrueDown-linux-arm64|"$dist_root"/TrueDown-darwin-amd64|"$dist_root"/TrueDown-darwin-arm64) ;;
+  "$dist_root"/TrueDown-linux-amd64|"$dist_root"/TrueDown-linux-arm64|"$dist_root"/TrueDown-darwin-arm64) ;;
   *) echo "unsafe output path: $output" >&2; exit 1 ;;
 esac
 [[ ! -L "$output" ]] || { echo "refusing to replace a symbolic-link output" >&2; exit 1; }
@@ -56,7 +59,6 @@ trap cleanup EXIT
 case "$target_os-$target_arch" in
   linux-amd64) target=x86_64-unknown-linux-gnu ;;
   linux-arm64) target=aarch64-unknown-linux-gnu ;;
-  darwin-amd64) target=x86_64-apple-darwin ;;
   darwin-arm64) target=aarch64-apple-darwin ;;
 esac
 host=$(rustc -vV | sed -n 's/^host: //p')

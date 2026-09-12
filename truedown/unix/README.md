@@ -10,8 +10,7 @@ Each numbered TrueDown GitHub release includes these Unix packages:
 - Linux: `TrueDown-build-<run>-linux-amd64.tar.gz` for x86-64 or
   `TrueDown-build-<run>-linux-arm64.tar.gz` for ARM64. Extract the archive and
   run `TrueDown` inside its package directory.
-- macOS: `TrueDown-build-<run>-macos-amd64.zip` for Intel or
-  `TrueDown-build-<run>-macos-arm64.zip` for Apple Silicon. Extract the ZIP
+- macOS: `TrueDown-build-<run>-macos-arm64.zip` for Apple Silicon. Extract the ZIP
   to obtain `TrueDown.app`. Builds use an ad-hoc signature unless the release
   pipeline has Developer ID credentials. Ad-hoc signing does not provide Apple
   notarization; follow macOS's normal trusted-app approval flow when needed.

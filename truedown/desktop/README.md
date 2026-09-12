@@ -104,8 +104,9 @@ patched source rather than hidden with a global ignore rule.
 ## Native packages
 
 From the repository root, `truedown/build.ps1` produces the Windows package.
-`bash truedown/build-unix.sh linux amd64` (or the matching host OS/architecture)
-produces a Linux package or standard macOS `.app`. Install the desktop npm
+`bash truedown/build-unix.sh linux amd64` (or `linux arm64`) produces a Linux package.
+`bash truedown/build-unix.sh darwin arm64` produces a macOS `.app` on Apple Silicon;
+macOS Intel builds are not supported. Install the desktop npm
 dependencies first. The platform scripts use Tauri's release build and package
 the matching shell, Go core, CLI and pinned dependency notices together.
 

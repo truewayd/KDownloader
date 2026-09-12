@@ -103,7 +103,7 @@ npm ci --prefix desktop
 pwsh -NoProfile -ExecutionPolicy Bypass -File build.ps1
 ```
 
-The Windows package is written to `truedown/dist/TrueDown`. Start `TrueDown.exe` to open the native interface. Linux/macOS builds use `bash truedown/build-unix.sh <linux|darwin> <amd64|arm64>` on the matching host. See [desktop development and packaging](truedown/desktop/README.md).
+The Windows package is written to `truedown/dist/TrueDown`. Start `TrueDown.exe` to open the native interface. Linux builds use `bash truedown/build-unix.sh linux <amd64|arm64>` on the matching host. macOS builds use `bash truedown/build-unix.sh darwin arm64` on Apple Silicon only. See [desktop development and packaging](truedown/desktop/README.md).
 
 ```text
 TrueDown --background                 Start the desktop in the tray

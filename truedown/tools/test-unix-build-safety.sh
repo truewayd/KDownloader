@@ -100,7 +100,7 @@ assert_build_reaches_npm() {
 export APPLE_SIGNING_IDENTITY='' APPLE_CERTIFICATE='' APPLE_CERTIFICATE_PASSWORD=''
 export APPLE_ID='' APPLE_PASSWORD='' APPLE_TEAM_ID=''
 for spec in 'linux amd64 x86_64-unknown-linux-gnu' 'linux arm64 aarch64-unknown-linux-gnu' \
-  'darwin amd64 x86_64-apple-darwin' 'darwin arm64 aarch64-apple-darwin'; do
+  'darwin arm64 aarch64-apple-darwin'; do
   read -r os arch host <<<"$spec"
   export TRUEDOWN_TEST_RUST_HOST="$host"
   export TRUEDOWN_TEST_SIGNING_CASE=empty
@@ -116,7 +116,15 @@ export TRUEDOWN_TEST_SIGNING_CASE=unprotected APPLE_CERTIFICATE_PASSWORD=''
 assert_build_reaches_npm darwin arm64
 
 rm -f "$TRUEDOWN_TEST_NPM_REACHED"
-if PATH="$fixture/bin:$PATH" bash "$fixture/native/build-unix.sh" darwin amd64 >"$fixture/result" 2>&1; then
+for arch in amd64 x86_64; do
+  if PATH="$fixture/bin:$PATH" bash "$fixture/native/build-unix.sh" darwin "$arch" >"$fixture/result" 2>&1; then
+    echo 'Native build unexpectedly accepted macOS Intel' >&2
+    exit 1
+  fi
+  grep -q 'macOS builds require Apple Silicon' "$fixture/result"
+  [[ ! -e "$TRUEDOWN_TEST_NPM_REACHED" ]]
+done
+if PATH="$fixture/bin:$PATH" bash "$fixture/native/build-unix.sh" linux amd64 >"$fixture/result" 2>&1; then
   echo 'Native build unexpectedly accepted a mismatched Rust host' >&2
   exit 1
 fi

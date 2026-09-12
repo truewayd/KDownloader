@@ -25,7 +25,7 @@ class ReleaseValidationTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.packages = {}
         for system in ("windows", "linux", "macos"):
-            for arch in (("amd64",) if system == "windows" else ("amd64", "arm64")):
+            for arch in {"windows": ("amd64",), "linux": ("amd64", "arm64"), "macos": ("arm64",)}[system]:
                 self.make_package(system, arch)
         self.write_manifest()
 
@@ -98,7 +98,12 @@ class ReleaseValidationTests(unittest.TestCase):
     def test_missing_or_extra_asset(self):
         asset = self.root / "TrueDown-build-42-macos-arm64.zip"
         asset.rename(asset.with_suffix(".unexpected"))
-        with self.assertRaisesRegex(ValueError, "exactly five platform archives"):
+        with self.assertRaisesRegex(ValueError, "exactly four platform archives"):
+            validate_release(self.root, 42)
+
+    def test_release_rejects_retired_macos_intel_asset(self):
+        self.make_package("macos", "amd64")
+        with self.assertRaisesRegex(ValueError, "exactly four platform archives"):
             validate_release(self.root, 42)
 
     def test_manifest_must_bind_windows_archive(self):
@@ -148,6 +153,7 @@ class ReleaseValidationTests(unittest.TestCase):
                 self.assertEqual(files[binary].sha256, hashlib.sha256(data).hexdigest())
 
     def test_wrong_architecture(self):
+        self.make_package("macos", "amd64")
         for system in ("linux", "macos"):
             with self.subTest(system=system):
                 name, _ = self.packages[system, "arm64"]
@@ -161,11 +167,11 @@ class ReleaseValidationTests(unittest.TestCase):
     def test_unix_executable_modes_survive_archiving(self):
         for system in ("linux", "macos"):
             with self.subTest(system=system):
-                name, entries = self.packages[system, "amd64"]
+                name, entries = self.packages[system, "arm64"]
                 entries = {entry: (0o644, data) for entry, (_, data) in entries.items()}
                 self.write_package(name, entries)
                 with self.assertRaisesRegex(ValueError, "permissions lost"):
-                    validate_package(self.root / name, system, "amd64", 42)
+                    validate_package(self.root / name, system, "arm64", 42)
 
     def test_missing_bundle_resource_or_wrong_build(self):
         name, entries = self.packages["macos", "arm64"]
@@ -195,46 +201,47 @@ class ReleaseValidationTests(unittest.TestCase):
 
     def test_missing_or_wrong_architecture_sidecar(self):
         for system in ("windows", "linux", "macos"):
-            name, entries = self.packages[system, "amd64"]
+            arch = "arm64" if system == "macos" else "amd64"
+            name, entries = self.packages[system, arch]
             sidecar = next(entry for entry in entries if "truedown-core" in entry)
             with self.subTest(system=system, failure="missing"):
                 self.write_package(name, {entry: value for entry, value in entries.items() if entry != sidecar})
                 with self.assertRaisesRegex(ValueError, "package contents"):
-                    validate_package(self.root / name, system, "amd64", 42)
+                    validate_package(self.root / name, system, arch, 42)
             with self.subTest(system=system, failure="architecture"):
                 invalid = dict(entries)
                 invalid[sidecar] = (0o755, b"broken" * 30)
                 self.write_package(name, invalid)
                 with self.assertRaisesRegex(ValueError, "architecture|not PE"):
-                    validate_package(self.root / name, system, "amd64", 42)
+                    validate_package(self.root / name, system, arch, 42)
 
     def test_mac_signing_and_notice_resources_are_required(self):
-        name, entries = self.packages["macos", "amd64"]
+        name, entries = self.packages["macos", "arm64"]
         for file in ("_CodeSignature/CodeResources", "Resources/NATIVE_LICENSES.txt"):
             with self.subTest(file=file):
                 self.write_package(name, {key: value for key, value in entries.items()
                                           if key != "TrueDown.app/Contents/" + file})
                 with self.assertRaisesRegex(ValueError, "package contents|Bundle notice"):
-                    validate_package(self.root / name, "macos", "amd64", 42)
+                    validate_package(self.root / name, "macos", "arm64", 42)
 
     def test_mac_notice_comparison_checks_beyond_retained_headers(self):
-        name, entries = self.packages["macos", "amd64"]
+        name, entries = self.packages["macos", "arm64"]
         notice = b"license\n" * MAX_HEADER
         entries["NATIVE_LICENSES.txt"] = (0o644, notice + b"A")
         entries["TrueDown.app/Contents/Resources/NATIVE_LICENSES.txt"] = (0o644, notice + b"B")
         self.write_package(name, entries)
         with self.assertRaisesRegex(ValueError, "Bundle notice differs"):
-            validate_package(self.root / name, "macos", "amd64", 42)
+            validate_package(self.root / name, "macos", "arm64", 42)
 
     def test_mac_bundle_metadata_is_bounded_and_a_dictionary(self):
-        name, entries = self.packages["macos", "amd64"]
+        name, entries = self.packages["macos", "arm64"]
         for data, message in ((b" " * (MAX_HEADER + 1), "Oversized bundle metadata"),
                               (plistlib.dumps(["not a dictionary"]), "Invalid bundle metadata")):
             with self.subTest(message=message):
                 entries["TrueDown.app/Contents/Info.plist"] = (0o644, data)
                 self.write_package(name, entries)
                 with self.assertRaisesRegex(ValueError, message):
-                    validate_package(self.root / name, "macos", "amd64", 42)
+                    validate_package(self.root / name, "macos", "arm64", 42)
 
     def test_unexpected_package_file(self):
         name, entries = self.packages["windows", "amd64"]
@@ -256,14 +263,14 @@ class ReleaseValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Non-regular entry"):
             validate_package(self.root / name, "linux", "amd64", 42)
 
-        name, _ = self.packages["macos", "amd64"]
+        name, _ = self.packages["macos", "arm64"]
         with zipfile.ZipFile(self.root / name, "a") as archive:
             info = zipfile.ZipInfo("TrueDown.app/Contents/")
             info.create_system = 3
             info.external_attr = (stat.S_IFLNK | 0o777) << 16
             archive.writestr(info, "/outside")
         with self.assertRaisesRegex(ValueError, "Non-regular entry"):
-            validate_package(self.root / name, "macos", "amd64", 42)
+            validate_package(self.root / name, "macos", "arm64", 42)
 
     def test_windows_archive_rejects_root_directory_entries(self):
         name, entries = self.packages["windows", "amd64"]

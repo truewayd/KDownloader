@@ -126,7 +126,6 @@ jobs:
         include:
           - { os: linux, arch: amd64, runner: ubuntu-24.04, asset_os: linux, archive: tar.gz }
           - { os: linux, arch: arm64, runner: ubuntu-24.04-arm, asset_os: linux, archive: tar.gz }
-          - { os: darwin, arch: amd64, runner: macos-15-intel, asset_os: macos, archive: zip }
           - { os: darwin, arch: arm64, runner: macos-15, asset_os: macos, archive: zip }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -275,5 +274,4 @@ jobs:
             release-assets/${{ env.UPDATE_MANIFEST }}
             release-assets/TrueDown-build-${{ github.run_number }}-linux-amd64.tar.gz
             release-assets/TrueDown-build-${{ github.run_number }}-linux-arm64.tar.gz
-            release-assets/TrueDown-build-${{ github.run_number }}-macos-amd64.zip
             release-assets/TrueDown-build-${{ github.run_number }}-macos-arm64.zip

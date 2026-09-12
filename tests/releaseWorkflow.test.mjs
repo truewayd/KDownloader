@@ -321,7 +321,6 @@ test("TrueDown publishes all native packages only after every build succeeds", a
   for (const [os, arch, runner] of [
     ["linux", "amd64", "ubuntu-24.04"],
     ["linux", "arm64", "ubuntu-24.04-arm"],
-    ["darwin", "amd64", "macos-15-intel"],
     ["darwin", "arm64", "macos-15"],
   ]) {
     assert.ok(unix.includes(`os: ${os}, arch: ${arch}, runner: ${runner},`));
@@ -349,7 +348,8 @@ test("TrueDown publishes all native packages only after every build succeeds", a
   assert.match(publish, /python3 truedown\/tools\/validate_release\.py release-assets --build/);
   assert.ok(publish.indexOf("validate_release.py") < publish.indexOf("action-gh-release"));
   assert.match(publish, /fail_on_unmatched_files: true/);
-  for (const suffix of ["linux-amd64.tar.gz", "linux-arm64.tar.gz", "macos-amd64.zip", "macos-arm64.zip"]) {
+  assert.doesNotMatch(workflow, /macos-15-intel|macos-amd64|os: darwin, arch: amd64/);
+  for (const suffix of ["linux-amd64.tar.gz", "linux-arm64.tar.gz", "macos-arm64.zip"]) {
     assert.ok(publish.includes(`release-assets/TrueDown-build-\${{ github.run_number }}-${suffix}`));
   }
   assert.match(publish, /release-assets\/\$\{\{ env\.ARTIFACT_NAME \}\}/);
@@ -373,7 +373,6 @@ test("cross-platform validation builds and starts all packages on matching nativ
   assert.deepEqual(targets, [
     ["linux", "amd64", "ubuntu-24.04"],
     ["linux", "arm64", "ubuntu-24.04-arm"],
-    ["darwin", "amd64", "macos-15-intel"],
     ["darwin", "arm64", "macos-15"],
   ]);
   assert.match(native, /runs-on: \$\{\{ matrix\.target\.runner \}\}/);
