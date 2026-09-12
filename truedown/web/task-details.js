@@ -63,6 +63,14 @@ function stopTaskDetails() {
   taskDetailAbort?.abort();
 }
 
+function restoreTaskReturnFocus() {
+  if (!taskDetailReturnID) return;
+  const id = taskDetailReturnID;
+  taskDetailReturnID = 0;
+  if (document.activeElement !== document.getElementById("tasks-title")) return;
+  els.tasksContainer.querySelector(`[data-action="details"][data-id="${id}"]`)?.focus({ preventScroll: true });
+}
+
 function showTaskDetails(id, tab) {
   stopTaskDetails();
   taskDetailID = id;

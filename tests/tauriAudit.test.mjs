@@ -97,7 +97,7 @@ test("native reads have a deadline, normalize methods and never retry an uncerta
       return new Promise(() => {});
     },
   });
-  vm.runInContext(declarations("nativeFetch"), context);
+  vm.runInContext(declarations("apiRequestSignal", "nativeFetch"), context);
   const pending = context.nativeFetch("/tasks", { method: "get" });
   timeout.abort(new DOMException("Timed out", "TimeoutError"));
   await assert.rejects(pending, { name: "TimeoutError" });

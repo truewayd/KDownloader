@@ -287,6 +287,7 @@ function createTaskPageHarness(fetchPage) {
     console: { error() {} },
     URLSearchParams,
     renderTasks: (tasks) => rendered.push(tasks),
+    restoreTaskReturnFocus() {},
     updateMetrics() {},
     updatePagination() {},
     showToast() {},

@@ -59,10 +59,17 @@ async function invokeNative(command, args) {
   try { return await window.__TAURI__.core.invoke(command, args); }
   catch (error) { throw error instanceof Error ? error : new Error(String(error)); }
 }
+function apiRequestSignal(options, method) {
+  const signal = options.signal;
+  signal?.throwIfAborted();
+  if (method !== "GET") return signal;
+  const deadline = AbortSignal.timeout(15_000);
+  return signal ? AbortSignal.any([signal, deadline]) : deadline;
+}
+
 async function nativeFetch(path, options = {}) {
   const method = (options.method || "GET").toUpperCase();
-  const signal = options.signal || (method === "GET" ? AbortSignal.timeout(15_000) : undefined);
-  signal?.throwIfAborted();
+  const signal = apiRequestSignal(options, method);
   const headers = Object.fromEntries(new Headers(options.headers || {}));
   const operation = invokeNative("core_request", {
     request: { method, path, body: options.body || "", headers },
@@ -95,7 +102,7 @@ function rememberSessionToken(token) {
 function fetchWithAPIToken(url, options) {
   const headers = new Headers(options.headers || {});
   if (apiToken) headers.set("X-Api-Key", apiToken);
-  const signal = options.signal || ((options.method || "GET") === "GET" ? AbortSignal.timeout(15_000) : undefined);
+  const signal = apiRequestSignal(options, (options.method || "GET").toUpperCase());
   return fetch(url, { ...options, headers, signal });
 }
 

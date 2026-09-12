@@ -25,7 +25,7 @@ async function loadApplicationLog(announce = false) {
   applicationLogAbort = new AbortController();
   KDComponents.setBusyState(els.refreshApplicationLogBtn, true);
   try {
-    const response = await requestJSON("/system/logs", { signal: AbortSignal.any([applicationLogAbort.signal, AbortSignal.timeout(15_000)]) });
+    const response = await requestJSON("/system/logs", { signal: applicationLogAbort.signal });
     if (request !== applicationLogRequest || epoch !== routeEpoch || !isApplicationLogPage()) return;
     const content = stringValue(response.content).slice(-(256 * 1024));
     const output = els.applicationLogOutput;

@@ -218,6 +218,7 @@ async function saveDownloadSettings(event) {
   KDComponents.setBusyState(els.settingsSaveBtn, true);
   let serverSaved = false;
   try {
+    const defaultsRevision = taskDefaultsRevision;
     const next = { ...downloadSettings };
     if (page === "general") {
       parseHeaders(els.cfgHeaders.value);
@@ -287,7 +288,7 @@ async function saveDownloadSettings(event) {
       try {
         const saved = await requestJSON("/settings/task-defaults", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ revision: taskDefaultsRevision, values: next }),
+          body: JSON.stringify({ revision: defaultsRevision, values: next }),
         });
         applyTaskDefaults(saved);
       } catch (error) {

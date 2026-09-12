@@ -13,7 +13,7 @@ const defaults = [
   ["project", "\u5de5\u7a0b", [".psd", ".blend"]], ["other", "\u5176\u4ed6", []],
 ].map(([id, name, extensions]) => ({ id, name, extensions }));
 const names = ["Sunset.png", "Ocean.mp4", "Piano.mp3", "References.zip", "Installer.exe", "Guide.pdf", "Cover.PSD", "Scene.blend", "Unknown.bin"];
-let groups, tasks, detailWrites = 0, groupWrites = 0;
+let groups, tasks, detailWrites = 0, groupWrites = 0, taskNotModified = 0;
 function reset() {
   groups = { icons: [{ id: "star", name: "Star" }, { id: "folder", name: "Folder" }], revision: 0, groups: structuredClone(defaults) };
   tasks = names.map((name, index) => ({ id: index + 1, name, outputName: name, folder: "C:\\Downloads", link: `https://example.test/${name}`, status: index === 1 ? "downloading" : index === 2 ? "done" : "paused", totalLength: 104857600, completedLength: 41943040, downloadSpeed: 1048576, progress: "40% - 1 MiB/s", createdAt: "2026-09-08T08:00:00Z", settingsRevision: `revision-${index}`, settings: { connections: 16, maxSpeedBps: 0, maxTries: 5, retryWait: 3 } }));
@@ -25,6 +25,9 @@ const server = http.createServer(async (request, response) => {
   const json = (value, code = 200) => { response.writeHead(code, { "Content-Type": "application/json" }); response.end(JSON.stringify(value)); };
   if (url.pathname === "/tasks") {
     const filtered = tasks.filter(task => (!url.searchParams.get("category") || category(task) === url.searchParams.get("category")) && (!url.searchParams.get("search") || task.name.toLowerCase().includes(url.searchParams.get("search").toLowerCase())) && ([null, "all"].includes(url.searchParams.get("status")) || task.status === url.searchParams.get("status")));
+    const etag = JSON.stringify(`${groups.revision}:${filtered.map(task => `${task.id}:${task.settingsRevision}`).join(",")}`);
+    response.setHeader("ETag", etag);
+    if (request.headers["if-none-match"] === etag) { taskNotModified++; response.writeHead(304).end(); return; }
     return json({ tasks: filtered.map(task => ({ ...task, category: category(task) })), total: filtered.length, groups, summary: { total: tasks.length, downloading: 1, done: 1, paused: 7 } });
   }
   if (url.pathname === "/settings/task-defaults") return json({ revision: 1, values: {} });
@@ -71,8 +74,17 @@ try {
     await page.waitForFunction(() => document.querySelectorAll("tr[data-task-id]").length === 2);
     await page.locator("#task-search").fill("Cover");
     await page.waitForFunction(() => document.querySelectorAll("tr[data-task-id]").length === 1);
+    for (const cached of [true, false]) {
+      const previousNotModified = taskNotModified;
+      await page.locator('[data-action="details"][data-id="7"]').click();
+      await page.waitForFunction(() => currentPage === "task" && taskDetailData?.id === 7 && document.querySelector("#task-detail-title").textContent === "Cover.PSD");
+      if (!cached) await page.evaluate(() => pageETags.clear());
+      await page.locator("#task-detail-back").click();
+      await page.waitForFunction(() => document.activeElement?.dataset.action === "details" && document.activeElement.dataset.id === "7");
+      if (cached) assert.ok(taskNotModified > previousNotModified, "returning uses the retained task page validator");
+    }
     await page.locator('[data-action="details"][data-id="7"]').click();
-    await page.waitForFunction(() => document.querySelector("#task-detail-title").textContent === "Cover.PSD");
+    await page.waitForFunction(() => currentPage === "task" && taskDetailData?.id === 7 && document.querySelector("#task-detail-title").textContent === "Cover.PSD");
     assert.match(await page.locator("#task-info-grid").textContent(), /104|100/);
     await page.screenshot({ path: path.join(screenshots, `task-info-${width}-${colorScheme}.png`) });
     await page.locator("#task-settings-tab").click();

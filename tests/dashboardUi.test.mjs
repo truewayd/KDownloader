@@ -19,6 +19,42 @@ function control(value = "") {
 }
 const busyComponents = { setBusyState(button, busy) { button.setAttribute("aria-busy", busy); } };
 
+test("settings bind the complete defaults snapshot to its revision before awaiting another save", async () => {
+  let finishRuntime;
+  const requests = [];
+  const fields = new Map();
+  const els = new Proxy({}, { get(_target, key) {
+    if (!fields.has(key)) fields.set(key, control());
+    return fields.get(key);
+  } });
+  const context = vm.createContext({
+    els, document: {}, currentPage: "settings", currentSettingsPage: "general",
+    settingsReady: new Set(["general"]), settingsMessages: new Map(),
+    EDITABLE_SETTINGS_PAGES: new Set(["general"]), settingsPanels: () => [],
+    taskDefaultsRevision: 7, downloadSettings: { connections: 16, extra: "old value" },
+    DEFAULT_DOWNLOAD_SETTINGS: { connections: 16 }, KDComponents: busyComponents,
+    optionalInt: () => 3, parseHeaders() {}, validateSettingsSpeed() {},
+    invalidateSettingRead() {}, displaySpeed: () => ({ value: 0, unit: 1048576 }),
+    normalizeServerRuntimeSettings: value => value, showToast() {},
+    renderSettingsCategory() {}, applyTaskDefaults() {},
+    requestJSON: (url, options) => {
+      requests.push({ url, body: JSON.parse(options.body) });
+      if (url === "/settings/runtime") return new Promise(resolve => { finishRuntime = resolve; });
+      return Promise.resolve({});
+    },
+  });
+  vm.runInContext(declaration("saveDownloadSettings"), context);
+  const pending = context.saveDownloadSettings({ preventDefault() {} });
+  assert.equal(els.settingsForm.inert, true, "the current category cannot be edited during a save");
+  context.taskDefaultsRevision = 8;
+  context.downloadSettings = { connections: 16, extra: "concurrent advanced change" };
+  finishRuntime({ concurrentDownloads: 3, globalDownloadLimitBps: 0 });
+  await pending;
+  assert.equal(requests[1].body.values.extra, "old value");
+  assert.equal(requests[1].body.revision, 7, "the server must reject an old snapshot after a concurrent change");
+  assert.equal(els.settingsForm.inert, false);
+});
+
 test("task speed zero overrides a nonzero default while blank inherits it", () => {
   const fields = { mSpeed: control("0"), mConns: control("64"), mTries: control("5"), mWait: control("3"), mExtra: control("") };
   const context = vm.createContext({
@@ -248,6 +284,23 @@ test("a changed task page preserves keyboard focus on the same row control", () 
   vm.runInContext(["renderTasks", "taskControlKey"].map(declaration).join("\n"), context);
   context.renderTasks([{ id: 7, status: "downloading", progress: "25%" }]);
   assert.equal(restored, true);
+});
+
+test("returning from task details never steals focus moved during the page request", () => {
+  const heading = {};
+  let focused = 0;
+  const context = vm.createContext({
+    taskDetailReturnID: 7,
+    document: { activeElement: {}, getElementById: () => heading },
+    els: { tasksContainer: { querySelector: () => ({ focus() { focused++; } }) } },
+  });
+  vm.runInContext(declaration("restoreTaskReturnFocus"), context);
+  context.restoreTaskReturnFocus();
+  assert.equal(focused, 0);
+  assert.equal(context.taskDetailReturnID, 0);
+  context.document.activeElement = heading;
+  context.restoreTaskReturnFocus();
+  assert.equal(focused, 0, "later polling cannot restore a consumed return target");
 });
 
 test("progress polling retains every row control and changes only its progress label", () => {

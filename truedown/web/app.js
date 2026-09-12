@@ -993,6 +993,7 @@ async function loadTasks({ force = false } = {}) {
         if (epoch !== routeEpoch || url !== taskPageURL()) continue;
         if (response.status === 304) {
           if (taskRefreshRequested) { force = true; continue; }
+          restoreTaskReturnFocus();
           return true;
         }
         if (!response.ok) throw new Error(await response.text());
@@ -1020,6 +1021,7 @@ async function loadTasks({ force = false } = {}) {
           continue;
         }
         renderTasks(page.tasks);
+        restoreTaskReturnFocus();
         renderedTaskPageURL = url;
         updateMetrics(currentSummary);
         updatePagination();
@@ -1128,10 +1130,6 @@ function renderTasks(tasks) {
     table.dataset.sort = sortKey;
   }
   reconcileTaskRows(table.querySelector("tbody"), currentTasks);
-  if (taskDetailReturnID && document.activeElement === document.querySelector('#tasks-title')) {
-    table.querySelector(`[data-action="details"][data-id="${taskDetailReturnID}"]`)?.focus({ preventScroll: true });
-    taskDetailReturnID = 0;
-  }
   syncSelectionControls();
   if (focusKey && document.activeElement !== focused) {
     const controls = Array.from(els.tasksContainer.querySelectorAll("button, input"));
