@@ -382,6 +382,10 @@ try {
       title: "Confirm", message: "Remove this fixture?", confirmLabel: "Remove", cancelLabel: "Cancel", danger: true,
     } }), /suppressed during hidden acceptance/);
   }
+  for (const page of [main, settings, taskForms["batch-task"]]) {
+    await assert.rejects(invoke(page, "take_dropped_torrent"), /only in the new download form/);
+  }
+  assert.equal(await invoke(taskForms["new-task"], "take_dropped_torrent"), null);
   await assert.rejects(invoke(main, "finish_task_window"));
   for (const page of [main]) {
     await assert.rejects(invoke(page, "choose_download_directory"), /only from settings or a task form/);

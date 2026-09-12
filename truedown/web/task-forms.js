@@ -85,6 +85,7 @@ async function initNativeTaskForm() {
       KDComponents.setBusyState(els.submitTaskBtn, false);
       if (!nativeTaskFormReady) els.submitTaskBtn.textContent = "重新读取默认值";
       (nativeTaskFormReady ? els.mLink : els.submitTaskBtn).focus();
+      if (nativeTaskFormReady) drainNativeDrop();
     }
   })();
   return nativeTaskFormLoad;

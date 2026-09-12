@@ -39,7 +39,13 @@ try {
             window.nativeCalls.push({ command, args });
             if (command === "apply_material") return true;
             if (command === "frame_state") return { maximized: false };
+            if (command === "confirm_action") return new Promise((resolve) => { window.resolveNativeConfirmation = resolve; });
             if (command === "choose_download_directory") return window.directoryChoice ?? null;
+            if (command === "take_dropped_torrent") {
+              const value = window.pendingDroppedTorrent;
+              window.pendingDroppedTorrent = null;
+              return value;
+            }
             if (command !== "core_request") return;
             const { path, method } = args.request;
             let body;
@@ -152,6 +158,48 @@ try {
       await page.waitForFunction(() => nativeCalls.some(({ command }) => command === "finish_task_window"));
       assert.equal(await page.locator("#m-link").inputValue(), "");
       assert.equal(await page.evaluate(() => nativeCalls.some(({ command, args }) => command === "core_request" && args.request.path.startsWith("/tasks"))), false);
+      if (role === "new-task") {
+        const dropTorrent = () => page.evaluate(() => {
+          const dataTransfer = new DataTransfer();
+          dataTransfer.items.add(new File(["de"], "dropped.torrent", { type: "application/x-bittorrent" }));
+          document.dispatchEvent(new DragEvent("drop", { dataTransfer, bubbles: true, cancelable: true }));
+        });
+        await page.locator("#m-link").fill("https://example.test/retained.zip");
+        await dropTorrent();
+        await page.waitForFunction(() => typeof window.resolveNativeConfirmation === "function");
+        assert.equal(await page.locator("#dialog-overlay").getAttribute("aria-hidden"), "true");
+        await page.evaluate(() => { window.resolveNativeConfirmation(false); window.resolveNativeConfirmation = null; });
+        await page.waitForFunction(() => !applyingDrop);
+        assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/retained.zip");
+        await dropTorrent();
+        await page.waitForFunction(() => typeof window.resolveNativeConfirmation === "function");
+        await page.evaluate(() => { window.resolveNativeConfirmation(true); window.resolveNativeConfirmation = null; });
+        await page.waitForFunction(() => !applyingDrop);
+        assert.equal(await page.locator("#torrent-file-name").textContent(), "dropped.torrent");
+        assert.equal(await page.locator("#m-link").inputValue(), "");
+        assert.equal(await page.locator("#m-folder").inputValue(), "C:\\Newer draft");
+        await page.locator("#clear-torrent-btn").click();
+        await page.evaluate(() => {
+          window.pendingDroppedTorrent = { name: "native-drop.TORRENT", base64: "ZGU=", links: "" };
+          drainNativeDrop();
+        });
+        await page.waitForFunction(() => document.getElementById("m-torrent-file").files[0]?.name === "native-drop.TORRENT");
+        assert.equal(await page.locator("#m-torrent-file").evaluate(async (input) => input.files[0].text()), "de");
+        await page.evaluate(() => {
+          const dataTransfer = new DataTransfer();
+          dataTransfer.items.add(new File(["not a torrent"], "invalid.txt"));
+          document.dispatchEvent(new DragEvent("drop", { dataTransfer, cancelable: true }));
+        });
+        assert.equal(await page.locator("#torrent-file-name").textContent(), "native-drop.TORRENT");
+        await page.locator("#clear-torrent-btn").click();
+        await page.evaluate(() => {
+          const dataTransfer = new DataTransfer();
+          dataTransfer.setData("text/uri-list", "# a link\nhttps://example.test/drop.zip\nhttps://example.test/drop.zip");
+          document.dispatchEvent(new DragEvent("drop", { dataTransfer, cancelable: true }));
+        });
+        await page.waitForFunction(() => !applyingDrop);
+        assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/drop.zip");
+      }
       assert.deepEqual(errors, []);
       console.log(`${role} ${colorScheme}: DPI=200% frame/form boundaries, wheel, keyboard, file/directory selection, live defaults/modules, draft hide, submission OK`);
       await context.close();

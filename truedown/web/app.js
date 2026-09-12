@@ -290,6 +290,7 @@ function bindEvents() {
 
   els.downloadForm.addEventListener("submit", submitTask);
   bindNativeTaskPreferences();
+  bindDownloadDrops();
   els.refreshTasksBtn.addEventListener("click", refreshTasks);
   els.retryAllBtn.addEventListener("click", requeueAllErrorTasks);
   els.pauseQueueBtn.addEventListener("click", () => runQueueAction("pause"));

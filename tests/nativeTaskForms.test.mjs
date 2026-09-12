@@ -95,6 +95,7 @@ test("native form startup reads only its permitted preferences and retries witho
     document: { querySelector: () => shell },
     refreshNativeTaskPreferences: async () => { actions.push("preferences"); if (fail) throw Error("offline"); },
     configureTaskForm: (mode) => actions.push(mode), showModalMsg() {},
+    drainNativeDrop() {},
   });
   vm.runInContext(declarations("initNativeTaskForm"), context);
   await context.initNativeTaskForm();

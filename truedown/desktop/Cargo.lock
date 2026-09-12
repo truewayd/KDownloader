@@ -4235,6 +4235,7 @@ dependencies = [
 name = "truedown-desktop"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "glib",
  "objc2-app-kit",
  "objc2-foundation",

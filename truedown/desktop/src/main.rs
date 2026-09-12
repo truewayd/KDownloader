@@ -6,6 +6,7 @@ mod build_info;
 mod commands;
 mod confirmations;
 mod core;
+mod drops;
 mod frame;
 #[cfg(all(debug_assertions, target_os = "macos"))]
 mod macos_acceptance;
@@ -131,11 +132,14 @@ fn main() {
         .manage(startup)
         .manage(placement::Tracker::default())
         .manage(pickers::DirectoryPickers::default())
+        .manage(drops::Drops::default())
         .manage(confirmations::Confirmations::default())
         .invoke_handler(tauri::generate_handler![
             commands::core_request,
             commands::desktop_state,
             commands::copy_api_token,
+            commands::take_dropped_torrent,
+            commands::drop_download_links,
             commands::confirm_action,
             windows::open_auxiliary,
             windows::close_auxiliary,
@@ -260,6 +264,9 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if let WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                drops::receive(window, paths);
+            }
             if let WindowEvent::ScaleFactorChanged { .. } = event {
                 placement::fit(window, false);
             }
