@@ -54,7 +54,7 @@ func (m *Manager) prepareHTTPOutput(id int64, recheck bool) (*Task, error) {
 			return nil, fmt.Errorf("no available output name for %q", task.Name)
 		}
 	}
-	if owner, exists := m.outputNames[outputNameKey(proposed.Folder, proposed.OutputName)]; exists && owner != id {
+	if owner, exists := m.conflictingOutputOwnerLocked(proposed.Folder, proposed.OutputName, id); exists {
 		return nil, fmt.Errorf("output belongs to task %d; refusing to overwrite it", owner)
 	}
 	output, control, err := inspectHTTPOutput(proposed)
@@ -106,9 +106,9 @@ func (m *Manager) removeOwnedPartialFiles(task *Task, path string) error {
 		name = filepath.Base(path)
 	}
 	m.mu.RLock()
-	owner, exists := m.outputNames[outputNameKey(task.Folder, name)]
+	owner, exists := m.conflictingOutputOwnerLocked(task.Folder, name, task.ID)
 	m.mu.RUnlock()
-	if exists && owner != task.ID {
+	if exists {
 		return fmt.Errorf("partial output belongs to task %d", owner)
 	}
 	inspection := *task

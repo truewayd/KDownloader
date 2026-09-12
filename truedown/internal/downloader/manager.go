@@ -3355,14 +3355,34 @@ func (m *Manager) resolveOutputNameLocked(dir, name string, excludeID int64) str
 		if !outputNameAvailable(dir, candidate) {
 			return false
 		}
-		if id, occupied := m.outputNames[outputNameKey(dir, candidate)]; occupied && id != excludeID {
+		if _, occupied := m.conflictingOutputOwnerLocked(dir, candidate, excludeID); occupied {
 			return false
 		}
 		return true
 	})
 }
 
+// Both the payload and its control file belong to the task, including before
+// either file exists. A payload ending in .aria2 can overlap another pair.
+func (m *Manager) conflictingOutputOwnerLocked(dir, name string, excludeID int64) (int64, bool) {
+	names := []string{name, name + ".aria2"}
+	if strings.HasSuffix(strings.ToLower(name), ".aria2") {
+		names = append(names, name[:len(name)-len(".aria2")])
+	}
+	for _, candidate := range names {
+		if id, occupied := m.outputNames[outputNameKey(dir, candidate)]; occupied && id != excludeID {
+			return id, true
+		}
+	}
+	return 0, false
+}
+
 func outputNameKey(dir, name string) string {
+	if !filepath.IsAbs(dir) {
+		if absolute, err := filepath.Abs(dir); err == nil {
+			dir = absolute
+		}
+	}
 	return strings.ToLower(filepath.Clean(dir)) + "\x00" + strings.ToLower(name)
 }
 

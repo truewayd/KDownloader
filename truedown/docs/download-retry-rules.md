@@ -16,6 +16,12 @@ on. Both filesystem entries and other task records reserve names. A foreign
 symlinks. A not-yet-started task can choose another name if a collision appears
 while it is queued. Exhausting the bounded name search produces an error.
 
+Each reservation includes the payload and its `.aria2` control file before
+either exists. For example, `file.bin` and `file.bin.aria2` cannot be reserved by
+different tasks at the same location. Relative and absolute directory spellings
+share the same reservation. If older records overlap, recovery and cleanup fail
+without deleting either task's data.
+
 ## Retry behavior
 
 | Situation | Behavior |
