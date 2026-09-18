@@ -11,7 +11,7 @@ mean the update has been installed. Settings shows verification, installation
 and restart status. Program updates still require a numbered Windows desktop
 package; NEXT remains an optional Windows engine.
 
-The desktop and dashboard acknowledge manual update requests immediately, so
+The desktop and HTTP API acknowledge manual update requests immediately, so
 waiting in the queue or pausing does not hold a long-lived HTTP or native IPC
 request. Settings reads status separately. Automatic application still waits
 for an idle queue and honors the saved automatic-update switches.

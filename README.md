@@ -69,10 +69,10 @@ TrueDown combines a Go download core with a Tauri desktop for Windows, Linux and
 
 ### Highlights
 
-- Listens on `127.0.0.1:15151` by default.
+- Listens on `127.0.0.1:15151` by default for CLI and extension APIs only; the interface is bundled with Tauri.
 - Provides a download window and categorized settings with integrated logs and About, retaining settings drafts when reopened. Uses native system window buttons, configurable file-group icons and system/custom/direct proxy choices.
 - Supports optional login startup, platform styling and native tray controls; Windows uses Mica and DPI-specific tray rasters, while macOS uses system materials and a Retina template icon.
-- Provides an embedded dashboard for creating, filtering, paging, column sorting, pausing, resuming, retrying, opening, and removing tasks, including whole-queue controls.
+- Provides a desktop task view for creating, filtering, paging, column sorting, pausing, resuming, retrying, opening, and removing tasks, including whole-queue controls.
 - Automatically groups files as images, video, music, archives, applications, documents, engineering files, or Other. Settings > File groups supports custom groups and editable suffix lists; the task-status dropdown combines with group and search filters. Updating suffixes reclassifies existing tasks without moving downloaded files.
 - Opens a task's information and settings pages from its filename. Shows size, progress, speed, remaining time and diagnostics; supports per-task speed, connection and retry settings with retained drafts.
 - Keeps download creation compact and inherits resolver behavior from application settings. Dropbox shared folders use a persisted direct-archive or bounded-expansion default with optional filtering; API clients retain explicit per-request overrides.
@@ -114,7 +114,7 @@ truedown-cli paths                    Inspect this profile's storage paths
 truedown-cli exit                     Stop the service
 ```
 
-Use `--data-dir` or `TRUEDOWN_DATA_DIR` to select an explicit profile; connection addresses use `--endpoint` or `TRUEDOWN_ADDR`. CLI credentials come from the profile's token file or `TRUEDOWN_API_TOKEN`. The browser dashboard remains available at `http://127.0.0.1:15151`.
+Use `--data-dir` or `TRUEDOWN_DATA_DIR` to select an explicit profile; connection addresses use `--endpoint` or `TRUEDOWN_ADDR`. CLI credentials come from the profile's token file or `TRUEDOWN_API_TOKEN`. The HTTP service provides APIs only: webpage and static asset requests return 404. Use the TrueDown desktop application for the graphical interface. API Key authentication uses `X-Api-Key`; browser session cookies are no longer issued or accepted.
 
 Windows defaults to `%LOCALAPPDATA%/TrueDown/{config,data,state,logs,cache}`. macOS uses Application Support for durable data and the standard Library Logs/Caches directories. Linux follows XDG configuration, data, state and cache directories. One versioned profile manifest owns these roles. Recognized portable profiles remain at their existing root; migration retains a backup and preserves download paths.
 

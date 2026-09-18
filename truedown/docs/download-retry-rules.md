@@ -27,8 +27,7 @@ without deleting either task's data.
 Retry and Retry all execute immediately, without an additional confirmation.
 The manager still validates output ownership and the payload/control-file pair
 before any required clean restart. Removing an unfinished task requires a
-separate native confirmation window in the desktop app; the HTTP dashboard
-uses its page dialog.
+separate native confirmation window in the desktop app.
 
 | Situation | Behavior |
 | --- | --- |

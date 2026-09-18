@@ -54,5 +54,7 @@ Linux packages include a
 `truedown.desktop` template for installations that place `TrueDown` on `PATH`.
 For terminal use, run `truedown-core serve`, then `truedown-cli --help` for commands.
 The native interface attaches to a running core for the same profile. Terminal
-components do not require a graphical session. The browser dashboard remains
-available at the configured loopback address, normally `http://127.0.0.1:15151`.
+components do not require a graphical session. The HTTP API remains available
+at the configured loopback address, normally `http://127.0.0.1:15151`, for CLI
+and browser-extension integrations. This address does not serve a webpage;
+use the TrueDown desktop application for the graphical interface.

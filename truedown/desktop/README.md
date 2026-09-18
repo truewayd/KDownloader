@@ -2,8 +2,10 @@
 
 The Tauri shell bundles the existing frontend and two Go sidecars. The core owns
 all download, resolver, authentication and durable configuration behavior. Rust
-owns windows, tray, login startup and native clipboard access. The browser uses
-the existing authenticated HTTP API; bundled windows use a private inherited pipe.
+owns windows, tray, login startup and native clipboard access. The CLI and browser extensions use
+the authenticated HTTP API; bundled windows use a private inherited pipe.
+The HTTP listener serves no webpage or frontend assets and accepts no browser
+session cookies. The frontend is bundled only with Tauri.
 
 ## Development
 

@@ -70,8 +70,10 @@ creates a text-only native `dialog` with the shared palette and buttons. The
 browser owns modality, and the shared controller explicitly contains Tab and
 Shift+Tab focus within the dialog. Cancel receives initial focus;
 Escape, backdrop clicks, and the cancel button resolve `false`. Closing restores
-focus after the caller can release its busy control. TrueDown keeps its existing
-accessible dashboard modal for confirmations and token entry.
+focus after the caller can release its busy control. TrueDown uses parented
+native confirmation dialogs. Its bundled frontend uses private IPC and does
+not provide browser login or API Key storage; browser layout fixtures retain
+the accessible page dialog for isolated UI checks.
 
 Busy helpers update `aria-busy` and `aria-disabled` together. `withBusyButton`
 restores both prior attributes once overlapping operations have settled;

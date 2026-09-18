@@ -1,6 +1,6 @@
 # TrueDown core, clients and native desktop
 
-Reviewed: 2026-09-08. The Go core, HTTP CLI, private desktop transport, native
+Reviewed: 2026-09-18. The Go core, HTTP CLI, private desktop transport, native
 windows, versioned profile migration, recoverable native bundle updates and
 release packaging are implemented. The legacy Go desktop entry point is retired.
 
@@ -9,7 +9,7 @@ release packaging are implemented. The legacy Go desktop entry point is retired.
 ```mermaid
 flowchart LR
   CLI[CLI] --> HTTP[Authenticated HTTP API]
-  Browser[Browser dashboard and integrations] --> HTTP
+  Extensions[Browser extensions] --> HTTP
   Desktop[Tauri windows] --> Rust[Restricted Rust commands]
   Rust --> Pipe[Inherited private pipe]
   HTTP --> Go[Go application and download core]
@@ -68,9 +68,13 @@ form window. Closing a window hides it while the core keeps running.
 Ctrl/Cmd+, opens settings; Ctrl/Cmd+S saves the active settings category.
 Auxiliary commands are restricted by window role.
 
-The browser and native frontend share `api.js`, `task-view.js`, `settings.js`,
+The Tauri bundled frontend uses `api.js`, `task-view.js`, `settings.js`,
 `logs.js`, `workspace.js`, and the canonical component runtime. `task-forms.js`
-owns the native form lifecycle and preference refresh. Task rows are
+owns the native form lifecycle and preference refresh. The core does not embed
+or serve frontend resources: the HTTP listener is API-only, and former webpage
+paths return 404. Production frontend requests use native IPC. Browser layout
+fixtures inject a test-only HTTP transport. HTTP authentication uses API Key
+headers; browser session cookies and frontend token storage are retired. Task rows are
 reconciled by identity, hidden task views stop polling, and late responses must
 match the current route/query. Settings have typed categories without an overview.
 Categories loaded while hidden initialize once when reopened and retain later

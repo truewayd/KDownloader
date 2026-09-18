@@ -31,8 +31,10 @@ Old numbered siblings are never deleted automatically. Full rules are in
 
 For terminal use, run `truedown-core.exe serve` and use `truedown-cli.exe --help`.
 The native interface can attach to an already running core for the same profile.
-Core and CLI do not require WebView2. The browser dashboard remains available
-at the configured loopback address, normally `http://127.0.0.1:15151`.
+Core and CLI do not require WebView2. The HTTP API remains available
+at the configured loopback address, normally `http://127.0.0.1:15151`, for CLI
+and browser-extension integrations. This address does not serve a webpage;
+use the TrueDown desktop application for the graphical interface.
 
 Numbered native builds update the complete interface/core/CLI set and its
 notices together, with rollback when the new interface cannot start. The product version and release build number are displayed separately. Automatic
