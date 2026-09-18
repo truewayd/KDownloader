@@ -22,12 +22,6 @@ const maxBatchRequestBytes = 64 * 1024
 const maxBatchTaskIDs = 1000
 const maxBrowserIntegrationItems = 256
 const maxApplicationLogResponseBytes = 256 * 1024
-const SessionCookieName = "truedown_session"
-
-// SessionCookieValue encodes the header-safe token into a cookie-safe value.
-func SessionCookieValue(token string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(token))
-}
 
 type TokenAuth interface {
 	Snapshot() (enabled bool, token string, managed bool)
@@ -224,7 +218,6 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			if enabled {
 				response.Token = token
 			}
-			setAuthSessionCookie(w, r, enabled, token)
 			writeJSON(w, http.StatusOK, response)
 		default:
 			w.Header().Set("Allow", "GET, POST")
@@ -932,22 +925,6 @@ func writeModuleAddResponse(w http.ResponseWriter, result downloader.ModuleAddRe
 		return
 	}
 	w.Write([]byte("OK " + strconv.FormatInt(task.ID, 10)))
-}
-
-func setAuthSessionCookie(w http.ResponseWriter, r *http.Request, enabled bool, token string) {
-	cookie := &http.Cookie{
-		Name:     SessionCookieName,
-		Value:    SessionCookieValue(token),
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteStrictMode,
-	}
-	if !enabled {
-		cookie.Value = ""
-		cookie.MaxAge = -1
-	}
-	http.SetCookie(w, cookie)
 }
 
 func decodeJSONRequest(w http.ResponseWriter, r *http.Request, maxBytes int64, target any) bool {

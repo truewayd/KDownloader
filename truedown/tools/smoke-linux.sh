@@ -73,6 +73,9 @@ curl -fsS "http://127.0.0.1:$port/tasks?limit=1" >"$probe_root/tasks.json"
 curl -fsS "http://127.0.0.1:$port/system/info" >"$probe_root/info.json"
 grep -q '"product":"TrueDown"' "$probe_root/info.json"
 grep -q '"protocolVersion":1' "$probe_root/info.json"
+for resource in / /index.html /app.js /api.js /styles.css /icons.svg; do
+  [[ $(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:$port$resource") == 404 ]]
+done
 
 started=$(date +%s%N)
 TRUEDOWN_DATA_DIR="$probe_root" \
@@ -99,7 +102,7 @@ if kill -0 "$aria_pid" 2>/dev/null; then
   echo "aria2 child remained alive after TrueDown shutdown" >&2
   exit 1
 fi
-grep -q "dashboard: exit requested" "$probe_root/logs/truedown.log"
+grep -q "API: exit requested" "$probe_root/logs/truedown.log"
 grep -q "TrueDown stopped cleanly" "$probe_root/logs/truedown.log"
 
-printf 'ping=pong sqlite=ok tasks=ok single_instance_ms=%s aria2_reaped=ok dashboard_exit=clean\n' "$elapsed_ms"
+printf 'ping=pong sqlite=ok tasks=ok single_instance_ms=%s aria2_reaped=ok api_exit=clean\n' "$elapsed_ms"

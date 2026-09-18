@@ -52,5 +52,5 @@ const launchUsage = `truedown-core [serve] [--data-dir PATH]
 
 Open TrueDown for the native desktop interface, or use truedown-cli --help
 to manage downloads from the command line. Both share this service and database.
-The default endpoint is http://127.0.0.1:15151.
+The default API endpoint is http://127.0.0.1:15151; it does not serve a webpage.
 `

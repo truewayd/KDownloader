@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"net/http"
@@ -81,8 +82,8 @@ func TestValidateListenAddressRequiresExplicitRemoteOptIn(t *testing.T) {
 	}
 }
 
-func TestBrowserURLUsesTLSWhenConfigured(t *testing.T) {
-	if got := browserURLForAddress("192.0.2.10:15151", true); got != "https://192.0.2.10:15151" {
+func TestAPIURLUsesTLSWhenConfigured(t *testing.T) {
+	if got := apiURLForAddress("192.0.2.10:15151", true); got != "https://192.0.2.10:15151" {
 		t.Fatalf("TLS browser URL=%q", got)
 	}
 }
@@ -156,88 +157,63 @@ func TestSecureHandlerRequiresExactWriteOrigin(t *testing.T) {
 	}
 }
 
-func TestSecureHandlerRequiresTokenAndIssuesDashboardSession(t *testing.T) {
+func TestSecureHandlerRequiresHeaderAndRejectsLegacySession(t *testing.T) {
 	token := strings.Repeat("x", 30) + ";,"
 	handler := secureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}), testAuthState(token), "127.0.0.1:15151")
-
-	unauthorized := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/tasks?limit=10", nil)
-	unauthorizedResponse := httptest.NewRecorder()
-	handler.ServeHTTP(unauthorizedResponse, unauthorized)
-	if unauthorizedResponse.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthorized status=%d", unauthorizedResponse.Code)
-	}
-
-	dashboard := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/", nil)
-	dashboard.Header.Set("Sec-Fetch-Mode", "navigate")
-	dashboardResponse := httptest.NewRecorder()
-	handler.ServeHTTP(dashboardResponse, dashboard)
-	if dashboardResponse.Code != http.StatusNoContent {
-		t.Fatalf("dashboard status=%d", dashboardResponse.Code)
-	}
-	if dashboardResponse.Header().Get("Cache-Control") != "no-store" {
-		t.Fatal("authenticated dashboard navigation can be served from stale cache")
-	}
-	result := dashboardResponse.Result()
-	if len(result.Cookies()) != 1 || result.Cookies()[0].Name != apiSessionCookie || !result.Cookies()[0].HttpOnly {
-		t.Fatalf("dashboard cookies=%+v", result.Cookies())
-	}
-	if result.Cookies()[0].Value != apiSessionCookieValue(token) || result.Cookies()[0].Value == token {
-		t.Fatalf("dashboard token was not encoded into a cookie-safe value: %q", result.Cookies()[0].Value)
-	}
-	crossSiteNavigation := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/", nil)
-	crossSiteNavigation.Header.Set("Sec-Fetch-Mode", "navigate")
-	crossSiteNavigation.Header.Set("Sec-Fetch-Site", "cross-site")
-	crossSiteResponse := httptest.NewRecorder()
-	handler.ServeHTTP(crossSiteResponse, crossSiteNavigation)
-	if len(crossSiteResponse.Result().Cookies()) != 0 {
-		t.Fatalf("cross-site navigation received session cookies: %+v", crossSiteResponse.Result().Cookies())
-	}
-
-	authorized := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/tasks?limit=10", nil)
-	authorized.AddCookie(result.Cookies()[0])
-	authorizedResponse := httptest.NewRecorder()
-	handler.ServeHTTP(authorizedResponse, authorized)
-	if authorizedResponse.Code != http.StatusNoContent {
-		t.Fatalf("cookie-authorized status=%d", authorizedResponse.Code)
-	}
-	staleHeader := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/tasks?limit=10", nil)
-	staleHeader.Header.Set("X-Api-Key", strings.Repeat("z", 32))
-	staleHeader.AddCookie(result.Cookies()[0])
-	staleHeaderResponse := httptest.NewRecorder()
-	handler.ServeHTTP(staleHeaderResponse, staleHeader)
-	if staleHeaderResponse.Code != http.StatusNoContent {
-		t.Fatalf("fresh dashboard cookie did not override stale session header: status=%d", staleHeaderResponse.Code)
-	}
-	headerAuthorized := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/tasks?limit=10", nil)
-	headerAuthorized.Header.Set("X-Api-Key", token)
-	headerResponse := httptest.NewRecorder()
-	handler.ServeHTTP(headerResponse, headerAuthorized)
-	if headerResponse.Code != http.StatusNoContent {
-		t.Fatalf("printable-ASCII header-authorized status=%d", headerResponse.Code)
-	}
-	paddedHeader := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/tasks?limit=10", nil)
-	paddedHeader.Header.Set("X-Api-Key", " "+token+" ")
-	paddedResponse := httptest.NewRecorder()
-	handler.ServeHTTP(paddedResponse, paddedHeader)
-	if paddedResponse.Code != http.StatusUnauthorized {
-		t.Fatalf("padded API Key header status=%d", paddedResponse.Code)
-	}
-
-	remoteHandler := secureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}), testAuthState(token), "192.0.2.10:15151")
-	remoteDashboard := httptest.NewRequest(http.MethodGet, "https://192.0.2.10:15151/", nil)
-	remoteDashboard.Header.Set("Sec-Fetch-Mode", "navigate")
-	remoteResponse := httptest.NewRecorder()
-	remoteHandler.ServeHTTP(remoteResponse, remoteDashboard)
-	if len(remoteResponse.Result().Cookies()) != 0 {
-		t.Fatalf("remote dashboard received an automatic API session: %+v", remoteResponse.Result().Cookies())
+	for _, tc := range []struct {
+		name   string
+		header string
+		cookie string
+		status int
+	}{
+		{"missing", "", "", http.StatusUnauthorized},
+		{"legacy cookie", "", base64.RawURLEncoding.EncodeToString([]byte(token)), http.StatusUnauthorized},
+		{"stale header with legacy cookie", strings.Repeat("z", 32), base64.RawURLEncoding.EncodeToString([]byte(token)), http.StatusUnauthorized},
+		{"valid header", token, "", http.StatusNoContent},
+		{"padded header", " " + token + " ", "", http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/tasks?limit=10", nil)
+			if tc.header != "" {
+				request.Header.Set("X-Api-Key", tc.header)
+			}
+			if tc.cookie != "" {
+				request.AddCookie(&http.Cookie{Name: "truedown_session", Value: tc.cookie})
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != tc.status {
+				t.Fatalf("status=%d, want %d", response.Code, tc.status)
+			}
+			if len(response.Result().Cookies()) != 0 {
+				t.Fatal("API issued a browser session")
+			}
+		})
 	}
 }
 
-func TestAuthSettingsCookieAuthenticatesPrintableASCIIToken(t *testing.T) {
+func TestRemovedWebResourcesDoNotIssueSessions(t *testing.T) {
+	for _, address := range []string{"127.0.0.1:15151", "192.0.2.10:15151"} {
+		for _, token := range []string{"", strings.Repeat("t", 32)} {
+			handler := secureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Fatal("web resource reached the API handler")
+			}), testAuthState(token), address)
+			for _, path := range []string{"/", "/index.html", "/app.js", "/api.js", "/styles.css", "/icons.svg"} {
+				request := httptest.NewRequest(http.MethodGet, "http://"+address+path, nil)
+				request.Header.Set("Sec-Fetch-Mode", "navigate")
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
+				if response.Code != http.StatusNotFound || len(response.Result().Cookies()) != 0 {
+					t.Fatalf("%s%s: status=%d cookies=%v", address, path, response.Code, response.Result().Cookies())
+				}
+			}
+		}
+	}
+}
+
+func TestAuthSettingsReturnsKeyWithoutBrowserSession(t *testing.T) {
 	root := t.TempDir()
 	manager, err := downloader.NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
 	if err != nil {
@@ -260,17 +236,16 @@ func TestAuthSettingsCookieAuthenticatesPrintableASCIIToken(t *testing.T) {
 	if enableResponse.Code != http.StatusOK {
 		t.Fatalf("enable auth status=%d body=%s", enableResponse.Code, enableResponse.Body.String())
 	}
-	cookies := enableResponse.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Value != api.SessionCookieValue(token) || cookies[0].Value == token {
-		t.Fatalf("enable auth cookies=%+v", cookies)
+	if len(enableResponse.Result().Cookies()) != 0 {
+		t.Fatal("enabling authentication issued a browser session")
 	}
 
 	tasks := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/tasks?limit=1", nil)
-	tasks.AddCookie(cookies[0])
+	tasks.Header.Set("X-Api-Key", token)
 	tasksResponse := httptest.NewRecorder()
 	handler.ServeHTTP(tasksResponse, tasks)
 	if tasksResponse.Code != http.StatusOK {
-		t.Fatalf("cookie-authenticated tasks status=%d body=%s", tasksResponse.Code, tasksResponse.Body.String())
+		t.Fatalf("header-authenticated tasks status=%d body=%s", tasksResponse.Code, tasksResponse.Body.String())
 	}
 }
 

@@ -26,7 +26,6 @@ import (
 	"truedown/internal/protocol"
 	"truedown/internal/safefile"
 	"truedown/internal/systemupdate"
-	"truedown/web"
 )
 
 // exeDir returns the directory that contains the running executable so
@@ -99,7 +98,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 			if err != nil {
 				return err
 			}
-			return options.desktop.attach(browserURLForAddress(addr, tlsEnabled), location)
+			return options.desktop.attach(apiURLForAddress(addr, tlsEnabled), location)
 		}
 		return nil
 	}
@@ -222,7 +221,6 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 			default:
 			}
 		})
-		mux.Handle("/", http.FileServer(http.FS(web.Assets)))
 		return mux
 	}
 	activeSpec := updates.ActiveEngine()
@@ -253,9 +251,9 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 
 	log.Printf("TrueDown listening on %s", addr)
 	if tokenPath := auth.TokenPath(); tokenPath != "" && authEnabled {
-		log.Printf("TrueDown API Key is available from the dashboard and stored in %s", tokenPath)
+		log.Printf("TrueDown API Key is available from desktop settings and stored in %s", tokenPath)
 	} else if !authEnabled {
-		log.Printf("API Key authentication is disabled; enable it from the dashboard when needed")
+		log.Printf("API Key authentication is disabled; enable it from desktop settings or TRUEDOWN_REQUIRE_TOKEN=1 when needed")
 	}
 	server := &http.Server{
 		Addr:              addr,
@@ -335,7 +333,7 @@ waitForExit:
 		case <-ctx.Done():
 			break waitForExit
 		case <-lifecycleExit:
-			log.Printf("dashboard: exit requested")
+			log.Printf("API: exit requested")
 			break waitForExit
 		case <-restart:
 			break waitForExit
@@ -403,7 +401,7 @@ func validateListenAddress(value string, allowRemote bool, tlsEnabled ...bool) (
 	return addr, nil
 }
 
-func browserURLForAddress(addr string, tlsEnabled ...bool) string {
+func apiURLForAddress(addr string, tlsEnabled ...bool) string {
 	scheme := "http"
 	if len(tlsEnabled) > 0 && tlsEnabled[0] {
 		scheme = "https"
@@ -419,7 +417,6 @@ func browserURLForAddress(addr string, tlsEnabled ...bool) string {
 	return scheme + "://" + net.JoinHostPort(plainHost, port)
 }
 
-const apiSessionCookie = api.SessionCookieName
 const maxAPITokenFileBytes int64 = 258
 
 type authState interface {
@@ -437,22 +434,12 @@ func secureHandler(next http.Handler, auth authState, listenAddresses ...string)
 			http.Error(w, "unrecognized request host", http.StatusForbidden)
 			return
 		}
+		if !isAPIPath(r.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
 		authEnabled, apiToken, _ := auth.Snapshot()
-		isDashboard := (r.URL.Path == "/" || r.URL.Path == "/index.html") && r.Method == http.MethodGet
-		if authEnabled && isDashboard {
-			w.Header().Set("Cache-Control", "no-store")
-		}
-		if authEnabled && isDashboard && isDashboardNavigation(r) && loopbackListener(listenAddresses) {
-			http.SetCookie(w, &http.Cookie{
-				Name:     apiSessionCookie,
-				Value:    apiSessionCookieValue(apiToken),
-				Path:     "/",
-				HttpOnly: true,
-				Secure:   r.TLS != nil,
-				SameSite: http.SameSiteStrictMode,
-			})
-		}
-		if authEnabled && isAPIPath(r.URL.Path) {
+		if authEnabled {
 			w.Header().Set("Cache-Control", "no-store")
 			if !authorizedAPIRequest(r, apiToken) {
 				http.Error(w, "TrueDown API Key is required", http.StatusUnauthorized)
@@ -488,18 +475,6 @@ func loopbackListener(listenAddresses []string) bool {
 	return true
 }
 
-func isDashboardNavigation(r *http.Request) bool {
-	if strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Mode")), "navigate") {
-		fetchSite := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")))
-		return fetchSite == "" || fetchSite == "none" || fetchSite == "same-origin"
-	}
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin == "" {
-		return r.Header.Get("Sec-Fetch-Mode") == ""
-	}
-	return sameRequestOrigin(r, origin)
-}
-
 func isAPIPath(path string) bool {
 	return path == "/ping" || path == "/add" || path == "/start-headless-download" || path == "/start-bt-download" ||
 		path == "/tasks" || path == "/modules" || strings.HasPrefix(path, "/modules/") || strings.HasPrefix(path, "/settings/") ||
@@ -509,18 +484,7 @@ func isAPIPath(path string) bool {
 
 func authorizedAPIRequest(r *http.Request, expected string) bool {
 	provided := r.Header.Get("X-Api-Key")
-	if provided != "" && constantTimeStringEqual(provided, expected) {
-		return true
-	}
-	cookie, err := r.Cookie(apiSessionCookie)
-	if err != nil {
-		return false
-	}
-	return constantTimeStringEqual(cookie.Value, apiSessionCookieValue(expected))
-}
-
-func apiSessionCookieValue(token string) string {
-	return api.SessionCookieValue(token)
+	return provided != "" && constantTimeStringEqual(provided, expected)
 }
 
 func constantTimeStringEqual(provided, expected string) bool {

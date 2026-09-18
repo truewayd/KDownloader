@@ -333,7 +333,7 @@ func TestTokenEndpointDoesNotCacheSecret(t *testing.T) {
 	}
 }
 
-func TestAuthSettingsToggleReturnsSessionWithoutBreakingDashboardRequests(t *testing.T) {
+func TestAuthSettingsToggleReturnsKeyWithoutBrowserSession(t *testing.T) {
 	root := t.TempDir()
 	manager, err := downloader.NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
 	if err != nil {
@@ -359,8 +359,7 @@ func TestAuthSettingsToggleReturnsSessionWithoutBreakingDashboardRequests(t *tes
 		t.Fatalf("enable status=%d auth=%+v body=%s", enableResponse.Code, auth, enableResponse.Body.String())
 	}
 	cookies := enableResponse.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != SessionCookieName || cookies[0].Value != SessionCookieValue(auth.token) ||
-		cookies[0].Value == auth.token || !cookies[0].HttpOnly {
+	if len(cookies) != 0 {
 		t.Fatalf("enable cookies=%+v", cookies)
 	}
 
@@ -372,7 +371,7 @@ func TestAuthSettingsToggleReturnsSessionWithoutBreakingDashboardRequests(t *tes
 		t.Fatalf("disable status=%d auth=%+v body=%s", disableResponse.Code, auth, disableResponse.Body.String())
 	}
 	disableCookies := disableResponse.Result().Cookies()
-	if len(disableCookies) != 1 || disableCookies[0].Name != SessionCookieName || disableCookies[0].MaxAge >= 0 {
+	if len(disableCookies) != 0 {
 		t.Fatalf("disable cookies=%+v", disableCookies)
 	}
 }
