@@ -1,5 +1,6 @@
 // Audit regressions use the real dashboard DOM and an isolated HTTP fixture.
 import assert from "node:assert/strict";
+import { readUIFixtureAsset } from "./ui-fixture-assets.mjs";
 import { promises as fs } from "node:fs";
 import http from "node:http";
 import { chromium } from "playwright";
@@ -37,7 +38,7 @@ const server = http.createServer(async (request, response) => {
   if (!/^[a-z0-9-]+\.(html|js|css|svg)$/.test(name)) { response.writeHead(404).end(); return; }
   try {
     response.setHeader("Content-Type", `${{ html: "text/html", js: "text/javascript", css: "text/css", svg: "image/svg+xml" }[name.split(".").at(-1)]}; charset=utf-8`);
-    response.end(await fs.readFile(new URL(name, assets)));
+    response.end(await readUIFixtureAsset(name, assets));
   } catch { response.writeHead(404).end(); }
 });
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));

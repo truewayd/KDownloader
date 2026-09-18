@@ -1142,9 +1142,6 @@ async function updateAuthSettings() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: requested }),
     });
-    if (settings.enabled && settings.token) rememberSessionToken(settings.token);
-    if (!settings.enabled) clearSessionToken();
-    apiTokenPromptDismissed = false;
     applyAuthSettings(settings);
     showToast(settings.enabled ? "API Key 认证已启用，当前页面连接保持有效。" : "API Key 认证已关闭。");
     await loadTasks({ force: true });
@@ -1165,19 +1162,8 @@ async function updateAuthSettings() {
 async function copyAPIToken() {
   KDComponents.setBusyState(els.copyApiTokenBtn, true);
   try {
-    if (window.__TAURI__?.core?.invoke) {
-      const copied = await invokeNative("copy_api_token");
-      showToast(copied ? "API Key 已复制，请粘贴到浏览器扩展设置。" : "API Key 认证当前未启用。");
-      return;
-    }
-    const response = await requestJSON("/auth/token");
-    if (!response.enabled) {
-      showToast("API Key 认证当前未启用；浏览器集成可将 API Key 留空。");
-      return;
-    }
-    if (!response.token) throw new Error("API Key 不可用");
-    await writeClipboard(response.token);
-    showToast("TrueDown API Key 已复制，请粘贴到需要连接的浏览器扩展设置页。");
+    const copied = await invokeNative("copy_api_token");
+    showToast(copied ? "API Key 已复制，请粘贴到浏览器扩展设置。" : "API Key 认证当前未启用。");
   } catch (error) {
     showToast(`复制 API Key 失败：${error.message}`, "error");
   } finally {

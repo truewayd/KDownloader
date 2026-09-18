@@ -1,6 +1,7 @@
 // Layout and keyboard acceptance against real Chromium. The native bridge is
 // stubbed so this check never starts an engine or writes a user's profile.
 import assert from "node:assert/strict";
+import { readUIFixtureAsset } from "./ui-fixture-assets.mjs";
 import { promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -14,7 +15,7 @@ const server = http.createServer(async (request, response) => {
   try {
     const types = { html: "text/html", js: "text/javascript", css: "text/css", svg: "image/svg+xml" };
     response.setHeader("Content-Type", `${types[name.split(".").at(-1)]}; charset=utf-8`);
-    response.end(await fs.readFile(new URL(name, assets)));
+    response.end(await readUIFixtureAsset(name, assets));
   } catch { response.writeHead(404).end(); }
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

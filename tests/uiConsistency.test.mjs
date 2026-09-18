@@ -625,7 +625,7 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownApp, /data-select-page/);
   assert.match(trueDownApp, /JSON\.stringify\(\{ action, ids \}\)/);
   assert.match(trueDownApp, /result\.remaining/);
-  assert.match(trueDownApp, /sessionStorage/);
+  assert.doesNotMatch(trueDownApp, /sessionStorage|rememberSessionToken|fetchWithAPIToken/);
   assert.match(trueDownApp, /params\.set\("search", currentSearch\)/);
   assert.match(trueDownApp, /data-sort-field/);
   assert.match(trueDownApp, /aria-sort/);

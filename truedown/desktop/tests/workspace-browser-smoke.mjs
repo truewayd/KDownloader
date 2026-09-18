@@ -1,5 +1,6 @@
 // Real browser acceptance with local task responses; never starts an engine.
 import assert from "node:assert/strict";
+import { readUIFixtureAsset } from "./ui-fixture-assets.mjs";
 import { promises as fs } from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -38,7 +39,7 @@ const server = http.createServer(async (request, response) => {
   try {
     const type = { html: "text/html", js: "text/javascript", css: "text/css", svg: "image/svg+xml" }[name.split(".").at(-1)];
     response.setHeader("Content-Type", `${type}; charset=utf-8`);
-    response.end(await fs.readFile(new URL(name, assets)));
+    response.end(await readUIFixtureAsset(name, assets));
   } catch { response.writeHead(404).end(); }
 });
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));

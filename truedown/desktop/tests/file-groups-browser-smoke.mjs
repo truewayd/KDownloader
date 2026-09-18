@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readUIFixtureAsset } from "./ui-fixture-assets.mjs";
 import { promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -56,7 +57,7 @@ const server = http.createServer(async (request, response) => {
   if (!/^[a-z0-9-]+\.(html|js|css|svg)$/.test(name)) { response.writeHead(404).end(); return; }
   try {
     const mime = { html: "text/html", js: "text/javascript", css: "text/css", svg: "image/svg+xml" }[name.split(".").at(-1)];
-    response.setHeader("Content-Type", `${mime}; charset=utf-8`); response.end(await fs.readFile(new URL(name, assets)));
+    response.setHeader("Content-Type", `${mime}; charset=utf-8`); response.end(await readUIFixtureAsset(name, assets));
   } catch { response.writeHead(404).end(); }
 });
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -79,7 +80,9 @@ try {
       await page.locator('[data-action="details"][data-id="7"]').click();
       await page.waitForFunction(() => currentPage === "task" && taskDetailData?.id === 7 && document.querySelector("#task-detail-title").textContent === "Cover.PSD");
       if (!cached) await page.evaluate(() => pageETags.clear());
+      const returnedTasks = page.waitForResponse(response => new URL(response.url()).pathname === "/tasks");
       await page.locator("#task-detail-back").click();
+      await returnedTasks;
       await page.waitForFunction(() => document.activeElement?.dataset.action === "details" && document.activeElement.dataset.id === "7");
       if (cached) assert.ok(taskNotModified > previousNotModified, "returning uses the retained task page validator");
     }

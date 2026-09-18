@@ -4,7 +4,6 @@ const PAGE_SIZE = 100;
 const MAX_SELECTED_TASKS = 1000;
 const MAX_PAGE_ETAGS = 128;
 const LEGACY_THEME_KEY = "truedown-theme";
-const API_TOKEN_SESSION_KEY = "truedown-api-token";
 const DOWNLOAD_DEFAULTS_KEY = "truedown-download-defaults-v1";
 const MAX_SPEED_BPS = 2 ** 50;
 const DEFAULT_EXCLUDED_EXTENSIONS = Object.freeze([
@@ -96,8 +95,6 @@ let taskRefreshRequested = false;
 let renderedTaskPageURL = "";
 let lastTaskRenderSignature = "";
 let modalReturnFocus = null;
-let apiToken = readSessionToken();
-let apiTokenPromptDismissed = false;
 let tokenAuthEnabled = false;
 let tokenAuthManaged = false;
 let downloadSettings = loadDownloadSettings();
@@ -114,7 +111,6 @@ let dialogReturnFocus = null;
 let dialogResolver = null;
 let dialogHasInput = false;
 let dialogValidator = null;
-let apiTokenRequestPromise = null;
 
 document.addEventListener("DOMContentLoaded", async () => {
   cacheElements();
