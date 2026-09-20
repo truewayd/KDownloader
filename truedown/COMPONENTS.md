@@ -1,5 +1,11 @@
 # TrueDown components
 
+In TrueDown 2.0.0, the HTTP listener is an API-only service for the CLI and
+integrations. It serves no webpage or frontend assets and accepts no browser
+session cookies. Use the [native desktop application](desktop/README.md) for
+the graphical interface; its bundled windows communicate with the core through
+private native IPC.
+
 Dropbox and Google Drive each have two layers:
 
 - A compiled resolver engine owns parsing, task creation, trusted-host checks,
@@ -16,7 +22,8 @@ The baseline packages in `internal/downloader/module_baselines/` are embedded in
 the TrueDown core binary. They are always available, including when a user update is
 missing, corrupt, incompatible, or older than the embedded baseline.
 
-The dashboard's resolver-component cards support three separate actions:
+In the native desktop application, open **Settings > Engine and modules**.
+The resolver-component cards support three separate actions:
 
 - **Enable / Disable** changes whether the resolver claims new links. It does
   not delete a component version or affect existing module-tagged tasks.
@@ -94,14 +101,16 @@ response or traversal protections, introduce aria2 arguments, or run code.
   Windows tray and Unix signals.
 
 The endpoints use the same origin and `X-Api-Key` protection as other TrueDown
-write APIs.
+write APIs. When API authentication is enabled, HTTP clients send `X-Api-Key`;
+the native desktop interface uses its private IPC connection instead of browser
+login sessions.
 
 ## Tracker traffic research module
 
 The experimental tracker-research module is compiled into TrueDown but is off
 by default. It reproduces RatioGhost's announce-counter model for controlled
 traffic studies without changing the aria2-next source tree. Enabling it is a
-separate dashboard action that requires an explicit risk acknowledgement and a
+separate action in native **Settings > Experimental** that requires an explicit risk acknowledgement and a
 running Aria2 Next build exposing `aria2.replaceBtTrackers`.
 
 When enabled, TrueDown reads each BitTorrent task's tiered announce list from
@@ -110,7 +119,7 @@ automatically allocated `127.0.0.1` relay, and leaves UDP and unknown tracker
 schemes unchanged. The relay accepts GETs only for generated tracker tokens and
 queries containing `info_hash`; it is not a general HTTP proxy. Original
 tracker URLs are persisted with owner-only permissions so they can be restored
-after a restart or when the module is disabled. API and dashboard status never
+after a restart or when the module is disabled. API and native desktop status never
 return tracker URLs, passkeys, info hashes, or relay tokens.
 
 The relay terminates no client TLS connection. For an HTTPS tracker it makes a
@@ -124,7 +133,7 @@ counter suppression, and seed simulation. Seed simulation implies download
 counter suppression. The leecher count comes from the previous bencoded tracker
 response's `incomplete` value, matching RatioGhost's announce/response order.
 Settings and restorable tracker lists live in
-`<data-dir>/truedown.tracker-research.json`; risk acknowledgement is not stored.
+`<profile state role>/truedown.tracker-research.json`; risk acknowledgement is not stored.
 The module has no independent updater and follows the TrueDown release lifecycle.
 
 - `GET /settings/tracker-research` returns saved settings, fixed transport and
@@ -135,7 +144,7 @@ The module has no independent updater and follows the TrueDown release lifecycle
 ## BitTorrent import, layout, and resume
 
 BitTorrent task creation is available only while the selected engine is Aria2
-Next. The new-task dialog accepts a local `.torrent` file of at most 4 MiB, a
+Next. The native new-task window accepts a local `.torrent` file of at most 4 MiB, a
 magnet link, or an HTTP(S) torrent link. Imported metainfo is strictly bounded
 and bencode-validated before it is persisted in the task identity, allowing the
 same metainfo to be submitted again after a TrueDown restart. The task-list API
@@ -148,7 +157,7 @@ multi-file torrent retains its metainfo root and creates the torrent-named
 directory. This is the mandatory smart-folder mode and is not exposed as a
 second folder toggle.
 
-Aria2 Next runs with a private `<data-dir>/aria2-next-state` fast-resume store,
+Aria2 Next runs with a private `<profile state role>/aria2-next-state` fast-resume store,
 startup integrity checking, and a one-second BT resume-save interval. On
 restart, TrueDown first attaches to an existing native torrent with the saved
 GID; otherwise it resubmits the durable magnet, torrent URL, or imported
@@ -169,13 +178,14 @@ TrueDown requests native peer, seeder, connection-candidate, tracker-count, and
 availability fields in its bounded status poll and includes them in BT task
 progress, making a zero transfer rate distinguishable from missing metadata or
 peer discovery. Aria2 Next v2.6.5 and newer also writes its redacted native
-libtorrent diagnostics to rotating `<data-dir>/aria2.log` files at debug level
+libtorrent diagnostics to rotating `<profile logs role>/aria2.log` files at debug level
 (10 MiB each, four files); its warning console stream is kept separately in
-`aria2-console.log`. Older engines retain the summarized console log.
+`<profile logs role>/aria2-console.log`. Open native **Settings > Logs** to
+inspect logs. Older engines retain the summarized console log.
 
 When Aria2 Next reports `The requested byte range is no longer satisfiable`,
 the remote HTTP object no longer matches the saved resume position. This exact
-retry path is marked as destructive in the dashboard: after confirmation it
+retry path is marked as destructive in the native task list: after confirmation it
 removes only the task's validated direct-child partial file and recovery
 sidecar, then submits the task from byte zero. Deleting the file also causes
 Aria2 Next to drop its path-keyed native stream state during fresh admission.
@@ -188,50 +198,73 @@ Other failures keep their resumable data.
 
 ## Program and download-engine updates
 
-TrueDown treats its own executable and its download engine as separate update
-domains:
+Open native **Settings > Engine and modules** to manage program and engine
+updates. TrueDown treats its native application package and its download engine
+as separate update domains:
 
 - Every Windows package contains the reviewed stable `aria2c.exe`. A program
-  update replaces only `TrueDown.exe`; it never replaces the packaged stable
+  update replaces `TrueDown.exe`, the matching `truedown-core.exe` and
+  `truedown-cli.exe`, and their notices together; it never replaces the packaged stable
   engine, a manually installed NEXT engine, the database, or other data files.
 - Linux and macOS resolve stable aria2 from their package, an explicit
   `TRUEDOWN_ARIA2_PATH`, the system `PATH`, or standard Homebrew locations.
   Aria2 Next and program self-update remain Windows-only.
-- Aria2 Next is optional and manual-only. The dashboard downloads the exact
+- Aria2 Next is optional and must first be installed and selected explicitly.
+  TrueDown downloads the exact
   Windows asset and checksum list from the latest stable
   `AnInsomniacy/aria2-next` GitHub Release, verifies SHA-256 and the executable's
-  reported NEXT version, then stores it under `<data-dir>/engines/`. Installing
+  reported NEXT version, then stores it under `<profile data role>/engines/`. Installing
   or updating NEXT never changes the engine preference. The user separately
-  selects NEXT or the built-in stable engine. TrueDown drains active dashboard
+  selects NEXT or the built-in stable engine. TrueDown drains active manager
   requests, gracefully stops the old downloader manager, starts the verified
   target, and restores unfinished tasks from the durable database while the
   HTTP listener remains available. A failed target startup restores the prior
   engine. Unexpected engine exits retry the active engine three times before a
   bounded TrueDown self-reload. Stable selection is rejected while unfinished
   BitTorrent tasks exist.
+- A separate automatic-update preference checks newer stable versions of an
+  already installed NEXT engine. New profiles enable this preference; existing
+  profiles retain manual updates. Verified updates switch an active NEXT engine
+  only while idle and retain the previous working engine for recovery.
 - TrueDown releases include `truedown-update-<build>.json`. The running program
   considers only non-prerelease `truewayd/KDownloader` releases whose tag,
   archive, and manifest names match the build number. The manifest binds the
-  archive name, byte size, and SHA-256 digest before `TrueDown.exe` is extracted
-  into `<data-dir>/updates/`.
-- Applying a staged program update uses a copy of the running executable as an
-  external helper. It waits for TrueDown and aria2 to stop, keeps
-  `TrueDown.exe.previous`, starts the replacement, and waits for a per-update
-  health token. A failed startup restores and relaunches the previous version.
+  archive name, byte size, and SHA-256 digest. The schema-2 native manifest also
+  binds the complete interface/core/CLI set and notices before staging them
+  under `<profile state role>/updates/`.
+- Applying a staged program update uses an external helper. It waits for
+  TrueDown and aria2 to stop, retains the previous file set, starts the
+  replacement, and waits for a per-update native frontend health acknowledgment.
+  A failed startup restores and relaunches the complete previous version.
+
+Program and NEXT assets appear as tasks in the native task list, with normal
+pause, resume, and removal controls. Verification still completes before
+installation. Restart failed or interrupted attempts from the update controls;
+retrying an old download task alone does not apply an update.
 
 The durable preferences and verified installed-file metadata live in
-`<data-dir>/truedown.updates.json`. Automatic TrueDown updates default to
+`<profile state role>/truedown.updates.json`. Automatic TrueDown updates default to
 enabled for numbered Windows release builds, check periodically, and apply only
 when there are no queued, downloading, or paused tasks. Development builds can
-display the controls but cannot self-update.
+display the controls but cannot self-update. A standalone `truedown-core`
+service cannot apply program updates, including previously staged ones; manual
+engine management remains available. To migrate an old browser-only Windows
+installation, exit it and extract a complete native package.
+
+Profile roles above are the paths reported by `truedown-cli --json paths`;
+`--data-dir` selects the profile root, not a flat directory for every file.
 
 Update endpoints use the same origin and `X-Api-Key` protection as the rest of
-the dashboard API:
+the HTTP API:
 
 - `GET /system/update` returns program and engine state.
-- `GET/POST /settings/updates` reads or changes TrueDown automatic updates.
+- `GET/POST /settings/updates` reads or changes program and NEXT automatic updates.
 - `POST /system/update/check` checks and stages a numbered TrueDown release.
 - `POST /system/update/restart` applies an already staged program update.
 - `POST /system/engine/next` manually installs or updates Aria2 Next.
 - `POST /system/engine/select` selects and asynchronously activates `stable` or
   an installed `next` engine.
+
+`POST /system/update/check` and `POST /system/engine/next` accept
+the `?background=true` query parameter to return HTTP 202 with a busy
+snapshot. Poll `GET /system/update` for completion.
