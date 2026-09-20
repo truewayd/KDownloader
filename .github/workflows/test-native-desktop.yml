@@ -85,6 +85,7 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           node tests/workspace-browser-smoke.mjs
+          node tests/context-menu-browser.mjs
           node tests/task-forms-browser-smoke.mjs
           node tests/file-groups-browser-smoke.mjs
           node tests/auxiliary-ui-browser.mjs

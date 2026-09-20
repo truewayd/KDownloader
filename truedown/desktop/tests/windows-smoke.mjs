@@ -301,8 +301,11 @@ try {
   ]) await assert.rejects(invoke(main, "core_request", { request }));
   assert.equal((await api(main, "GET", "/system/info")).product, "TrueDown", "Rejected requests must not disconnect the private pipe");
   assert.equal(await main.evaluate(() => window.__TRUEDOWN_PLATFORM__), "windows");
+  await assert.rejects(invoke(main, "show_context_menu", { request: { kind: "workspace", token: "hidden-test", actions: ["new-task"], x: 20, y: 20 } }), /suppressed during hidden acceptance/);
+  await assert.rejects(invoke(main, "show_context_menu", { request: { kind: "task", token: "invalid-test", actions: ["settings"], x: 20, y: 20 } }), /Invalid context menu action/);
   await main.locator('[data-route="settings"]').click();
   const settings = await waitUntil(() => context.pages().find(page => page.url().includes("window=settings")));
+  await assert.rejects(invoke(settings, "show_context_menu", { request: { kind: "task", token: "role-test", actions: ["pause"], x: 20, y: 20 } }), /Menu unavailable in this window/);
   await waitUntil(() => context.pages().length === 2);
   const storage = await api(main, "GET", "/system/storage");
   assert.equal(storage.layoutVersion, 1);
