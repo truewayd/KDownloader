@@ -5,6 +5,7 @@ mod bridge;
 mod build_info;
 mod commands;
 mod confirmations;
+mod context_menu;
 mod core;
 mod drops;
 mod frame;
@@ -142,6 +143,7 @@ fn main() {
             commands::take_dropped_torrent,
             commands::drop_download_links,
             commands::confirm_action,
+            commands::show_context_menu,
             windows::open_auxiliary,
             windows::close_auxiliary,
             windows::finish_task_window,
@@ -172,6 +174,7 @@ fn main() {
                 creation: Mutex::new(()),
                 storage: webview::Storage::new(&profile),
             });
+            context_menu::install(app.handle())?;
             for config in &app.config().app.windows {
                 let window = frame::configure(
                     app.state::<windows::Windows>()

@@ -9,6 +9,15 @@ use tauri::{Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 #[tauri::command]
+pub async fn show_context_menu(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    request: crate::context_menu::Request,
+) -> Result<(), String> {
+    crate::context_menu::show(app, window, request).await
+}
+
+#[tauri::command]
 pub async fn confirm_action(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,

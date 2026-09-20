@@ -98,6 +98,8 @@ Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps
 
 ## TrueDown Runtime
 
+- Content context menus use prebuilt Rust-owned native popup menus from `desktop/src/context_menu.rs`, requested through the bounded `commands::show_context_menu` IPC. Task/workspace menus are main-window-only; editing menus are available to the four existing roles. Do not grant WebViews direct menu mutation or clipboard reads. Native action events carry the originating request token, and the frontend revalidates the current row/action before using existing task handlers. Hidden acceptance suppresses menu display; title-strip system menus remain owned by the frame module.
+
 - Windows tray left press opens the main window, left double-click opens the singleton new-task form, and right-click shows the native menu. Do not handle the trailing left release by focusing main; it would steal focus from the new-task form. Other platforms retain their native menu behavior.
 
 - Desktop OS drops accept one regular `.torrent` file of at most 4 MiB, read only an OS-supplied path, and deliver its bounded contents to the singleton new-task form after initialization. Native file reads retain a concurrency slot through completion. HTTP(S)/Magnet drops use the same source validation and draft-replacement confirmation; dropping never starts a task automatically.
