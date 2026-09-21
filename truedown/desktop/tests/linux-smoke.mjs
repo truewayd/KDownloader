@@ -88,6 +88,8 @@ try {
   }
   assert.ok(settings && main);
   await command("POST", "/window", { handle: settings });
+  assert.deepEqual(await evaluate("return window.__TAURI__.core.invoke('tray_settings',{preferences:null})"), { singleSupported: false, doubleSupported: false, singleClick: "menu", doubleClick: "none" });
+  await assert.rejects(evaluate("return window.__TAURI__.core.invoke('tray_settings',{preferences:{singleClick:'main',doubleClick:'none'}})"));
   await evaluate("document.querySelector('[data-settings-link=general]').click(); return true");
   await until(() => evaluate("return !document.querySelector('[data-settings-page=general]').inert"));
   await evaluate("const control=document.querySelector('#cfg-conns');control.value='9';control.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#settings-save-btn').click();return true");

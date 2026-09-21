@@ -7,6 +7,21 @@ the authenticated HTTP API; bundled windows use a private inherited pipe.
 The HTTP listener serves no webpage or frontend assets and accepts no browser
 session cookies. The frontend is bundled only with Tauri.
 
+## Tray clicks
+
+Settings > Application and connections configures tray actions per platform.
+Windows supports independent left single-click and double-click actions. The
+single action waits for the system double-click interval and is canceled by a
+double click. macOS supports a left single-click action and defaults to opening
+the native menu; Tauri does not emit double-click events there. Linux's current
+AppIndicator backend emits neither click event, so it retains the native menu.
+Right-click opens the native menu on all three platforms.
+
+Actions are main window, new download, settings, or no action, with native menu
+also available for macOS single clicks. Rust stores the platform preferences
+independently in the profile's `config/truedown.tray.json` using atomic writes.
+Only the settings window can access the native `tray_settings` command.
+
 ## Development
 
 Install Node.js, Go, Rust and the platform's

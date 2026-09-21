@@ -122,6 +122,9 @@ impl Fixture {
                 "nativeTaskFormReady && !nativeTaskPreferences.pending && !document.querySelector('#download-form').inert"
             };
             self.until(label, ready)?;
+            if label == "settings" {
+                self.check(label, "(async()=>{const invoke=window.__TAURI__.core.invoke;const original=await invoke('tray_settings',{preferences:null});if(!original.singleSupported||original.doubleSupported||original.singleClick!=='menu')return false;const saved=await invoke('tray_settings',{preferences:{singleClick:'newTask',doubleClick:'none'}});if(saved.singleClick!=='newTask')return false;let rejected=false;try{await invoke('tray_settings',{preferences:{singleClick:'main',doubleClick:'newTask'}})}catch{rejected=true}const restored=await invoke('tray_settings',{preferences:{singleClick:'menu',doubleClick:'none'}});return rejected&&restored.singleClick==='menu'})()")?;
+            }
             self.check(
                 label,
                 "(()=>{window.__acceptanceDocument=true;return true})()",

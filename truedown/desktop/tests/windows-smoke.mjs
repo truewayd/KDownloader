@@ -305,6 +305,22 @@ try {
   await assert.rejects(invoke(main, "show_context_menu", { request: { kind: "task", token: "invalid-test", actions: ["settings"], x: 20, y: 20 } }), /Invalid context menu action/);
   await main.locator('[data-route="settings"]').click();
   const settings = await waitUntil(() => context.pages().find(page => page.url().includes("window=settings")));
+  await assert.rejects(invoke(main, "tray_settings", { preferences: null }), /only in settings/);
+  assert.deepEqual(await invoke(settings, "tray_settings", { preferences: null }), { singleSupported: true, doubleSupported: true, singleClick: "main", doubleClick: "newTask" });
+  await invoke(settings, "tray_settings", { preferences: { singleClick: "settings", doubleClick: "none" } });
+  await assert.rejects(invoke(settings, "tray_settings", { preferences: { singleClick: "menu", doubleClick: "none" } }), /Unsupported tray action/);
+  assert.equal((await invoke(settings, "tray_settings", { preferences: null })).singleClick, "settings");
+  const trayFile = path.join(profile, "config", "truedown.tray.json");
+  assert.equal(JSON.parse(await fs.readFile(trayFile, "utf8")).windows.singleClick, "settings");
+  await fs.rename(trayFile, `${trayFile}.fixture-backup`);
+  await fs.mkdir(trayFile);
+  try {
+    await assert.rejects(invoke(settings, "tray_settings", { preferences: { singleClick: "none", doubleClick: "main" } }));
+    assert.equal((await invoke(settings, "tray_settings", { preferences: null })).singleClick, "settings", "failed atomic persistence must retain the active action");
+  } finally {
+    await fs.rmdir(trayFile);
+    await fs.rename(`${trayFile}.fixture-backup`, trayFile);
+  }
   await assert.rejects(invoke(settings, "show_context_menu", { request: { kind: "task", token: "role-test", actions: ["pause"], x: 20, y: 20 } }), /Menu unavailable in this window/);
   await waitUntil(() => context.pages().length === 2);
   const storage = await api(main, "GET", "/system/storage");
