@@ -57,6 +57,7 @@ pub(crate) async fn command_output(
 pub struct Profile {
     pub data_directory: String,
     pub paths: Paths,
+    pub tray_settings_file: String,
     build: crate::build_info::Info,
 }
 
@@ -87,6 +88,7 @@ impl Profile {
         if !Path::new(&profile.data_directory).is_absolute()
             || !Path::new(&profile.paths.cache).is_absolute()
             || !Path::new(&profile.paths.state).is_absolute()
+            || !Path::new(&profile.tray_settings_file).is_absolute()
         {
             return Err("Profile path must be absolute".into());
         }

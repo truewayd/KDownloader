@@ -8,8 +8,27 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"truedown/internal/profile"
 	"truedown/internal/protocol"
 )
+
+func TestPathsReportsProfileOwnedTrayPreferences(t *testing.T) {
+	t.Setenv("TRUEDOWN_DATA_DIR", t.TempDir())
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"--json", "paths"}, &out, &stderr); code != 0 {
+		t.Fatal(code, stderr.String())
+	}
+	var got struct {
+		profile.Location
+		TraySettingsFile string `json:"traySettingsFile"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.TraySettingsFile != got.Paths.File(profile.TraySettings) {
+		t.Fatalf("tray preferences escaped profile configuration: %+v", got)
+	}
+}
 
 func TestCLIRequiresHandshakeBeforeMutation(t *testing.T) {
 	t.Setenv("TRUEDOWN_API_TOKEN", "")

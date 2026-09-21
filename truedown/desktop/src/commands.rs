@@ -8,6 +8,21 @@ use std::sync::{atomic::Ordering, Arc};
 use tauri::{Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
+// Keep native menu updates and tray callbacks on the UI thread. Writes are
+// bounded and atomic, and do not require a healthy core connection.
+#[tauri::command]
+pub fn tray_settings(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    preferences: Option<crate::tray_actions::Preferences>,
+) -> Result<crate::tray_actions::Snapshot, String> {
+    if window.label() != "settings" {
+        return Err("Tray settings are available only in settings".into());
+    }
+    app.state::<Arc<crate::tray_actions::TraySettings>>()
+        .update(&app, preferences)
+}
+
 #[tauri::command]
 pub async fn show_context_menu(
     app: tauri::AppHandle,

@@ -144,6 +144,7 @@ fn main() {
             commands::drop_download_links,
             commands::confirm_action,
             commands::show_context_menu,
+            commands::tray_settings,
             windows::open_auxiliary,
             windows::close_auxiliary,
             windows::finish_task_window,
@@ -165,6 +166,14 @@ fn main() {
                 data_dir.as_deref(),
             ))
             .map_err(std::io::Error::other)?;
+            let tray_settings = Arc::new(
+                tray_actions::TraySettings::load(std::path::PathBuf::from(
+                    &profile.tray_settings_file,
+                ))
+                .map_err(std::io::Error::other)?,
+            );
+            let menu_on_left_click = tray_settings.menu_on_left_click();
+            app.manage(tray_settings);
             app.manage(update::Health {
                 directory: std::path::PathBuf::from(&profile.paths.state).join("updates"),
             });
@@ -209,11 +218,11 @@ fn main() {
             // macOS renders an 18pt status item using its exact Retina raster.
             let icon =
                 tray_image::image_for_pixels(if cfg!(target_os = "macos") { 36 } else { 32 })?;
-            let tray = TrayIconBuilder::new()
+            let tray = TrayIconBuilder::with_id("main-tray")
                 .icon(icon)
                 .tooltip("TrueDown")
                 .menu(&menu)
-                .show_menu_on_left_click(!cfg!(windows))
+                .show_menu_on_left_click(menu_on_left_click)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => show_main(app),
                     "settings" | "logs" | "about" => {
@@ -238,20 +247,7 @@ fn main() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    match tray_actions::action(&event, cfg!(windows)) {
-                        Some(tray_actions::Action::Main) => show_main(tray.app_handle()),
-                        Some(tray_actions::Action::NewTask) => {
-                            let app = tray.app_handle().clone();
-                            tauri::async_runtime::spawn(async move {
-                                if let Err(error) =
-                                    windows::open_auxiliary(app, windows::Kind::NewTask).await
-                                {
-                                    eprintln!("Cannot open new task window: {error}");
-                                }
-                            });
-                        }
-                        None => {}
-                    }
+                    tray_actions::handle(tray.app_handle(), event);
                 })
                 .build(app)?;
             tray_image::track(tray);

@@ -110,8 +110,9 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		if jsonOutput {
 			_ = json.NewEncoder(stdout).Encode(struct {
 				profile.Location
-				Build protocol.Info `json:"build"`
-			}{location, buildinfo.Current()})
+				Build            protocol.Info `json:"build"`
+				TraySettingsFile string        `json:"traySettingsFile"`
+			}{location, buildinfo.Current(), location.Paths.File(profile.TraySettings)})
 		} else {
 			fmt.Fprintf(stdout, "Profile: %s\nSource: %s\nLayout: %d\nConfig: %s\nData: %s\nState: %s\nLogs: %s\nCache: %s\n", clean(location.DataDirectory), location.Source, location.LayoutVersion, clean(location.Paths.Config), clean(location.Paths.Data), clean(location.Paths.State), clean(location.Paths.Logs), clean(location.Paths.Cache))
 		}
