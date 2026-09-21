@@ -264,6 +264,7 @@ function bindEvents() {
   els.settingsForm.addEventListener("input", markSettingsDraft);
   els.settingsReloadBtn.addEventListener("click", () => loadSettingsPage(true));
   els.startupEnabled.addEventListener("change", updateStartupSettings);
+  document.getElementById("tray-save").addEventListener("click", saveTraySettings);
   els.trackerPretendSeed.addEventListener("change", syncTrackerSeedControls);
   els.modalCloseBtn.addEventListener("click", closeModal);
   els.modalCancelBtn.addEventListener("click", closeModal);

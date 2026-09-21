@@ -24,6 +24,7 @@ const settingReadRequests = new Map();
 const settingSnapshotsKnown = new Set();
 const pendingResolverModuleActions = new Set();
 let startupSettings = null;
+let traySettings = null, traySaving = false;
 let taskDefaultsRevision = 0;
 let taskDefaultsLoad = null;
 
@@ -105,7 +106,7 @@ async function loadSettingsPage(retry = false) {
         general: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings()]),
         files: () => Promise.all([loadServerTaskDefaults(), loadServerDownloadRules(), loadFileGroupsEditor()]),
         advanced: loadServerTaskDefaults,
-        application: () => Promise.all([loadStartupSettings(), loadStorageLocation(), loadAuthSettings()]),
+        application: () => Promise.all([loadStartupSettings(), loadTraySettings(), loadStorageLocation(), loadAuthSettings()]),
         engine: () => Promise.all([loadSystemUpdateState(), loadTrackerResearchSettings(), loadResolverModules()]),
         experimental: loadTrackerResearchSettings,
       };
@@ -142,6 +143,56 @@ async function loadStartupSettings() {
     startupSettings = value;
     renderStartupSettings();
   });
+}
+
+function renderTraySettings() {
+  const single = document.getElementById("tray-single"), double = document.getElementById("tray-double");
+  single.value = traySettings?.singleClick || "menu";
+  double.value = traySettings?.doubleClick || "none";
+  single.disabled = traySaving || traySettings?.singleSupported !== true;
+  double.disabled = traySaving || traySettings?.doubleSupported !== true;
+  single.querySelector('[value="menu"]').hidden = traySettings?.doubleSupported === true;
+  document.getElementById("tray-single-field").hidden = traySettings?.singleSupported !== true;
+  document.getElementById("tray-double-field").hidden = traySettings?.doubleSupported !== true;
+  document.getElementById("tray-save").disabled = traySaving || traySettings?.singleSupported !== true;
+  document.getElementById("tray-save").hidden = traySettings?.singleSupported !== true;
+  document.getElementById("tray-support").textContent = traySettings?.doubleSupported
+    ? "Windows 支持单击和双击；单击等待系统双击判定后执行，双击只执行双击动作。右键显示菜单。"
+    : traySettings?.singleSupported ? "macOS 支持单击自定义；当前托盘后端不提供双击事件。右键显示菜单。"
+      : "当前平台不支持托盘点击自定义，保留系统托盘菜单。Linux 的 AppIndicator 后端不提供单击或双击事件。";
+}
+
+async function loadTraySettings() {
+  if (!window.__TAURI__?.core?.invoke) {
+    traySettings = { singleSupported: false, doubleSupported: false };
+  } else {
+    traySettings = await invokeNative("tray_settings", { preferences: null });
+    if (!traySettings || typeof traySettings.singleSupported !== "boolean" || typeof traySettings.doubleSupported !== "boolean") throw new Error("托盘设置响应无效");
+  }
+  renderTraySettings();
+}
+
+async function saveTraySettings() {
+  if (traySaving || !traySettings?.singleSupported) return;
+  const button = document.getElementById("tray-save"), single = document.getElementById("tray-single"), double = document.getElementById("tray-double");
+  const preferences = { singleClick: single.value, doubleClick: traySettings.doubleSupported ? double.value : "none" };
+  const focused = document.activeElement;
+  traySaving = true;
+  single.disabled = double.disabled = true;
+  KDComponents.setBusyState(button, true);
+  try {
+    traySettings = await invokeNative("tray_settings", { preferences });
+    document.getElementById("tray-status").textContent = "托盘设置已保存并生效。";
+    showToast("托盘设置已保存。");
+  } catch (error) {
+    document.getElementById("tray-status").textContent = `保存失败：${error.message}`;
+    showToast(`保存托盘设置失败：${error.message}`, "error");
+  } finally {
+    traySaving = false;
+    KDComponents.setBusyState(button, false);
+    renderTraySettings();
+    if (currentPage === "settings" && currentSettingsPage === "application") focused?.focus({ preventScroll: true });
+  }
 }
 
 async function loadStorageLocation() {

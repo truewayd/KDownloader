@@ -161,6 +161,16 @@
           <div class="settings-section-heading"><h3 id="settings-application-title">应用与连接</h3><p>管理后台启动、数据存储和浏览器扩展连接。启动与认证开关即时保存。</p></div>
           <label class="setting-toggle" for="startup-enabled"><input id="startup-enabled" type="checkbox" disabled><span><strong>开机自动启动</strong><small>登录后在后台运行，即时生效。</small></span></label>
             <p class="hint" id="startup-status" role="status">正在读取启动设置…</p>
+            <fieldset class="settings-group" data-settings-independent>
+              <legend>托盘图标</legend>
+              <p class="hint" id="tray-support">正在读取托盘设置…</p>
+              <div class="form-grid">
+                <label id="tray-single-field" for="tray-single">左键单击<select class="kd-select" id="tray-single" disabled><option value="main">打开主窗口</option><option value="newTask">新建下载</option><option value="settings">打开设置</option><option value="none">无操作</option><option value="menu">显示菜单</option></select></label>
+                <label id="tray-double-field" for="tray-double">左键双击<select class="kd-select" id="tray-double" disabled><option value="main">打开主窗口</option><option value="newTask">新建下载</option><option value="settings">打开设置</option><option value="none">无操作</option></select></label>
+              </div>
+              <button class="kd-button secondary compact" id="tray-save" type="button" disabled>保存托盘设置</button>
+              <p class="hint" id="tray-status" role="status"></p>
+            </fieldset>
             <div class="runtime-guide"><h3>数据存储</h3><div id="storage-location" class="hint" role="status">正在读取数据目录…</div><p class="hint">备份或搬迁前请退出 TrueDown，保留配置、任务和恢复状态目录。下载文件保留在原位置。</p></div>
           <button class="kd-button danger compact" id="exit-from-settings-btn" type="button">退出 TrueDown</button>
         </section>

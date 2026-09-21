@@ -53,16 +53,24 @@ try {
       }
       await route.fulfill({ contentType: "application/json", body: JSON.stringify(fixture[endpoint]) });
     });
-    if (native) await context.addInitScript(() => {
-      window.__TRUEDOWN_PLATFORM__ = "windows";
+    await context.addInitScript(platform => {
+      window.__TRUEDOWN_PLATFORM__ = platform;
+      window.trayFixture = { singleSupported: platform !== "linux", doubleSupported: platform === "windows", singleClick: platform === "windows" ? "main" : "menu", doubleClick: platform === "windows" ? "newTask" : "none" };
       window.__TAURI__ = { core: { invoke: async (command, args) => {
+        if (command === "tray_settings") {
+          if (args.preferences) {
+            if (window.failTraySave) throw new Error("Fixture tray persistence failure");
+            Object.assign(window.trayFixture, args.preferences);
+          }
+          return structuredClone(window.trayFixture);
+        }
         if (command === "apply_material") return true;
         if (command === "frame_state") return { maximized: false };
         if (command !== "core_request") return;
         const response = await fetch(args.request.path, { method: args.request.method, body: args.request.body || undefined });
         return { status: response.status, owned: true, headers: {}, body: await response.text() };
       } } };
-    });
+    }, width === 1040 ? "windows" : width === 820 ? "macos" : "linux");
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
@@ -94,6 +102,26 @@ try {
       if (category === "files") {
         assert.equal(await page.locator("#cfg-allocation").evaluate(element => element.closest("fieldset").querySelector("legend").textContent), "文件写入与校验");
         assert.equal(await page.locator("#cfg-dropbox-mode").evaluate(element => element.closest("fieldset").querySelector("legend").textContent), "Dropbox 目录展开与过滤");
+      }
+      if (category === "application") {
+        assert.equal(await page.locator("#tray-single").isVisible(), width !== 390);
+        assert.equal(await page.locator("#tray-double").isVisible(), width === 1040);
+        if (width !== 390) {
+          await page.locator("#tray-single").selectOption("settings");
+          await page.locator('[data-settings-link="files"]').click();
+          await page.locator('[data-settings-link="application"]').click();
+          assert.equal(await page.locator("#tray-single").inputValue(), "settings", "tray draft survives category changes");
+          await page.locator("#tray-save").click();
+          await page.waitForFunction(() => document.querySelector("#tray-status").textContent.includes("已保存"));
+          assert.equal(await page.evaluate(() => trayFixture.singleClick), "settings");
+          await page.evaluate(() => { window.failTraySave = true; });
+          await page.locator("#tray-single").selectOption("none");
+          await page.locator("#tray-save").click();
+          await page.waitForFunction(() => document.querySelector("#tray-status").textContent.includes("失败"));
+          assert.equal(await page.locator("#tray-single").inputValue(), "settings", "failed save restores persisted behavior");
+          assert.equal(await page.locator("#tray-save").isEnabled(), true);
+          await page.evaluate(() => { window.failTraySave = false; });
+        }
       }
       if (category === "logs") {
         await page.waitForFunction(() => document.querySelector("#application-log-output").textContent.includes("fresh"));
