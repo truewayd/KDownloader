@@ -158,6 +158,15 @@ func TestQueuedAssetRealEngineProgressAndPause(t *testing.T) {
 			if err != nil || !bytes.Equal(data, payload) {
 				t.Fatal("task output was consumed by staging", err)
 			}
+			if err := dm.CleanupUpdateDownloads(root, "update.zip", sha256Hex(payload), int64(len(payload))); err != nil {
+				t.Fatal(err)
+			}
+			if len(dm.ListTasks()) != 0 {
+				t.Fatal("installed update task was not removed")
+			}
+			if _, err := os.Stat(filepath.Join(tasks[0].Folder, tasks[0].OutputName)); !os.IsNotExist(err) {
+				t.Fatal("installed update package was not removed", err)
+			}
 			return
 		case <-ctx.Done():
 			t.Fatal(ctx.Err())

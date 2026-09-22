@@ -140,6 +140,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	defer cancelUpdates()
 	updates, err := systemupdate.New(systemupdate.Options{
 		DownloadAsset:         host.downloadUpdate,
+		CleanupAsset:          host.cleanupUpdateDownload,
 		BaseDir:               base,
 		DataDir:               dataDir,
 		Paths:                 location.Paths,

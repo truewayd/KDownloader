@@ -241,6 +241,9 @@ func (m *Manager) installNext(ctx context.Context, automatic bool) error {
 	} else {
 		return fmt.Errorf("inspect installed Aria2 Next: %w", existingErr)
 	}
+	if err := m.recordUpdateDownload(updateDownload{Name: available.BinaryName, SHA256: digest, Size: size}); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if automatic && (!m.state.AutoUpdateNext || m.state.NextEngine == nil) {
@@ -349,6 +352,7 @@ func (m *Manager) RunAutomatic(ctx context.Context, canApply func() bool) <-chan
 		case <-initial.C:
 		}
 		m.cleanupOldUpdateHelpers()
+		m.cleanupUpdateDownloads()
 		checkTicker := time.NewTicker(12 * time.Hour)
 		applyTicker := time.NewTicker(30 * time.Second)
 		defer checkTicker.Stop()
@@ -371,6 +375,7 @@ func (m *Manager) RunAutomatic(ctx context.Context, canApply func() bool) <-chan
 					m.checkNextAutomatically(ctx)
 				}
 			case <-applyTicker.C:
+				m.cleanupUpdateDownloads()
 				m.tryAutomaticApply(canApply)
 				if m.applyNextAutomatically != nil {
 					m.applyNextAutomatically()

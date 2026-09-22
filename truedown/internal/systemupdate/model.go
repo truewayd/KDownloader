@@ -57,6 +57,7 @@ type Options struct {
 
 	HTTPClient            *http.Client
 	DownloadAsset         func(context.Context, string, string, string, int64) (string, error)
+	CleanupAsset          func(directory, name, sha256 string, size int64) error
 	TrueDownReleasesURL   string
 	NextReleaseURL        string
 	AllowInsecureLoopback bool
@@ -173,13 +174,15 @@ type availableNextUpdate struct {
 }
 
 type Manager struct {
-	mu      sync.RWMutex
-	applyMu sync.Mutex
+	mu        sync.RWMutex
+	applyMu   sync.Mutex
+	cleanupMu sync.Mutex
 
 	baseDir                string
 	updatesDir             string
 	enginesDir             string
 	statePath              string
+	cleanupPath            string
 	stableEnginePath       string
 	currentExe             string
 	currentVersion         string
@@ -191,6 +194,7 @@ type Manager struct {
 
 	client                *http.Client
 	downloadAsset         func(context.Context, string, string, string, int64) (string, error)
+	cleanupAsset          func(string, string, string, int64) error
 	trueDownReleasesURL   string
 	nextReleaseURL        string
 	allowInsecureLoopback bool
@@ -267,6 +271,7 @@ func New(options Options) (*Manager, error) {
 		updatesDir:             paths.File(profile.StagedUpdates),
 		enginesDir:             paths.File(profile.Engines),
 		statePath:              paths.File(profile.UpdateState),
+		cleanupPath:            paths.File(profile.UpdateDownloads),
 		stableEnginePath:       filepath.Clean(stablePath),
 		currentExe:             filepath.Clean(currentExe),
 		currentVersion:         strings.TrimSpace(options.CurrentVersion),
@@ -277,6 +282,7 @@ func New(options Options) (*Manager, error) {
 		currentCommit:          strings.TrimSpace(options.CurrentCommit),
 		client:                 client,
 		downloadAsset:          options.DownloadAsset,
+		cleanupAsset:           options.CleanupAsset,
 		trueDownReleasesURL:    trueDownURL,
 		nextReleaseURL:         nextURL,
 		allowInsecureLoopback:  options.AllowInsecureLoopback,
@@ -578,6 +584,7 @@ func (m *Manager) begin(operation string) error {
 }
 
 func (m *Manager) finish(err error) {
+	defer m.cleanupUpdateDownloads()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.busy = ""

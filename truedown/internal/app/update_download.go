@@ -27,6 +27,18 @@ func (host *managerHost) downloadUpdate(ctx context.Context, url, name, director
 	})
 }
 
+func (host *managerHost) cleanupUpdateDownload(directory, name, digest string, size int64) error {
+	host.switchMu.Lock()
+	defer host.switchMu.Unlock()
+	host.mu.RLock()
+	current := host.current
+	host.mu.RUnlock()
+	if current == nil {
+		return fmt.Errorf("download engine is unavailable")
+	}
+	return current.manager.CleanupUpdateDownloads(directory, name, digest, size)
+}
+
 // A queued download may stay paused longer than an HTTP or native IPC deadline.
 // Admission is acknowledged immediately; the process owns the operation lifetime.
 func (controller *engineController) StartUpdate(operation string) (systemupdate.Snapshot, error) {

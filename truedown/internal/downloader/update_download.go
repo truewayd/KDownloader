@@ -10,8 +10,8 @@ import (
 )
 
 // DownloadUpdate uses ordinary durable tasks, including queue limits and user
-// pause/resume/removal. Keep their output available; only the staging copy is
-// consumed by the updater. Never delete files behind a retained task's back.
+// pause/resume/removal. Only the staging copy is consumed before installation;
+// verified successful updates reclaim the original output and task together.
 func (m *Manager) DownloadUpdate(ctx context.Context, url, name, directory string, maximum int64, opts Aria2Opts) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err

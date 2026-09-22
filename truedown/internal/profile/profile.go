@@ -24,6 +24,7 @@ const (
 	Modules         = "truedown.modules.json"
 	TrackerState    = "truedown.tracker-research.json"
 	UpdateState     = "truedown.updates.json"
+	UpdateDownloads = "truedown.update-downloads.json"
 )
 
 type Location struct {

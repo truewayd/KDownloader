@@ -112,6 +112,10 @@ func (m *Manager) stageNativeArchive(archivePath string, available *availableApp
 	if err := extractNativeArchive(archivePath, directory, manifest.Files); err != nil {
 		return err
 	}
+	if err := m.recordUpdateDownload(updateDownload{Build: available.Build, Name: manifest.Asset.Name,
+		SHA256: manifest.Asset.SHA256, Size: manifest.Asset.Size}); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	previous := m.state.PendingUpdate

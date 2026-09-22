@@ -47,7 +47,7 @@ func (p Paths) File(name string) string {
 		directory = p.Config
 	case Database, ModulePackages, Engines:
 		directory = p.Data
-	case TrackerState, UpdateState, ResumeState, StagedUpdates, WindowState:
+	case TrackerState, UpdateState, UpdateDownloads, ResumeState, StagedUpdates, WindowState:
 		directory = p.State
 	case ApplicationLog, AriaLog, AriaConsoleLog:
 		directory = p.Logs

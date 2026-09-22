@@ -85,6 +85,14 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
     await fs.mkdir(stage, { recursive: true });
     for (const name of names) await fs.copyFile(path.join(next, name), path.join(stage, name));
     const files = await Promise.all(names.map(name => metadata(stage, name)));
+    const archiveName = `TrueDown-build-${targetBuild}.zip`;
+    const downloadDirectory = path.join(updates, "download-fixture", "Archives");
+    await fs.mkdir(downloadDirectory, { recursive: true });
+    const archivePath = path.join(downloadDirectory, archiveName);
+    await fs.writeFile(archivePath, "verified update download fixture");
+    const archive = await metadata(downloadDirectory, archiveName);
+    await fs.writeFile(path.join(stateDirectory, "truedown.update-downloads.json"),
+      JSON.stringify([{ build: targetBuild, ...archive }]));
     const statePath = path.join(stateDirectory, "truedown.updates.json");
     const state = JSON.parse(await fs.readFile(statePath, "utf8"));
     state.autoUpdateTrueDown = mode === "automatic-update";
@@ -122,6 +130,12 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
     const saved = JSON.parse(await fs.readFile(statePath, "utf8"));
     assert.equal(saved.autoUpdateTrueDown, mode === "automatic-update");
     assert.equal(saved.pendingUpdate, undefined);
+    if (wanted === "2") {
+      await until(async () => !(await exists(archivePath)), 45000);
+      assert.equal(await exists(downloadDirectory), false);
+    } else {
+      assert.equal(await exists(archivePath), true, "rollback must preserve the failed update download");
+    }
     if (!["update", "automatic-update"].includes(mode)) assert.match(saved.lastUpdateError, /restored the complete previous version/);
     await until(() => fetch(`http://127.0.0.1:${debugPort}/json/version`).then(response => response.ok, () => false));
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
