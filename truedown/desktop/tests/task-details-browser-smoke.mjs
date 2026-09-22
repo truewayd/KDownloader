@@ -75,6 +75,7 @@ try {
     await page.goto(`http://127.0.0.1:${server.address().port}/index.html?window=task-details`);
     await page.waitForFunction(() => taskDetailData?.id === 1);
     assert.equal(await page.locator(".sidebar").isVisible(), false);
+    assert.equal(await page.locator("#task-detail-back").isVisible(), false);
     assert.equal(await page.locator("#batch-task-btn").count(), 0);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.screenshot({ path: path.join(screenshots, `details-${width}-${colorScheme}.png`) });
@@ -93,7 +94,7 @@ try {
     await page.locator("#task-setting-connections").fill("8");
     await page.evaluate(() => loadTaskDetails());
     assert.equal(await page.locator("#task-setting-connections").inputValue(), "8");
-    await page.locator("#task-detail-back").click();
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => !nativeDetailOpen);
     const reads = await page.evaluate(() => nativeCalls.length);
     await page.evaluate(() => loadTaskDetails());

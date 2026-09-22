@@ -44,12 +44,7 @@ async function initNativeTaskDetails() {
   document.documentElement.dataset.workspacePage = "task";
   document.title = "任务详情";
   document.querySelectorAll("[data-page]").forEach((element) => { element.hidden = element.dataset.page !== "task"; });
-  const close = document.getElementById("task-detail-back");
-  close.textContent = "关闭";
-  close.addEventListener("click", (event) => {
-    event.preventDefault();
-    invokeNative("close_auxiliary").catch((error) => showToast(error.message, "error"));
-  });
+  document.getElementById("task-detail-back").hidden = true;
   const changeTab = () => {
     const [page, id, tab] = location.hash.slice(1).split("/");
     if (!nativeDetailOpen || page !== "task" || Number(id) !== taskDetailID || !["info", "settings"].includes(tab)) return;

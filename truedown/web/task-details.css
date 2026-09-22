@@ -24,6 +24,7 @@ tr:has(.status-paused) progress::-webkit-progress-value { background: var(--kd-w
 .task-detail-page { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
 [data-native-window="task-details"] .sidebar,
 [data-native-window="task-details"] .topbar { display: none; }
+[data-native-window="task-details"] #task-detail-back { display: none; }
 [data-native-window="task-details"] .dashboard { padding: 8px; }
 [data-native-window="task-details"] .task-detail-page { width: 100%; }
 .task-detail-header { display: flex; align-items: center; gap: 16px; padding: 20px 24px; flex-shrink: 0; }
