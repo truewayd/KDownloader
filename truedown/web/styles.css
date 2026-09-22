@@ -249,8 +249,6 @@ code {
 
 .kd-button:focus-visible,
 .kd-icon-button:focus-visible,
-.kd-input:focus-visible,
-.kd-select:focus-visible,
 input[type="checkbox"]:focus-visible,
 .text-button:focus-visible,
 .task-link:focus-visible,
@@ -368,9 +366,11 @@ textarea::placeholder {
 .kd-select:focus,
 input:focus,
 textarea:focus {
-  border-color: var(--kd-button-border);
+  border-color: var(--kd-focus);
   background-color: var(--kd-input-focus);
-  box-shadow: 0 0 0 3px var(--kd-accent-soft);
+  outline: 2px solid var(--kd-focus);
+  outline-offset: -2px;
+  box-shadow: none;
 }
 
 [hidden] {

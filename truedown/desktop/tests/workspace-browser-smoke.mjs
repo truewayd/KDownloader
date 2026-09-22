@@ -71,6 +71,12 @@ try {
         page.on("pageerror", error => errors.push(error.message));
         await page.goto(origin);
         await page.waitForFunction(count => document.querySelectorAll("tr[data-task-id]").length === count, tasks.length);
+        await page.locator("#task-search").focus();
+        assert.deepEqual(await page.locator("#task-search").evaluate(element => {
+          const style = getComputedStyle(element);
+          return [style.outlineStyle, style.outlineWidth, style.outlineOffset, style.boxShadow];
+        }), ["solid", "2px", "-2px", "none"], `${name}: search focus must use one inset outline`);
+        await page.locator(".search-control").screenshot({ path: path.join(screenshots, `${name}-search-focus.png`) });
         await assertToastPlacement(page, path.join(screenshots, `${name}-toast`));
         assert.equal(await page.title(), "下载任务");
         assert.equal(await page.locator("#exit-truedown-btn").count(), 0);
