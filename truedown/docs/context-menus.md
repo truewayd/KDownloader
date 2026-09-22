@@ -1,94 +1,65 @@
-# Desktop context menus
+# Project dialogs and context menus
 
-## Decision
+TrueDown renders application confirmations, input prompts and content-area menus
+inside the owning window using the existing project colors, controls and radius.
+System caption menus, tray menus and file/directory pickers remain OS-owned.
 
-TrueDown uses Tauri's Rust native menu API for content-area context menus.
-The operating system owns the popup surface outside the document. Seven small
-menu models are created once during shell setup, before showing the main window,
-and reused by all four existing window roles. No extra WebView, rendering loop,
-background task poller, window capability, or frontend menu library is needed.
+## Dialogs
 
-A warmed WebView popup would allow exact CSS styling, but would also need its
-own readiness handshake, focus and activation policy, DPI conversion, monitor
-fitting, dismissal, accessibility tree, and lifetime management. Native menus
-provide those platform behaviors without another browser surface. The choice
-prioritizes native behavior and low per-open work over identical pixel styling
-across Windows, macOS, and Linux. This is an architectural cost reduction, not a
-measured latency claim.
+`showDialog` in `web/app.js` owns confirmation and input prompts in desktop and
+browser views. Only one prompt may be pending per window. Background roots become
+inert while a prompt is open, with their previous inert state preserved.
+Escape, backdrop click and Cancel resolve safely; hiding, navigation and teardown
+cancel the pending result. Closing restores focus and clears input values.
+Dangerous confirmations initially focus Cancel. Nested prompts retain the
+underlying form's scroll lock and draft. Native auxiliary windows retain their
+system caption; there is no second page-level Close button in task details.
 
-## Interaction and appearance
+## Menus
 
-| Context | Menu |
+`web/context-menu.js` renders a single menu with native buttons and menu semantics.
+The surface uses the top layer where available, with a fixed-position fallback
+for older WebViews. Menus inside dialogs share that dialog's focus scope.
+
+| Context | Actions |
 | --- | --- |
-| Main task row | Details; pause / resume / retry; open file / folder; remove |
-| Main workspace | New download, batch download; settings |
-| Editable text | Cut and copy when selected, paste, select all |
-| Password | Paste and select all, never cut or copy |
-| Read-only or selected page text | Copy and select all |
-| Contenteditable | Same editing actions as ordinary text |
-| Auxiliary blank area or disabled control | No browser menu |
-| Title strip | Existing native window system menu |
+| Main task row | Currently enabled details, pause/resume/retry, open and remove actions |
+| Main workspace | New download, settings |
+| Editable text | Undo, redo, cut/copy when selected, paste, select all |
+| Password | Undo, redo, paste, select all; never cut/copy |
+| Read-only text | Copy, select all |
+| Selected page text | Copy, select all |
+| Auxiliary blank area / disabled control | No content menu |
+| Title strip / tray | Existing native system menu |
 
-Native fonts, focus/selection treatment, disabled text, sizing, and system menu
-theme are used. Destructive removal occupies its own final group; it delegates
-to the existing task action and confirmation behavior. Rows retain a stable
-menu order with unavailable actions disabled, avoiding a shifting target.
-No custom animation, corner treatment, gradient, or decorative icon is added.
-Menu theme follows the platform; it is not forced to match a CSS color scheme.
-Undo and redo use native predefined items on macOS only, the platform documented
-as supported by the pinned Tauri API. Existing keyboard editing remains intact.
-Email/number controls do not expose selection ranges, so their native editor
-decides whether cut/copy can act.
+Right click, Context Menu and Shift+F10 open the menu. Arrow keys and Home/End
+navigate; Enter/Space activate. Escape dismisses only the menu and restores focus;
+Tab dismisses and continues normal focus navigation. Outside click, scroll,
+resize, window blur, hiding, navigation and teardown invalidate the menu.
+Coordinates remain inside the viewport. Task menus revalidate the original row
+and currently enabled action before clicking the existing task control.
+Opening a menu never changes task batch selection.
 
-Right click, the Context Menu key, and Shift+F10 open the same native menu.
-Keyboard invocation anchors to the focused control. Coordinates are logical
-client pixels, clamped in both JS and Rust; the native backend handles DPI and
-popup placement. The OS owns arrow navigation, Escape, outside click and focus
-behavior. Menus operate on the clicked row without changing batch selection.
-Browser fixtures without a native bridge retain their browser behavior.
-
-## Ownership and authority
-
-`commands::show_context_menu` accepts only a fixed menu kind, a bounded token,
-bounded logical coordinates and a bounded list of action enums. Menu text and
-structure live in Rust. Caller window identity comes from Tauri, not JS. Only
-the main window can request task/workspace menus; unknown roles are rejected.
-No direct menu/tray, clipboard-read, or window-mutation capability is granted.
-
-A native opening slot bounds queued UI callbacks and remains owned through
-callback completion if its IPC receiver is cancelled. Native setup, item state
-changes and popup display are serialized on the UI thread. Hidden acceptance
-rejects display; production also checks that the owner is visible and focused.
-Linux's native popup call may return before dismissal; the OS retains the menu.
-
-Native action events target only the originating window and include its request
-token. The frontend rejects replaced contexts and route changes, verifies the
-original row is still connected, and checks the current action is enabled before
-clicking the existing control. Polling updates cannot authorize a removed or
-disabled action. Page teardown removes listeners, including in-flight native
-subscriptions through the shared subscription helper. Editing uses predefined
-native commands and never sends selected text or clipboard content over IPC.
+Editing restores the original input range or document selection first.
+`commands::edit_action` accepts only a fixed enum and derives the window role from
+the caller. It dispatches native editing on the UI thread only while that window
+is visible and focused; Windows also verifies the foreground HWND. Cancelled
+queued requests do not dispatch. Hidden native acceptance suppresses editing.
+No selected text or clipboard contents cross IPC, and no clipboard-read or
+menu/tray mutation capability is granted to the WebView.
 
 ## Validation
 
-- `cargo test --locked`: request bounds and role/action authorization plus the
-  existing native suite.
-- `npm run test:context-menu`: headless browser behavior with an explicit native
-  bridge fixture; editing context, password handling, task state changes, stale
-  tokens/routes, keyboard invocation, auxiliary roles and teardown.
-- `npm run test:windows`: actual hidden WebView2 startup, new command registration,
-  hidden-display rejection, invalid actions and cross-role rejection, alongside
-  the existing window acceptance suite.
+- `npm run test:context-menu`: light/dark styles, editing ranges, password
+  restrictions, changing task actions, keyboard operation, viewport placement,
+  modal scope, roles and teardown.
+- `npm run test:forms`: nested confirmation focus, cancellation and retained drafts.
+- `npm run test:details`: native close shortcuts, no duplicate Close control,
+  retained tabs/drafts and responsive layout.
+- `cargo test --locked`: editor action allowlist and caller roles.
+- `npm run test:windows`: hidden WebView2 command registration and suppression,
+  project confirmations and the existing native lifecycle suite.
 
-Hidden tests do not prove popup pixels, native keyboard editing delivery, or
-visible focus composition. Interactive native menu appearance and editing on
-Windows/macOS/Linux remain platform acceptance items; no visual or latency result
-is inferred from a DOM fixture or from hidden-window checks.
-
-Local Windows validation on 2026-09-20 passed: 33 Rust tests, 347 JS tests
-(one skipped), 13 Python migration tests, Go tests and vet, shared UI verification,
-extension build, context-menu browser acceptance, workspace and task-form browser
-acceptance, and actual hidden WebView2 acceptance. The latter used the newly
-built `target/debug/truedown-desktop.exe` explicitly; a plain Cargo build does not
-replace the older Tauri-packaged `TrueDown.exe`. Linux/macOS native acceptance
-was not run locally; the browser fixture is included in native CI.
+Browser fixtures validate frontend rendering and routing. Hidden native checks
+do not establish visible OS composition or native keyboard/clipboard delivery.
+Windows, macOS and Linux editor delivery remains a platform-specific check.

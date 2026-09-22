@@ -110,6 +110,7 @@ let dialogReturnFocus = null;
 let dialogResolver = null;
 let dialogHasInput = false;
 let dialogValidator = null;
+let dialogInertRoots = [];
 
 document.addEventListener("DOMContentLoaded", async () => {
   cacheElements();
@@ -269,6 +270,7 @@ function bindEvents() {
   document.addEventListener("keydown", onDocumentKeydown);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
+      cancelDialog();
       window.clearTimeout(pollTimer);
       return;
     }
@@ -278,7 +280,8 @@ function bindEvents() {
     }
     refreshAndSchedule();
   });
-  window.addEventListener("pagehide", () => window.clearTimeout(pollTimer), { once: true });
+  window.addEventListener("pagehide", () => { cancelDialog(); window.clearTimeout(pollTimer); }, { once: true });
+  window.addEventListener("hashchange", cancelDialog);
 
   els.downloadForm.addEventListener("submit", submitTask);
   bindNativeTaskPreferences();
@@ -459,6 +462,7 @@ function showDialog({
   message,
   eyebrow = "Confirm action",
   confirmLabel = "确认",
+  cancelLabel = "取消",
   danger = false,
   inputLabel = "",
   inputType = "text",
@@ -472,6 +476,7 @@ function showDialog({
   els.dialogTitle.textContent = title;
   els.dialogMessage.textContent = message;
   els.dialogConfirmBtn.textContent = confirmLabel;
+  els.dialogCancelBtn.textContent = cancelLabel;
   els.dialogConfirmBtn.className = `kd-button ${danger ? "danger" : "primary"}`;
   els.dialogInputField.hidden = !dialogHasInput;
   els.dialogInputLabel.textContent = inputLabel;
@@ -482,6 +487,9 @@ function showDialog({
   els.dialogOverlay.classList.add("open");
   els.dialogOverlay.setAttribute("aria-hidden", "false");
   els.dialogOverlay.removeAttribute("inert");
+  dialogInertRoots = [...document.body.children]
+    .filter(element => element !== els.dialogOverlay && !element.matches("script, .native-titlebar") && !element.inert);
+  dialogInertRoots.forEach(element => { element.inert = true; });
   document.body.classList.add("modal-open");
   (dialogHasInput ? els.dialogInput : danger ? els.dialogCancelBtn : els.dialogConfirmBtn).focus();
   return new Promise((resolve) => { dialogResolver = resolve; });
@@ -512,6 +520,9 @@ function settleDialog(value) {
   els.dialogOverlay.classList.remove("open");
   els.dialogOverlay.setAttribute("aria-hidden", "true");
   els.dialogOverlay.setAttribute("inert", "");
+  dialogInertRoots.forEach(element => { element.inert = false; });
+  dialogInertRoots = [];
+  els.dialogInput.value = "";
   syncModalScrollLock();
   if (dialogReturnFocus instanceof HTMLElement && dialogReturnFocus.isConnected) {
     dialogReturnFocus.focus();
@@ -521,16 +532,7 @@ function settleDialog(value) {
 }
 
 async function confirmAction(options) {
-  if (!window.__TAURI__?.core?.invoke) return showDialog(options);
-  const returnFocus = document.activeElement;
-  try {
-    return await invokeNative("confirm_action", { options: {
-      title: options.title, message: options.message, confirmLabel: options.confirmLabel || "确认",
-      cancelLabel: options.cancelLabel || "取消", danger: options.danger === true,
-    } });
-  } finally {
-    if (returnFocus?.isConnected && !returnFocus.closest("[inert]")) returnFocus.focus({ preventScroll: true });
-  }
+  return showDialog(options);
 }
 
 function syncModalScrollLock() {

@@ -4,10 +4,9 @@ mod appearance;
 mod bridge;
 mod build_info;
 mod commands;
-mod confirmations;
-mod context_menu;
 mod core;
 mod drops;
+mod editing;
 mod frame;
 #[cfg(all(debug_assertions, target_os = "macos"))]
 mod macos_acceptance;
@@ -135,15 +134,13 @@ fn main() {
         .manage(placement::Tracker::default())
         .manage(pickers::DirectoryPickers::default())
         .manage(drops::Drops::default())
-        .manage(confirmations::Confirmations::default())
         .invoke_handler(tauri::generate_handler![
             commands::core_request,
             commands::desktop_state,
             commands::copy_api_token,
             commands::take_dropped_torrent,
             commands::drop_download_links,
-            commands::confirm_action,
-            commands::show_context_menu,
+            commands::edit_action,
             commands::tray_settings,
             windows::open_auxiliary,
             windows::open_task_details,
@@ -186,7 +183,6 @@ fn main() {
                 storage: webview::Storage::new(&profile),
                 task_details: Default::default(),
             });
-            context_menu::install(app.handle())?;
             for config in &app.config().app.windows {
                 let window = frame::configure(
                     app.state::<windows::Windows>()

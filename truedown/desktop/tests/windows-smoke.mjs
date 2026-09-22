@@ -301,8 +301,8 @@ try {
   ]) await assert.rejects(invoke(main, "core_request", { request }));
   assert.equal((await api(main, "GET", "/system/info")).product, "TrueDown", "Rejected requests must not disconnect the private pipe");
   assert.equal(await main.evaluate(() => window.__TRUEDOWN_PLATFORM__), "windows");
-  await assert.rejects(invoke(main, "show_context_menu", { request: { kind: "workspace", token: "hidden-test", actions: ["new-task"], x: 20, y: 20 } }), /suppressed during hidden acceptance/);
-  await assert.rejects(invoke(main, "show_context_menu", { request: { kind: "task", token: "invalid-test", actions: ["settings"], x: 20, y: 20 } }), /Invalid context menu action/);
+  await assert.rejects(invoke(main, "edit_action", { action: "paste" }), /suppressed during hidden acceptance/);
+  await assert.rejects(invoke(main, "edit_action", { action: "read-clipboard" }), /unknown variant/);
   await main.locator('[data-route="settings"]').click();
   const settings = await waitUntil(() => context.pages().find(page => page.url().includes("window=settings")));
   await assert.rejects(invoke(main, "tray_settings", { preferences: null }), /only in settings/);
@@ -321,7 +321,7 @@ try {
     await fs.rmdir(trayFile);
     await fs.rename(`${trayFile}.fixture-backup`, trayFile);
   }
-  await assert.rejects(invoke(settings, "show_context_menu", { request: { kind: "task", token: "role-test", actions: ["pause"], x: 20, y: 20 } }), /Menu unavailable in this window/);
+  await assert.rejects(invoke(settings, "edit_action", { action: "paste" }), /suppressed during hidden acceptance/);
   await waitUntil(() => context.pages().length === 2);
   const storage = await api(main, "GET", "/system/storage");
   assert.equal(storage.layoutVersion, 1);
@@ -397,9 +397,14 @@ try {
   }
   assert.equal(context.pages().length, 3);
   for (const page of [main, settings, ...Object.values(taskForms)]) {
-    await assert.rejects(invoke(page, "confirm_action", { options: {
-      title: "Confirm", message: "Remove this fixture?", confirmLabel: "Remove", cancelLabel: "Cancel", danger: true,
-    } }), /suppressed during hidden acceptance/);
+    await page.evaluate(() => {
+      window.confirmationResult = undefined;
+      confirmAction({ title: "Confirm", message: "Remove this fixture?", danger: true })
+        .then(answer => { window.confirmationResult = answer; });
+    });
+    assert.equal(await page.locator("#dialog-overlay").getAttribute("aria-hidden"), "false");
+    await page.evaluate(() => document.getElementById("dialog-cancel-btn").click());
+    await waitForNativeCondition(page, () => window.confirmationResult === false);
   }
   for (const page of [main, settings]) {
     await assert.rejects(invoke(page, "take_dropped_torrent"), /only in the new download form/);

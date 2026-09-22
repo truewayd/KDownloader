@@ -4237,6 +4237,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "glib",
+ "objc2",
  "objc2-app-kit",
  "objc2-foundation",
  "plist",
@@ -4251,6 +4252,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "urlpattern",
+ "webkit2gtk",
  "window-vibrancy",
  "windows-sys 0.61.2",
  "winreg",

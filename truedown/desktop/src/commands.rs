@@ -24,26 +24,11 @@ pub fn tray_settings(
 }
 
 #[tauri::command]
-pub async fn show_context_menu(
-    app: tauri::AppHandle,
+pub async fn edit_action(
     window: tauri::WebviewWindow,
-    request: crate::context_menu::Request,
+    action: crate::editing::Action,
 ) -> Result<(), String> {
-    crate::context_menu::show(app, window, request).await
-}
-
-#[tauri::command]
-pub async fn confirm_action(
-    app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
-    options: crate::confirmations::Options,
-) -> Result<bool, String> {
-    if !["main", "settings", "new-task", "task-details"].contains(&window.label()) {
-        return Err("Confirmations are unavailable in this window".into());
-    }
-    app.state::<crate::confirmations::Confirmations>()
-        .show(app.clone(), window, options)
-        .await
+    crate::editing::run(window, action).await
 }
 
 #[tauri::command]

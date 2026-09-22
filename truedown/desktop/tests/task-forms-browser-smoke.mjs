@@ -41,7 +41,6 @@ try {
             window.nativeCalls.push({ command, args });
             if (command === "apply_material") return true;
             if (command === "frame_state") return { maximized: false };
-            if (command === "confirm_action") return new Promise((resolve) => { window.resolveNativeConfirmation = resolve; });
             if (command === "choose_download_directory") return window.directoryChoice ?? null;
             if (command === "take_dropped_torrent") {
               const value = window.pendingDroppedTorrent;
@@ -180,14 +179,23 @@ try {
         });
         await page.locator("#m-link").fill("https://example.test/retained.zip");
         await dropTorrent();
-        await page.waitForFunction(() => typeof window.resolveNativeConfirmation === "function");
-        assert.equal(await page.locator("#dialog-overlay").getAttribute("aria-hidden"), "true");
-        await page.evaluate(() => { window.resolveNativeConfirmation(false); window.resolveNativeConfirmation = null; });
+        await page.waitForFunction(() => document.querySelector("#dialog-overlay").classList.contains("open"));
+        assert.equal(await page.locator("#dialog-overlay").getAttribute("aria-hidden"), "false");
+        assert.equal(await page.locator("#overlay").evaluate(element => element.inert), true);
+        await page.locator("#dialog-confirm-btn").focus();
+        await page.keyboard.press("Tab");
+        assert.equal(await page.locator("#dialog-close-btn").evaluate(element => element === document.activeElement), true);
+        await page.keyboard.press("Shift+Tab");
+        assert.equal(await page.locator("#dialog-confirm-btn").evaluate(element => element === document.activeElement), true);
+        const closesBeforeCancel = await page.evaluate(() => nativeCalls.filter(call => call.command === "close_auxiliary").length);
+        await page.keyboard.press("Escape");
         await page.waitForFunction(() => !applyingDrop);
+        assert.equal(await page.locator("#overlay").evaluate(element => element.inert), false);
+        assert.equal(await page.evaluate(() => nativeCalls.filter(call => call.command === "close_auxiliary").length), closesBeforeCancel);
         assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/retained.zip");
         await dropTorrent();
-        await page.waitForFunction(() => typeof window.resolveNativeConfirmation === "function");
-        await page.evaluate(() => { window.resolveNativeConfirmation(true); window.resolveNativeConfirmation = null; });
+        await page.waitForFunction(() => document.querySelector("#dialog-overlay").classList.contains("open"));
+        await page.locator("#dialog-confirm-btn").click();
         await page.waitForFunction(() => !applyingDrop);
         assert.equal(await page.locator("#torrent-file-name").textContent(), "dropped.torrent");
         assert.equal(await page.locator("#m-link").inputValue(), "");

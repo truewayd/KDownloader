@@ -1361,6 +1361,44 @@ label {
   min-height: 118px !important;
 }
 
+.kd-context-menu {
+  position: fixed;
+  z-index: 200;
+  inset: auto;
+  margin: 0;
+  width: max-content;
+  min-width: min(200px, calc(100vw - 8px));
+  max-width: calc(100vw - 8px);
+  max-height: calc(100dvh - 8px);
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--kd-border-strong);
+  border-radius: var(--kd-radius);
+  color: var(--kd-text);
+  background: var(--kd-surface);
+  box-shadow: var(--kd-shadow);
+  user-select: none;
+}
+.kd-context-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  border-radius: 4px;
+  padding: 6px 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.kd-context-item:hover, .kd-context-item:focus-visible { background: var(--kd-secondary-hover); }
+.kd-context-item:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -2px; }
+.kd-context-item.danger { color: var(--kd-danger-button-text); }
+.kd-context-shortcut { color: var(--kd-muted); font-size: 12px; }
+
 .overlay {
   position: fixed;
   inset: 0;

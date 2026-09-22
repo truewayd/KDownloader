@@ -7,22 +7,18 @@ function declarations(...names) {
   return names.map((name) => source.match(new RegExp(`(?:async )?function ${name}\\([^]*?\\n\\}`))[0]).join("\n");
 }
 
-test("native confirmations use a parented command and restore focus after either answer", async () => {
+test("desktop confirmations use the project dialog and preserve its answer", async () => {
   for (const answer of [false, true]) {
     const calls = [];
-    let focused = 0;
     const context = vm.createContext({
       window: { __TAURI__: { core: { invoke() {} } } },
-      document: { activeElement: { isConnected: true, closest: () => null, focus: () => focused++ } },
-      invokeNative: async (command, args) => { calls.push([command, args]); return answer; },
-      showDialog: assert.fail,
+      invokeNative: assert.fail,
+      showDialog: async options => { calls.push(options); return answer; },
     });
     vm.runInContext(declarations("confirmAction"), context);
     assert.equal(await context.confirmAction({ title: "Remove", message: "Remove task?", confirmLabel: "Remove", danger: true }), answer);
-    assert.equal(calls[0][0], "confirm_action");
-    assert.equal(calls[0][1].options.message, "Remove task?");
-    assert.equal(calls[0][1].options.danger, true);
-    assert.equal(focused, 1);
+    assert.equal(calls[0].message, "Remove task?");
+    assert.equal(calls[0].danger, true);
   }
 });
 
