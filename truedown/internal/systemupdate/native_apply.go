@@ -19,8 +19,9 @@ const nativeMarkerName = "TrueDown.update.json"
 const nativeBypassEnv = "TRUEDOWN_UPDATE_BYPASS"
 
 type nativeReplacement struct {
-	New nativeFile `json:"new"`
-	Old nativeFile `json:"old"`
+	New       nativeFile `json:"new"`
+	Old       nativeFile `json:"old"`
+	OldAbsent bool       `json:"oldAbsent,omitempty"`
 }
 
 type nativeTransaction struct {
@@ -122,11 +123,11 @@ func (m *Manager) launchNativeApply(arguments []string) error {
 			if file.Name != name {
 				continue
 			}
-			digest, size, err := nativeHash(filepath.Join(m.baseDir, name), nativeLimit(name))
+			replacement, err := inspectNativeReplacement(m.baseDir, file)
 			if err != nil {
-				return fmt.Errorf("inspect installed %s: %w", name, err)
+				return err
 			}
-			transaction.Files = append(transaction.Files, nativeReplacement{New: file, Old: nativeFile{Name: name, Size: size, SHA256: digest}})
+			transaction.Files = append(transaction.Files, replacement)
 		}
 	}
 	transactionPath := filepath.Join(m.updatesDir, "native-apply-"+token+".json")
@@ -171,6 +172,18 @@ func (m *Manager) launchNativeApply(arguments []string) error {
 	return nil
 }
 
+func nativeNotice(name string) bool {
+	return name == "THIRD_PARTY_NOTICES.md" || name == "NATIVE_LICENSES.txt"
+}
+
+func inspectNativeReplacement(directory string, next nativeFile) (nativeReplacement, error) {
+	digest, size, err := nativeHash(filepath.Join(directory, next.Name), nativeLimit(next.Name))
+	if err != nil && !(os.IsNotExist(err) && nativeNotice(next.Name)) {
+		return nativeReplacement{}, fmt.Errorf("inspect installed %s: %w", next.Name, err)
+	}
+	return nativeReplacement{New: next, Old: nativeFile{Name: next.Name, Size: size, SHA256: digest}, OldAbsent: err != nil}, nil
+}
+
 func nativeDirectory(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -209,7 +222,14 @@ func validateNativeTransaction(path string, transaction nativeTransaction) error
 		if index >= len(nativeNames) || file.New.Name != nativeNames[index] || file.Old.Name != file.New.Name {
 			return fmt.Errorf("invalid native replacement order")
 		}
-		old = append(old, file.Old)
+		if file.OldAbsent {
+			if !nativeNotice(file.Old.Name) || file.Old.Size != 0 || file.Old.SHA256 != "" {
+				return fmt.Errorf("only absent installed notices may omit backup metadata")
+			}
+			old = append(old, file.New)
+		} else {
+			old = append(old, file.Old)
+		}
 		next = append(next, file.New)
 	}
 	if err := validateNativeFiles(old); err != nil {
@@ -256,14 +276,22 @@ func prepareNativeFiles(transaction nativeTransaction) error {
 	// All backups and candidates are complete and synchronized before the first
 	// replacement. A crash during preparation can safely restart the old bundle.
 	for _, file := range transaction.Files {
-		if err := verifyNativeFile(transaction.Directory, file.Old); err != nil {
-			return err
+		if file.OldAbsent {
+			if _, err := os.Lstat(filepath.Join(transaction.Directory, file.Old.Name)); !os.IsNotExist(err) {
+				return fmt.Errorf("installed notice %s is no longer absent", file.Old.Name)
+			}
+		} else {
+			if err := verifyNativeFile(transaction.Directory, file.Old); err != nil {
+				return err
+			}
 		}
 		if err := verifyNativeFile(transaction.Stage, file.New); err != nil {
 			return err
 		}
-		if err := copyVerifiedExecutable(filepath.Join(transaction.Directory, file.Old.Name), nativeBackup(transaction, file.Old.Name), file.Old.SHA256, file.Old.Size); err != nil {
-			return err
+		if !file.OldAbsent {
+			if err := copyVerifiedExecutable(filepath.Join(transaction.Directory, file.Old.Name), nativeBackup(transaction, file.Old.Name), file.Old.SHA256, file.Old.Size); err != nil {
+				return err
+			}
 		}
 		if err := copyVerifiedExecutable(filepath.Join(transaction.Stage, file.New.Name), nativeCandidate(transaction, file.New.Name), file.New.SHA256, file.New.Size); err != nil {
 			return err
@@ -296,6 +324,21 @@ func retryNativeReplace(source, target string, timeout time.Duration) error {
 func restoreNativeFiles(transaction nativeTransaction) error {
 	// Keep the backups while restoring, so an interrupted rollback is retryable.
 	for _, file := range transaction.Files {
+		if file.OldAbsent {
+			target := filepath.Join(transaction.Directory, file.New.Name)
+			if _, err := os.Lstat(target); os.IsNotExist(err) {
+				continue
+			}
+			// Remove only the notice installed by this transaction, never an
+			// unrelated file that appeared after the original snapshot.
+			if err := verifyNativeFile(transaction.Directory, file.New); err != nil {
+				return err
+			}
+			if err := os.Remove(target); err != nil {
+				return err
+			}
+			continue
+		}
 		if verifyNativeFile(transaction.Directory, file.Old) == nil {
 			continue
 		}

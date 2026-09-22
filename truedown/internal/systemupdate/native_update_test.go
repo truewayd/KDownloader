@@ -191,6 +191,161 @@ func TestNativePreparationRejectsTamperingBeforeReplacement(t *testing.T) {
 	}
 }
 
+func TestNativeInspectionAllowsOnlyMissingNotices(t *testing.T) {
+	for _, name := range nativeNames {
+		for _, kind := range []string{"missing", "directory"} {
+			t.Run(name+"/"+kind, func(t *testing.T) {
+				directory := t.TempDir()
+				if kind == "directory" {
+					if err := os.Mkdir(filepath.Join(directory, name), 0700); err != nil {
+						t.Fatal(err)
+					}
+				}
+				next := nativeMetadata(name, nativePayload(name, 2))
+				replacement, err := inspectNativeReplacement(directory, next)
+				allowed := kind == "missing" && (name == "NATIVE_LICENSES.txt" || name == "THIRD_PARTY_NOTICES.md")
+				if (err == nil) != allowed {
+					t.Fatalf("allowed=%v, error=%v", allowed, err)
+				}
+				if allowed && (!replacement.OldAbsent || replacement.Old != (nativeFile{Name: name}) || replacement.New != next) {
+					t.Fatalf("invalid absent notice snapshot: %+v", replacement)
+				}
+			})
+		}
+	}
+}
+
+func nativeFixtureWithoutNotices(t *testing.T) (nativeTransaction, string) {
+	t.Helper()
+	transaction, path := nativeFixture(t)
+	for index, file := range transaction.Files {
+		if file.New.Name == "NATIVE_LICENSES.txt" || file.New.Name == "THIRD_PARTY_NOTICES.md" {
+			if err := os.Remove(filepath.Join(transaction.Directory, file.New.Name)); err != nil {
+				t.Fatal(err)
+			}
+			// Leftovers from a previous update must not become rollback inputs.
+			if err := os.WriteFile(nativeBackup(transaction, file.New.Name), []byte("stale backup"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		replacement, err := inspectNativeReplacement(transaction.Directory, file.New)
+		if err != nil {
+			t.Fatal(err)
+		}
+		transaction.Files[index] = replacement
+	}
+	if err := writeNativeJSON(path, transaction); err != nil {
+		t.Fatal(err)
+	}
+	var decoded nativeTransaction
+	if err := readNativeJSON(path, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateNativeTransaction(path, decoded); err != nil {
+		t.Fatal(err)
+	}
+	return decoded, path
+}
+
+func TestNativeMissingNoticesAreInstalledAndRollbackRestoresAbsence(t *testing.T) {
+	for prefix := -1; prefix <= len(nativeNames); prefix++ {
+		t.Run(fmt.Sprint(prefix), func(t *testing.T) {
+			transaction, _ := nativeFixtureWithoutNotices(t)
+			if prefix >= 0 {
+				if err := prepareNativeFiles(transaction); err != nil {
+					t.Fatal(err)
+				}
+				for _, file := range transaction.Files[:prefix] {
+					if err := os.Rename(nativeCandidate(transaction, file.New.Name), filepath.Join(transaction.Directory, file.New.Name)); err != nil {
+						t.Fatal(err)
+					}
+					if err := verifyNativeFile(transaction.Directory, file.New); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			for attempt := 0; attempt < 2; attempt++ {
+				if err := restoreNativeFiles(transaction); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, file := range transaction.Files {
+				if file.OldAbsent {
+					if _, err := os.Lstat(filepath.Join(transaction.Directory, file.New.Name)); !os.IsNotExist(err) {
+						t.Fatalf("rollback did not restore absence: %v", err)
+					}
+				} else if err := verifyNativeFile(transaction.Directory, file.Old); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func TestNativeMissingNoticeRejectsChangedTargetAndStage(t *testing.T) {
+	for _, mutation := range []string{"new-file", "directory", "stage-hash", "stage-missing"} {
+		t.Run(mutation, func(t *testing.T) {
+			transaction, _ := nativeFixtureWithoutNotices(t)
+			target := filepath.Join(transaction.Directory, "NATIVE_LICENSES.txt")
+			stage := filepath.Join(transaction.Stage, "NATIVE_LICENSES.txt")
+			var err error
+			switch mutation {
+			case "new-file":
+				err = os.WriteFile(target, []byte("unrelated notice"), 0600)
+			case "directory":
+				err = os.Mkdir(target, 0700)
+			case "stage-hash":
+				err = os.WriteFile(stage, []byte("tampered notice"), 0600)
+			case "stage-missing":
+				err = os.Remove(stage)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := prepareNativeFiles(transaction); err == nil {
+				t.Fatal("changed notice accepted during preparation")
+			}
+			if mutation == "new-file" || mutation == "directory" {
+				if err := restoreNativeFiles(transaction); err == nil {
+					t.Fatal("rollback accepted an unrelated target")
+				}
+				info, err := os.Lstat(target)
+				if err != nil || info.IsDir() != (mutation == "directory") {
+					t.Fatal("rollback removed an unrelated target")
+				}
+			} else if err := restoreNativeFiles(transaction); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestNativeAbsentMetadataCannotWeakenReleaseValidation(t *testing.T) {
+	for _, mutation := range []string{"executable", "old-size", "old-hash", "new-size", "new-hash", "missing-new"} {
+		t.Run(mutation, func(t *testing.T) {
+			transaction, path := nativeFixtureWithoutNotices(t)
+			switch mutation {
+			case "executable":
+				transaction.Files[0].OldAbsent = true
+				transaction.Files[0].Old = nativeFile{Name: transaction.Files[0].New.Name}
+			case "old-size":
+				transaction.Files[3].Old.Size = 128
+			case "old-hash":
+				transaction.Files[3].Old.SHA256 = strings.Repeat("a", 64)
+			case "new-size":
+				transaction.Files[3].New.Size = 0
+			case "new-hash":
+				transaction.Files[3].New.SHA256 = ""
+			case "missing-new":
+				transaction.Files = transaction.Files[:4]
+			}
+			if err := validateNativeTransaction(path, transaction); err == nil {
+				t.Fatal("invalid absence metadata accepted")
+			}
+		})
+	}
+}
+
 func TestNativeArchiveRequiresMatchingCompleteRegularFiles(t *testing.T) {
 	for _, mutation := range []string{"valid", "missing-core", "duplicate", "traversal", "hash", "architecture"} {
 		t.Run(mutation, func(t *testing.T) {

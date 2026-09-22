@@ -41,7 +41,7 @@ func validateNativeFiles(files []nativeFile) error {
 				break
 			}
 		}
-		if !allowed || seen[file.Name] || file.Size <= 2 || file.Size > nativeLimit(file.Name) || normalizeSHA256(file.SHA256) != file.SHA256 {
+		if !allowed || seen[file.Name] || file.Size <= 2 || file.Size > nativeLimit(file.Name) || file.SHA256 == "" || normalizeSHA256(file.SHA256) != file.SHA256 {
 			return fmt.Errorf("invalid or duplicate native release file")
 		}
 		seen[file.Name] = true
