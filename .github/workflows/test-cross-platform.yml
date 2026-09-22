@@ -11,6 +11,8 @@ on:
       - "content/**"
       - "popup/**"
       - "shared/**"
+      - "changelog/**"
+      - "tools/read-latest-changelog.ps1"
       - "tests/**"
       - "truedown/**"
       - "manifest.json"
