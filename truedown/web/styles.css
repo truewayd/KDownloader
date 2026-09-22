@@ -760,7 +760,9 @@ h2 {
   text-align: center !important;
 }
 
-.select-cell input[type="checkbox"] {
+.select-cell input[type="checkbox"],
+.log-follow input[type="checkbox"] {
+  flex: 0 0 auto;
   width: 16px;
   height: 16px;
   margin: 0;

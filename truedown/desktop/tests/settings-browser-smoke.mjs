@@ -133,6 +133,9 @@ try {
         }
       }
       if (category === "logs") {
+        const followBox = await page.locator("#application-log-follow").boundingBox();
+        assert.equal(followBox.width, 16, `${name}: log checkbox stretches like a text input`);
+        assert.equal(followBox.height, 16, `${name}: log checkbox stretches like a text input`);
         await page.waitForFunction(() => document.querySelector("#application-log-output").textContent.includes("fresh"));
         assert.equal(await page.locator("#application-log-output").evaluate(e => e.scrollHeight - e.scrollTop - e.clientHeight < 2), true);
         if (native && colorScheme === "dark") { await page.waitForTimeout(3300); assert.ok(logReads >= 2); }

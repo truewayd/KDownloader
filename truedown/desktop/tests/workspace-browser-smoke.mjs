@@ -47,12 +47,13 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 let browser;
 try {
   browser = await chromium.launch({ headless: true });
-  for (const width of process.argv.includes("--about-only") ? [] : [1080, 390]) {
+  for (const width of process.argv.includes("--about-only") ? [] : [1080, 820, 620, 390]) {
     for (const colorScheme of ["light", "dark"]) {
       for (const deviceScaleFactor of [1, 2]) {
+        revision = 0;
         const native = width > 720;
         const height = native ? 760 : 700;
-        const name = `${native ? "native" : "mobile"}-${colorScheme}-${deviceScaleFactor * 100}`;
+        const name = `${native ? "native" : "mobile"}-${width}-${colorScheme}-${deviceScaleFactor * 100}`;
         const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor, colorScheme });
         if (native) await context.addInitScript(() => {
           window.__TRUEDOWN_PLATFORM__ = "windows";
@@ -104,7 +105,17 @@ try {
         assert.ok(geometry.rootWidth <= width + 1 && geometry.bodyWidth <= width + 1, `${name}: horizontal page overflow ${JSON.stringify(geometry)}`);
         assert.ok(geometry.sidebar.right <= geometry.main.x + 1, `${name}: sidebar overlaps content`);
         assert.ok(geometry.footer.bottom <= height + 1, `${name}: bottom utilities are outside the viewport`);
-        for (const selector of ["#new-task-btn", "#settings-btn", "#task-search", "#task-filter"]) {
+        const toolbar = await page.locator(".task-toolbar").evaluate(element => {
+          const bounds = node => { const box = node.getBoundingClientRect(); return { x: box.x, right: box.right, top: box.top, bottom: box.bottom }; };
+          return { box: bounds(element), padding: parseFloat(getComputedStyle(element).paddingRight),
+            folder: bounds(element.querySelector("#open-downloads-btn")),
+            buttons: [...element.querySelectorAll(".kd-button")].map(bounds) };
+        });
+        assert.ok(Math.abs(toolbar.folder.right - (toolbar.box.right - toolbar.padding)) <= 1, `${name}: folder button is not independently right-aligned`);
+        for (const button of toolbar.buttons) {
+          assert.ok(button.right + 6 <= toolbar.folder.x && button.bottom <= toolbar.box.bottom, `${name}: queue controls overlap the folder button`);
+        }
+        for (const selector of ["#new-task-btn", "#settings-btn", "#task-search", "#task-filter", "#open-downloads-btn"]) {
           const reachable = await page.locator(selector).evaluate(element => {
             const box = element.getBoundingClientRect();
             return box.width > 0 && box.height > 0 && box.x >= 0 && box.right <= innerWidth && box.y >= 0 && box.bottom <= innerHeight && element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));

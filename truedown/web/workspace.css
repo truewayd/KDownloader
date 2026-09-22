@@ -34,7 +34,9 @@
 .dashboard { width: auto; margin: 0; min-width: 0; padding: 8px 12px 12px 0; }
 .dashboard > .kd-panel { box-shadow: none; }
 .dashboard .kd-button { font-weight: 500; }
-.task-toolbar { flex-shrink: 0; padding: 16px 20px; justify-content: flex-start; gap: 6px; border-bottom: 1px solid var(--kd-border); }
+.task-toolbar { flex-shrink: 0; flex-wrap: nowrap; align-items: flex-start; padding: 16px 20px; justify-content: flex-start; gap: 12px; border-bottom: 1px solid var(--kd-border); }
+.task-queue-actions { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6px; }
+.task-toolbar > .kd-icon-button { flex: 0 0 auto; margin-inline-start: auto; }
 .task-toolbar .kd-button { min-height: 32px; padding: 6px 9px; border-color: transparent; background: transparent; box-shadow: none; }
 .task-toolbar .kd-button:hover:not(:disabled) { background: var(--kd-secondary-hover); border-color: var(--kd-border); }
 .metric-strip { display: flex; flex-shrink: 0; gap: 24px; margin: 0; padding: 14px 24px 0; border: 0; }
@@ -75,7 +77,7 @@
 .settings-content { background: var(--kd-surface); }
 .settings-about .about-brand { display: flex; align-items: center; gap: 16px; }
 .settings-about h2, .settings-about p { margin: 0; }
-.log-follow { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.log-follow { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
 .settings-content:has([data-settings-page="logs"]:not([hidden])) { display: flex; flex-direction: column; overflow: hidden; }
 .settings-content > .settings-section.log-page { display: flex; flex: 1; min-height: 0; max-width: none; padding: 0; }
 .settings-content .application-log-output { flex: 1; min-height: 100px; max-height: none; }

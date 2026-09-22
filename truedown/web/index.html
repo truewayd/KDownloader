@@ -55,11 +55,13 @@
       <section class="kd-panel task-panel" id="tasks-page" data-page="tasks" aria-labelledby="tasks-title">
         <h1 class="visually-hidden" id="tasks-title">全部下载</h1>
           <div class="panel-actions task-toolbar" aria-label="队列操作">
+            <div class="task-queue-actions">
+              <button class="kd-button secondary" id="pause-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-pause"></use></svg>暂停队列</button>
+              <button class="kd-button secondary" id="resume-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-play"></use></svg>恢复队列</button>
+              <button class="kd-button secondary" id="retry-all-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-retry"></use></svg>全部重试</button>
+              <button class="kd-button secondary" id="clear-done-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-trash"></use></svg>清理已完成</button>
+            </div>
             <button class="kd-icon-button" id="open-downloads-btn" type="button" title="打开下载目录" aria-label="打开下载目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button>
-            <button class="kd-button secondary" id="pause-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-pause"></use></svg>暂停队列</button>
-            <button class="kd-button secondary" id="resume-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-play"></use></svg>恢复队列</button>
-            <button class="kd-button secondary" id="retry-all-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-retry"></use></svg>全部重试</button>
-            <button class="kd-button secondary" id="clear-done-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-trash"></use></svg>清理已完成</button>
           </div>
 
         <p class="hint" id="task-load-status" role="status" hidden></p>
