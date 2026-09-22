@@ -332,15 +332,14 @@ mod tests {
             assert!(!allowed("task-details", "POST", path));
         }
         assert!(!allowed("batch-task", "POST", "/start-headless-download"));
-        for window in ["new-task"] {
-            assert!(allowed(window, "GET", "/settings/task-defaults"));
-            assert!(allowed(window, "POST", "/start-headless-download"));
-            assert!(allowed(window, "POST", "/start-bt-download"));
-            assert!(!allowed(window, "POST", "/settings/task-defaults"));
-            assert!(!allowed(window, "POST", "/system/exit"));
-            assert!(!allowed(window, "GET", "/tasks"));
-            assert!(!allowed(window, "GET", "/auth/token"));
-        }
+        let window = "new-task";
+        assert!(allowed(window, "GET", "/settings/task-defaults"));
+        assert!(allowed(window, "POST", "/start-headless-download"));
+        assert!(allowed(window, "POST", "/start-bt-download"));
+        assert!(!allowed(window, "POST", "/settings/task-defaults"));
+        assert!(!allowed(window, "POST", "/system/exit"));
+        assert!(!allowed(window, "GET", "/tasks"));
+        assert!(!allowed(window, "GET", "/auth/token"));
     }
 
     #[test]

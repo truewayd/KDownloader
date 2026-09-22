@@ -2,6 +2,7 @@
 
 - Upgrade actions/setup-node from 4.4.0 to 7.0.0 across release, cross-platform and native validation workflows, pinned to the reviewed upstream commit.
 - Keep the build runtime on Node.js 22 and explicitly disable automatic package-manager caching to preserve existing build behavior.
+- Remove a single-element loop in native window authorization tests that prevented Clippy validation and package publication.
 
 ## Verification
 
