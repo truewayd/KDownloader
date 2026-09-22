@@ -90,6 +90,14 @@
   box-sizing: border-box;
 }
 
+body { -webkit-user-select: none; user-select: none; }
+input, textarea, [contenteditable]:not([contenteditable="false"]),
+pre, code, .kd-selectable, [role="alert"], [role="status"], .kd-confirm-dialog > p {
+  -webkit-user-select: text;
+  user-select: text;
+}
+button, button *, label, summary, nav { -webkit-user-select: none; user-select: none; }
+
 button,
 input,
 select,

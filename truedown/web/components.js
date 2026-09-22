@@ -319,7 +319,9 @@
       animation: kd-links-dialog-in 180ms ease-out;
     }
 
+    .dialog { -webkit-user-select: none; user-select: none; }
     .dialog * { box-sizing: border-box; }
+    .dialog a { -webkit-user-select: text; user-select: text; }
     h3 { margin: 0 0 8px; color: var(--kd-content-text); font-size: 18px; font-weight: 700; line-height: 1.3; }
     p { margin: 0 0 14px; color: var(--kd-content-muted); font-size: 13px; line-height: 1.5; }
     ul { display: flex; flex-direction: column; gap: 8px; margin: 0 0 16px; padding: 0; list-style: none; }

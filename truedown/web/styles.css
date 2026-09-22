@@ -98,6 +98,8 @@ body {
 
 body {
   margin: 0;
+  -webkit-user-select: none;
+  user-select: none;
   overflow: hidden;
   background: var(--kd-bg);
   color: var(--kd-text);
@@ -105,6 +107,18 @@ body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Preserve editing and copying diagnostics without selecting interface chrome. */
+input, textarea, [contenteditable]:not([contenteditable="false"]),
+pre, code, .kd-selectable, .task-info-grid dd, #dialog-message,
+[role="alert"], [role="status"], [aria-live="polite"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+button, button *, label, summary, nav, .kd-context-menu, .kd-context-menu * {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 button,

@@ -74,6 +74,19 @@ try {
     assert.ok(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= 400 && bounds.y + bounds.height <= 400);
     await page.locator("#blank").click();
     assert.equal(await page.getByRole("menu").count(), 0);
+    await page.evaluate(() => window.getSelection().removeAllRanges());
+    for (const [selector, selectable] of [["#blank", false], ["#log", true]]) {
+      const box = await page.locator(selector).boundingBox();
+      await page.mouse.move(box.x + 1, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+      assert.equal(await page.evaluate(() => Boolean(window.getSelection().toString())), selectable);
+    }
+    assert.deepEqual(await open("#log"), ["copy", "select-all"]);
+    await choose("copy");
+    assert.equal(await page.evaluate(() => window.getSelection().toString()), "diagnostic text");
+    await page.evaluate(() => window.getSelection().removeAllRanges());
     await page.evaluate(() => { nativeWindowRole = "settings"; });
     assert.deepEqual(await open("#blank"), []);
     assert.deepEqual(await open("#disabled"), []);
