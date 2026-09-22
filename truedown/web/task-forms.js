@@ -1,8 +1,9 @@
 // Native form lifecycle and cross-window preferences. Submission stays in app.js.
 let nativeTaskFormReady = false;
 let nativeTaskFormLoad = null;
+let nativeTaskFormConfigured = false;
 const nativeTaskPreferences = {
-  pending: null, requested: false, disposed: false,
+  pending: null, requested: false, disposed: false, failed: false,
 };
 
 function isNativeTaskWindow() {
@@ -19,9 +20,10 @@ function bindNativeTaskPreferences() {
 }
 
 function refreshNativeTaskFormOnActivation() {
-  if (!nativeTaskFormReady || document.hidden || nativeTaskPreferences.disposed) return;
+  if (document.hidden || nativeTaskPreferences.disposed) return;
+  if (!nativeTaskFormReady) { initNativeTaskForm(); return; }
   refreshNativeTaskPreferences().catch((error) => {
-    if (!nativeTaskPreferences.disposed) showModalMsg(`读取当前下载选项失败：${error.message}`, true);
+    if (!nativeTaskPreferences.disposed) showModalMsg(`读取当前下载选项失败，正在自动重试：${error.message}`, true);
   });
 }
 
@@ -48,6 +50,16 @@ async function refreshNativeTaskPreferences() {
   })();
   try {
     await nativeTaskPreferences.pending;
+    cancelReadRetry("task-preferences");
+    if (nativeTaskPreferences.failed && nativeTaskFormReady && !nativeTaskPreferences.disposed) showModalMsg("连接已恢复，下载选项已同步。");
+    nativeTaskPreferences.failed = false;
+  } catch (error) {
+    nativeTaskPreferences.failed = true;
+    scheduleReadRetry("task-preferences", async () => {
+      if (!nativeTaskFormReady) { await initNativeTaskForm(); return; }
+      await refreshNativeTaskPreferences();
+    }, () => !nativeTaskPreferences.disposed);
+    throw error;
   } finally {
     nativeTaskPreferences.pending = null;
   }
@@ -67,6 +79,10 @@ async function initNativeTaskForm() {
   els.overlay.classList.add("open");
   els.overlay.setAttribute("aria-hidden", "false");
   els.overlay.removeAttribute("inert");
+  if (!nativeTaskFormConfigured) {
+    configureTaskForm();
+    nativeTaskFormConfigured = true;
+  }
   els.downloadForm.inert = true;
   KDComponents.setBusyState(els.submitTaskBtn, true);
   showModalMsg("正在读取下载默认值…");
@@ -74,17 +90,17 @@ async function initNativeTaskForm() {
     try {
       // Form windows can read download preferences, but cannot migrate or save them.
       await refreshNativeTaskPreferences();
-      configureTaskForm();
+      if (nativeTaskPreferences.disposed) return;
       nativeTaskFormReady = true;
       showModalMsg("");
     } catch (error) {
-      showModalMsg(`读取默认值失败：${error.message}。点击下方按钮重试。`, true);
+      showModalMsg(`读取默认值失败，正在自动重试：${error.message}`, true);
     } finally {
       nativeTaskFormLoad = null;
       els.downloadForm.inert = false;
       KDComponents.setBusyState(els.submitTaskBtn, false);
-      if (!nativeTaskFormReady) els.submitTaskBtn.textContent = "重新读取默认值";
-      (nativeTaskFormReady ? els.mLink : els.submitTaskBtn).focus();
+      els.submitTaskBtn.disabled = !nativeTaskFormReady;
+      if (nativeTaskFormReady && (document.activeElement === document.body || document.activeElement === els.submitTaskBtn)) els.mLink.focus();
       if (nativeTaskFormReady) drainNativeDrop();
     }
   })();

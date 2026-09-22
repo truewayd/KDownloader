@@ -17,6 +17,7 @@ test("settings loaded after navigation initialize once on return and retain late
   const context = vm.createContext({
     currentSettingsPage: "general", currentPage: "settings", routeEpoch: 1,
     settingsReady: new Set(), settingsRendered: new Set(), settingsLoads: new Map(), settingsMessages: new Map(),
+    cancelReadRetry() {}, scheduleReadRetry() {},
     EDITABLE_SETTINGS_PAGES: new Set(["general"]),
     els: Object.fromEntries(["settingsFooter", "settingsSaveStatus", "settingsReloadBtn", "settingsSaveBtn", "settingsResetBtn", "settingsLoadStatus"].map(id => [id, {}])),
     document: { querySelectorAll: () => [] }, settingsPanels: () => [],
@@ -43,28 +44,29 @@ test("settings loaded after navigation initialize once on return and retain late
   assert.deepEqual(renders, ["general"], "returning again preserves edited controls");
 });
 
-test("log cancellation releases busy UI and an old completion cannot clear a newer read", async () => {
-  const completions = [], busy = [];
+test("log cancellation aborts reads and an old completion cannot clear a newer read", async () => {
+  const completions = [], signals = [];
   const context = vm.createContext({
     applicationLogRequest: 0, applicationLogAbort: null, applicationLogTimer: 0,
     currentPage: "settings", currentSettingsPage: "logs", routeEpoch: 1,
-    document: { hidden: false }, els: { refreshApplicationLogBtn: {} },
+    document: { hidden: false },
     AbortController, AbortSignal, clearTimeout, setTimeout,
-    KDComponents: { setBusyState: (_, value) => busy.push(value) },
-    requestJSON: () => new Promise(resolve => completions.push(resolve)),
+    requestJSON: (_url, options) => { signals.push(options.signal); return new Promise(resolve => completions.push(resolve)); },
   });
   vm.runInContext(declarations("isApplicationLogPage", "stopApplicationLog", "loadApplicationLog"), context);
   const first = context.loadApplicationLog();
   context.stopApplicationLog();
-  assert.deepEqual(busy, [true, false]);
+  assert.equal(signals[0].aborted, true);
   const second = context.loadApplicationLog();
   completions[0]({});
   await first;
-  assert.deepEqual(busy, [true, false, true]);
+  assert.equal(signals[1].aborted, false);
+  assert.equal(context.applicationLogAbort.signal, signals[1]);
   context.stopApplicationLog();
   completions[1]({});
   await second;
-  assert.equal(busy.at(-1), false);
+  assert.equal(signals[1].aborted, true);
+  assert.equal(context.applicationLogAbort, null);
 });
 
 test("late native subscription completion is disposed exactly once after page closure", async () => {
@@ -135,9 +137,8 @@ test("a completed save from another task cannot clear the current task's busy st
   await first;
   assert.equal(controls.get("task-settings-save").busy, true);
   assert.equal(controls.get("task-settings-save").disabled, true);
-  assert.equal(controls.get("task-settings-reload").disabled, true);
   requests[1]({ settingsRevision: "saved2", settings: { connections: 8 } });
   await second;
   assert.equal(controls.get("task-settings-save").busy, false);
-  assert.equal(controls.get("task-settings-reload").disabled, false);
+  assert.equal(controls.get("task-settings-save").disabled, false);
 });

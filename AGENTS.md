@@ -165,6 +165,8 @@ Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps
 
 - Task details open in a singleton native `task-details` window through a main-window-only bounded task-ID command. Its role allows only individual task details, settings and task actions, never task-list polling or application settings. Versioned native target/visibility snapshots prevent stale initialization from selecting the wrong task; hiding cancels reads and polling, reopening preserves the same task's tab and drafts, and successful mutations refresh the main list through native events.
 
+- TrueDown views recover failed reads automatically without refresh/reload controls. View-owned retries back off, stop on navigation/teardown and suspend while hidden; transport deadlines remain bounded. Recovery preserves unsaved drafts and never replays task creation, saves, deletion or other mutations. Conflicting task/group revisions merge only locally edited fields into fresh read snapshots before an explicit subsequent save.
+
 ## Build And Release
 
 - `manifest.json` is the single source for KDownloader's three-component `MAJOR.MINOR.PATCH` product version. Bump it deliberately for user-visible releases: major for incompatible changes, minor for backward-compatible features, and patch for backward-compatible fixes. Do not duplicate the product version in `package.json` or another source file.

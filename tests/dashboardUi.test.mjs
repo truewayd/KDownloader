@@ -68,27 +68,6 @@ test("task speed zero overrides a nonzero default while blank inherits it", () =
   assert.equal(vm.runInContext("buildOpts('m').maxSpeedBps", context), 1024);
 });
 
-test("refresh keeps one pending operation and never announces success after load failure", async () => {
-  let complete;
-  let loads = 0;
-  const messages = [];
-  const button = control();
-  const context = vm.createContext({
-    els: { refreshTasksBtn: button }, KDComponents: busyComponents,
-    loadTasks: () => { loads++; return new Promise((resolve) => { complete = resolve; }); },
-    showToast: (text) => messages.push(text), schedulePoll() {},
-  });
-  vm.runInContext(declaration("refreshTasks"), context);
-  const pending = vm.runInContext("refreshTasks()", context);
-  await vm.runInContext("refreshTasks()", context);
-  assert.equal(loads, 1);
-  assert.equal(button.getAttribute("aria-busy"), "true");
-  complete(false);
-  await pending;
-  assert.deepEqual(messages, []);
-  assert.equal(button.getAttribute("aria-busy"), "false");
-});
-
 test("task submission locks the form once and closes immediately after successful dispatch", async () => {
   let complete;
   let dispatches = 0;
@@ -198,6 +177,7 @@ test("settings navigation stays immediate and a late category read never overwri
   const context = vm.createContext({
     els: fields, currentPage: "settings", currentSettingsPage: "general", routeEpoch: 1,
     settingsLoads: new Map(), settingsReady: new Set(), settingsRendered: new Set(), settingsMessages: new Map(),
+    cancelReadRetry() {}, scheduleReadRetry() {},
     EDITABLE_SETTINGS_PAGES: new Set(["general", "advanced"]),
     document: { querySelectorAll: () => [] },
     settingsPanels: (page) => [panels[page]],

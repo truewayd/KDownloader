@@ -113,11 +113,6 @@ function initTaskDetails() {
     document.getElementById("task-settings-status").textContent = draft.message;
   });
   document.getElementById("task-settings-form").addEventListener("submit", saveTaskDetails);
-  document.getElementById("task-settings-reload").addEventListener("click", async () => {
-    if (taskDetailDrafts.get(taskDetailID)?.saving) return;
-    taskDetailDrafts.delete(taskDetailID);
-    await loadTaskDetails();
-  });
   document.addEventListener("visibilitychange", () => {
     stopTaskDetails();
     if (currentPage === "task" && !document.hidden) loadTaskDetails();
@@ -184,7 +179,7 @@ async function loadTaskDetails() {
     document.getElementById("task-detail-status").textContent = "";
   } catch (error) {
     if (!current() || error.name === "AbortError") return;
-    document.getElementById("task-detail-status").textContent = error.status === 404 ? "\u6b64\u4efb\u52a1\u5df2\u88ab\u79fb\u9664\u3002" : `\u8bfb\u53d6\u5931\u8d25\uff1a${error.message}`;
+    document.getElementById("task-detail-status").textContent = error.status === 404 ? "\u6b64\u4efb\u52a1\u5df2\u88ab\u79fb\u9664\u3002" : `读取失败，正在自动重试：${error.message}`;
     document.getElementById("task-settings-save").disabled = true;
     document.getElementById("task-detail-actions").replaceChildren();
     delete document.getElementById("task-detail-actions").dataset.status;
@@ -224,10 +219,16 @@ function renderTaskDetails(task) {
     if (focused) (actions.querySelector(`[data-action="${focused}"]`) || actions.querySelector("button"))?.focus({ preventScroll: true });
   }
   let draft = taskDetailDrafts.get(task.id);
+  const latest = Object.fromEntries(Object.entries(task.settings).map(([key, value]) => [key, String(value)]));
   if (!draft || !draft.dirty && !draft.saving && draft.revision !== task.settingsRevision) {
-    draft = { revision: task.settingsRevision, values: { ...task.settings }, dirty: false, message: "" };
+    draft = { revision: task.settingsRevision, values: { ...latest }, base: latest, dirty: false, message: "" };
     taskDetailDrafts.set(task.id, draft);
     while (taskDetailDrafts.size > 32) taskDetailDrafts.delete(taskDetailDrafts.keys().next().value);
+  } else if (draft.dirty && !draft.saving && draft.revision !== task.settingsRevision) {
+    draft.values = reconcileReadDraft(draft.base || {}, draft.values, latest);
+    draft.base = latest;
+    draft.revision = task.settingsRevision;
+    draft.message = "已同步最新设置，草稿已保留，请确认后保存。";
   }
   for (const [key, id] of Object.entries(taskSettingControls)) {
     const control = document.getElementById(id);
@@ -244,7 +245,6 @@ function syncTaskSettingsBusy() {
   const button = document.getElementById("task-settings-save");
   button.disabled = saving || !taskDetailData || taskDetailData.status === "done";
   KDComponents.setBusyState(button, saving, { manageDisabled: false });
-  document.getElementById("task-settings-reload").disabled = saving;
 }
 
 async function saveTaskDetails(event) {
@@ -258,9 +258,10 @@ async function saveTaskDetails(event) {
   syncTaskSettingsBusy();
   try {
     const task = await requestJSON(`/tasks/detail?id=${id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision: draft.revision, values }) });
-    Object.assign(draft, { revision: task.settingsRevision, values: { ...task.settings }, dirty: false, message: "\u6b64\u4efb\u52a1\u7684\u8bbe\u7f6e\u5df2\u4fdd\u5b58\u3002" });
+    const savedValues = Object.fromEntries(Object.entries(task.settings).map(([key, value]) => [key, String(value)]));
+    Object.assign(draft, { revision: task.settingsRevision, values: savedValues, base: { ...savedValues }, dirty: false, message: "\u6b64\u4efb\u52a1\u7684\u8bbe\u7f6e\u5df2\u4fdd\u5b58\u3002" });
   } catch (error) {
-    draft.message = error.status === 409 ? "\u4efb\u52a1\u8bbe\u7f6e\u5df2\u53d8\u66f4\uff0c\u8bf7\u91cd\u65b0\u8bfb\u53d6\u540e\u4fee\u6539\u3002\u8349\u7a3f\u5df2\u4fdd\u7559\u3002" : `\u4fdd\u5b58\u5931\u8d25\uff1a${error.message}`;
+    draft.message = error.status === 409 ? "设置已变更，正在自动同步，草稿已保留。" : `\u4fdd\u5b58\u5931\u8d25\uff1a${error.message}`;
   } finally {
     draft.saving = false;
     syncTaskSettingsBusy();

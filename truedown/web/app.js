@@ -205,11 +205,9 @@ function cacheElements() {
     "page-info",
     "prev-page-btn",
     "pause-queue-btn",
-    "refresh-tasks-btn",
     "retry-all-btn",
     "resume-queue-btn",
 	"restart-truedown-update-btn",
-	"refresh-application-log-btn",
 	"select-next-engine-btn",
 	"select-stable-engine-btn",
     "settings-btn",
@@ -218,7 +216,6 @@ function cacheElements() {
     "settings-footer",
     "settings-load-status",
     "settings-save-status",
-    "settings-reload-btn",
     "startup-enabled",
     "startup-status",
     "settings-reset-btn",
@@ -227,6 +224,7 @@ function cacheElements() {
     "task-detail-actions",
     "task-filter",
     "task-search",
+    "task-load-status",
     "tasks-container",
     "tasks-wrap",
     "token-auth-enabled",
@@ -260,7 +258,6 @@ function bindEvents() {
   els.settingsResetBtn.addEventListener("click", resetDownloadSettings);
   els.settingsForm.addEventListener("submit", saveDownloadSettings);
   els.settingsForm.addEventListener("input", markSettingsDraft);
-  els.settingsReloadBtn.addEventListener("click", () => loadSettingsPage(true));
   els.startupEnabled.addEventListener("change", updateStartupSettings);
   document.getElementById("tray-save").addEventListener("click", saveTraySettings);
   els.trackerPretendSeed.addEventListener("change", syncTrackerSeedControls);
@@ -286,7 +283,6 @@ function bindEvents() {
   els.downloadForm.addEventListener("submit", submitTask);
   bindNativeTaskPreferences();
   bindDownloadDrops();
-  els.refreshTasksBtn.addEventListener("click", refreshTasks);
   els.retryAllBtn.addEventListener("click", requeueAllErrorTasks);
   els.pauseQueueBtn.addEventListener("click", () => runQueueAction("pause"));
   els.resumeQueueBtn.addEventListener("click", () => runQueueAction("resume"));
@@ -318,7 +314,6 @@ function bindEvents() {
   document.getElementById("auto-update-next").addEventListener("change", updateNextAutoUpdate);
   els.cfgProxyMode.addEventListener("change", renderProxyMode);
   els.checkTruedownUpdateBtn.addEventListener("click", checkTrueDownUpdate);
-	els.refreshApplicationLogBtn.addEventListener("click", () => loadApplicationLog(true));
 	els.copyApplicationLogBtn.addEventListener("click", copyApplicationLog);
   els.exitFromSettingsBtn.addEventListener("click", exitTrueDown);
   els.restartTruedownUpdateBtn.addEventListener("click", restartForTrueDownUpdate);
@@ -970,6 +965,7 @@ async function loadTasks({ force = false } = {}) {
         if (currentPage !== "tasks" || document.hidden) return false;
         if (epoch !== routeEpoch || url !== taskPageURL()) continue;
         if (response.status === 304) {
+          if (els.taskLoadStatus) els.taskLoadStatus.hidden = true;
           if (taskRefreshRequested) { force = true; continue; }
           restoreTaskReturnFocus();
           return true;
@@ -979,6 +975,7 @@ async function loadTasks({ force = false } = {}) {
         if (currentPage !== "tasks" || document.hidden) return false;
         if (epoch !== routeEpoch || url !== taskPageURL()) continue;
         if (!page || !Array.isArray(page.tasks) || !page.summary) throw new Error("任务列表响应无效");
+        if (els.taskLoadStatus) els.taskLoadStatus.hidden = true;
         const etag = response.headers.get("ETag");
         if (page.groups) {
           applyFileGroups(page.groups);
@@ -1008,24 +1005,16 @@ async function loadTasks({ force = false } = {}) {
       }
     } catch (error) {
       console.error("loadTasks:", error);
-      showToast(`加载任务失败：${error.message}`, "error");
+      if (currentPage === "tasks" && els.taskLoadStatus) {
+        els.taskLoadStatus.textContent = `连接暂时不可用，正在自动重试：${error.message}`;
+        els.taskLoadStatus.hidden = false;
+      }
       return false;
     } finally {
       loadTasksPromise = null;
     }
   })();
   return loadTasksPromise;
-}
-
-async function refreshTasks() {
-  if (els.refreshTasksBtn.getAttribute("aria-busy") === "true") return;
-  KDComponents.setBusyState(els.refreshTasksBtn, true);
-  try {
-    if (await loadTasks({ force: true })) showToast("任务列表已刷新。");
-  } finally {
-    KDComponents.setBusyState(els.refreshTasksBtn, false);
-    schedulePoll();
-  }
 }
 
 function taskPageURL() {

@@ -42,9 +42,11 @@ try {
       "/modules": { modules: ["google-drive", "dropbox"].map(id => ({ id, name: id === "dropbox" ? "Dropbox" : "Google Drive", version: "1.0.0", installed: true, source: "baseline" })) },
     };
     let failSave = false, logReads = 0;
+    let offline = native && colorScheme === "light";
     await context.route(/\/(settings\/|system\/|auth\/|modules)/, async route => {
       const endpoint = new URL(route.request().url()).pathname;
       if (!(endpoint in fixture)) throw new Error(`Unexpected settings API: ${endpoint}`);
+      if (offline && route.request().method() === "GET") { await route.fulfill({ status: 503, body: "Fixture disconnected" }); return; }
       if (endpoint === "/system/logs") { logReads++; fixture[endpoint].content += `fresh ${logReads}\\n`; }
       if (route.request().method() === "POST") {
         if (failSave) { await route.fulfill({ status: 500, body: "Fixture persistence failure" }); return; }
@@ -75,6 +77,13 @@ try {
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(`${origin}/${native ? "?window=settings" : ""}#settings/general`);
+    if (offline) {
+      await page.waitForFunction(() => document.querySelector("#settings-load-status").textContent.includes("自动重试"));
+      offline = false;
+      await page.waitForFunction(() => settingsReady.has("general"));
+      assert.equal(await page.locator("#settings-load-status").textContent(), "");
+      assert.equal(await page.locator("#settings-save-btn").isEnabled(), true);
+    }
     assert.equal(await page.title(), "设置");
     if (native) {
       const navigation = await page.locator('[data-settings-link="general"]').boundingBox();
@@ -127,6 +136,14 @@ try {
         await page.waitForFunction(() => document.querySelector("#application-log-output").textContent.includes("fresh"));
         assert.equal(await page.locator("#application-log-output").evaluate(e => e.scrollHeight - e.scrollTop - e.clientHeight < 2), true);
         if (native && colorScheme === "dark") { await page.waitForTimeout(3300); assert.ok(logReads >= 2); }
+        if (native && colorScheme === "light") {
+          const previous = await page.locator("#application-log-output").textContent();
+          offline = true;
+          await page.waitForFunction(() => document.querySelector("#application-log-status").textContent.includes("自动重试"));
+          assert.equal(await page.locator("#application-log-output").textContent(), previous);
+          offline = false;
+          await page.waitForFunction(() => !document.querySelector("#application-log-status").textContent.includes("自动重试"));
+        }
       }
       if (category === "engine") {
         assert.equal(await page.locator(".module-card-icon use").count(), 2);

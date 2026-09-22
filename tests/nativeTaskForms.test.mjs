@@ -92,6 +92,7 @@ test("native form startup reads only its permitted preferences and retries witho
   const shell = {};
   const context = vm.createContext({
     nativeWindowRole: "new-task", nativeTaskFormLoad: null, nativeTaskFormReady: false,
+    nativeTaskFormConfigured: false, nativeTaskPreferences: { disposed: false },
     currentPage: "tasks", KDComponents: busyComponents,
     els: { downloadForm: form, overlay: control(), modalCloseBtn: control(), modalCancelBtn: control(), submitTaskBtn: control(), mLink: control("draft") },
     document: { querySelector: () => shell },
@@ -102,7 +103,7 @@ test("native form startup reads only its permitted preferences and retries witho
   vm.runInContext(declarations("initNativeTaskForm"), context);
   await context.initNativeTaskForm();
   assert.equal(context.nativeTaskFormReady, false);
-  assert.equal(context.els.submitTaskBtn.textContent, "重新读取默认值");
+  assert.equal(context.els.submitTaskBtn.disabled, true);
   assert.equal(context.currentPage, "new-task");
   assert.equal(context.els.mLink.value, "draft");
   assert.equal(surface.getAttribute("role"), "main");
@@ -110,7 +111,8 @@ test("native form startup reads only its permitted preferences and retries witho
   await context.initNativeTaskForm();
   assert.equal(context.nativeTaskFormReady, true);
   assert.equal(shell.hidden, true);
-  assert.deepEqual(actions, ["preferences", "preferences", "form"]);
+  assert.equal(context.els.submitTaskBtn.disabled, false);
+  assert.deepEqual(actions, ["form", "preferences", "preferences"]);
 });
 
 test("a submitted native task never fetches task pages or reports a window-close failure as failed dispatch", async () => {
@@ -204,7 +206,8 @@ function preferencesContext(requestJSON) {
     els: Object.fromEntries(["mDropboxMode", "mDropboxFilter", "mDropboxOption", "mGoogleDriveOption", "mResolverOptions", "mLink", "mTorrentFile"].map((name) => [name, control()])),
     requestJSON, normalizeServerDownloadRules: (rules) => rules, normalizeResolverModules: (result) => result.modules,
     applyTaskDefaults: (defaults) => { context.downloadSettings = defaults.values; },
-    showModalMsg: assert.fail, document: { hidden: false },
+    showModalMsg() {}, document: { hidden: false },
+    cancelReadRetry() {}, scheduleReadRetry() {},
     window: {
       addEventListener: (name, callback) => events.set(name, callback),
       removeEventListener: (name) => events.delete(name),

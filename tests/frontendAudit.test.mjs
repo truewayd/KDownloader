@@ -283,6 +283,7 @@ function createTaskPageHarness(fetchPage) {
   const rendered = [];
   const context = vm.createContext({
     apiFetch: fetchPage,
+    els: { taskLoadStatus: { hidden: true, textContent: "" } },
     currentPage: "tasks", routeEpoch: 1, document: { hidden: false },
     console: { error() {} },
     URLSearchParams,
@@ -312,6 +313,24 @@ function taskPage(id, total = 300) {
     json: async () => ({ tasks: [{ id }], total, summary: { total } }),
   };
 }
+
+test("task read failures retain displayed rows and automatically clear their status on recovery", async () => {
+  let offline = false;
+  const { context, rendered } = createTaskPageHarness(async () => {
+    if (offline) throw Error("disconnected");
+    return taskPage(7);
+  });
+  await context.loadTasks();
+  offline = true;
+  await context.loadTasks();
+  assert.equal(rendered.length, 1);
+  assert.equal(context.els.taskLoadStatus.hidden, false);
+  assert.match(context.els.taskLoadStatus.textContent, /自动重试/);
+  offline = false;
+  await context.loadTasks();
+  assert.equal(context.els.taskLoadStatus.hidden, true);
+  assert.equal(rendered.length, 2);
+});
 
 test("TrueDown discards a task response after leaving the task page and does not poll hidden views", async () => {
   let complete;

@@ -117,6 +117,21 @@ try {
     assert.equal(groups.groups.find(group => group.name === "Design source").extensions[0], ".psd");
     assert.equal(groups.groups.find(group => group.name === "Design source").icon, "star");
     assert.equal(groups.groups.find(group => group.name === "Design source").directory, "Design Files");
+    if (width === 1200 && colorScheme === "light") {
+      const originalWrites = groupWrites;
+      await custom.locator(".group-name-field input").fill("Local draft");
+      groups.revision++;
+      groups.groups.find(group => group.name === "Design source").directory = "Remote folder";
+      await page.locator("#file-groups-save").click();
+      await page.waitForFunction(() => document.querySelector("#file-groups-status").textContent.includes("已同步最新分组"));
+      assert.equal(await custom.locator(".group-name-field input").inputValue(), "Local draft");
+      assert.equal(await custom.locator("[data-group-directory]").inputValue(), "Remote folder");
+      assert.equal(groupWrites, originalWrites, "recovery never submits the merged draft");
+      await custom.locator(".group-name-field input").fill("Design source");
+      await page.locator("#file-groups-save").click();
+      await page.waitForFunction(() => document.querySelector("#file-groups-status").textContent.includes("已保存"));
+      assert.equal(groups.groups.find(group => group.name === "Design source").directory, "Remote folder");
+    }
     await page.screenshot({ path: path.join(screenshots, `groups-${width}-${colorScheme}.png`) });
     await page.locator('[data-task-category^="group-"]').click();
     await page.waitForFunction(() => document.querySelector("tr[data-task-id] .task-folder")?.textContent === "Design source");
@@ -127,7 +142,7 @@ try {
     await page.close();
     console.log(`${width} ${colorScheme}: groups, suffix editing, filters, details, retained drafts, persistence and conflicts OK`);
   }
-  assert.equal(groupWrites, 4);
+  assert.equal(groupWrites, 5);
   assert.equal(detailWrites, 4);
   console.log(`Screenshots: ${screenshots}`);
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

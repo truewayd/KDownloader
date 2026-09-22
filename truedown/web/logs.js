@@ -8,7 +8,6 @@ function stopApplicationLog() {
   applicationLogRequest++;
   applicationLogAbort?.abort();
   applicationLogAbort = null;
-  if (els.refreshApplicationLogBtn) KDComponents.setBusyState(els.refreshApplicationLogBtn, false);
 }
 document.addEventListener("visibilitychange", () => {
   stopApplicationLog();
@@ -16,14 +15,13 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("pagehide", stopApplicationLog, { once: true });
 
-async function loadApplicationLog(announce = false) {
+async function loadApplicationLog() {
   if (!isApplicationLogPage() || document.hidden) return;
   clearTimeout(applicationLogTimer);
   const request = ++applicationLogRequest;
   const epoch = routeEpoch;
   applicationLogAbort?.abort();
   applicationLogAbort = new AbortController();
-  KDComponents.setBusyState(els.refreshApplicationLogBtn, true);
   try {
     const response = await requestJSON("/system/logs", { signal: applicationLogAbort.signal });
     if (request !== applicationLogRequest || epoch !== routeEpoch || !isApplicationLogPage()) return;
@@ -37,14 +35,11 @@ async function loadApplicationLog(announce = false) {
       : `显示当前日志${updated ? `；更新时间：${formatUpdateTime(updated)}` : ""}。`;
     els.copyApplicationLogBtn.disabled = !content;
     if (follow) output.scrollTop = output.scrollHeight;
-    if (announce) showToast("应用日志已刷新。");
   } catch (error) {
     if (request !== applicationLogRequest || epoch !== routeEpoch || !isApplicationLogPage() || error.name === "AbortError") return;
-    els.applicationLogStatus.textContent = `读取应用日志失败：${error.message}`;
-    if (announce) showToast(els.applicationLogStatus.textContent, "error");
+    els.applicationLogStatus.textContent = `读取应用日志失败，正在自动重试：${error.message}`;
   } finally {
     if (request === applicationLogRequest) {
-      KDComponents.setBusyState(els.refreshApplicationLogBtn, false);
       if (isApplicationLogPage() && !document.hidden) applicationLogTimer = setTimeout(loadApplicationLog, 3000);
     }
   }

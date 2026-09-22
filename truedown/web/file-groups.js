@@ -2,6 +2,8 @@ let fileGroupsState = { revision: -1, groups: [] };
 let fileGroupsDraft = null;
 let fileGroupsEditorRevision = -1;
 let fileGroupsReadVersion = 0;
+let fileGroupsBase = null;
+let fileGroupsNeedsSync = false;
 
 function taskCategoryMeta(id) {
   const group = fileGroupsState.groups.find((value) => value.id === id);
@@ -71,9 +73,6 @@ function initFileGroups() {
     markFileGroupsDraft();
   });
   document.getElementById("file-groups-save").addEventListener("click", saveFileGroups);
-  document.getElementById("file-groups-reload").addEventListener("click", () => loadFileGroupsEditor(true).catch((error) => {
-    document.getElementById("file-groups-status").textContent = error.message;
-  }));
 }
 
 function markFileGroupsDraft() {
@@ -168,16 +167,60 @@ function openGroupIconPicker(button) {
   (groupIconDialog.querySelector('[aria-pressed="true"]') || groupIconDialog.querySelector("header button")).focus();
 }
 
-async function loadFileGroupsEditor(force = false) {
-  if (fileGroupsDraft && !force) return;
+function reconcileFileGroups(base, draft, latest) {
+  const previous = new Map(base.map(group => [group.id, { directory: "", ...group }]));
+  const local = new Map(draft.map(group => [group.id, { directory: "", ...group }]));
+  const merged = latest.filter(group => !previous.has(group.id) || local.has(group.id)).map(group =>
+    local.has(group.id) ? reconcileReadDraft(previous.get(group.id) || {}, local.get(group.id), group) : group);
+  for (const group of draft) {
+    if (!latest.some(item => item.id === group.id) && JSON.stringify(previous.get(group.id)) !== JSON.stringify(local.get(group.id))) {
+      merged.splice(Math.max(0, merged.findIndex(item => item.id === "other")), 0, group);
+    }
+  }
+  return merged;
+}
+
+async function loadFileGroupsEditor() {
+  if (fileGroupsDraft && !fileGroupsNeedsSync) return;
   const version = ++fileGroupsReadVersion;
   const state = await requestJSON("/settings/file-groups");
-  if (version !== fileGroupsReadVersion) return;
+  if (version !== fileGroupsReadVersion) {
+    if (fileGroupsNeedsSync) scheduleFileGroupsSync();
+    return;
+  }
   applyFileGroups(state);
-  fileGroupsDraft = structuredClone(state.groups);
+  const merging = Boolean(fileGroupsDraft && fileGroupsNeedsSync);
+  const focused = document.activeElement;
+  const focusedGroup = focused?.closest("[data-group-id]")?.dataset.groupId;
+  const focusedIndex = focusedGroup ? [...focused.closest("[data-group-id]").querySelectorAll("input, textarea, button")].indexOf(focused) : -1;
+  const selection = focusedGroup && typeof focused.selectionStart === "number" ? [focused.selectionStart, focused.selectionEnd] : null;
+  if (merging) captureFileGroupsDraft();
+  fileGroupsDraft = merging ? reconcileFileGroups(fileGroupsBase || [], fileGroupsDraft, state.groups) : structuredClone(state.groups);
+  fileGroupsBase = structuredClone(state.groups);
+  fileGroupsNeedsSync = false;
+  cancelReadRetry("file-groups");
   fileGroupsEditorRevision = state.revision;
   renderFileGroupsEditor();
-  document.getElementById("file-groups-status").textContent = "";
+  if (focusedGroup) {
+    const row = [...document.querySelectorAll("[data-group-id]")].find(item => item.dataset.groupId === focusedGroup);
+    const field = row?.querySelectorAll("input, textarea, button")[focusedIndex];
+    field?.focus({ preventScroll: true });
+    if (selection) field?.setSelectionRange(...selection);
+  }
+  document.getElementById("file-groups-status").textContent = merging ? "已同步最新分组，草稿已保留，请确认后保存。" : "";
+}
+
+function scheduleFileGroupsSync() {
+  scheduleReadRetry("file-groups", syncFileGroups, () => currentPage === "settings" && currentSettingsPage === "files" && fileGroupsNeedsSync);
+}
+
+async function syncFileGroups() {
+  if (document.getElementById("file-groups-save").disabled) { scheduleFileGroupsSync(); return; }
+  try { await loadFileGroupsEditor(); }
+  catch (error) {
+    document.getElementById("file-groups-status").textContent = `同步失败，正在自动重试，草稿已保留：${error.message}`;
+    scheduleFileGroupsSync();
+  }
 }
 
 async function saveFileGroups() {
@@ -196,12 +239,19 @@ async function saveFileGroups() {
     fileGroupsReadVersion++;
     applyFileGroups(state);
     fileGroupsDraft = structuredClone(state.groups);
+    fileGroupsBase = structuredClone(state.groups);
+    fileGroupsNeedsSync = false;
+    cancelReadRetry("file-groups");
     fileGroupsEditorRevision = state.revision;
     renderFileGroupsEditor();
     document.getElementById("file-groups-status").textContent = "\u5206\u7ec4\u5df2\u4fdd\u5b58\uff0c\u5df2\u6709\u4efb\u52a1\u4f1a\u81ea\u52a8\u91cd\u65b0\u5f52\u7c7b\u3002";
     renderedTaskPageURL = "";
   } catch (error) {
-    document.getElementById("file-groups-status").textContent = error.status === 409 ? "\u5176\u4ed6\u7a97\u53e3\u5df2\u4fee\u6539\u5206\u7ec4\uff0c\u8bf7\u91cd\u65b0\u8bfb\u53d6\u540e\u7f16\u8f91\u3002\u5f53\u524d\u8349\u7a3f\u5df2\u4fdd\u7559\u3002" : `\u4fdd\u5b58\u5931\u8d25\uff1a${error.message}`;
+    document.getElementById("file-groups-status").textContent = error.status === 409 ? "分组已变更，正在自动同步，草稿已保留。" : `\u4fdd\u5b58\u5931\u8d25\uff1a${error.message}`;
+    if (error.status === 409) {
+      fileGroupsNeedsSync = true;
+      scheduleFileGroupsSync();
+    }
   } finally {
     panel.inert = false;
     KDComponents.setBusyState(button, false);

@@ -67,7 +67,7 @@ function renderSettingsCategory(page, settings = downloadSettings, rules = downl
   renderDownloadSettings(settings, rules, runtime, page);
 }
 
-async function loadSettingsPage(retry = false) {
+async function loadSettingsPage() {
   const page = currentSettingsPage;
   const epoch = routeEpoch;
   document.querySelectorAll("[data-settings-page]").forEach((panel) => {
@@ -81,12 +81,11 @@ async function loadSettingsPage(retry = false) {
   els.settingsSaveBtn.textContent = page === "files" ? "保存文件选项" : "保存本页";
   els.settingsResetBtn.textContent = page === "files" ? "恢复文件选项默认" : "恢复本页默认";
   els.settingsSaveStatus.textContent = settingsMessages.get(page) || (page === "files" ? "保存文件选项；文件分组单独保存。" : "保存当前分类的设置。");
-  els.settingsReloadBtn.hidden = true;
-  if (retry) { settingsReady.delete(page); settingsRendered.delete(page); }
   if (page === "logs") { loadApplicationLog(); }
   if (page === "about") { loadAbout(); }
   if (page === "engine") scheduleSystemUpdateRefresh();
   if (settingsReady.has(page)) {
+    if (page === "files" && fileGroupsNeedsSync) scheduleFileGroupsSync();
     initializeSettingsCategory(page);
     els.settingsLoadStatus.textContent = "";
     els.settingsSaveBtn.disabled = false;
@@ -113,6 +112,7 @@ async function loadSettingsPage(retry = false) {
       settingsLoads.set(page, Promise.resolve().then(() => loaders[page]?.()).finally(() => settingsLoads.delete(page)));
     }
     await settingsLoads.get(page);
+    cancelReadRetry(`settings:${page}`);
     settingsReady.add(page);
     if (epoch !== routeEpoch || currentPage !== "settings" || currentSettingsPage !== page) return;
     initializeSettingsCategory(page);
@@ -122,8 +122,8 @@ async function loadSettingsPage(retry = false) {
     els.settingsResetBtn.disabled = false;
   } catch (error) {
     if (epoch !== routeEpoch || currentPage !== "settings" || currentSettingsPage !== page) return;
-    els.settingsLoadStatus.textContent = `读取失败：${error.message}`;
-    els.settingsReloadBtn.hidden = false;
+    els.settingsLoadStatus.textContent = `读取失败，正在自动重试：${error.message}`;
+    scheduleReadRetry(`settings:${page}`, loadSettingsPage, () => epoch === routeEpoch && currentPage === "settings" && currentSettingsPage === page);
   } finally {
     // A category becomes editable only after its own read has succeeded.
     settingsPanels(page).forEach((panel) => { panel.inert = !settingsReady.has(page); });

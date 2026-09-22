@@ -2,6 +2,7 @@
 :root { --sidebar-width: 216px; --settings-nav-width: 196px; }
 :root.sidebar-collapsed { --sidebar-width: 60px; }
 [hidden] { display: none !important; }
+#task-load-status { margin: 12px 24px 0; }
 .native-only, .sidebar .native-only { display: none; }
 [data-native-window="main"] .native-only { display: inline-flex; }
 [data-native-window="settings"] .topbar,
@@ -105,7 +106,7 @@
 .settings-content .setting-toggle small { line-height: 1.6; }
 .settings-content .extension-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 0; }
 .settings-content .extension-grid label { min-height: 36px; padding: 8px 10px; gap: 8px; }
-.settings-content > #settings-load-status:not(:empty), .settings-content > #settings-reload-btn:not([hidden]) { margin-bottom: 16px; }
+.settings-content > #settings-load-status:not(:empty) { margin-bottom: 16px; }
 .settings-content > .settings-section > .kd-button { justify-self: start; }
 
 

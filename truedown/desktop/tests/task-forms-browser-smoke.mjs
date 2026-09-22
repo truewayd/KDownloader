@@ -31,6 +31,7 @@ try {
       await context.addInitScript(() => {
         window.__TRUEDOWN_PLATFORM__ = "windows";
         window.nativeCalls = [];
+        window.preferencesOffline = true;
         window.nativeTestPreferences = {
           rules: { enabled: false, dropboxMode: "direct", excludedExtensions: [] },
           modules: { modules: [] },
@@ -49,6 +50,7 @@ try {
             }
             if (command !== "core_request") return;
             const { path, method } = args.request;
+            if (method === "GET" && window.preferencesOffline) throw Error("Fixture disconnected");
             let body;
             if (path === "/settings/task-defaults" && method === "GET") body = { revision: 1, values: {} };
             else if (path === "/settings/download-rules" && method === "GET") body = window.nativeTestPreferences.rules;
@@ -63,7 +65,13 @@ try {
       const errors = [];
       page.on("pageerror", (error) => errors.push(error.message));
       await page.goto(`${origin}/index.html?window=${role}`);
+      await page.waitForFunction(() => document.querySelector("#modal-msg").textContent.includes("自动重试"));
+      assert.equal(await page.locator("#submit-task-btn").isDisabled(), true);
+      await page.locator("#m-link").fill("https://example.test/offline-draft.zip");
+      await page.evaluate(() => { window.preferencesOffline = false; });
       await page.waitForFunction(() => nativeTaskFormReady);
+      assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/offline-draft.zip");
+      assert.equal(await page.evaluate(() => nativeCalls.filter(call => call.args?.request?.method === "POST").length), 0);
       await assertToastPlacement(page);
       assert.equal(await page.title(), "新建下载");
       assert.equal(await page.locator("#modal-cancel-btn").isVisible(), false, "Native forms use the caption close button and retain keyboard dismissal");
@@ -108,6 +116,11 @@ try {
       await page.waitForFunction(() => !nativeTaskPreferences.pending && isModuleInstalled("dropbox"));
       assert.equal(await page.evaluate(() => buildModuleOptions().dropbox.mode), "expand");
       assert.equal(await page.evaluate(() => buildModuleOptions().dropbox.applyFilter), true);
+      assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/draft.zip");
+      await page.evaluate(() => { preferencesOffline = true; window.dispatchEvent(new Event("focus")); });
+      await page.waitForFunction(() => document.querySelector("#modal-msg").textContent.includes("自动重试"));
+      await page.evaluate(() => { preferencesOffline = false; window.dispatchEvent(new Event("focus")); });
+      await page.waitForFunction(() => document.querySelector("#modal-msg").textContent.includes("连接已恢复"));
       assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/draft.zip");
       if (role === "new-task") {
         const chooser = page.waitForEvent("filechooser");

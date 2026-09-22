@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/styles.css">
   <script src="/components.js" defer></script>
   <script src="/api.js" defer></script>
+  <script src="/read-recovery.js" defer></script>
   <script src="/native-windows.js" defer></script>
   <script src="/logs.js" defer></script>
   <script src="/about.js" defer></script>
@@ -59,9 +60,9 @@
             <button class="kd-button secondary" id="resume-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-play"></use></svg>恢复队列</button>
             <button class="kd-button secondary" id="retry-all-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-retry"></use></svg>全部重试</button>
             <button class="kd-button secondary" id="clear-done-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-trash"></use></svg>清理已完成</button>
-            <button class="kd-icon-button" id="refresh-tasks-btn" type="button" title="刷新任务" aria-label="刷新任务"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-refresh"></use></svg></button>
           </div>
 
+        <p class="hint" id="task-load-status" role="status" hidden></p>
         <div class="metric-strip" aria-label="任务概览">
           <article class="metric-card">
             <span id="task-count">0</span>
@@ -136,14 +137,12 @@
     <form id="settings-form" novalidate>
       <div class="settings-content">
         <p class="hint" id="settings-load-status" role="status"></p>
-        <button class="kd-button secondary compact" id="settings-reload-btn" type="button" hidden>重试读取设置</button>
         <section class="settings-section log-page" id="logs-page" data-settings-page="logs" hidden aria-labelledby="settings-application-log-title">
             <h1 class="visually-hidden" id="settings-application-log-title" tabindex="-1">应用日志</h1>
             <div class="application-log-toolbar">
               <p class="hint" id="application-log-status" aria-live="polite">自动刷新并滚动至最新日志；日志按天轮转，最多 3 份归档，最长保留 7 天。</p>
               <div class="application-log-actions">
                 <label class="log-follow"><input id="application-log-follow" type="checkbox" checked>跟随最新日志</label>
-                <button class="kd-button secondary compact" id="refresh-application-log-btn" type="button">刷新日志</button>
                 <button class="kd-button secondary compact" id="copy-application-log-btn" type="button" disabled>复制日志</button>
               </div>
             </div>
@@ -357,7 +356,7 @@
           <p class="hint">按文件后缀自动分类，忽略大小写。支持 .tar.gz 等复合后缀，优先匹配较长的后缀；未匹配文件归入“其他”。新文件会保存到所选目录下的分组子目录；修改规则会更新已有任务的列表分组，已有文件与续传任务保留原路径。</p>
           <p class="hint">修改后点击“保存分组”。底部保存和恢复默认按钮只处理文件写入与过滤选项。</p>
           <div id="file-groups-editor"></div>
-          <div class="group-editor-actions"><button class="kd-button secondary" id="file-group-add" type="button">新增分组</button><button class="kd-button secondary" id="file-groups-reload" type="button">重新读取</button><button class="kd-button primary" id="file-groups-save" type="button">保存分组</button></div>
+          <div class="group-editor-actions"><button class="kd-button secondary" id="file-group-add" type="button">新增分组</button><button class="kd-button primary" id="file-groups-save" type="button">保存分组</button></div>
           <p class="hint" id="file-groups-status" role="status"></p>
         </section>
 <section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-update-title">
@@ -539,7 +538,6 @@
       </fieldset>
       <div class="task-settings-footer">
         <span id="task-settings-status" role="status" class="hint"></span>
-        <button class="kd-button secondary" id="task-settings-reload" type="button">重新读取</button>
         <button class="kd-button primary" id="task-settings-save" type="submit" disabled>保存此任务</button>
       </div>
     </form>
