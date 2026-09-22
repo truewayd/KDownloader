@@ -80,7 +80,6 @@ const pageETags = new Map();
 let trueDownToast = null;
 let pollTimer = 0;
 let searchTimer = 0;
-let modalMode = "single";
 let currentTasks = [];
 let currentSummary = emptySummary();
 let currentOffset = 0;
@@ -122,6 +121,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
   initTaskDetails();
   if (isNativeTaskWindow()) await initNativeTaskForm();
+  else if (nativeWindowRole === "task-details") await initNativeTaskDetails();
   else initWorkspace();
   if (nativeWindowRole === "main") {
     subscribeToCreatedTasks();
@@ -137,7 +137,6 @@ function cacheElements() {
     "batch-remove-btn",
     "batch-resume-btn",
     "batch-selection-count",
-    "batch-task-btn",
     "batch-toolbar",
     "cfg-conns",
 	"cfg-allocation",
@@ -257,8 +256,7 @@ function cacheElements() {
 }
 
 function bindEvents() {
-  els.newTaskBtn.addEventListener("click", () => openModal("single"));
-  els.batchTaskBtn.addEventListener("click", () => openModal("batch"));
+  els.newTaskBtn.addEventListener("click", () => openModal());
   els.settingsResetBtn.addEventListener("click", resetDownloadSettings);
   els.settingsForm.addEventListener("submit", saveDownloadSettings);
   els.settingsForm.addEventListener("input", markSettingsDraft);
@@ -383,25 +381,22 @@ function onDocumentKeydown(event) {
   }
 }
 
-async function openModal(mode = "single") {
+async function openModal() {
   if (els.downloadForm.inert || els.newTaskBtn.getAttribute("aria-busy") === "true") return;
   if (typeof nativeWindowRole !== "undefined" && nativeWindowRole !== "browser") {
     KDComponents.setBusyState(els.newTaskBtn, true);
-    KDComponents.setBusyState(els.batchTaskBtn, true);
     try {
-      await invokeNative("open_auxiliary", { kind: mode === "batch" ? "batch-task" : "new-task" });
+      await invokeNative("open_auxiliary", { kind: "new-task" });
     } catch (error) {
       showToast(`打开下载窗口失败：${error.message}`, "error");
     } finally {
       KDComponents.setBusyState(els.newTaskBtn, false);
-      KDComponents.setBusyState(els.batchTaskBtn, false);
     }
     return;
   }
   const returnFocus = document.activeElement;
   const epoch = routeEpoch;
   KDComponents.setBusyState(els.newTaskBtn, true);
-  KDComponents.setBusyState(els.batchTaskBtn, true);
   try {
     await Promise.all([loadServerTaskDefaults(), loadServerDownloadRules(), loadResolverModules()]);
   } catch (error) {
@@ -409,12 +404,11 @@ async function openModal(mode = "single") {
     return;
   } finally {
     KDComponents.setBusyState(els.newTaskBtn, false);
-    KDComponents.setBusyState(els.batchTaskBtn, false);
     if (epoch === routeEpoch && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
   }
   if (epoch !== routeEpoch) return;
   modalReturnFocus = returnFocus;
-  configureTaskForm(mode);
+  configureTaskForm();
   els.overlay.classList.add("open");
   els.overlay.setAttribute("aria-hidden", "false");
   els.overlay.removeAttribute("inert");
@@ -422,23 +416,18 @@ async function openModal(mode = "single") {
   els.mLink.focus();
 }
 
-function configureTaskForm(mode) {
-  modalMode = mode;
-  const isBatch = mode === "batch";
+function configureTaskForm() {
 	els.mTorrentFile.value = "";
-	els.mTorrentFile.disabled = isBatch;
+	els.mTorrentFile.disabled = false;
   if (typeof updateTorrentSelection === "function") updateTorrentSelection();
-  els.modalEyebrow.textContent = isBatch ? "Batch download" : "New download";
-  els.modalTitle.textContent = isBatch ? "批量下载任务" : "新建下载任务";
-  els.submitTaskBtn.textContent = isBatch ? "批量开始" : "开始下载";
-  els.mLink.rows = isBatch ? 7 : 2;
-  els.mLink.placeholder = isBatch
-    ? "https://example.com/file-a.zip\nmagnet:?xt=urn:btih:...\nhttps://example.com/file.torrent"
-    : "https://example.com/file.zip 或 magnet:?xt=urn:btih:...";
-  els.mName.disabled = isBatch;
-  els.mName.placeholder = isBatch ? "批量时自动命名" : "普通 HTTP(S) 留空自动命名；BT 使用元信息名称";
+  els.modalEyebrow.textContent = "New download";
+  els.modalTitle.textContent = "新建下载任务";
+  els.submitTaskBtn.textContent = "开始下载";
+  els.mLink.rows = 3;
+  els.mLink.placeholder = "https://example.com/file.zip\nmagnet:?xt=urn:btih:...\n每行一个链接";
+  els.mName.disabled = false;
+  els.mName.placeholder = "单个 HTTP(S) 任务可指定；多个链接自动命名";
   els.mFolder.placeholder = downloadSettings.folder || "留空使用默认下载目录";
-  if (isBatch) els.mName.value = "";
 
 }
 
@@ -581,10 +570,6 @@ async function submitTask(event) {
     showModalMsg(".torrent 文件不能超过 4 MiB", true);
     return;
   }
-  if (torrentFile && modalMode === "batch") {
-    showModalMsg("本地 .torrent 请使用单任务模式导入", true);
-    return;
-  }
 
   if (isNativeTaskWindow()) {
     // Singleton windows retain explicit draft fields, while blank fields must
@@ -684,7 +669,7 @@ function setSubmitting(isSubmitting) {
   els.downloadForm.inert = isSubmitting;
   els.downloadForm.setAttribute("aria-busy", String(isSubmitting));
   KDComponents.setBusyState(els.submitTaskBtn, isSubmitting);
-  els.submitTaskBtn.textContent = isSubmitting ? "提交中..." : (modalMode === "batch" ? "批量开始" : "开始下载");
+  els.submitTaskBtn.textContent = isSubmitting ? "提交中..." : "开始下载";
 }
 
 function formatStartOutcome(value, duplicate) {
@@ -726,8 +711,7 @@ async function onTaskAction(event) {
   const id = Number(button.dataset.id);
   const action = button.dataset.action;
   if (action === "details") {
-    taskDetailReturnID = id;
-    location.hash = `task/${id}/info`;
+    await openTaskDetails(id);
     return;
   }
   if (action === "copy-link") {
@@ -780,7 +764,7 @@ async function runTaskAction(action, id, successMessage) {
     syncSelectionControls();
   }
   showToast(successMessage);
-  await loadTasks({ force: true });
+  if (currentPage === "tasks") await loadTasks({ force: true });
   if (currentPage === "task") await loadTaskDetails();
 }
 

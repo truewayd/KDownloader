@@ -18,7 +18,7 @@
       const button = [...context.row.querySelectorAll("button[data-action]")]
         .find(button => button.dataset.action === payload.action);
       button?.click();
-    } else if (["new-task", "batch-task", "settings"].includes(payload.action)) {
+    } else if (["new-task", "settings"].includes(payload.action)) {
       invoke("open_auxiliary", { kind: payload.action }).catch(report);
     }
   }).then(() => { ready = !disposed; }).catch(report);
@@ -49,7 +49,7 @@
       actions = taskActions(row);
     } else if (nativeWindowRole === "main" && !target.closest('[role="dialog"], input, textarea, select')) {
       kind = "workspace";
-      actions = ["new-task", "batch-task", "settings"];
+      actions = ["new-task", "settings"];
     } else return;
     const rect = target.getBoundingClientRect();
     const x = keyboard ? rect.left + Math.min(rect.width, 20) : event.clientX;

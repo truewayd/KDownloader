@@ -5,7 +5,7 @@ use crate::{
     startup, windows,
 };
 use std::sync::{atomic::Ordering, Arc};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 // Keep native menu updates and tray callbacks on the UI thread. Writes are
@@ -38,7 +38,7 @@ pub async fn confirm_action(
     window: tauri::WebviewWindow,
     options: crate::confirmations::Options,
 ) -> Result<bool, String> {
-    if !["main", "settings", "new-task", "batch-task"].contains(&window.label()) {
+    if !["main", "settings", "new-task", "task-details"].contains(&window.label()) {
         return Err("Confirmations are unavailable in this window".into());
     }
     app.state::<crate::confirmations::Confirmations>()
@@ -84,8 +84,7 @@ pub async fn drop_download_links(
     links: String,
 ) -> Result<(), String> {
     use tauri::Emitter;
-    if !["main", "batch-task"].contains(&window.label()) || links.is_empty() || links.len() > 65536
-    {
+    if window.label() != "main" || links.is_empty() || links.len() > 65536 {
         return Err("Invalid dropped links".into());
     }
     for value in links.lines() {
@@ -184,8 +183,14 @@ pub async fn core_request(
         });
     }
     let hide_token = path == "/auth/settings";
+    let task_changed = window.label() == "task-details"
+        && request.method == "POST"
+        && ["/tasks/detail", "/tasks/batch"].contains(&path);
     let bridge = core.connect().await?;
     let mut response = bridge.request(request).await?;
+    if task_changed && (200..300).contains(&response.status) {
+        let _ = app.emit_to("main", "truedown:task-changed", ());
+    }
     if hide_token && response.status == 200 {
         let mut value: serde_json::Value =
             serde_json::from_str(&response.body).map_err(|_| "Invalid auth response")?;

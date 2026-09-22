@@ -43,7 +43,7 @@ impl Confirmations {
             "main" => 0,
             "settings" => 1,
             "new-task" => 2,
-            "batch-task" => 3,
+            "task-details" => 3,
             _ => return Err("Confirmations are unavailable in this window".into()),
         };
         Ok(&self.slots[index])

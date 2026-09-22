@@ -55,6 +55,11 @@ function applyWorkspaceRoute(focus = true) {
   if (page === "logs" || page === "about") { category = page; page = "settings"; }
   currentPage = ["tasks", "task", "settings"].includes(page) ? page : "tasks";
   if (currentPage === "task" && (!/^[1-9]\d*$/.test(category) || !Number.isSafeInteger(Number(category)))) currentPage = "tasks";
+  if (currentPage === "task" && typeof nativeWindowRole !== "undefined" && nativeWindowRole === "main") {
+    currentPage = "tasks";
+    history.replaceState(null, "", "#tasks");
+    openTaskDetails(Number(category));
+  }
   if (typeof nativeWindowRole !== "undefined" && nativeWindowRole === "settings") currentPage = nativeWindowRole;
   const settingsCategory = Object.hasOwn(SETTINGS_PAGE_ALIASES, category) ? SETTINGS_PAGE_ALIASES[category] : category;
   currentSettingsPage = SETTINGS_PAGES.includes(settingsCategory) ? settingsCategory : "general";

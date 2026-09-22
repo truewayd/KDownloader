@@ -103,7 +103,11 @@ pub fn frame_action(window: WebviewWindow, action: Action) -> Result<(), String>
         }
         // Closing the frame is the same hide-to-tray action as Alt+F4. It must
         // never stop the core or destroy an auxiliary window's unsaved draft.
-        Action::Close => window.hide(),
+        Action::Close => {
+            window.hide().map_err(|error| error.to_string())?;
+            crate::windows::task_details_hidden(window.app_handle(), window.label());
+            return Ok(());
+        }
         Action::Drag => window.start_dragging(),
         Action::SystemMenu => return system_menu(&window),
     }

@@ -76,7 +76,7 @@ async function applyDroppedSource({ file = null, links = [] }) {
     const originalLink = els.mLink.value;
     let originalFile = els.mTorrentFile.files?.[0];
     if (file) validateDroppedTorrent(file);
-    if (nativeWindowRole === "main" || nativeWindowRole === "batch-task") {
+    if (nativeWindowRole === "main") {
       if (file) throw new Error("请通过桌面窗口拖入 .torrent 文件");
       await invokeNative("drop_download_links", { links: links.join("\n") });
       return;
@@ -89,14 +89,13 @@ async function applyDroppedSource({ file = null, links = [] }) {
       if (!accepted || dropDisposed) return;
     }
     if (nativeWindowRole === "browser" && !els.overlay.classList.contains("open")) {
-      await openModal(file || links.length <= 1 ? "single" : "batch");
+      await openModal();
       if (!els.overlay.classList.contains("open") || dropDisposed) return;
       originalFile = undefined;
     }
     if (els.downloadForm.inert || els.mLink.value !== originalLink || els.mTorrentFile.files?.[0] !== originalFile) {
       throw new Error("表单内容已变更，请重新拖入");
     }
-    if (file && modalMode === "batch") configureTaskForm("single");
     els.mTorrentFile.value = "";
     if (file) {
       const transfer = new DataTransfer();
@@ -136,7 +135,7 @@ async function drainNativeDrop() {
 }
 
 function bindDownloadDrops() {
-  if (nativeWindowRole === "settings") return;
+  if (!["browser", "main", "new-task"].includes(nativeWindowRole)) return;
   const error = (cause) => { if (!dropDisposed) showToast(cause.message || String(cause), "error"); };
   const over = (event) => {
     if (!event.dataTransfer) return;

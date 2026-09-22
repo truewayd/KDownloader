@@ -146,6 +146,8 @@ fn main() {
             commands::show_context_menu,
             commands::tray_settings,
             windows::open_auxiliary,
+            windows::open_task_details,
+            windows::task_details_state,
             windows::close_auxiliary,
             windows::finish_task_window,
             frame::frame_action,
@@ -182,6 +184,7 @@ fn main() {
                     && std::env::var("TRUEDOWN_DESKTOP_TEST").as_deref() == Ok("1"),
                 creation: Mutex::new(()),
                 storage: webview::Storage::new(&profile),
+                task_details: Default::default(),
             });
             context_menu::install(app.handle())?;
             for config in &app.config().app.windows {
@@ -288,6 +291,7 @@ fn main() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+                windows::task_details_hidden(window.app_handle(), window.label());
             }
         })
         .build(context)

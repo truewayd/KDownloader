@@ -36,7 +36,6 @@
 .task-toolbar { flex-shrink: 0; padding: 16px 20px; justify-content: flex-start; gap: 6px; border-bottom: 1px solid var(--kd-border); }
 .task-toolbar .kd-button { min-height: 32px; padding: 6px 9px; border-color: transparent; background: transparent; box-shadow: none; }
 .task-toolbar .kd-button:hover:not(:disabled) { background: var(--kd-secondary-hover); border-color: var(--kd-border); }
-.task-toolbar #batch-task-btn { margin-left: auto; }
 .metric-strip { display: flex; flex-shrink: 0; gap: 24px; margin: 0; padding: 14px 24px 0; border: 0; }
 .metric-card { display: flex; align-items: baseline; gap: 6px; padding: 0; background: none; border: 0; }
 .metric-card span { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }

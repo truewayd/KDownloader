@@ -57,8 +57,9 @@ try {
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
   const context = browser.contexts()[0], main = context.pages()[0];
   const evidence = {};
-  for (const kind of ["main", "settings", "new-task", "batch-task"]) {
-    if (kind !== "main") await invoke(main, "open_auxiliary", { kind });
+  for (const kind of ["main", "settings", "new-task", "task-details"]) {
+    if (kind === "task-details") await invoke(main, "open_task_details", { id: 1 });
+    else if (kind !== "main") await invoke(main, "open_auxiliary", { kind });
     const page = kind === "main" ? main : await until(() => context.pages().find(page => page.url().includes(`window=${kind}`)));
     // Playwright otherwise injects its default light theme into attached views.
     // Null explicitly restores the WebView's real operating-system preference.

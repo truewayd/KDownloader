@@ -6,7 +6,7 @@ const nativeTaskPreferences = {
 };
 
 function isNativeTaskWindow() {
-  return typeof nativeWindowRole !== "undefined" && (nativeWindowRole === "new-task" || nativeWindowRole === "batch-task");
+  return typeof nativeWindowRole !== "undefined" && nativeWindowRole === "new-task";
 }
 
 function bindNativeTaskPreferences() {
@@ -56,7 +56,7 @@ async function refreshNativeTaskPreferences() {
 async function initNativeTaskForm() {
   if (nativeTaskFormLoad) return nativeTaskFormLoad;
   currentPage = nativeWindowRole;
-  document.title = nativeWindowRole === "batch-task" ? "批量下载" : "新建下载";
+  document.title = "新建下载";
   document.querySelector(".app-shell").hidden = true;
   const surface = els.downloadForm.closest(".modal");
   surface.setAttribute("role", "main");
@@ -74,7 +74,7 @@ async function initNativeTaskForm() {
     try {
       // Form windows can read download preferences, but cannot migrate or save them.
       await refreshNativeTaskPreferences();
-      configureTaskForm(nativeWindowRole === "batch-task" ? "batch" : "single");
+      configureTaskForm();
       nativeTaskFormReady = true;
       showModalMsg("");
     } catch (error) {
@@ -107,6 +107,9 @@ async function subscribeToCreatedTasks() {
     await listenNativeEvent("truedown:tasks-created", () => {
       if (currentPage === "tasks") refreshAndSchedule(true);
       showToast("下载任务已添加");
+    });
+    await listenNativeEvent("truedown:task-changed", () => {
+      if (currentPage === "tasks") refreshAndSchedule(true);
     });
   } catch (error) {
     showToast(`监听新任务失败：${error.message}`, "error");

@@ -6,7 +6,72 @@ let taskDetailRead = 0;
 let taskDetailAbort = null;
 let taskDetailReturnID = 0;
 const taskDetailDrafts = new Map();
+let nativeDetailRevision = -1;
+let nativeDetailOpen = false;
+let nativeDetailDisposed = false;
 const taskSettingControls = { connections: "task-setting-connections", maxSpeedBps: "task-setting-speed", maxTries: "task-setting-tries", retryWait: "task-setting-wait" };
+
+async function openTaskDetails(id) {
+  if (!Number.isSafeInteger(id) || id <= 0) return;
+  if (typeof nativeWindowRole !== "undefined" && nativeWindowRole === "main") {
+    try {
+      await invokeNative("open_task_details", { id });
+    } catch (error) {
+      showToast(`打开任务详情失败：${error.message}`, "error");
+    }
+    return;
+  }
+  taskDetailReturnID = id;
+  location.hash = `task/${id}/info`;
+}
+
+function applyNativeTaskDetails(state) {
+  if (nativeDetailDisposed || !Number.isSafeInteger(state?.revision) || state.revision <= nativeDetailRevision
+    || !Number.isSafeInteger(state.id) || state.id <= 0 || typeof state.open !== "boolean") return;
+  nativeDetailRevision = state.revision;
+  nativeDetailOpen = state.open;
+  stopTaskDetails();
+  if (!state.open) return;
+  const tab = taskDetailID === state.id ? taskDetailTab : "info";
+  routeEpoch++;
+  history.replaceState(null, "", `#task/${state.id}/${tab}`);
+  showTaskDetails(state.id, tab);
+  document.getElementById(`task-${tab}-tab`).focus({ preventScroll: true });
+}
+
+async function initNativeTaskDetails() {
+  currentPage = "task";
+  document.documentElement.dataset.workspacePage = "task";
+  document.title = "任务详情";
+  document.querySelectorAll("[data-page]").forEach((element) => { element.hidden = element.dataset.page !== "task"; });
+  const close = document.getElementById("task-detail-back");
+  close.textContent = "关闭";
+  close.addEventListener("click", (event) => {
+    event.preventDefault();
+    invokeNative("close_auxiliary").catch((error) => showToast(error.message, "error"));
+  });
+  const changeTab = () => {
+    const [page, id, tab] = location.hash.slice(1).split("/");
+    if (!nativeDetailOpen || page !== "task" || Number(id) !== taskDetailID || !["info", "settings"].includes(tab)) return;
+    routeEpoch++;
+    showTaskDetails(taskDetailID, tab);
+  };
+  window.addEventListener("hashchange", changeTab);
+  window.addEventListener("pagehide", () => {
+    nativeDetailDisposed = true;
+    nativeDetailOpen = false;
+    window.removeEventListener("hashchange", changeTab);
+    stopTaskDetails();
+  }, { once: true });
+  try {
+    // Subscribe before reading the current target. Revisions reject a late
+    // snapshot when another task was opened during initialization.
+    await listenNativeEvent("truedown:task-details", ({ payload }) => applyNativeTaskDetails(payload));
+    if (!nativeDetailDisposed) applyNativeTaskDetails(await invokeNative("task_details_state"));
+  } catch (error) {
+    if (!nativeDetailDisposed) document.getElementById("task-detail-status").textContent = `读取任务窗口失败：${error.message}`;
+  }
+}
 
 function taskBytes(value) {
   if (!Number.isFinite(value) || value <= 0) return "\u2014";
@@ -35,6 +100,9 @@ function taskDate(value) {
 }
 
 function initTaskDetails() {
+  document.getElementById("task-detail-back").addEventListener("click", () => {
+    if (typeof nativeWindowRole === "undefined" || nativeWindowRole !== "task-details") location.hash = "tasks";
+  });
   document.getElementById("task-detail-actions").addEventListener("click", onTaskAction);
   document.getElementById("task-settings-form").addEventListener("input", () => {
     const draft = taskDetailDrafts.get(taskDetailID);
@@ -98,6 +166,7 @@ function showTaskDetails(id, tab) {
 
 async function loadTaskDetails() {
   if (currentPage !== "task" || document.hidden) return;
+  if (typeof nativeWindowRole !== "undefined" && nativeWindowRole === "task-details" && (!nativeDetailOpen || nativeDetailDisposed)) return;
   clearTimeout(taskDetailTimer);
   taskDetailAbort?.abort();
   const controller = new AbortController();

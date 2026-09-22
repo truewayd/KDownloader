@@ -5,7 +5,7 @@ use tokio::sync::{oneshot, Mutex};
 
 #[derive(Default)]
 pub struct DirectoryPickers {
-    slots: [Arc<Mutex<()>>; 3],
+    slots: [Arc<Mutex<()>>; 2],
 }
 
 impl DirectoryPickers {
@@ -13,7 +13,6 @@ impl DirectoryPickers {
         let index = match role {
             "settings" => 0,
             "new-task" => 1,
-            "batch-task" => 2,
             _ => {
                 return Err(
                     "A download directory can be selected only from settings or a task form".into(),
@@ -94,7 +93,8 @@ mod tests {
         let pending = slot.try_lock().unwrap();
         assert!(slot.try_lock().is_err());
         assert!(pickers.slot("new-task").unwrap().try_lock().is_ok());
-        assert!(pickers.slot("batch-task").unwrap().try_lock().is_ok());
+        assert!(pickers.slot("task-details").is_err());
+        assert!(pickers.slot("batch-task").is_err());
         drop(pending);
         assert!(slot.try_lock().is_ok());
     }

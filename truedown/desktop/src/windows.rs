@@ -8,13 +8,22 @@ pub enum Kind {
     Logs,
     About,
     NewTask,
-    BatchTask,
+    #[serde(skip)]
+    TaskDetails,
 }
 
 pub struct Windows {
     pub suppress: bool,
     pub creation: tokio::sync::Mutex<()>,
     pub storage: crate::webview::Storage,
+    pub task_details: std::sync::Mutex<TaskDetails>,
+}
+
+#[derive(Clone, Copy, Default, serde::Serialize)]
+pub struct TaskDetails {
+    id: u64,
+    open: bool,
+    revision: u64,
 }
 
 impl Kind {
@@ -23,14 +32,14 @@ impl Kind {
             Self::Settings => "settings",
             Self::Logs | Self::About => "settings",
             Self::NewTask => "new-task",
-            Self::BatchTask => "batch-task",
+            Self::TaskDetails => "task-details",
         }
     }
     fn title(self) -> &'static str {
         match self {
             Self::Settings | Self::Logs | Self::About => "",
             Self::NewTask => "新建下载",
-            Self::BatchTask => "批量下载",
+            Self::TaskDetails => "任务详情",
         }
     }
     fn url(self) -> &'static str {
@@ -39,7 +48,7 @@ impl Kind {
             Self::Logs => "index.html?window=settings#settings/logs",
             Self::About => "index.html?window=settings#settings/about",
             Self::NewTask => "index.html?window=new-task",
-            Self::BatchTask => "index.html?window=batch-task",
+            Self::TaskDetails => "index.html?window=task-details",
         }
     }
 }
@@ -49,7 +58,6 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
         "main" => match method {
             "GET" => [
                 "/tasks",
-                "/tasks/detail",
                 "/settings/file-groups",
                 "/system/info",
                 "/system/storage",
@@ -57,7 +65,6 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
             ]
             .contains(&path),
             "POST" => [
-                "/tasks/detail",
                 "/tasks/batch",
                 "/tasks/open-file",
                 "/tasks/open-folder",
@@ -108,7 +115,18 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
             "DELETE" => path == "/modules/package",
             _ => false,
         },
-        "new-task" | "batch-task" => match method {
+        "task-details" => match method {
+            "GET" => path == "/tasks/detail",
+            "POST" => [
+                "/tasks/detail",
+                "/tasks/batch",
+                "/tasks/open-file",
+                "/tasks/open-folder",
+            ]
+            .contains(&path),
+            _ => false,
+        },
+        "new-task" => match method {
             "GET" => [
                 "/settings/task-defaults",
                 "/settings/download-rules",
@@ -126,6 +144,7 @@ pub fn minimum_size(label: &str) -> (f64, f64) {
     match label {
         "settings" => (640.0, 480.0),
         "new-task" => (520.0, 420.0),
+        "task-details" => (520.0, 420.0),
         _ => (620.0, 480.0),
     }
 }
@@ -134,6 +153,14 @@ pub fn minimum_size(label: &str) -> (f64, f64) {
 pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), String> {
     let state = app.state::<Windows>();
     let _creation = state.creation.lock().await;
+    open_auxiliary_locked(&app, &state, kind).await
+}
+
+async fn open_auxiliary_locked(
+    app: &tauri::AppHandle,
+    state: &Windows,
+    kind: Kind,
+) -> Result<(), String> {
     let window =
         if let Some(window) = app.get_webview_window(kind.label()) {
             window
@@ -141,11 +168,11 @@ pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), Str
             let (width, height) = match kind {
                 Kind::Settings | Kind::Logs | Kind::About => (960.0, 760.0),
                 Kind::NewTask => (660.0, 560.0),
-                Kind::BatchTask => (860.0, 740.0),
+                Kind::TaskDetails => (780.0, 640.0),
             };
             let (min_width, min_height) = minimum_size(kind.label());
             let window = crate::frame::configure(state.storage.configure(
-                WebviewWindowBuilder::new(&app, kind.label(), WebviewUrl::App(kind.url().into())),
+                WebviewWindowBuilder::new(app, kind.label(), WebviewUrl::App(kind.url().into())),
             ))
             .title(kind.title())
             .inner_size(width, height)
@@ -192,16 +219,74 @@ pub fn local_navigation(url: &tauri::Url) -> bool {
 
 #[tauri::command]
 pub fn close_auxiliary(window: WebviewWindow) -> Result<(), String> {
-    if !["settings", "logs", "about", "new-task", "batch-task"].contains(&window.label()) {
+    if !["settings", "logs", "about", "new-task", "task-details"].contains(&window.label()) {
         return Err("This action closes auxiliary windows only".into());
     }
     // Hiding retains unsaved settings and keyboard position across reopen.
-    window.hide().map_err(|error| error.to_string())
+    window.hide().map_err(|error| error.to_string())?;
+    task_details_hidden(window.app_handle(), window.label());
+    Ok(())
+}
+
+fn validate_task_details_request(role: &str, id: u64) -> Result<(), String> {
+    if role != "main" || id == 0 || id > 9_007_199_254_740_991 {
+        return Err("Open task details from the task list with a valid task ID".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_task_details(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    id: u64,
+) -> Result<(), String> {
+    validate_task_details_request(window.label(), id)?;
+    let state = app.state::<Windows>();
+    let _creation = state.creation.lock().await;
+    {
+        let mut details = state.task_details.lock().unwrap();
+        details.id = id;
+        details.open = true;
+        details.revision += 1;
+    }
+    open_auxiliary_locked(&app, &state, Kind::TaskDetails).await?;
+    emit_task_details(&app)
+}
+
+#[tauri::command]
+pub fn task_details_state(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+) -> Result<TaskDetails, String> {
+    if window.label() != "task-details" {
+        return Err("Task details state is available only in its own window".into());
+    }
+    Ok(*app.state::<Windows>().task_details.lock().unwrap())
+}
+
+fn emit_task_details(app: &tauri::AppHandle) -> Result<(), String> {
+    let details = *app.state::<Windows>().task_details.lock().unwrap();
+    app.emit_to("task-details", "truedown:task-details", details)
+        .map_err(|error| error.to_string())
+}
+
+pub fn task_details_hidden(app: &tauri::AppHandle, label: &str) {
+    if label != "task-details" {
+        return;
+    }
+    {
+        let state = app.state::<Windows>();
+        let mut details = state.task_details.lock().unwrap();
+        details.open = false;
+        details.revision += 1;
+    }
+    let _ = emit_task_details(app);
 }
 
 #[tauri::command]
 pub fn finish_task_window(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
-    if !["new-task", "batch-task"].contains(&window.label()) {
+    if window.label() != "new-task" {
         return Err("Only a task form can finish this action".into());
     }
     window.hide().map_err(|error| error.to_string())?;
@@ -223,7 +308,7 @@ mod tests {
         assert!(!allowed("settings", "POST", "/system/exit"));
         assert!(allowed("settings", "POST", "/settings/runtime"));
         assert!(!allowed("about", "GET", "/system/info"));
-        for window in ["main", "settings", "new-task", "batch-task"] {
+        for window in ["main", "settings", "new-task", "task-details"] {
             assert!(!allowed(window, "GET", "/auth/token"));
             assert!(!allowed(
                 window,
@@ -233,8 +318,21 @@ mod tests {
         }
         assert!(!allowed("main", "POST", "/auth/settings"));
         assert!(!allowed("main", "POST", "/settings/startup"));
-        assert!(allowed("main", "POST", "/tasks/detail"));
-        for window in ["new-task", "batch-task"] {
+        assert!(!allowed("main", "POST", "/tasks/detail"));
+        assert!(allowed("task-details", "GET", "/tasks/detail"));
+        assert!(allowed("task-details", "POST", "/tasks/detail"));
+        assert!(allowed("task-details", "POST", "/tasks/batch"));
+        for path in [
+            "/tasks",
+            "/settings/task-defaults",
+            "/auth/settings",
+            "/system/exit",
+        ] {
+            assert!(!allowed("task-details", "GET", path));
+            assert!(!allowed("task-details", "POST", path));
+        }
+        assert!(!allowed("batch-task", "POST", "/start-headless-download"));
+        for window in ["new-task"] {
             assert!(allowed(window, "GET", "/settings/task-defaults"));
             assert!(allowed(window, "POST", "/start-headless-download"));
             assert!(allowed(window, "POST", "/start-bt-download"));
@@ -243,5 +341,20 @@ mod tests {
             assert!(!allowed(window, "GET", "/tasks"));
             assert!(!allowed(window, "GET", "/auth/token"));
         }
+    }
+
+    #[test]
+    fn task_details_requests_are_bounded_and_main_only() {
+        assert!(validate_task_details_request("main", 1).is_ok());
+        for (role, id) in [
+            ("main", 0),
+            ("main", 9_007_199_254_740_992),
+            ("settings", 1),
+            ("task-details", 1),
+        ] {
+            assert!(validate_task_details_request(role, id).is_err());
+        }
+        assert!(serde_json::from_str::<Kind>("\"batch-task\"").is_err());
+        assert!(serde_json::from_str::<Kind>("\"task-details\"").is_err());
     }
 }

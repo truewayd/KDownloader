@@ -25,7 +25,7 @@ let browser;
 try {
   browser = await chromium.launch({ headless: true });
   if (screenshots) await fs.mkdir(screenshots, { recursive: true });
-  for (const role of ["new-task", "batch-task"]) {
+  for (const role of ["new-task"]) {
     for (const colorScheme of ["light", "dark"]) {
       const context = await browser.newContext({ viewport: { width: 640, height: 500 }, deviceScaleFactor: 2, colorScheme });
       await context.addInitScript(() => {
@@ -65,7 +65,7 @@ try {
       await page.goto(`${origin}/index.html?window=${role}`);
       await page.waitForFunction(() => nativeTaskFormReady);
       await assertToastPlacement(page);
-      assert.equal(await page.title(), role === "batch-task" ? "批量下载" : "新建下载");
+      assert.equal(await page.title(), "新建下载");
       assert.equal(await page.locator("#modal-cancel-btn").isVisible(), false, "Native forms use the caption close button and retain keyboard dismissal");
       assert.ok((await page.locator("#download-form .modal-header").boundingBox()).height <= 1, "Native forms retain their accessible heading without a second title row");
       assert.equal(await page.locator('#overlay [role="dialog"]').count(), 0);

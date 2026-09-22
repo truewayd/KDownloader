@@ -59,7 +59,6 @@
             <button class="kd-button secondary" id="resume-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-play"></use></svg>恢复队列</button>
             <button class="kd-button secondary" id="retry-all-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-retry"></use></svg>全部重试</button>
             <button class="kd-button secondary" id="clear-done-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-trash"></use></svg>清理已完成</button>
-            <button class="kd-button secondary" id="batch-task-btn" type="button"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-list"></use></svg>批量下载</button>
             <button class="kd-icon-button" id="refresh-tasks-btn" type="button" title="刷新任务" aria-label="刷新任务"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-refresh"></use></svg></button>
           </div>
 
@@ -514,11 +513,11 @@
 </section>
 <section class="kd-panel task-detail-page" data-page="task" hidden aria-labelledby="task-detail-title">
   <header class="task-detail-header">
-    <a class="kd-button secondary compact" href="#tasks" id="task-detail-back">返回下载</a>
-    <h1 id="task-detail-title" tabindex="-1">任务信息</h1>
+    <button class="kd-button secondary compact" type="button" id="task-detail-back">返回下载</button>
+    <h1 id="task-detail-title" tabindex="-1">任务详情</h1>
     <div id="task-detail-actions" class="row-actions"></div>
   </header>
-  <nav class="task-detail-tabs" aria-label="单任务页面">
+  <nav class="task-detail-tabs" aria-label="任务详情">
     <a href="#task/0/info" id="task-info-tab">信息</a>
     <a href="#task/0/settings" id="task-settings-tab">设置</a>
   </nav>

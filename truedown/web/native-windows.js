@@ -32,7 +32,7 @@ if (nativeWindowRole !== "browser") {
   document.addEventListener("click", (event) => {
     const link = event.target.closest("a[data-route], [data-native-window]");
     const kind = link?.dataset.nativeWindow || link?.dataset.route;
-    if (!["settings", "logs", "about", "new-task", "batch-task"].includes(kind) || kind === nativeWindowRole) return;
+    if (!["settings", "logs", "about", "new-task"].includes(kind) || kind === nativeWindowRole) return;
     event.preventDefault();
     invokeNative("open_auxiliary", { kind }).catch((error) => showToast(error.message, "error"));
   });

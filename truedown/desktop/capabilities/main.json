@@ -5,7 +5,7 @@
     "main",
     "settings",
     "new-task",
-    "batch-task"
+    "task-details"
   ],
   "permissions": [
     "core:event:allow-listen",

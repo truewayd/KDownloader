@@ -27,18 +27,17 @@ function control(value = "") {
 }
 const busyComponents = { setBusyState(button, busy) { button.setAttribute("aria-busy", busy); } };
 
-test("desktop add actions open separate native forms without loading preferences in the main window", async () => {
+test("desktop add action opens the unified native form without reading preferences in the main window", async () => {
   const opened = [];
   const context = vm.createContext({
     nativeWindowRole: "main", KDComponents: busyComponents,
-    els: { downloadForm: control(), newTaskBtn: control(), batchTaskBtn: control() },
+    els: { downloadForm: control(), newTaskBtn: control() },
     invokeNative: async (command, args) => opened.push([command, args.kind]),
     showToast: assert.fail,
   });
   vm.runInContext(declarations("openModal"), context);
-  await context.openModal("single");
-  await context.openModal("batch");
-  assert.deepEqual(opened, [["open_auxiliary", "new-task"], ["open_auxiliary", "batch-task"]]);
+  await context.openModal();
+  assert.deepEqual(opened, [["open_auxiliary", "new-task"]]);
   assert.equal(context.els.newTaskBtn.getAttribute("aria-busy"), "false");
 });
 
@@ -60,13 +59,13 @@ test("hiding a native form retains every draft and delegates window shortcuts to
 });
 
 test("native task completion confirms in the main window without changing the selected task filter", async () => {
-  let receive;
+  const receive = {};
   const messages = [];
   const refreshes = [];
   const context = vm.createContext({
     currentPage: "tasks", currentFilter: "done",
     window: {
-      __TAURI__: { event: { listen: async (_event, callback) => { receive = callback; return () => {}; } } },
+      __TAURI__: { event: { listen: async (event, callback) => { receive[event] = callback; return () => {}; } } },
       addEventListener() {},
       removeEventListener() {},
     },
@@ -74,8 +73,11 @@ test("native task completion confirms in the main window without changing the se
   });
   vm.runInContext(declarations("listenNativeEvent", "subscribeToCreatedTasks"), context);
   await context.subscribeToCreatedTasks();
-  receive();
+  receive["truedown:tasks-created"]();
   assert.deepEqual(refreshes, [true]);
+  assert.deepEqual(messages, ["下载任务已添加"]);
+  receive["truedown:task-changed"]();
+  assert.deepEqual(refreshes, [true, true]);
   assert.deepEqual(messages, ["下载任务已添加"]);
   assert.equal(context.currentFilter, "done");
 });
@@ -89,26 +91,26 @@ test("native form startup reads only its permitted preferences and retries witho
   form.querySelector = () => control();
   const shell = {};
   const context = vm.createContext({
-    nativeWindowRole: "batch-task", nativeTaskFormLoad: null, nativeTaskFormReady: false,
+    nativeWindowRole: "new-task", nativeTaskFormLoad: null, nativeTaskFormReady: false,
     currentPage: "tasks", KDComponents: busyComponents,
     els: { downloadForm: form, overlay: control(), modalCloseBtn: control(), modalCancelBtn: control(), submitTaskBtn: control(), mLink: control("draft") },
     document: { querySelector: () => shell },
     refreshNativeTaskPreferences: async () => { actions.push("preferences"); if (fail) throw Error("offline"); },
-    configureTaskForm: (mode) => actions.push(mode), showModalMsg() {},
+    configureTaskForm: () => actions.push("form"), showModalMsg() {},
     drainNativeDrop() {},
   });
   vm.runInContext(declarations("initNativeTaskForm"), context);
   await context.initNativeTaskForm();
   assert.equal(context.nativeTaskFormReady, false);
   assert.equal(context.els.submitTaskBtn.textContent, "重新读取默认值");
-  assert.equal(context.currentPage, "batch-task");
+  assert.equal(context.currentPage, "new-task");
   assert.equal(context.els.mLink.value, "draft");
   assert.equal(surface.getAttribute("role"), "main");
   fail = false;
   await context.initNativeTaskForm();
   assert.equal(context.nativeTaskFormReady, true);
   assert.equal(shell.hidden, true);
-  assert.deepEqual(actions, ["preferences", "preferences", "batch"]);
+  assert.deepEqual(actions, ["preferences", "preferences", "form"]);
 });
 
 test("a submitted native task never fetches task pages or reports a window-close failure as failed dispatch", async () => {

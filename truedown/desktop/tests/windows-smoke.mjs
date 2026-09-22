@@ -156,8 +156,8 @@ async function appearance(page, kind) {
       const channels = value.match(/[\d.]+/g).map(Number);
       return { value, alpha: channels[3] ?? 1, brightness: channels.slice(0, 3).reduce((sum, value) => sum + value, 0) / 3 };
     };
-    const working = { main: "#tasks-page", settings: "#settings-form", logs: "#logs-page", about: "body > main", "new-task": "#overlay > .modal", "batch-task": "#overlay > .modal" }[kind];
-    const chrome = { main: [".sidebar", ".app-shell", ".dashboard"], settings: [".settings-page", ".settings-nav", ".app-shell", ".dashboard"], logs: [".app-shell", ".dashboard"], about: [], "new-task": ["#overlay"], "batch-task": ["#overlay"] }[kind];
+    const working = { main: "#tasks-page", settings: "#settings-form", logs: "#logs-page", about: "body > main", "new-task": "#overlay > .modal", "task-details": ".task-detail-page" }[kind];
+    const chrome = { main: [".sidebar", ".app-shell", ".dashboard"], settings: [".settings-page", ".settings-nav", ".app-shell", ".dashboard"], logs: [".app-shell", ".dashboard"], about: [], "new-task": ["#overlay"], "task-details": [".app-shell", ".dashboard"] }[kind];
     return {
       scheme: getComputedStyle(document.documentElement).colorScheme,
       material: document.documentElement.dataset.material,
@@ -369,7 +369,7 @@ try {
   // Long forms are singleton windows with independent drafts and read-only
   // preference access. Their shared app script must never poll task pages.
   const taskForms = {};
-  for (const [kind, button] of [["new-task", "#new-task-btn"], ["batch-task", "#batch-task-btn"]]) {
+  for (const [kind, button] of [["new-task", "#new-task-btn"]]) {
     await main.locator(button).click();
     const form = await waitUntil(() => context.pages().find(page => page.url().includes(`window=${kind}`)));
     taskForms[kind] = form;
@@ -395,13 +395,13 @@ try {
     await assert.rejects(invoke(form, "core_request", { request: { method: "GET", path: "/tasks?limit=1" } }));
     await assert.rejects(invoke(form, "core_request", { request: { method: "POST", path: "/settings/task-defaults", body: "{}" } }));
   }
-  assert.equal(context.pages().length, 4);
+  assert.equal(context.pages().length, 3);
   for (const page of [main, settings, ...Object.values(taskForms)]) {
     await assert.rejects(invoke(page, "confirm_action", { options: {
       title: "Confirm", message: "Remove this fixture?", confirmLabel: "Remove", cancelLabel: "Cancel", danger: true,
     } }), /suppressed during hidden acceptance/);
   }
-  for (const page of [main, settings, taskForms["batch-task"]]) {
+  for (const page of [main, settings]) {
     await assert.rejects(invoke(page, "take_dropped_torrent"), /only in the new download form/);
   }
   assert.equal(await invoke(taskForms["new-task"], "take_dropped_torrent"), null);
@@ -420,7 +420,7 @@ try {
   const downloadOrigin = `http://127.0.0.1:${downloadFixture.address().port}`;
   const savedDefaults = await api(settings, "GET", "/settings/task-defaults");
   await api(settings, "POST", "/settings/task-defaults", { revision: savedDefaults.revision, values: { ...savedDefaults.values, connections: 9 } });
-  for (const [kind, links, total] of [["new-task", ["single.txt"], 1], ["batch-task", ["batch-a.txt", "batch-b.txt"], 3]]) {
+  for (const [kind, links, total] of [["new-task", ["single.txt"], 1], ["new-task", ["batch-a.txt", "batch-b.txt"], 3]]) {
     const form = taskForms[kind];
     await form.locator("#m-link").fill(links.map(name => `${downloadOrigin}/${name}`).join("\n"));
     await form.locator("#submit-task-btn").click();
@@ -444,11 +444,20 @@ try {
     return page.tasks.find(task => task.status === "done");
   });
   await main.locator(`[data-action="details"][data-id="${completed.id}"]`).click();
-  await waitForNativeCondition(main, () => document.querySelector("#task-info-grid").textContent.includes("Documents review"));
-  await main.locator("#task-settings-tab").click();
-  await waitForNativeCondition(main, () => document.querySelector("#task-setting-connections").value === "9");
-  assert.equal(await main.locator("#task-settings-save").isDisabled(), true);
-  await main.evaluate(() => { location.hash = "tasks"; });
+  const details = await waitUntil(() => context.pages().find(page => page.url().includes("window=task-details")));
+  await waitForNativeCondition(details, () => document.querySelector("#task-info-grid").textContent.includes("Documents review"));
+  assert.equal(await main.evaluate(() => currentPage), "tasks");
+  assert.equal(await main.locator("#batch-task-btn").count(), 0);
+  await details.locator("#task-settings-tab").click();
+  await waitForNativeCondition(details, () => document.querySelector("#task-setting-connections").value === "9");
+  assert.equal(await details.locator("#task-settings-save").isDisabled(), true);
+  await assert.rejects(api(details, "GET", "/tasks?limit=1"));
+  await assert.rejects(api(details, "POST", "/settings/task-defaults", {}));
+  await invoke(details, "close_auxiliary");
+  await waitForNativeCondition(details, () => !nativeDetailOpen);
+  await invoke(main, "open_task_details", { id: completed.id });
+  await waitForNativeCondition(details, () => nativeDetailOpen && taskDetailTab === "settings");
+  assert.equal(context.pages().filter(page => page.url().includes("window=task-details")).length, 1);
   await settings.locator('[data-settings-link="general"]').click();
   const auth = await api(settings, "POST", "/auth/settings", { enabled: true });
   assert.equal(auth.enabled, true);
@@ -463,7 +472,7 @@ try {
     assert.ok(layout.footer <= layout.height);
   }
   await session.send("Emulation.clearDeviceMetricsOverride");
-  const pages = { main, settings, ...taskForms };
+  const pages = { main, settings, ...taskForms, "task-details": details };
   for (const scheme of ["light", "dark"]) await verifyAppearance(pages, scheme);
   await verifyAppearance(pages, "light", "active");
   for (const scheme of ["light", "dark"]) await verifyAppearance(pages, scheme, "none", true);

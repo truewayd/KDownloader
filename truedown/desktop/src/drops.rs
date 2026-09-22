@@ -35,7 +35,7 @@ pub fn links(value: String) -> Torrent {
 }
 
 pub fn receive(window: &tauri::Window, paths: &[PathBuf]) {
-    if !["main", "new-task", "batch-task"].contains(&window.label()) {
+    if !["main", "new-task"].contains(&window.label()) {
         return;
     }
     if paths.len() != 1 || !is_torrent(&paths[0]) {

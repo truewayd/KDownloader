@@ -22,6 +22,10 @@ tr:has(.status-paused) progress::-webkit-progress-value { background: var(--kd-w
 .tasks-table .col-created { width: 114px; }
 .task-speed, .task-size, .task-created { font-size: 12px; }
 .task-detail-page { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+[data-native-window="task-details"] .sidebar,
+[data-native-window="task-details"] .topbar { display: none; }
+[data-native-window="task-details"] .dashboard { padding: 8px; }
+[data-native-window="task-details"] .task-detail-page { width: 100%; }
 .task-detail-header { display: flex; align-items: center; gap: 16px; padding: 20px 24px; flex-shrink: 0; }
 .task-detail-header h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-detail-tabs { display: flex; gap: 8px; padding: 0 24px; border-bottom: 1px solid var(--kd-border); }

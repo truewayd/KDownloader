@@ -65,7 +65,7 @@ test("native capabilities permit event subscriptions and window inspection witho
   const capability = JSON.parse(await readFile(new URL("../truedown/desktop/capabilities/main.json", import.meta.url), "utf8"));
   const config = JSON.parse(await readFile(new URL("../truedown/desktop/tauri.conf.json", import.meta.url), "utf8"));
   assert.deepEqual(config.app.security.capabilities, [capability.identifier]);
-  assert.deepEqual([...capability.windows].sort(), ["batch-task", "main", "new-task", "settings"]);
+  assert.deepEqual([...capability.windows].sort(), ["main", "new-task", "settings", "task-details"]);
   assert.equal(capability.remote, undefined, "Remote documents must never acquire native commands");
   // core:default also grants image reads from arbitrary paths and tray/menu
   // mutations. Keep a closed list so a default group cannot restore them.

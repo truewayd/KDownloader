@@ -98,7 +98,7 @@ try {
         assert.ok(geometry.rootWidth <= width + 1 && geometry.bodyWidth <= width + 1, `${name}: horizontal page overflow ${JSON.stringify(geometry)}`);
         assert.ok(geometry.sidebar.right <= geometry.main.x + 1, `${name}: sidebar overlaps content`);
         assert.ok(geometry.footer.bottom <= height + 1, `${name}: bottom utilities are outside the viewport`);
-        for (const selector of ["#new-task-btn", "#settings-btn", "#batch-task-btn", "#task-search", "#task-filter"]) {
+        for (const selector of ["#new-task-btn", "#settings-btn", "#task-search", "#task-filter"]) {
           const reachable = await page.locator(selector).evaluate(element => {
             const box = element.getBoundingClientRect();
             return box.width > 0 && box.height > 0 && box.x >= 0 && box.right <= innerWidth && box.y >= 0 && box.bottom <= innerHeight && element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));

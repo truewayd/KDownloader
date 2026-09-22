@@ -31,7 +31,6 @@ pub enum Action {
     OpenFolder,
     Remove,
     NewTask,
-    BatchTask,
     Settings,
 }
 
@@ -46,7 +45,6 @@ impl Action {
             Self::OpenFolder => "open-folder",
             Self::Remove => "remove",
             Self::NewTask => "new-task",
-            Self::BatchTask => "batch-task",
             Self::Settings => "settings",
         }
     }
@@ -64,7 +62,7 @@ pub struct Request {
 
 impl Request {
     fn validate(&self, role: &str) -> Result<(), String> {
-        if !["main", "settings", "new-task", "batch-task"].contains(&role)
+        if !["main", "settings", "new-task", "task-details"].contains(&role)
             || self.token.is_empty()
             || self.token.len() > 80
             || !self
@@ -89,9 +87,7 @@ impl Request {
                 Action::OpenFolder,
                 Action::Remove,
             ],
-            Kind::Workspace if role == "main" => {
-                &[Action::NewTask, Action::BatchTask, Action::Settings]
-            }
+            Kind::Workspace if role == "main" => &[Action::NewTask, Action::Settings],
             Kind::Task | Kind::Workspace => return Err("Menu unavailable in this window".into()),
             _ => &[],
         };
@@ -166,16 +162,9 @@ pub fn install(app: &tauri::AppHandle) -> tauri::Result<()> {
         ),
         (Action::Remove, "\u{79fb}\u{9664}\u{4efb}\u{52a1}"),
         (Action::NewTask, "\u{65b0}\u{5efa}\u{4e0b}\u{8f7d}\u{2026}"),
-        (
-            Action::BatchTask,
-            "\u{6279}\u{91cf}\u{4e0b}\u{8f7d}\u{2026}",
-        ),
         (Action::Settings, "\u{8bbe}\u{7f6e}\u{2026}"),
     ] {
-        let menu = if matches!(
-            action,
-            Action::NewTask | Action::BatchTask | Action::Settings
-        ) {
+        let menu = if matches!(action, Action::NewTask | Action::Settings) {
             &workspace
         } else {
             &task
@@ -293,7 +282,7 @@ mod tests {
             y: 20.0,
         };
         assert!(request.validate("main").is_ok());
-        for role in ["settings", "new-task", "batch-task", "unknown"] {
+        for role in ["settings", "new-task", "task-details", "unknown"] {
             assert!(request.validate(role).is_err());
         }
         request.actions.push(Action::Settings);

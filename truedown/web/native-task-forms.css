@@ -1,13 +1,13 @@
 /* Long download forms are full native-window workspaces. Browser dialogs retain
    their existing backdrop, focus trap and responsive scroll boundaries. */
-:root:is([data-native-window="new-task"], [data-native-window="batch-task"]) body {
+:root[data-native-window="new-task"] body {
   height: 100dvh;
   overflow: hidden;
 }
-:root:is([data-native-window="new-task"], [data-native-window="batch-task"]) .app-shell {
+:root[data-native-window="new-task"] .app-shell {
   display: none;
 }
-:root:is([data-native-window="new-task"], [data-native-window="batch-task"]) #overlay {
+:root[data-native-window="new-task"] #overlay {
   position: relative;
   inset: auto;
   z-index: auto;
@@ -18,7 +18,7 @@
   background: transparent;
   transition: none;
 }
-:root:is([data-native-window="new-task"], [data-native-window="batch-task"]) #overlay > .modal {
+:root[data-native-window="new-task"] #overlay > .modal {
   width: 100%;
   height: 100%;
   max-height: none;
@@ -26,30 +26,23 @@
   transform: none;
   transition: none;
 }
-:root:is([data-native-window="new-task"], [data-native-window="batch-task"]) #download-form {
+:root[data-native-window="new-task"] #download-form {
   height: 100%;
   max-height: none;
 }
-:root:is([data-native-window="new-task"], [data-native-window="batch-task"]) .modal-body {
+:root[data-native-window="new-task"] .modal-body {
   padding: 20px;
   overscroll-behavior: contain;
 }
-:root:is([data-native-window="new-task"], [data-native-window="batch-task"]) .modal-header,
-:root:is([data-native-window="new-task"], [data-native-window="batch-task"]) .modal-footer {
+:root[data-native-window="new-task"] .modal-header,
+:root[data-native-window="new-task"] .modal-footer {
   padding: 16px 20px;
 }
 #download-form .modal-header.visually-hidden { padding: 0; border: 0; }
-:root[data-native-window="batch-task"] .torrent-import-field,
-:root[data-native-window="batch-task"] .field:has(> #m-name) {
-  display: none;
-}
-:root[data-native-window="batch-task"] .form-grid:has(#m-name) {
-  grid-template-columns: minmax(0, 1fr);
-}
 @media (max-width: 640px) {
-  :root:is([data-native-window="new-task"], [data-native-window="batch-task"]) .modal-body,
-  :root:is([data-native-window="new-task"], [data-native-window="batch-task"]) .modal-header,
-  :root:is([data-native-window="new-task"], [data-native-window="batch-task"]) .modal-footer {
+  :root[data-native-window="new-task"] .modal-body,
+  :root[data-native-window="new-task"] .modal-header,
+  :root[data-native-window="new-task"] .modal-footer {
     padding: 12px;
   }
 }

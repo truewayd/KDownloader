@@ -69,8 +69,8 @@ try {
   const info = await evaluate("return window.__TAURI__.core.invoke('core_request',{request:{method:'GET',path:'/system/info'}})");
   assert.equal(JSON.parse(info.body).product, "TrueDown");
   phase = "native windows and settings";
-  for (const kind of ["settings", "logs", "about", "new-task", "batch-task"]) await evaluate("return window.__TAURI__.core.invoke('open_auxiliary',{kind:arguments[0]})", [kind]);
-  const handles = await until(async () => { const handles = await command("GET", "/window/handles"); return handles.length === 4 && handles; });
+  for (const kind of ["settings", "logs", "about", "new-task"]) await evaluate("return window.__TAURI__.core.invoke('open_auxiliary',{kind:arguments[0]})", [kind]);
+  const handles = await until(async () => { const handles = await command("GET", "/window/handles"); return handles.length === 3 && handles; });
   let settings, main;
   const forms = {};
   for (const handle of handles) {
@@ -78,7 +78,7 @@ try {
     const role = await evaluate("return document.documentElement.dataset.nativeWindow || 'main'");
     if (role === "settings") settings = handle;
     if (role === "main") main = handle;
-    if (role === "new-task" || role === "batch-task") forms[role] = handle;
+    if (role === "new-task") forms[role] = handle;
     assert.equal(await evaluate("return document.querySelectorAll('.native-titlebar').length"), 0);
     assert.equal(await evaluate("return document.querySelectorAll('[data-window-action]').length"), 0);
     assert.equal((await evaluate("return window.__TAURI__.core.invoke('frame_state')")).decorated, true);
@@ -100,7 +100,7 @@ try {
   downloadFixture = http.createServer((_request, response) => response.end("TrueDown WebKit native form acceptance\n"));
   await new Promise(resolve => downloadFixture.listen(0, "127.0.0.1", resolve));
   const downloadOrigin = `http://127.0.0.1:${downloadFixture.address().port}`;
-  for (const [kind, filenames, total] of [["new-task", ["single.txt"], 1], ["batch-task", ["batch-a.txt", "batch-b.txt"], 3]]) {
+  for (const [kind, filenames, total] of [["new-task", ["single.txt"], 1], ["new-task", ["batch-a.txt", "batch-b.txt"], 3]]) {
     phase = `${kind} form`;
     assert.ok(forms[kind]);
     await command("POST", "/window", { handle: forms[kind] });
@@ -144,6 +144,20 @@ try {
     await until(() => evaluate("return Number(document.querySelector('#task-count').textContent)===arguments[0]", [total]));
     assert.equal(await evaluate("return document.querySelector('#toast').textContent"), "下载任务已添加");
   }
+  phase = "task details window";
+  await command("POST", "/window", { handle: main });
+  await evaluate("return window.__TAURI__.core.invoke('open_task_details',{id:1})");
+  const detailHandles = await until(async () => { const all = await command("GET", "/window/handles"); return all.length === 4 && all; });
+  const details = detailHandles.find(handle => !handles.includes(handle));
+  handles.push(details);
+  await command("POST", "/window", { handle: details });
+  await until(() => evaluate("return typeof taskDetailData!=='undefined' && taskDetailData?.id===1"));
+  await assert.rejects(evaluate("return requestJSON('/tasks?limit=1')"));
+  await evaluate("return window.__TAURI__.core.invoke('close_auxiliary')");
+  await command("POST", "/window", { handle: main });
+  assert.equal(await evaluate("return currentPage"), "tasks");
+  await evaluate("return window.__TAURI__.core.invoke('open_task_details',{id:1})");
+  assert.equal((await command("GET", "/window/handles")).length, 4);
   phase = "close windows";
   for (const handle of handles) {
     await command("POST", "/window", { handle });

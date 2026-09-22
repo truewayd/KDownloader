@@ -110,7 +110,7 @@ impl Fixture {
         self.close("main")?;
         crate::show_main(&self.app);
         self.visibility("main", true)?;
-        for label in ["settings", "new-task", "batch-task"] {
+        for label in ["settings", "new-task"] {
             let open = format!(
                 "window.__TAURI__.core.invoke('open_auxiliary',{{kind:'{label}'}}).then(()=>true)"
             );
@@ -155,11 +155,28 @@ impl Fixture {
             )?;
             self.close(label)?;
         }
+        self.check(
+            "main",
+            "window.__TAURI__.core.invoke('open_task_details',{id:1}).then(()=>true)",
+        )?;
+        self.until(
+            "task-details",
+            "typeof nativeDetailOpen !== 'undefined' && nativeDetailOpen && taskDetailID === 1",
+        )?;
+        self.visibility("task-details", true)?;
+        self.check("task-details", "window.__TAURI__.core.invoke('core_request',{request:{method:'GET',path:'/tasks?limit=1'}}).then(()=>false,()=>true)")?;
+        self.close("task-details")?;
+        self.check(
+            "main",
+            "window.__TAURI__.core.invoke('open_task_details',{id:1}).then(()=>true)",
+        )?;
+        self.visibility("task-details", true)?;
+        self.close("task-details")?;
         if self.app.webview_windows().len() != 4 {
             return Err("auxiliary windows must remain singletons".into());
         }
         self.close("main")?;
-        for label in ["main", "settings", "new-task", "batch-task"] {
+        for label in ["main", "settings", "new-task", "task-details"] {
             self.visibility(label, false)?;
         }
         Ok(())

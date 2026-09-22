@@ -16,6 +16,7 @@
     "test:settings": "node tests/settings-browser-smoke.mjs",
     "test:auxiliary": "node tests/auxiliary-ui-browser.mjs",
     "test:forms": "node tests/task-forms-browser-smoke.mjs",
+    "test:details": "node tests/task-details-browser-smoke.mjs",
     "test:groups": "node tests/file-groups-browser-smoke.mjs",
     "test:linux": "xvfb-run -a -s '-screen 0 1280x800x24' dbus-run-session -- node tests/linux-smoke.mjs"
   },
