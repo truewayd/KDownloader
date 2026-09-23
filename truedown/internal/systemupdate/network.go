@@ -35,6 +35,7 @@ type githubAsset struct {
 }
 
 type githubRelease struct {
+	ID          int64         `json:"id"`
 	TagName     string        `json:"tag_name"`
 	HTMLURL     string        `json:"html_url"`
 	Draft       bool          `json:"draft"`
@@ -72,11 +73,7 @@ func (m *Manager) UpdateTrueDown(ctx context.Context) (Snapshot, error) {
 }
 
 func (m *Manager) updateTrueDown(ctx context.Context) error {
-	var releases []githubRelease
-	if err := m.fetchJSON(ctx, m.trueDownReleasesURL, maxGitHubResponseBytes, &releases); err != nil {
-		return fmt.Errorf("check TrueDown releases: %w", err)
-	}
-	available, err := selectTrueDownRelease(releases, m.currentBuild)
+	available, err := m.discoverTrueDownRelease(ctx)
 	if err != nil {
 		return err
 	}
@@ -93,10 +90,58 @@ func (m *Manager) updateTrueDown(ctx context.Context) error {
 	if available == nil {
 		return nil
 	}
-	if err := m.stageTrueDown(ctx, available); err != nil {
-		return err
+	return m.stageTrueDown(ctx, available)
+}
+
+func (m *Manager) discoverTrueDownRelease(ctx context.Context) (*availableAppUpdate, error) {
+	var releases []githubRelease
+	if err := m.fetchJSON(ctx, m.trueDownReleasesURL, maxGitHubResponseBytes, &releases); err != nil {
+		return nil, fmt.Errorf("check TrueDown releases: %w", err)
 	}
-	return nil
+	// Query only the newest stable candidate; never silently downgrade past an
+	// incomplete release or treat missing metadata as "up to date".
+	var newest *githubRelease
+	newestBuild := m.currentBuild
+	for i := range releases {
+		release := &releases[i]
+		build, ok := parseBuild(release.TagName)
+		if ok && !release.Draft && !release.Prerelease && build > newestBuild {
+			newest, newestBuild = release, build
+		}
+	}
+	if newest == nil {
+		return nil, nil
+	}
+	available, err := selectTrueDownRelease([]githubRelease{*newest}, m.currentBuild)
+	if err != nil || available != nil {
+		return available, err
+	}
+	if newest.ID <= 0 {
+		return nil, fmt.Errorf("TrueDown release %s has incomplete asset metadata", newest.TagName)
+	}
+	// Derive the endpoint from the configured releases API, not an untrusted URL
+	// in the response. One bounded asset page is enough for our five-file release.
+	endpoint, err := url.Parse(m.trueDownReleasesURL)
+	if err != nil {
+		return nil, err
+	}
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + fmt.Sprintf("/%d/assets", newest.ID)
+	endpoint.RawPath = ""
+	endpoint.RawQuery = "per_page=100"
+	if err := m.fetchJSON(ctx, endpoint.String(), maxGitHubResponseBytes, &newest.Assets); err != nil {
+		return nil, fmt.Errorf("check TrueDown release assets: %w", err)
+	}
+	if len(newest.Assets) >= 100 {
+		return nil, fmt.Errorf("TrueDown release asset list exceeds the supported limit")
+	}
+	available, err = selectTrueDownRelease([]githubRelease{*newest}, m.currentBuild)
+	if err != nil {
+		return nil, err
+	}
+	if available == nil {
+		return nil, fmt.Errorf("TrueDown release %s assets are not ready; retry the update check later", newest.TagName)
+	}
+	return available, nil
 }
 
 func selectTrueDownRelease(releases []githubRelease, currentBuild int64) (*availableAppUpdate, error) {

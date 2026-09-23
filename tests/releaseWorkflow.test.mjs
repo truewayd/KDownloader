@@ -348,6 +348,11 @@ test("TrueDown publishes all native packages only after every build succeeds", a
   assert.match(publish, /python3 truedown\/tools\/validate_release\.py release-assets --build/);
   assert.ok(publish.indexOf("validate_release.py") < publish.indexOf("action-gh-release"));
   assert.match(publish, /fail_on_unmatched_files: true/);
+  assert.match(publish, /draft: true/);
+  assert.match(publish, /releases\/\$RELEASE_ID\/assets\?per_page=100/);
+  assert.ok(publish.indexOf("validate_release_assets.py release-assets") < publish.indexOf('--draft=false'));
+  assert.ok(publish.indexOf('--draft=false') < publish.indexOf('Verify updater-visible release metadata'));
+  assert.match(publish, /releases\?per_page=50/);
   assert.doesNotMatch(workflow, /macos-15-intel|macos-amd64|os: darwin, arch: amd64/);
   for (const suffix of ["linux-amd64.tar.gz", "linux-arm64.tar.gz", "macos-arm64.zip"]) {
     assert.ok(publish.includes(`release-assets/TrueDown-build-\${{ github.run_number }}-${suffix}`));

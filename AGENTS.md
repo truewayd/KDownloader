@@ -172,6 +172,8 @@ Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps
 
 ## Build And Release
 
+- TrueDown releases upload all five assets to a draft and validate uploaded names, sizes and completion before publication; the public release list must then expose the same assets used by older updaters. Update discovery recovers missing inline asset metadata through a bounded release-ID asset query; an incomplete newest release or failed query must report an error rather than "up to date". Existing manifest, checksum, platform and executable checks remain mandatory.
+
 - `manifest.json` is the single source for KDownloader's three-component `MAJOR.MINOR.PATCH` product version. Bump it deliberately for user-visible releases: major for incompatible changes, minor for backward-compatible features, and patch for backward-compatible fixes. Do not duplicate the product version in `package.json` or another source file.
 - `tools/read-extension-version.ps1` validates and returns that product version. `tools/build-extension.ps1` creates a clean unpacked directory (normally `dist/KDownloader`) containing runtime files only; release builds append the bounded GitHub run number as Chrome's fourth numeric version component and add a display-only `version_name` in the staged manifest. It rejects invalid versions, Python artifacts, underscore-prefixed reserved paths other than `_locales`, and reparse points in runtime inputs or recursively cleaned output trees.
 - KDownloader release archives, artifact names, tags, and release titles include both the product version and monotonic build number. A checked-in manifest version must never remain at a placeholder such as `1.0.0` across unrelated releases.

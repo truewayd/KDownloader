@@ -1,0 +1,29 @@
+import copy
+from pathlib import Path
+import tempfile
+import unittest
+
+from validate_release_assets import validate_assets
+
+
+class UploadedAssetsTests(unittest.TestCase):
+    def test_upload_completeness_and_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = []
+            for index in range(5):
+                name = f"asset-{index}"
+                Path(directory, name).write_bytes(b"payload")
+                assets.append({"name": name, "state": "uploaded", "size": 7})
+            validate_assets(directory, assets)
+            invalid = [[], assets[:4], None, [*assets[:4], assets[0]], [*assets[:4], None]]
+            for field, value in [("state", "new"), ("size", 6), ("size", True), ("name", "other")]:
+                changed = copy.deepcopy(assets)
+                changed[0][field] = value
+                invalid.append(changed)
+            for candidate in invalid:
+                with self.subTest(candidate=candidate), self.assertRaises(ValueError):
+                    validate_assets(directory, candidate)
+
+
+if __name__ == "__main__":
+    unittest.main()

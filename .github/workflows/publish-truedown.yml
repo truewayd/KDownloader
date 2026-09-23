@@ -262,7 +262,8 @@ jobs:
         shell: pwsh
         run: ./tools/read-latest-changelog.ps1 -Product TrueDown -OutputFile release-notes.md
 
-      - name: Publish GitHub Release
+      - name: Upload draft GitHub Release
+        id: draft-release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
@@ -271,9 +272,35 @@ jobs:
           generate_release_notes: false
           body_path: release-notes.md
           fail_on_unmatched_files: true
+          draft: true
           files: |
             release-assets/${{ env.ARTIFACT_NAME }}
             release-assets/${{ env.UPDATE_MANIFEST }}
             release-assets/TrueDown-build-${{ github.run_number }}-linux-amd64.tar.gz
             release-assets/TrueDown-build-${{ github.run_number }}-linux-arm64.tar.gz
             release-assets/TrueDown-build-${{ github.run_number }}-macos-arm64.zip
+
+      - name: Publish only after uploaded assets are complete
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.draft-release.outputs.id }}
+        run: |
+          python3 -m unittest discover -s truedown/tools -p test_validate_release_assets.py
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" \
+            | python3 truedown/tools/validate_release_assets.py release-assets
+          gh release edit "$RELEASE_TAG" --draft=false
+
+      - name: Verify updater-visible release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 12); do
+            if gh api "repos/$GITHUB_REPOSITORY/releases?per_page=50" \
+              --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .assets" \
+              | python3 truedown/tools/validate_release_assets.py release-assets; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Published release is not yet visible with complete assets to the updater" >&2
+          exit 1
