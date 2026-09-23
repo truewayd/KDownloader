@@ -63,7 +63,7 @@ function setup(platform = "windows", readState = async () => ({ maximized: false
 const flush = async () => { for (let index = 0; index < 12; index++) await Promise.resolve(); };
 
 test("auxiliary captions retain titles and decorative role icons", async () => {
-  for (const [role, icon] of [["settings", "settings"], ["new-task", "download"], ["task-details", "info"]]) {
+  for (const [role, icon] of [["new-task", "download"], ["task-details", "info"]]) {
     const view = setup("windows", undefined, role);
     await flush();
     assert.equal(view.calls.find(call => call.command === "frame_title").args.title, "TrueDown");
@@ -72,6 +72,16 @@ test("auxiliary captions retain titles and decorative role icons", async () => {
     assert.equal(svg.getAttribute("focusable"), "false");
     assert.equal(svg.children[0].getAttribute("href"), `/icons.svg#icon-${icon}`);
   }
+});
+
+test("settings retains the OS title and drag area without an in-page caption", async () => {
+  const view = setup("windows", undefined, "settings");
+  await flush();
+  assert.equal(view.drag.children.length, 0);
+  assert.equal(view.calls.find(call => call.command === "frame_title").args.title, "TrueDown");
+  view.drag.emit("mousedown", { button: 0, detail: 1 });
+  await flush();
+  assert.ok(view.calls.some(call => call.command === "frame_action" && call.args.action === "drag"));
 });
 
 test("native capabilities permit event subscriptions and window inspection without filesystem or shell mutations", async () => {

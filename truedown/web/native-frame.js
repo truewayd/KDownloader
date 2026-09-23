@@ -38,7 +38,7 @@
     frame.className = "native-titlebar";
     drag.className = "native-titlebar-drag";
     drag.dataset.nativeDrag = "";
-    const iconName = { settings: "settings", "new-task": "download", "task-details": "info" }[root.dataset.nativeWindow];
+    const iconName = { "new-task": "download", "task-details": "info" }[root.dataset.nativeWindow];
     if (iconName) {
       const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
@@ -49,7 +49,7 @@
       icon.append(use);
       drag.append(icon);
     }
-    drag.append(title);
+    if (root.dataset.nativeWindow !== "settings") drag.append(title);
     frame.append(drag);
     drag.addEventListener("mousedown", event => {
       if (event.button !== 0) return;

@@ -4,6 +4,16 @@ let fileGroupsEditorRevision = -1;
 let fileGroupsReadVersion = 0;
 let fileGroupsBase = null;
 let fileGroupsNeedsSync = false;
+let fileGroupsSaving = false, fileGroupsSaveQueued = false, fileGroupsMutationVersion = 0;
+
+function scheduleFileGroupsSave() {
+  fileGroupsSaveQueued = true;
+  queueMicrotask(() => {
+    if (fileGroupsSaving || !fileGroupsSaveQueued) return;
+    fileGroupsSaveQueued = false;
+    saveFileGroups();
+  });
+}
 
 function taskCategoryMeta(id) {
   const group = fileGroupsState.groups.find((value) => value.id === id);
@@ -61,6 +71,7 @@ function initFileGroups() {
     markFileGroupsDraft();
   });
   document.getElementById("file-groups-editor").addEventListener("input", () => { captureFileGroupsDraft(); markFileGroupsDraft(); });
+  document.getElementById("file-groups-editor").addEventListener("change", scheduleFileGroupsSave);
   document.getElementById("file-groups-editor").addEventListener("click", (event) => {
     const iconButton = event.target.closest("[data-group-icon]");
     if (iconButton) { openGroupIconPicker(iconButton); return; }
@@ -71,11 +82,12 @@ function initFileGroups() {
     renderFileGroupsEditor();
     document.getElementById("file-group-add").focus();
     markFileGroupsDraft();
+    scheduleFileGroupsSave();
   });
-  document.getElementById("file-groups-save").addEventListener("click", saveFileGroups);
 }
 
 function markFileGroupsDraft() {
+  fileGroupsMutationVersion++;
   fileGroupsReadVersion++;
   document.getElementById("file-groups-status").textContent = "\u6709\u672a\u4fdd\u5b58\u7684\u4fee\u6539\u3002";
 }
@@ -143,6 +155,7 @@ function initGroupIconPicker() {
       group.icon = button.dataset.iconChoice;
       groupIconTarget.innerHTML = iconMarkup(group.icon);
       markFileGroupsDraft();
+      scheduleFileGroupsSave();
     }
     groupIconDialog.close();
   });
@@ -207,7 +220,7 @@ async function loadFileGroupsEditor() {
     field?.focus({ preventScroll: true });
     if (selection) field?.setSelectionRange(...selection);
   }
-  document.getElementById("file-groups-status").textContent = merging ? "已同步最新分组，草稿已保留，请确认后保存。" : "";
+  document.getElementById("file-groups-status").textContent = merging ? "已同步最新分组，草稿已保留，继续编辑后自动保存。" : "";
 }
 
 function scheduleFileGroupsSync() {
@@ -215,7 +228,7 @@ function scheduleFileGroupsSync() {
 }
 
 async function syncFileGroups() {
-  if (document.getElementById("file-groups-save").disabled) { scheduleFileGroupsSync(); return; }
+  if (fileGroupsSaving) { scheduleFileGroupsSync(); return; }
   try { await loadFileGroupsEditor(); }
   catch (error) {
     document.getElementById("file-groups-status").textContent = `同步失败，正在自动重试，草稿已保留：${error.message}`;
@@ -225,26 +238,30 @@ async function syncFileGroups() {
 
 async function saveFileGroups() {
   if (!fileGroupsDraft) return;
-  const button = document.getElementById("file-groups-save");
-  if (button.disabled) return;
-  const panel = button.closest("[data-settings-page]");
+  if (fileGroupsSaving) return;
+  const panel = document.getElementById("file-groups-editor").closest("[data-settings-page]");
   const invalid = [...panel.querySelectorAll("input")].find((input) => !input.checkValidity());
-  if (invalid) { invalid.reportValidity(); return; }
+  if (invalid) { document.getElementById("file-groups-status").textContent = "请填写有效的分组名称，完成编辑后自动保存。"; return; }
   captureFileGroupsDraft();
+  const mutationVersion = fileGroupsMutationVersion;
+  const submitted = structuredClone(fileGroupsDraft);
   fileGroupsReadVersion++;
-  panel.inert = true;
-  KDComponents.setBusyState(button, true);
+  fileGroupsSaving = true;
   try {
-    const state = await requestJSON("/settings/file-groups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision: fileGroupsEditorRevision, groups: fileGroupsDraft }) });
+    const state = await requestJSON("/settings/file-groups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision: fileGroupsEditorRevision, groups: submitted }) });
     fileGroupsReadVersion++;
     applyFileGroups(state);
-    fileGroupsDraft = structuredClone(state.groups);
+    if (mutationVersion === fileGroupsMutationVersion) fileGroupsDraft = structuredClone(state.groups);
     fileGroupsBase = structuredClone(state.groups);
     fileGroupsNeedsSync = false;
     cancelReadRetry("file-groups");
     fileGroupsEditorRevision = state.revision;
-    renderFileGroupsEditor();
-    document.getElementById("file-groups-status").textContent = "\u5206\u7ec4\u5df2\u4fdd\u5b58\uff0c\u5df2\u6709\u4efb\u52a1\u4f1a\u81ea\u52a8\u91cd\u65b0\u5f52\u7c7b\u3002";
+    if (mutationVersion === fileGroupsMutationVersion) {
+      const focusedID = document.activeElement?.id;
+      renderFileGroupsEditor();
+      if (currentPage === "settings" && currentSettingsPage === "files" && focusedID) document.getElementById(focusedID)?.focus({ preventScroll: true });
+    }
+    if (mutationVersion === fileGroupsMutationVersion) document.getElementById("file-groups-status").textContent = "\u5206\u7ec4\u5df2\u4fdd\u5b58\uff0c\u5df2\u6709\u4efb\u52a1\u4f1a\u81ea\u52a8\u91cd\u65b0\u5f52\u7c7b\u3002";
     renderedTaskPageURL = "";
   } catch (error) {
     document.getElementById("file-groups-status").textContent = error.status === 409 ? "分组已变更，正在自动同步，草稿已保留。" : `\u4fdd\u5b58\u5931\u8d25\uff1a${error.message}`;
@@ -253,8 +270,7 @@ async function saveFileGroups() {
       scheduleFileGroupsSync();
     }
   } finally {
-    panel.inert = false;
-    KDComponents.setBusyState(button, false);
-    if (currentPage === "settings" && currentSettingsPage === "files") button.focus();
+    fileGroupsSaving = false;
+    if (fileGroupsSaveQueued) scheduleFileGroupsSave();
   }
 }

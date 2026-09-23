@@ -177,7 +177,6 @@ function cacheElements() {
     "dialog-overlay",
     "dialog-title",
     "error-count",
-    "exit-from-settings-btn",
     "m-conns",
     "m-extra",
     "m-folder",
@@ -212,9 +211,8 @@ function cacheElements() {
 	"select-next-engine-btn",
 	"select-stable-engine-btn",
     "settings-btn",
+    "exit-truedown-btn",
     "settings-form",
-    "settings-save-btn",
-    "settings-footer",
     "settings-load-status",
     "settings-save-status",
     "startup-enabled",
@@ -259,8 +257,12 @@ function bindEvents() {
   els.settingsResetBtn.addEventListener("click", resetDownloadSettings);
   els.settingsForm.addEventListener("submit", saveDownloadSettings);
   els.settingsForm.addEventListener("input", markSettingsDraft);
+  els.settingsForm.addEventListener("change", (event) => {
+    if (!event.target.closest("[data-settings-independent]")) { markSettingsDraft(event); saveDownloadSettings(event); }
+  });
   els.startupEnabled.addEventListener("change", updateStartupSettings);
-  document.getElementById("tray-save").addEventListener("click", saveTraySettings);
+  document.getElementById("tray-single").addEventListener("change", saveTraySettings);
+  document.getElementById("tray-double").addEventListener("change", saveTraySettings);
   els.trackerPretendSeed.addEventListener("change", syncTrackerSeedControls);
   els.modalCloseBtn.addEventListener("click", closeModal);
   els.modalCancelBtn.addEventListener("click", closeModal);
@@ -318,8 +320,8 @@ function bindEvents() {
   els.cfgProxyMode.addEventListener("change", renderProxyMode);
   els.checkTruedownUpdateBtn.addEventListener("click", checkTrueDownUpdate);
 	els.copyApplicationLogBtn.addEventListener("click", copyApplicationLog);
-  els.exitFromSettingsBtn.addEventListener("click", exitTrueDown);
   els.restartTruedownUpdateBtn.addEventListener("click", restartForTrueDownUpdate);
+  els.exitTruedownBtn.addEventListener("click", exitTrueDown);
   els.installNextEngineBtn.addEventListener("click", installNextEngine);
   els.selectStableEngineBtn.addEventListener("click", () => selectDownloadEngine("stable"));
   els.selectNextEngineBtn.addEventListener("click", () => selectDownloadEngine("next"));

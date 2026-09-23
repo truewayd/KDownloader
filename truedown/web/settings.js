@@ -5,12 +5,13 @@ const settingsLoads = new Map();
 const settingsReady = new Set();
 const settingsRendered = new Set();
 const settingsMessages = new Map();
+const settingsDirtyControls = new Map();
 const settingReadVersions = new Map();
 let systemUpdateTimer = 0, updatePreferenceSaving = false;
 function stopSystemUpdateRefresh() { clearTimeout(systemUpdateTimer); }
 function scheduleSystemUpdateRefresh() {
   stopSystemUpdateRefresh();
-  if (document.hidden || currentPage !== "settings" || currentSettingsPage !== "engine") return;
+  if (document.hidden || currentPage !== "settings" || !["engine", "about"].includes(currentSettingsPage)) return;
   const epoch = routeEpoch;
   systemUpdateTimer = setTimeout(async () => {
     try { if (!updatePreferenceSaving && epoch === routeEpoch) await loadSystemUpdateState(); }
@@ -55,7 +56,11 @@ async function readSettingSnapshot(key, url, apply) {
 function markSettingsDraft(event) {
   if (event?.target?.closest("[data-settings-independent]")) return;
   if (!EDITABLE_SETTINGS_PAGES.has(currentSettingsPage)) return;
-  settingsMessages.set(currentSettingsPage, "本页有未保存的修改。");
+  if (event?.target?.matches("input, textarea, select")) {
+    if (!settingsDirtyControls.has(currentSettingsPage)) settingsDirtyControls.set(currentSettingsPage, new Set());
+    settingsDirtyControls.get(currentSettingsPage).add(event.target);
+  }
+  settingsMessages.set(currentSettingsPage, "");
   els.settingsSaveStatus.textContent = settingsMessages.get(currentSettingsPage);
 }
 
@@ -77,31 +82,28 @@ async function loadSettingsPage() {
     if (link.dataset.settingsLink === page) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   });
-  els.settingsFooter.hidden = !EDITABLE_SETTINGS_PAGES.has(page);
-  els.settingsSaveBtn.textContent = page === "files" ? "保存文件选项" : "保存本页";
-  els.settingsResetBtn.textContent = page === "files" ? "恢复文件选项默认" : "恢复本页默认";
-  els.settingsSaveStatus.textContent = settingsMessages.get(page) || (page === "files" ? "保存文件选项；文件分组单独保存。" : "保存当前分类的设置。");
+  document.getElementById("settings-category-title").textContent = document.querySelector(`[data-settings-link="${page}"] span`)?.textContent || "设置";
+  els.settingsResetBtn.hidden = page === "logs";
+  els.settingsSaveStatus.textContent = settingsMessages.get(page) || "";
   if (page === "logs") { loadApplicationLog(); }
   if (page === "about") { loadAbout(); }
-  if (page === "engine") scheduleSystemUpdateRefresh();
+  if (["engine", "about"].includes(page)) scheduleSystemUpdateRefresh();
   if (settingsReady.has(page)) {
     if (page === "files" && fileGroupsNeedsSync) scheduleFileGroupsSync();
     initializeSettingsCategory(page);
     els.settingsLoadStatus.textContent = "";
-    els.settingsSaveBtn.disabled = false;
     els.settingsResetBtn.disabled = false;
 
     return;
   }
-  els.settingsSaveBtn.disabled = true;
   els.settingsResetBtn.disabled = true;
-  settingsPanels(page).forEach((panel) => { panel.inert = !["logs", "about"].includes(page); });
+  settingsPanels(page).forEach((panel) => { panel.inert = page !== "logs"; });
   els.settingsLoadStatus.textContent = ["logs", "about"].includes(page) ? "" : "正在读取本页设置…";
   try {
     if (!settingsLoads.has(page)) {
       const loaders = {
         logs: () => {},
-        about: () => {},
+        about: () => loadSystemUpdateState(),
         general: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings()]),
         files: () => Promise.all([loadServerTaskDefaults(), loadServerDownloadRules(), loadFileGroupsEditor()]),
         advanced: loadServerTaskDefaults,
@@ -118,7 +120,6 @@ async function loadSettingsPage() {
     initializeSettingsCategory(page);
 
     els.settingsLoadStatus.textContent = "";
-    els.settingsSaveBtn.disabled = false;
     els.settingsResetBtn.disabled = false;
   } catch (error) {
     if (epoch !== routeEpoch || currentPage !== "settings" || currentSettingsPage !== page) return;
@@ -154,12 +155,10 @@ function renderTraySettings() {
   single.querySelector('[value="menu"]').hidden = traySettings?.doubleSupported === true;
   document.getElementById("tray-single-field").hidden = traySettings?.singleSupported !== true;
   document.getElementById("tray-double-field").hidden = traySettings?.doubleSupported !== true;
-  document.getElementById("tray-save").disabled = traySaving || traySettings?.singleSupported !== true;
-  document.getElementById("tray-save").hidden = traySettings?.singleSupported !== true;
   document.getElementById("tray-support").textContent = traySettings?.doubleSupported
-    ? "Windows 支持单击和双击；单击等待系统双击判定后执行，双击只执行双击动作。右键显示菜单。"
-    : traySettings?.singleSupported ? "macOS 支持单击自定义；当前托盘后端不提供双击事件。右键显示菜单。"
-      : "当前平台不支持托盘点击自定义，保留系统托盘菜单。Linux 的 AppIndicator 后端不提供单击或双击事件。";
+    ? "右键打开菜单；双击优先于单击。"
+    : traySettings?.singleSupported ? "右键打开菜单，不支持双击。"
+      : "此平台仅支持系统托盘菜单。";
 }
 
 async function loadTraySettings() {
@@ -174,22 +173,19 @@ async function loadTraySettings() {
 
 async function saveTraySettings() {
   if (traySaving || !traySettings?.singleSupported) return;
-  const button = document.getElementById("tray-save"), single = document.getElementById("tray-single"), double = document.getElementById("tray-double");
+  const single = document.getElementById("tray-single"), double = document.getElementById("tray-double");
   const preferences = { singleClick: single.value, doubleClick: traySettings.doubleSupported ? double.value : "none" };
   const focused = document.activeElement;
   traySaving = true;
   single.disabled = double.disabled = true;
-  KDComponents.setBusyState(button, true);
   try {
     traySettings = await invokeNative("tray_settings", { preferences });
     document.getElementById("tray-status").textContent = "托盘设置已保存并生效。";
-    showToast("托盘设置已保存。");
   } catch (error) {
     document.getElementById("tray-status").textContent = `保存失败：${error.message}`;
     showToast(`保存托盘设置失败：${error.message}`, "error");
   } finally {
     traySaving = false;
-    KDComponents.setBusyState(button, false);
     renderTraySettings();
     if (currentPage === "settings" && currentSettingsPage === "application") focused?.focus({ preventScroll: true });
   }
@@ -265,8 +261,8 @@ async function saveDownloadSettings(event) {
     if (invalid) { invalid.reportValidity(); return; }
   }
   const previousFocus = document.activeElement;
+  const edits = [...(settingsDirtyControls.get(page) || [])].map(control => ({ control, value: control.value, checked: control.checked }));
   els.settingsForm.inert = true;
-  KDComponents.setBusyState(els.settingsSaveBtn, true);
   let serverSaved = false;
   try {
     const defaultsRevision = taskDefaultsRevision;
@@ -325,7 +321,7 @@ async function saveDownloadSettings(event) {
           message: "此功能仅限在你控制的 tracker 或测试环境中研究流量，不得用于欺骗、滥用或违反服务条款。继续即表示你理解并自行承担全部后果。",
           confirmLabel: "我理解，启用研究模块", danger: true,
         });
-        if (!acknowledgedRisk) return;
+        if (!acknowledgedRisk) { renderTrackerResearchSettings(); return; }
       }
       invalidateSettingRead("tracker");
       trackerResearchSettings = normalizeTrackerResearchSettings(await requestJSON("/settings/tracker-research", {
@@ -345,19 +341,21 @@ async function saveDownloadSettings(event) {
       } catch (error) {
         if (error.status === 409) {
           await loadServerTaskDefaults();
-          throw new Error("其他窗口已修改默认值，已读取最新设置；本页草稿保留，请检查后重新保存。");
+          renderSettingsCategory(page);
+          for (const { control, value, checked } of edits) { control.value = value; if (control.type === "checkbox") control.checked = checked; }
+          throw new Error("其他窗口已修改默认值，已读取最新设置；本页输入保留，继续编辑后自动保存。");
         }
         throw error;
       }
     }
-    settingsMessages.set(page, page === "files" ? "文件选项已保存；文件分组单独保存。" : "本页设置已保存。");
+    settingsDirtyControls.delete(page);
+    settingsMessages.set(page, "");
     if (currentPage === "settings" && currentSettingsPage === page) {
       renderSettingsCategory(page);
       if (page === "experimental") renderTrackerResearchSettings();
       els.settingsSaveStatus.textContent = settingsMessages.get(page);
     }
 
-    showToast(settingsMessages.get(page));
   } catch (error) {
     const message = `${serverSaved ? "运行或规则设置已保存，任务默认值保存失败" : "本页设置未保存"}：${error.message}`;
     settingsMessages.set(page, message);
@@ -365,8 +363,6 @@ async function saveDownloadSettings(event) {
     showToast(message, "error");
   } finally {
     els.settingsForm.inert = false;
-    KDComponents.setBusyState(els.settingsSaveBtn, false);
-    els.settingsSaveBtn.disabled = !settingsReady.has(currentSettingsPage);
     if (previousFocus?.isConnected && currentPage === "settings" && currentSettingsPage === page) previousFocus.focus({ preventScroll: true });
   }
 }
@@ -376,18 +372,77 @@ function validateSettingsSpeed(speed, unit) {
   if (!Number.isFinite(speed) || speed < 0 || !Number.isSafeInteger(bytes) || bytes > MAX_SPEED_BPS) throw new Error("限速数值过大");
 }
 
-function resetDownloadSettings() {
+async function resetDownloadSettings() {
   const page = currentSettingsPage;
-  if (!settingsReady.has(page) || !EDITABLE_SETTINGS_PAGES.has(page)) return;
+  if (!settingsReady.has(page) || page === "logs" || els.settingsForm.inert) return;
+  if (traySaving || updatePreferenceSaving || pendingResolverModuleActions.size || els.settingsForm.querySelector('[aria-busy="true"]')) {
+    showToast("请等待当前修改完成后再恢复默认。", "error"); return;
+  }
+  const epoch = routeEpoch;
+  const descriptions = {
+    files: "恢复文件写入与过滤选项，并立即保存。自定义文件分组保持不变。",
+    application: "关闭开机启动和可编辑的 API Key 认证，恢复本平台的托盘点击行为。数据目录和下载文件保持不变。",
+    engine: "恢复稳定下载内核，开启已安装 NEXT 的自动更新，并启用已安装的解析模块。保留安装包与模块版本。",
+    about: "恢复 TrueDown 自动更新为开启状态。",
+  };
+  const confirmed = await confirmAction({ title: "恢复默认设置？", message: descriptions[page] || "将本分类的设置恢复为默认值，并立即保存。", confirmLabel: "恢复默认", danger: true });
+  if (!confirmed || epoch !== routeEpoch || page !== currentSettingsPage || els.settingsForm.inert) return;
+  if (!EDITABLE_SETTINGS_PAGES.has(page)) { await resetImmediateSettings(page); return; }
   renderSettingsCategory(page, DEFAULT_DOWNLOAD_SETTINGS, DEFAULT_DOWNLOAD_RULES, DEFAULT_RUNTIME_SETTINGS);
   if (page === "experimental") renderTrackerResearchSettings({
     ...trackerResearchSettings, ...DEFAULT_TRACKER_RESEARCH_SETTINGS,
     engine: trackerResearchSettings.engine, engineVersion: trackerResearchSettings.engineVersion,
     supportKnown: trackerResearchSettings.supportKnown, supported: trackerResearchSettings.supported,
   });
-  const message = page === "files" ? "文件选项已恢复默认值，保存后生效；文件分组保持不变。" : "本页已恢复默认值，保存后生效。";
-  settingsMessages.set(page, message);
-  els.settingsSaveStatus.textContent = message;
+  settingsDirtyControls.set(page, new Set(settingsPanels(page).filter(panel => !panel.hasAttribute("data-settings-independent")).flatMap(panel => [...panel.querySelectorAll("input, textarea, select")])));
+  await saveDownloadSettings({ preventDefault() {} });
+}
+
+async function resetImmediateSettings(page) {
+  const post = (path, value) => requestJSON(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
+  els.settingsForm.inert = true;
+  updatePreferenceSaving = true;
+  try {
+    if (page === "application") {
+      invalidateSettingRead("startup");
+      invalidateSettingRead("auth");
+      if (startupSettings?.supported) {
+        startupSettings = await post("/settings/startup", { enabled: false });
+        renderStartupSettings();
+      }
+      if (!tokenAuthManaged) applyAuthSettings(await post("/auth/settings", { enabled: false }));
+      if (traySettings?.singleSupported) {
+        traySettings = await invokeNative("tray_settings", { preferences: { singleClick: traySettings.doubleSupported ? "main" : "menu", doubleClick: traySettings.doubleSupported ? "newTask" : "none" } });
+        renderTraySettings();
+      }
+    } else {
+      invalidateSettingRead("engine");
+      systemUpdateState = normalizeSystemUpdateState(await post("/settings/updates", page === "about" ? { autoUpdateTrueDown: true } : { autoUpdateNext: true }));
+      renderSystemUpdateState();
+      if (page === "engine") {
+        invalidateSettingRead("modules");
+        for (const module of resolverModules) {
+          if (!module.installed) replaceResolverModule(await post("/modules", { id: module.id, installed: true }));
+        }
+        renderResolverModules();
+        systemUpdateState = normalizeSystemUpdateState(await post("/system/engine/select", { engine: "stable" }));
+        if (systemUpdateState.busy === "engine-switch") systemUpdateState = await waitForEngineTransition();
+        renderSystemUpdateState();
+        if (systemUpdateState.engine.active !== "stable") throw new Error(systemUpdateState.error || "稳定内核切换未完成");
+      }
+    }
+    settingsMessages.delete(page);
+    if (currentSettingsPage === page) els.settingsSaveStatus.textContent = "";
+  } catch (error) {
+    const message = `恢复默认未全部完成，已应用的设置会保留：${error.message}`;
+    settingsMessages.set(page, message);
+    if (currentSettingsPage === page) els.settingsSaveStatus.textContent = message;
+    showToast(message, "error");
+  } finally {
+    for (const key of ["startup", "auth", "engine", "modules"]) invalidateSettingRead(key);
+    updatePreferenceSaving = false;
+    els.settingsForm.inert = false;
+  }
 }
 
 function applyTaskDefaults(state) {
@@ -763,12 +818,12 @@ function renderResolverModules() {
 		actions.className = "module-card-actions";
 		const toggle = document.createElement("button");
 		toggle.type = "button";
-		toggle.className = `kd-button ${module.installed ? "secondary" : "primary"} compact`;
+		toggle.className = "kd-switch";
+		toggle.setAttribute("role", "switch");
 		toggle.dataset.moduleToggle = module.id;
 		toggle.dataset.installed = String(module.installed);
-		toggle.setAttribute("aria-pressed", String(module.installed));
-		toggle.setAttribute("aria-label", `${module.installed ? "停用" : "启用"} ${module.name} 解析模块`);
-		toggle.textContent = module.installed ? "停用" : "启用";
+		toggle.setAttribute("aria-checked", String(module.installed));
+		toggle.setAttribute("aria-label", `${module.name} 解析模块`);
 		const update = document.createElement("button");
 		update.type = "button";
 		update.className = "kd-button secondary compact";

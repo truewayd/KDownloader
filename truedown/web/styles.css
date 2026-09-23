@@ -1,4 +1,44 @@
 /* TrueDown visual tokens and component primitives. */
+input[type="checkbox"].kd-switch[role="switch"], button.kd-switch[role="switch"] {
+  appearance: none;
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 20px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--kd-muted);
+  border-radius: 10px;
+  background: var(--kd-surface-raised);
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.kd-switch[role="switch"]::before {
+  content: "";
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--kd-muted);
+  transition: transform 120ms ease;
+}
+input[type="checkbox"].kd-switch[role="switch"]:checked, button.kd-switch[aria-checked="true"] { background: var(--kd-accent); border-color: var(--kd-accent); }
+.kd-switch:checked::before, .kd-switch[aria-checked="true"]::before { transform: translateX(14px); background: #fff; }
+.kd-switch[role="switch"]:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 3px; }
+.kd-switch[role="switch"]:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+  input[type="checkbox"].kd-switch[role="switch"], button.kd-switch[role="switch"], .kd-switch[role="switch"]::before { transition: none; }
+}
+@media (forced-colors: active) {
+  input[type="checkbox"].kd-switch[role="switch"], button.kd-switch[role="switch"] { forced-color-adjust: none; background: Canvas; border-color: ButtonText; }
+  .kd-switch[role="switch"]::before { background: ButtonText; }
+  input[type="checkbox"].kd-switch[role="switch"]:checked, button.kd-switch[role="switch"][aria-checked="true"] { background: Highlight; border-color: Highlight; }
+  .kd-switch[role="switch"]:checked::before, .kd-switch[role="switch"][aria-checked="true"]::before { background: HighlightText; }
+}
 :root {
   color-scheme: dark;
   --kd-bg: #151a1a;
@@ -1178,9 +1218,9 @@ h2 {
 }
 
 .inline-update-toggle {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  width: fit-content;
+  width: 100%;
   gap: 7px;
   color: var(--kd-text);
   font-size: 11px;

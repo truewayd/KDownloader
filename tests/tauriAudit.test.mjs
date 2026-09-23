@@ -20,7 +20,7 @@ test("settings loaded after navigation initialize once on return and retain late
     cancelReadRetry() {}, scheduleReadRetry() {},
     EDITABLE_SETTINGS_PAGES: new Set(["general"]),
     els: Object.fromEntries(["settingsFooter", "settingsSaveStatus", "settingsReloadBtn", "settingsSaveBtn", "settingsResetBtn", "settingsLoadStatus"].map(id => [id, {}])),
-    document: { querySelectorAll: () => [] }, settingsPanels: () => [],
+    document: { querySelectorAll: () => [], querySelector: () => null, getElementById: () => ({}) }, settingsPanels: () => [],
     loadServerTaskDefaults: () => new Promise(resolve => { finish = resolve; }),
     loadServerRuntimeSettings: async () => {}, loadServerDownloadRules() {}, loadFileGroupsEditor() {},
     loadStartupSettings() {}, loadStorageLocation() {}, loadResolverModules() {}, loadSystemUpdateState() {},

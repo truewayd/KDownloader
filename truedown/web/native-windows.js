@@ -48,13 +48,7 @@ if (nativeWindowRole !== "browser") {
     }
     if (nativeWindowRole === "settings" && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
-      const groupsSave = document.getElementById("file-groups-save");
-      if (groupsSave?.checkVisibility() && !groupsSave.disabled && !groupsSave.closest("[inert]")) {
-        groupsSave.click();
-        return;
-      }
-      const save = document.getElementById("settings-save-btn");
-      if (save?.checkVisibility() && !save.disabled) document.getElementById("settings-form").requestSubmit();
+      document.activeElement?.blur();
     }
   });
 }

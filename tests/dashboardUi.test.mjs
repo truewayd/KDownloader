@@ -29,7 +29,7 @@ test("settings bind the complete defaults snapshot to its revision before awaiti
   } });
   const context = vm.createContext({
     els, document: {}, currentPage: "settings", currentSettingsPage: "general",
-    settingsReady: new Set(["general"]), settingsMessages: new Map(),
+    settingsReady: new Set(["general"]), settingsMessages: new Map(), settingsDirtyControls: new Map(),
     EDITABLE_SETTINGS_PAGES: new Set(["general"]), settingsPanels: () => [],
     taskDefaultsRevision: 7, downloadSettings: { connections: 16, extra: "old value" },
     DEFAULT_DOWNLOAD_SETTINGS: { connections: 16 }, KDComponents: busyComponents,
@@ -179,7 +179,7 @@ test("settings navigation stays immediate and a late category read never overwri
     settingsLoads: new Map(), settingsReady: new Set(), settingsRendered: new Set(), settingsMessages: new Map(),
     cancelReadRetry() {}, scheduleReadRetry() {},
     EDITABLE_SETTINGS_PAGES: new Set(["general", "advanced"]),
-    document: { querySelectorAll: () => [] },
+    document: { querySelectorAll: () => [], querySelector: () => null, getElementById: () => control() },
     settingsPanels: (page) => [panels[page]],
     loadServerRuntimeSettings: () => { loads++; return new Promise((resolve) => { complete = resolve; }); },
     loadServerTaskDefaults() {}, loadServerDownloadRules() {}, loadSettingsOverview() {}, loadStartupSettings() {},

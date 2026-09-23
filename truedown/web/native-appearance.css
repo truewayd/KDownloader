@@ -47,7 +47,6 @@
 [data-native-window="main"] .native-window-title { display: none; }
 [data-platform] .panel-header h1 { font-size: 24px; font-weight: 600; }
 [data-platform] .tasks-table { font-size: 13px; }
-[data-platform] .settings-footer { background: var(--kd-surface); }
 [data-material="native"] body { background: transparent; }
 [data-material="native"] .native-titlebar,
 [data-material="native"] .sidebar { background: var(--native-chrome); }

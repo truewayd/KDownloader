@@ -526,7 +526,7 @@ test("TrueDown saves only the current category, excludes duplicates, and retains
   let complete;
   const context = vm.createContext({
     els, document: {}, currentPage: "settings", currentSettingsPage: "general",
-    settingsReady: new Set(["general"]), settingsMessages: new Map(),
+    settingsReady: new Set(["general"]), settingsMessages: new Map(), settingsDirtyControls: new Map(),
     EDITABLE_SETTINGS_PAGES: new Set(["general"]), settingsPanels: () => [],
     downloadSettings: { connections: 16 }, DEFAULT_DOWNLOAD_SETTINGS: { connections: 16 },
     optionalInt: () => 4, parseHeaders() {}, validateSettingsSpeed() {}, renderSettingsCategory() {}, renderSettingsOverview() {}, invalidateSettingRead() {},

@@ -64,6 +64,7 @@ async function waitForNativeCondition(page, predicate, arg) {
       error.name = "TimeoutError";
       error.conditionFailure = "deadline";
       error.evaluationPending = evaluating;
+      error.condition = String(predicate);
       reject(error);
     }, 10000);
   });
@@ -350,8 +351,9 @@ try {
   await settings.locator('[data-settings-link="general"]').click();
   await waitForNativeCondition(settings, () => !document.querySelector('[data-settings-page="general"]').inert);
   await settings.locator("#cfg-conns").fill("8");
-  await settings.locator("#settings-save-btn").click();
-  await waitForNativeCondition(settings, () => document.querySelector("#settings-save-status").textContent === "本页设置已保存。");
+  // Hidden WebView2 does not always commit a text edit on blur.
+  await settings.locator("#cfg-conns").dispatchEvent("change");
+  await waitForNativeCondition(settings, () => !document.querySelector("#settings-form").inert && downloadSettings.connections === 8);
   assert.equal((await api(main, "GET", "/settings/task-defaults")).values.connections, 8);
   await settings.locator("#cfg-conns").fill("7");
   await invoke(settings, "close_auxiliary");
@@ -443,7 +445,7 @@ try {
   await settings.locator('[data-settings-link="files"]').click();
   await waitForNativeCondition(settings, () => document.querySelectorAll("[data-group-id]").length === 8 && !document.querySelector('[data-settings-page="files"]').inert);
   await settings.locator('[data-group-id="document"] .group-name-field input').fill("Documents review");
-  await settings.locator("#file-groups-save").click();
+  await settings.locator('[data-group-id="document"] .group-name-field input').dispatchEvent("change");
   await waitForNativeCondition(settings, () => document.querySelector("#file-groups-status").textContent.includes("\u5df2\u4fdd\u5b58"));
   assert.equal((await api(settings, "GET", "/settings/file-groups")).groups.find(group => group.id === "document").name, "Documents review");
   await main.evaluate(() => refreshAndSchedule(true));
@@ -476,7 +478,7 @@ try {
   const session = await context.newCDPSession(settings);
   for (const [width, height, deviceScaleFactor] of [[640, 480, 1.25], [1020, 760, 2], [1280, 900, 3]]) {
     await session.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor, mobile: false });
-    const layout = await settings.evaluate(() => ({ overflow: document.documentElement.scrollWidth > innerWidth, footer: document.querySelector(".settings-footer").getBoundingClientRect().bottom, height: innerHeight }));
+    const layout = await settings.evaluate(() => ({ overflow: document.documentElement.scrollWidth > innerWidth, footer: document.querySelector(".settings-content").getBoundingClientRect().bottom, height: innerHeight }));
     assert.equal(layout.overflow, false);
     assert.ok(layout.footer <= layout.height);
   }

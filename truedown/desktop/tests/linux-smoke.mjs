@@ -92,8 +92,8 @@ try {
   await assert.rejects(evaluate("return window.__TAURI__.core.invoke('tray_settings',{preferences:{singleClick:'main',doubleClick:'none'}})"));
   await evaluate("document.querySelector('[data-settings-link=general]').click(); return true");
   await until(() => evaluate("return !document.querySelector('[data-settings-page=general]').inert"));
-  await evaluate("const control=document.querySelector('#cfg-conns');control.value='9';control.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#settings-save-btn').click();return true");
-  await until(() => evaluate("return document.querySelector('#settings-save-status').textContent==='本页设置已保存。'"));
+  await evaluate("const control=document.querySelector('#cfg-conns');control.value='9';control.dispatchEvent(new Event('input',{bubbles:true}));control.dispatchEvent(new Event('change',{bubbles:true}));return true");
+  await until(() => evaluate("return !document.querySelector('#settings-form').inert && downloadSettings.connections===9"));
   const saved = await evaluate("return window.__TAURI__.core.invoke('core_request',{request:{method:'GET',path:'/settings/task-defaults'}})");
   assert.equal(JSON.parse(saved.body).values.connections, 9);
   assert.equal(await evaluate("return innerWidth >= 320 && innerHeight >= 240 && document.documentElement.scrollWidth <= innerWidth"), true);
