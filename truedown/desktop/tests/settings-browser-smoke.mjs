@@ -119,7 +119,8 @@ try {
     assert.equal(await page.locator(".settings-navigation-links").isVisible(), true);
     for (const category of ["general", "files", "application", "engine", "advanced", "experimental", "logs", "about"]) {
       await page.locator(`[data-settings-link="${category}"]`).click();
-      await page.waitForFunction(category => settingsReady.has(category) || document.querySelector("#settings-load-status").textContent.includes("失败"), category);
+      await page.waitForFunction(category => currentSettingsPage === category &&
+        (settingsReady.has(category) || document.querySelector("#settings-load-status").textContent.includes("失败")), category);
       assert.equal(await page.evaluate(category => settingsReady.has(category), category), true, `${name}/${category}: ${await page.locator("#settings-load-status").textContent()}`);
       const geometry = await page.evaluate(() => {
         const content = document.querySelector(".settings-content");
