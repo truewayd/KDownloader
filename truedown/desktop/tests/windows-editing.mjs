@@ -6,7 +6,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
-import { acceptNativeEditing } from './native-editing.mjs';
+import { acceptNativeEditing, nativeEditingDocumentReady } from './native-editing.mjs';
 
 assert.equal(process.platform, 'win32');
 assert.equal(process.argv[2], '--visible', 'Editing acceptance requires explicit --visible (uses the system clipboard)');
@@ -65,8 +65,7 @@ try {
   const page = browser.contexts()[0].pages()[0];
   await bounded(page.emulateMedia({ colorScheme: null }));
   const evaluate = script => bounded(page.evaluate(`(async()=>{${script}})()`));
-  await until(() => evaluate("return Boolean(window.__TAURI__ && document.querySelector('#task-count'))"));
-  await until(() => evaluate('return document.hasFocus()'));
+  await until(() => nativeEditingDocumentReady(evaluate));
   await acceptNativeEditing(evaluate, until);
   console.log('windows_native_editing=ok clipboard_round_trip=ok editor_actions=ok');
 } finally {

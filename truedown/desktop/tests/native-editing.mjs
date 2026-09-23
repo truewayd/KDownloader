@@ -2,6 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const fixture = await readFile(new URL('./native-editing.js', import.meta.url), 'utf8');
+export async function nativeEditingDocumentReady(evaluate) {
+  try {
+    return await evaluate("return Boolean(window.__TAURI__ && document.querySelector('#task-count') && document.hasFocus())");
+  } catch (error) {
+    // Initial WebView navigation may replace the document after CDP attaches.
+    // Only this read-only probe retries, under the caller's original deadline.
+    if (/\bExecution context was destroyed\b|\bCannot find context with specified id\b/.test(error?.message || '')) return false;
+    throw error;
+  }
+}
 export async function acceptNativeEditing(evaluate, until) {
   await evaluate(`${fixture}; return installNativeEditingAcceptance()`);
   try {

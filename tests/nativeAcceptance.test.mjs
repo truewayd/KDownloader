@@ -6,6 +6,16 @@ import { readFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import { readToastPlacement, assertToastBounds } from "../truedown/desktop/tests/toast-layout.mjs";
 import { stopProcessGroup } from "../truedown/desktop/tests/process-group.mjs";
+import { nativeEditingDocumentReady } from "../truedown/desktop/tests/native-editing.mjs";
+
+test("editing readiness retries replaced initial documents but propagates other failures", async () => {
+  for (const message of ["Execution context was destroyed, most likely because of a navigation", "Cannot find context with specified id"]) {
+    assert.equal(await nativeEditingDocumentReady(async () => { throw new Error(message); }), false);
+  }
+  assert.equal(await nativeEditingDocumentReady(async () => true), true);
+  const failure = new Error("Native editing deadline exceeded");
+  await assert.rejects(nativeEditingDocumentReady(async () => { throw failure; }), error => error === failure);
+});
 
 test("native editing acceptance rejects acknowledgments without delivery and never reports returned data", async () => {
   const source = await readFile(new URL("../truedown/desktop/tests/native-editing.js", import.meta.url), "utf8");
