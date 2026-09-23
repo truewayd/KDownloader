@@ -80,7 +80,8 @@ try {
         await page.locator(".search-control").screenshot({ path: path.join(screenshots, `${name}-search-focus.png`) });
         await assertToastPlacement(page, path.join(screenshots, `${name}-toast`));
         assert.equal(await page.title(), "下载任务");
-        assert.equal(await page.locator("#exit-truedown-btn").count(), 0);
+        assert.equal(await page.locator(".sidebar-footer #exit-truedown-btn").count(), 1);
+        assert.equal(await page.locator("#exit-from-settings-btn").count(), 0);
         assert.ok((await page.locator("#tasks-title").boundingBox()).width <= 1);
         if (native) assert.equal(await page.locator(".native-window-title").isVisible(), false);
         if (native) {
@@ -115,7 +116,7 @@ try {
         for (const button of toolbar.buttons) {
           assert.ok(button.right + 6 <= toolbar.folder.x && button.bottom <= toolbar.box.bottom, `${name}: queue controls overlap the folder button`);
         }
-        for (const selector of ["#new-task-btn", "#settings-btn", "#task-search", "#task-filter", "#open-downloads-btn"]) {
+        for (const selector of ["#new-task-btn", "#settings-btn", "#exit-truedown-btn", "#task-search", "#task-filter", "#open-downloads-btn"]) {
           const reachable = await page.locator(selector).evaluate(element => {
             const box = element.getBoundingClientRect();
             return box.width > 0 && box.height > 0 && box.x >= 0 && box.right <= innerWidth && box.y >= 0 && box.bottom <= innerHeight && element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
@@ -191,10 +192,8 @@ try {
       page.on("pageerror", error => errors.push(error.message));
       await page.goto(`${origin}/?window=settings#settings/about`);
       await page.waitForFunction(() => document.querySelector("#about-build").textContent !== "正在读取…");
-      if (platform !== "linux") {
-        assert.equal(await page.locator(".native-window-title").textContent(), "设置");
-        assert.equal(await page.locator(".native-window-icon use").getAttribute("href"), "/icons.svg#icon-settings");
-      }
+      assert.equal(await page.title(), "设置");
+      assert.equal(await page.locator(".native-window-title, .native-window-icon").count(), 0, "Settings retains its OS title without an in-page caption");
       assert.equal(await page.locator('[data-settings-link="about"]').getAttribute("aria-current"), "page");
       for (const [width, height] of [[480, 360], [400, 320]]) {
         await page.setViewportSize({ width, height });
