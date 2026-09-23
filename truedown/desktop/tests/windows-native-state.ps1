@@ -25,6 +25,8 @@ public sealed class TrueDownWindowState {
     public int dpi;
     public int iconWidth;
     public int iconHeight;
+    public bool taskbarIconMatchesWindow;
+    public string iconPixels;
     public int darkResult;
     public int dark;
     public int backdropResult;
@@ -67,6 +69,8 @@ public static class TrueDownNativeState {
     private static extern bool GetIconInfo(IntPtr icon, out ICONINFO information);
     [DllImport("gdi32.dll")]
     private static extern int GetObjectW(IntPtr value, int size, out BITMAP bitmap);
+    [DllImport("gdi32.dll")]
+    private static extern int GetBitmapBits(IntPtr value, int count, byte[] bits);
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr value);
     [StructLayout(LayoutKind.Sequential)]
@@ -156,6 +160,12 @@ public static class TrueDownNativeState {
                     if (GetObjectW(information.color, Marshal.SizeOf(typeof(BITMAP)), out bitmap) != 0) {
                         state.iconWidth = bitmap.width;
                         state.iconHeight = bitmap.height;
+                        var pixels = new byte[bitmap.widthBytes * bitmap.height];
+                        if (GetBitmapBits(information.color, pixels.Length, pixels) == pixels.Length) {
+                            using (var hash = System.Security.Cryptography.SHA256.Create()) {
+                                state.iconPixels = Convert.ToBase64String(hash.ComputeHash(pixels));
+                            }
+                        }
                     }
                 } finally {
                     // GetIconInfo owns these copies; the HWND still owns HICON.
@@ -163,6 +173,10 @@ public static class TrueDownNativeState {
                     if (information.mask != IntPtr.Zero) DeleteObject(information.mask);
                 }
             }
+            IntPtr largeIcon;
+            state.taskbarIconMatchesWindow = icon != IntPtr.Zero
+                && SendMessageTimeoutW(window, 0x007f, new UIntPtr(1), IntPtr.Zero, 2, 1000, out largeIcon) != IntPtr.Zero
+                && largeIcon == icon;
             state.darkResult = DwmGetWindowAttribute(window, 20, out state.dark, 4);
             state.backdropResult = DwmGetWindowAttribute(window, 38, out state.backdrop, 4);
             state.legacyMicaResult = DwmGetWindowAttribute(window, 1029, out state.legacyMica, 4);

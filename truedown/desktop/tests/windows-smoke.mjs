@@ -207,6 +207,12 @@ async function verifyAppearance(pages, scheme, forcedColors = "none", reducedTra
     assert.ok(state.resizable && state.minimizable && state.maximizable, `${kind} must retain OS window operations`);
     assert.equal(state.iconWidth, 256, `${kind} must supply a full-resolution native icon`);
     assert.equal(state.iconHeight, 256);
+    assert.equal(state.taskbarIconMatchesWindow, true, `${kind} must expose its own icon to the taskbar`);
+    assert.ok(state.iconPixels, `${kind} native icon pixels must be readable`);
+    if (kind !== "main") {
+      const main = states.find(value => value.title === titles.find(window => window.label === "main").title);
+      assert.notEqual(state.iconPixels, main.iconPixels, `${kind} must not inherit the TrueDown taskbar icon`);
+    }
     assert.equal((await invoke(page, "frame_state")).decorated, true);
     assert.equal(await page.locator(".native-titlebar").count(), 1);
     assert.equal(await page.locator("[data-window-action]").count(), 0);

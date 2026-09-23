@@ -27,6 +27,15 @@ pub struct TaskDetails {
 }
 
 impl Kind {
+    fn icon(self) -> tauri::Result<tauri::image::Image<'static>> {
+        let bytes: &[u8] = match self {
+            Self::Settings | Self::Logs | Self::About => include_bytes!("../icons/window/settings.png"),
+            Self::NewTask => include_bytes!("../icons/window/download.png"),
+            Self::TaskDetails => include_bytes!("../icons/window/info.png"),
+        };
+        tauri::image::Image::from_bytes(bytes)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Settings => "settings",
@@ -177,6 +186,8 @@ async fn open_auxiliary_locked(
                 WebviewWindowBuilder::new(app, kind.label(), WebviewUrl::App(kind.url().into())),
             ))
             .title(kind.title())
+            .icon(kind.icon().map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?
             .inner_size(width, height)
             .min_inner_size(min_width, min_height)
             .visible(false)
@@ -303,6 +314,15 @@ pub fn finish_task_window(app: tauri::AppHandle, window: WebviewWindow) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn auxiliary_icons_are_distinct_from_the_brand_and_each_other() {
+        let settings = Kind::Settings.icon().unwrap();
+        assert_eq!((settings.width(), settings.height()), (256, 256));
+        assert_eq!(settings.rgba(), Kind::About.icon().unwrap().rgba());
+        assert_eq!(settings.rgba(), Kind::Logs.icon().unwrap().rgba());
+        assert_ne!(settings.rgba(), Kind::NewTask.icon().unwrap().rgba());
+        assert_ne!(settings.rgba(), Kind::TaskDetails.icon().unwrap().rgba());
+    }
     #[test]
     fn windows_have_only_their_own_operations() {
         assert!(!allowed("about", "POST", "/settings/runtime"));

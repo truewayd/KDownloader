@@ -203,6 +203,8 @@ unsafe extern "system" fn procedure(
         }
     }
     if message == WM_NCDESTROY {
+        // The large icon borrows Tao's small-icon handle until window teardown.
+        SendMessageW(hwnd, WM_SETICON, ICON_BIG as WPARAM, 0);
         RemoveWindowSubclass(hwnd, Some(procedure), SUBCLASS);
     }
     let result = DefSubclassProc(hwnd, message, wp, lp);
@@ -227,6 +229,12 @@ pub unsafe fn install(hwnd: HWND) -> Result<(), String> {
     }
     if SetWindowSubclass(hwnd, Some(procedure), SUBCLASS, 0) == 0 {
         return Err(std::io::Error::last_os_error().to_string());
+    }
+    // Tauri supplies ICON_SMALL only. Give the taskbar the same role-specific
+    // full-resolution image; Tao owns this handle for the window's lifetime.
+    let icon = SendMessageW(hwnd, WM_GETICON, ICON_SMALL as WPARAM, 0);
+    if icon != 0 {
+        SendMessageW(hwnd, WM_SETICON, ICON_BIG as WPARAM, icon);
     }
     if SetWindowPos(
         hwnd,

@@ -96,6 +96,11 @@ for (const id of manifest.nativeMenu) {
   for (const size of [16, 32]) await output(`truedown/desktop/icons/menu/${id}-${size}.png`, render(svg, size));
 }
 
+for (const id of manifest.nativeWindow) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#808080" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${bodies.get(id)}</svg>`;
+  await output(`truedown/desktop/icons/window/${id}.png`, render(svg, 256));
+}
+
 const brand = await fs.readFile(path.join(project, "web/truedown-logo.svg"));
 const frames = new Map();
 function brandFrame(size) {
