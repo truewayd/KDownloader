@@ -29,7 +29,9 @@ pub struct TaskDetails {
 impl Kind {
     fn icon(self) -> tauri::Result<tauri::image::Image<'static>> {
         let bytes: &[u8] = match self {
-            Self::Settings | Self::Logs | Self::About => include_bytes!("../icons/window/settings.png"),
+            Self::Settings | Self::Logs | Self::About => {
+                include_bytes!("../icons/window/settings.png")
+            }
             Self::NewTask => include_bytes!("../icons/window/download.png"),
             Self::TaskDetails => include_bytes!("../icons/window/info.png"),
         };
