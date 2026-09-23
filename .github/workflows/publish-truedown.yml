@@ -292,13 +292,23 @@ jobs:
 
       - name: Verify updater-visible release metadata
         shell: bash
+        env:
+          RELEASE_ID: ${{ steps.draft-release.outputs.id }}
         run: |
           for attempt in $(seq 1 12); do
             if curl --fail --silent --show-error --max-time 30 \
+              --max-filesize 4194304 -o public-releases.json \
               -H 'Accept: application/vnd.github+json, application/octet-stream;q=0.9' \
               -H 'User-Agent: TrueDown/release-validation' \
               "https://api.github.com/repos/$GITHUB_REPOSITORY/releases?per_page=50" \
-              | python3 truedown/tools/validate_release_assets.py release-assets --release-tag "$RELEASE_TAG"; then
+              && curl --fail --silent --show-error --max-time 30 \
+              --max-filesize 4194304 -o public-assets.json \
+              -H 'Accept: application/vnd.github+json, application/octet-stream;q=0.9' \
+              -H 'User-Agent: TrueDown/release-validation' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" \
+              && python3 truedown/tools/validate_release_assets.py release-assets \
+              --release-tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
+              --asset-metadata public-assets.json < public-releases.json; then
               exit 0
             fi
             sleep 10
