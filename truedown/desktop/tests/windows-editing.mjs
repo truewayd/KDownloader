@@ -15,7 +15,9 @@ const source = path.resolve(process.argv[3] || 'target/debug');
 const fixture = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'truedown-editing-')));
 const profile = path.join(fixture, 'profile');
 for (const name of ['TrueDown.exe', 'truedown-core.exe', 'truedown-cli.exe', 'aria2c.exe']) {
-  await fs.copyFile(path.join(source, name), path.join(fixture, name));
+  // The update fixture rebuilds these debug binaries with a new build identity.
+  // TrueDown.exe in target/debug is an earlier renamed copy, not cargo's output.
+  await fs.copyFile(path.join(source, name === 'TrueDown.exe' ? 'truedown-desktop.exe' : name), path.join(fixture, name));
 }
 async function freePort() {
   const server = net.createServer();
@@ -26,7 +28,7 @@ async function freePort() {
 }
 const apiPort = await freePort(), debugPort = await freePort();
 const child = spawn(path.join(fixture, 'TrueDown.exe'), ['--data-dir', profile], {
-  windowsHide: true, stdio: 'ignore', env: { ...process.env,
+  windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env,
     TRUEDOWN_DESKTOP_TEST: '', TRUEDOWN_ADDR: `127.0.0.1:${apiPort}`,
     TRUEDOWN_DESKTOP_TEST_DEBUG_PORT: String(debugPort), WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '',
     TRUEDOWN_API_TOKEN: '', TRUEDOWN_REQUIRE_TOKEN: '', TRUEDOWN_TLS_CERT: '', TRUEDOWN_TLS_KEY: '',
@@ -34,6 +36,8 @@ const child = spawn(path.join(fixture, 'TrueDown.exe'), ['--data-dir', profile],
   },
 });
 let browser, launchError;
+let diagnostic = '';
+child.stderr.on('data', chunk => { diagnostic = (diagnostic + chunk.toString()).slice(-8192); });
 child.on('error', error => { launchError = error; });
 const end = Date.now() + 120000;
 async function bounded(operation, milliseconds = 10000, deadline = end) {
@@ -48,7 +52,7 @@ async function until(check, milliseconds = 30000) {
   const deadline = Math.min(end, Date.now() + milliseconds);
   while (Date.now() < deadline) {
     if (launchError) throw launchError;
-    assert.equal(child.exitCode, null, 'Desktop exited');
+    assert.equal(child.exitCode, null, `Desktop exited: ${diagnostic}`);
     if (await bounded(check(), deadline - Date.now())) return;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
