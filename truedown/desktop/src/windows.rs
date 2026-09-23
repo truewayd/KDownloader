@@ -37,7 +37,9 @@ impl Kind {
     }
     fn title(self) -> &'static str {
         match self {
-            Self::Settings | Self::Logs | Self::About => "",
+            Self::Settings => "设置",
+            Self::Logs => "应用日志",
+            Self::About => "关于 TrueDown",
             Self::NewTask => "新建下载",
             Self::TaskDetails => "任务详情",
         }

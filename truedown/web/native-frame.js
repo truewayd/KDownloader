@@ -26,7 +26,7 @@
   const title = document.createElement("span");
   title.className = "native-window-title";
   const syncTitle = () => {
-    title.textContent = root.dataset.nativeWindow === "settings" ? "" : document.title;
+    title.textContent = document.title;
     invoke("frame_title", { title: [...title.textContent].slice(0, 160).join("").replace(/[\u0000-\u001f\u007f-\u009f]/g, " ") }).catch(report);
   };
   const observer = new MutationObserver(syncTitle);
@@ -38,6 +38,17 @@
     frame.className = "native-titlebar";
     drag.className = "native-titlebar-drag";
     drag.dataset.nativeDrag = "";
+    const iconName = { settings: "settings", "new-task": "download", "task-details": "info" }[root.dataset.nativeWindow];
+    if (iconName) {
+      const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      icon.setAttribute("class", "icon native-window-icon");
+      icon.setAttribute("aria-hidden", "true");
+      icon.setAttribute("focusable", "false");
+      use.setAttribute("href", `/icons.svg#icon-${iconName}`);
+      icon.append(use);
+      drag.append(icon);
+    }
     drag.append(title);
     frame.append(drag);
     drag.addEventListener("mousedown", event => {

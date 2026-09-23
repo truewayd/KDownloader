@@ -1552,7 +1552,6 @@ label {
 }
 
 .advanced-body {
-  border-top: 1px solid var(--kd-border);
   padding: 14px 12px 12px;
 }
 
@@ -1562,7 +1561,6 @@ label {
   justify-content: space-between;
   min-height: 62px;
   gap: 12px;
-  border-top: 1px solid var(--kd-border);
   padding: 12px 15px;
   background: var(--kd-surface);
 }
@@ -1578,6 +1576,8 @@ label {
 #modal-msg.err {
   color: var(--kd-error-text);
 }
+
+.modal-header { border-bottom: 0; }
 
 .dialog-modal {
   width: min(480px, 100%);

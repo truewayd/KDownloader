@@ -26,7 +26,7 @@ class Node {
   }
 }
 
-function setup(platform = "windows", readState = async () => ({ maximized: false, decorated: false })) {
+function setup(platform = "windows", readState = async () => ({ maximized: false, decorated: false }), role = "main") {
   const calls = [], timers = new Map(), observers = [];
   let timerID = 0;
   const document = new Node(), window = new Node();
@@ -37,6 +37,7 @@ function setup(platform = "windows", readState = async () => ({ maximized: false
     createElementNS: (namespaceURI, tag) => Object.assign(new Node(tag), { namespaceURI }),
     querySelector: selector => selector === "title" ? title : null,
   });
+  document.documentElement.dataset.nativeWindow = role;
   if (platform) Object.assign(window, {
     __TRUEDOWN_PLATFORM__: platform,
     __TAURI__: { core: { invoke: async (command, args) => {
@@ -60,6 +61,18 @@ function setup(platform = "windows", readState = async () => ({ maximized: false
   };
 }
 const flush = async () => { for (let index = 0; index < 12; index++) await Promise.resolve(); };
+
+test("auxiliary captions retain titles and decorative role icons", async () => {
+  for (const [role, icon] of [["settings", "settings"], ["new-task", "download"], ["task-details", "info"]]) {
+    const view = setup("windows", undefined, role);
+    await flush();
+    assert.equal(view.calls.find(call => call.command === "frame_title").args.title, "TrueDown");
+    const svg = view.drag.children[0];
+    assert.equal(svg.getAttribute("aria-hidden"), "true");
+    assert.equal(svg.getAttribute("focusable"), "false");
+    assert.equal(svg.children[0].getAttribute("href"), `/icons.svg#icon-${icon}`);
+  }
+});
 
 test("native capabilities permit event subscriptions and window inspection without filesystem or shell mutations", async () => {
   const capability = JSON.parse(await readFile(new URL("../truedown/desktop/capabilities/main.json", import.meta.url), "utf8"));

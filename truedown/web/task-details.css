@@ -29,7 +29,7 @@ tr:has(.status-paused) progress::-webkit-progress-value { background: var(--kd-w
 [data-native-window="task-details"] .task-detail-page { width: 100%; }
 .task-detail-header { display: flex; align-items: center; gap: 16px; padding: 20px 24px; flex-shrink: 0; }
 .task-detail-header h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task-detail-tabs { display: flex; gap: 8px; padding: 0 24px; border-bottom: 1px solid var(--kd-border); }
+.task-detail-tabs { display: flex; gap: 8px; padding: 0 24px; }
 .task-detail-tabs a { color: var(--kd-muted); text-decoration: none; padding: 12px 18px; border-bottom: 2px solid transparent; }
 .task-detail-tabs a[aria-current] { color: var(--kd-text); border-color: var(--kd-accent); }
 #task-detail-status { margin: 0; padding: 8px 24px; }
@@ -43,7 +43,7 @@ tr:has(.status-paused) progress::-webkit-progress-value { background: var(--kd-w
 .task-settings-footer { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .task-settings-footer > span { flex: 1; }
 #file-groups-editor { display: grid; gap: 18px; }
-.file-group-editor-row { display: grid; grid-template-columns: 36px 110px 130px minmax(0, 1fr) 32px; gap: 12px; align-items: start; border-bottom: 1px solid var(--kd-border); padding-bottom: 18px; }
+.file-group-editor-row { display: grid; grid-template-columns: 36px 110px 130px minmax(0, 1fr) 32px; gap: 12px; align-items: start; padding-bottom: 18px; }
 .group-icon-dialog { width: min(320px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 20px; color: var(--kd-text); background: var(--kd-surface); overflow: auto; }
 .group-icon-dialog::backdrop { background: rgb(0 0 0 / 35%); }
 .group-icon-dialog header { display: flex; gap: 16px; align-items: center; justify-content: space-between; margin-bottom: 16px; }

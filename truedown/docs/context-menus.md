@@ -1,19 +1,22 @@
 # Project dialogs and context menus
 
-TrueDown renders application confirmations, input prompts and content-area menus
-inside the owning window using the existing project colors, controls and radius.
-System caption menus, tray menus and file/directory pickers remain OS-owned.
+TrueDown uses operating-system confirmations and independent native windows for
+large forms. Compact input/icon pickers, Toasts and content-area menus retain the
+project surface. System caption menus, tray menus and file/directory pickers are OS-owned.
 
 ## Dialogs
 
-`showDialog` in `web/app.js` owns confirmation and input prompts in desktop and
-browser views. Only one prompt may be pending per window. Background roots become
-inert while a prompt is open, with their previous inert state preserved.
-Escape, backdrop click and Cancel resolve safely; hiding, navigation and teardown
-cancel the pending result. Closing restores focus and clears input values.
-Dangerous confirmations initially focus Cancel. Nested prompts retain the
-underlying form's scroll lock and draft. Native auxiliary windows retain their
-system caption; there is no second page-level Close button in task details.
+`confirmAction` uses `commands::confirm_action` in desktop windows. Rust validates
+the caller role, bounded text, distinct button labels and an explicit info/warning/error
+kind. The OS dialog is parented to the caller. One callback-owned slot per window
+prevents duplicates even when the originating IPC is cancelled. A failed request
+shows an error Toast and cancels the operation; it never falls back to a page modal.
+Hidden acceptance suppresses native prompts without approving operations.
+
+`showDialog` remains available for compact input prompts and browser fixtures,
+with inert background roots, keyboard focus trapping, cancellation and focus restoration.
+Large new-download forms, settings and task details use independent native windows
+with meaningful captions; Windows/macOS title strips include decorative role icons.
 
 ## Menus
 
@@ -53,7 +56,7 @@ menu/tray mutation capability is granted to the WebView.
 - `npm run test:context-menu`: light/dark styles, editing ranges, password
   restrictions, changing task actions, keyboard operation, viewport placement,
   modal scope, roles and teardown.
-- `npm run test:forms`: nested confirmation focus, cancellation and retained drafts.
+- `npm run test:forms`: native confirmation dispatch, cancellation and retained drafts.
 - `npm run test:details`: native close shortcuts, no duplicate Close control,
   retained tabs/drafts and responsive layout.
 - `cargo test --locked`: editor action allowlist and caller roles.

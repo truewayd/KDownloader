@@ -191,6 +191,10 @@ try {
       page.on("pageerror", error => errors.push(error.message));
       await page.goto(`${origin}/?window=settings#settings/about`);
       await page.waitForFunction(() => document.querySelector("#about-build").textContent !== "正在读取…");
+      if (platform !== "linux") {
+        assert.equal(await page.locator(".native-window-title").textContent(), "设置");
+        assert.equal(await page.locator(".native-window-icon use").getAttribute("href"), "/icons.svg#icon-settings");
+      }
       assert.equal(await page.locator('[data-settings-link="about"]').getAttribute("aria-current"), "page");
       for (const [width, height] of [[480, 360], [400, 320]]) {
         await page.setViewportSize({ width, height });
