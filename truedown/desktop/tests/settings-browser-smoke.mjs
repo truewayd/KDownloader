@@ -35,7 +35,7 @@ try {
       "/settings/startup": { supported: true, enabled: false },
       "/settings/tracker-research": { enabled: false, engine: "stable" },
       "/auth/settings": { enabled: false, managed: false },
-      "/system/storage": { dataDirectory: "C:\\Users\\Example\\AppData\\Local\\TrueDown", paths: Object.fromEntries(["config", "data", "state", "logs", "cache"].map(role => [role, `C:\\Users\\Example\\AppData\\Local\\TrueDown\\${role}`])) },
+      "/system/storage": { dataDirectory: `C:\\Users\\${"LongProfileName".repeat(8)}\\AppData\\Local\\TrueDown`, paths: Object.fromEntries(["config", "data", "state", "logs", "cache"].map(role => [role, `C:\\Users\\Example\\AppData\\Local\\TrueDown\\${role}`])) },
       "/system/info": { product: "TrueDown", productVersion: "1.5.0", version: "truedown-build-42", buildNumber: "42", commit: "a".repeat(40) },
       "/system/logs": { content: "entry\n".repeat(300), updatedAt: "2026-09-08T05:35:34Z" },
       "/system/update": { trueDown: { version: "truedown-build-42", build: 42, supported: true, autoUpdate: true, lastCheckedAt: "2026-09-08T05:35:34Z" }, engine: { preference: "stable", active: "stable", activeVersion: "1.37.0", stableVersion: "1.37.0", nextInstalled: true, nextInstalledVersion: "2.7.2" } },
