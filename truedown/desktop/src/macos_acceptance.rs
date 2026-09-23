@@ -107,6 +107,32 @@ impl Fixture {
         self.visibility("main", true)?;
         self.until("main", "window.__TRUEDOWN_PLATFORM__ === 'macos' && document.querySelector('#task-count') && window.__TAURI__")?;
         self.check("main", "(async()=>{const r=await window.__TAURI__.core.invoke('core_request',{request:{method:'GET',path:'/system/info'}});return JSON.parse(r.body).product==='TrueDown'})()")?;
+        self.check(
+            "main",
+            &format!(
+                "(()=>{{{};return installNativeEditingAcceptance()}})()",
+                include_str!("../tests/native-editing.js")
+            ),
+        )?;
+        let editing = (|| {
+            for action in [
+                "copy",
+                "paste",
+                "undo",
+                "redo",
+                "cut",
+                "paste",
+                "select-all",
+            ] {
+                self.check("main", &format!("window.__nativeEditing.start('{action}')"))?;
+                self.until("main", &format!("window.__nativeEditing.ready('{action}')"))?;
+            }
+            self.check("main", "window.__TAURI__.core.invoke('edit_action',{action:'read-clipboard'}).then(()=>false,()=>true)")?;
+            self.check("main", "window.__TAURI__.core.invoke('plugin:clipboard-manager|read_text').then(()=>false,()=>true)")
+        })();
+        let cleanup = self.check("main", "window.__nativeEditing.cleanup()");
+        editing?;
+        cleanup?;
         self.close("main")?;
         crate::show_main(&self.app);
         self.visibility("main", true)?;
@@ -195,7 +221,7 @@ pub fn start(app: &tauri::AppHandle) {
             sequence: 0,
         };
         match fixture.run() {
-            Ok(()) => println!("macos_acceptance=ok launch=ok close_to_hide=ok settings_draft=ok task_form_drafts=ok"),
+            Ok(()) => println!("macos_acceptance=ok launch=ok close_to_hide=ok settings_draft=ok task_form_drafts=ok native_editing=ok"),
             Err(error) => eprintln!("macos_acceptance=failed {error}"),
         }
     });

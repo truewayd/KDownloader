@@ -484,6 +484,12 @@ try {
   }
   await session.send("Emulation.clearDeviceMetricsOverride");
   const pages = { main, settings, ...taskForms, "task-details": details };
+  for (const page of Object.values(pages)) {
+    for (const action of ["copy", "paste", "cut", "undo", "redo", "select-all"]) {
+      await assert.rejects(invoke(page, "edit_action", { action }), /suppressed during hidden acceptance/);
+    }
+    await assert.rejects(invoke(page, "plugin:clipboard-manager|read_text"), /not allowed|not permitted/i);
+  }
   for (const scheme of ["light", "dark"]) await verifyAppearance(pages, scheme);
   await verifyAppearance(pages, "light", "active");
   for (const scheme of ["light", "dark"]) await verifyAppearance(pages, scheme, "none", true);

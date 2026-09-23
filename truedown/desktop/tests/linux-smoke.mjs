@@ -7,6 +7,7 @@ import http from "node:http";
 import { spawn } from "node:child_process";
 import { readToastPlacement, assertToastBounds } from "./toast-layout.mjs";
 import { stopProcessGroup } from "./process-group.mjs";
+import { acceptNativeEditing } from "./native-editing.mjs";
 
 if (process.platform !== "linux" || !process.env.DISPLAY) throw new Error("Run this test inside xvfb-run and dbus-run-session");
 const application = path.resolve(process.argv[2] || "target/debug/TrueDown");
@@ -68,6 +69,8 @@ try {
   assert.equal(await evaluate("return window.__TRUEDOWN_PLATFORM__"), "linux");
   const info = await evaluate("return window.__TAURI__.core.invoke('core_request',{request:{method:'GET',path:'/system/info'}})");
   assert.equal(JSON.parse(info.body).product, "TrueDown");
+  phase = "native editor and clipboard delivery";
+  await acceptNativeEditing(evaluate, until);
   phase = "native windows and settings";
   for (const kind of ["settings", "logs", "about", "new-task"]) await evaluate("return window.__TAURI__.core.invoke('open_auxiliary',{kind:arguments[0]})", [kind]);
   const handles = await until(async () => { const handles = await command("GET", "/window/handles"); return handles.length === 3 && handles; });
@@ -167,12 +170,11 @@ try {
   const windows = await evaluate("return Promise.all((await window.__TAURI__.window.getAllWindows()).map(async entry=>({label:entry.label,visible:await entry.isVisible()})))");
   assert.equal(windows.length, 4);
   assert.ok(windows.every(window => !window.visible));
-  console.log("webkit_windows=ok native_frame=ok native_task_forms=ok retained_drafts=ok live_form_preferences=ok form_permissions=ok creation_refresh=ok shared_settings=ok xvfb_layout=ok close_hides_windows=ok");
+  console.log("native_editing=ok webkit_windows=ok native_frame=ok native_task_forms=ok retained_drafts=ok live_form_preferences=ok form_permissions=ok creation_refresh=ok shared_settings=ok xvfb_layout=ok close_hides_windows=ok");
 } catch (error) {
-  error.message = `${phase}: ${error.message}`;
   await fs.writeFile(path.join(profile, "webdriver.log"), diagnostic);
   if (session) await command("GET", "/screenshot").then(image => fs.writeFile(path.join(profile, "failure.png"), Buffer.from(image, "base64"))).catch(() => {});
-  throw error;
+  throw new Error(`${phase}: ${error.message}`, { cause: error });
 } finally {
   try {
     await fetch(`http://127.0.0.1:${corePort}/system/exit`, { method: "POST", signal: AbortSignal.timeout(5000) }).catch(() => {});

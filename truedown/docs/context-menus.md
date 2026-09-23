@@ -66,3 +66,26 @@ menu/tray mutation capability is granted to the WebView.
 Browser fixtures validate frontend rendering and routing. Hidden native checks
 do not establish visible OS composition or native keyboard/clipboard delivery.
 Windows, macOS and Linux editor delivery remains a platform-specific check.
+
+The shared native editing scenario passed on Linux under WSL/Xvfb. Expanded
+Windows hidden checks passed for all four window roles. Windows visible delivery
+and macOS native delivery still require their platform CI runs; the hidden
+Windows result does not establish clipboard delivery.
+
+## Running native editing acceptance
+
+The shared `desktop/tests/native-editing.js` scenario uses a fresh, unique text
+marker for every run. It selects a substring, activates the production editing
+menu, and checks copy/paste, undo/redo, cut/paste and native select-all by comparing
+DOM state inside the WebView. Drivers receive booleans only. A successful command
+response without the expected editor change fails the check. Clipboard-read IPC
+must remain denied; no permissions or production test commands are added.
+
+Linux runs the scenario in the existing Xvfb acceptance. macOS embeds it only in
+the debug acceptance fixture, under the existing native deadline. Windows keeps
+`test:windows` hidden and checks suppression of every editor action in all four
+window roles. The separate `node tests/windows-editing.mjs --visible` runner
+requires an interactive desktop, uses the system clipboard, and closes its
+isolated instance afterward. CI opts into it on the disposable Windows runner;
+local runs require the explicit flag. These scenarios are wired into CI; this
+does not establish a passing native delivery result on an untested platform.

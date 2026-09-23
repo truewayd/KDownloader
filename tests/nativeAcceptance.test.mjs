@@ -7,6 +7,43 @@ import { EventEmitter } from "node:events";
 import { readToastPlacement, assertToastBounds } from "../truedown/desktop/tests/toast-layout.mjs";
 import { stopProcessGroup } from "../truedown/desktop/tests/process-group.mjs";
 
+test("native editing acceptance rejects acknowledgments without delivery and never reports returned data", async () => {
+  const source = await readFile(new URL("../truedown/desktop/tests/native-editing.js", import.meta.url), "utf8");
+  const controls = [];
+  let response = null;
+  const original = async () => response;
+  const context = vm.createContext({
+    window: { invokeNative: original },
+    crypto: { randomUUID: () => "fixture-unique-id" },
+    MouseEvent: class {},
+    document: {
+      activeElement: null,
+      body: { append() {} },
+      createElement() {
+        const control = { value: "", style: {}, setAttribute() {}, setSelectionRange() {},
+          focus() {}, select() {}, dispatchEvent() {}, remove() { this.removed = true; } };
+        controls.push(control);
+        return control;
+      },
+      querySelector: () => ({ click: () => { void context.window.invokeNative("edit_action", { action: "paste" }); } }),
+    },
+  });
+  vm.runInContext(source, context);
+  context.installNativeEditingAcceptance();
+  const fixture = context.window.__nativeEditing;
+  await fixture.start("paste");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(fixture.ready("paste"), false, "unit response alone cannot prove native delivery");
+  response = "must not be returned to the driver";
+  await fixture.start("paste");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.throws(() => fixture.ready("paste"), /failed or returned data/);
+  fixture.cleanup();
+  assert.equal(context.window.invokeNative, original);
+  assert.equal(context.window.__nativeEditing, undefined);
+  assert.ok(controls.every(control => control.removed));
+});
+
 function toastFixture() {
   const state = { visible: true, opacity: "1", y: 16, height: 96, pending: false, laidOut: false };
   const element = {

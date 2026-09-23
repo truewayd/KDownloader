@@ -56,7 +56,7 @@ try {
   await until(() => {
     running();
     if (diagnostic.includes("macos_acceptance=failed")) throw new Error("Native acceptance reported failure");
-    return diagnostic.split(/\r?\n/).includes("macos_acceptance=ok launch=ok close_to_hide=ok settings_draft=ok task_form_drafts=ok");
+    return diagnostic.split(/\r?\n/).includes("macos_acceptance=ok launch=ok close_to_hide=ok settings_draft=ok task_form_drafts=ok native_editing=ok");
   }, 150000);
   // All four windows are hidden at this point; the owned core must still serve.
   phase = "core retained while windows are hidden";
