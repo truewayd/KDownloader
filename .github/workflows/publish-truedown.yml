@@ -291,13 +291,14 @@ jobs:
           gh release edit "$RELEASE_TAG" --draft=false
 
       - name: Verify updater-visible release metadata
-        env:
-          GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           for attempt in $(seq 1 12); do
-            if gh api "repos/$GITHUB_REPOSITORY/releases?per_page=50" \
-              --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .assets" \
-              | python3 truedown/tools/validate_release_assets.py release-assets; then
+            if curl --fail --silent --show-error --max-time 30 \
+              -H 'Accept: application/vnd.github+json, application/octet-stream;q=0.9' \
+              -H 'User-Agent: TrueDown/release-validation' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/releases?per_page=50" \
+              | python3 truedown/tools/validate_release_assets.py release-assets --release-tag "$RELEASE_TAG"; then
               exit 0
             fi
             sleep 10

@@ -3,10 +3,17 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from validate_release_assets import validate_assets
+from validate_release_assets import release_assets, validate_assets
 
 
 class UploadedAssetsTests(unittest.TestCase):
+    def test_public_release_selection(self):
+        release = {"tag_name": "truedown-build-48", "draft": False, "prerelease": False, "assets": ["fixture"]}
+        self.assertEqual(release_assets([release], "truedown-build-48"), ["fixture"])
+        for releases in [None, [], [release, release], [{**release, "draft": True}], [{**release, "prerelease": True}]]:
+            with self.subTest(releases=releases), self.assertRaises(ValueError):
+                release_assets(releases, "truedown-build-48")
+
     def test_upload_completeness_and_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             assets = []
