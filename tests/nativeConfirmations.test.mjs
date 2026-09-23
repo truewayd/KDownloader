@@ -7,18 +7,46 @@ function declarations(...names) {
   return names.map((name) => source.match(new RegExp(`(?:async )?function ${name}\\([^]*?\\n\\}`))[0]).join("\n");
 }
 
-test("desktop confirmations use the project dialog and preserve its answer", async () => {
+test("desktop confirmations use parented native dialogs and preserve cancellation", async () => {
   for (const answer of [false, true]) {
     const calls = [];
     const context = vm.createContext({
       window: { __TAURI__: { core: { invoke() {} } } },
-      invokeNative: assert.fail,
-      showDialog: async options => { calls.push(options); return answer; },
+      invokeNative: async (command, args) => { calls.push({ command, ...args }); return answer; },
+      showDialog: assert.fail,
     });
     vm.runInContext(declarations("confirmAction"), context);
     assert.equal(await context.confirmAction({ title: "Remove", message: "Remove task?", confirmLabel: "Remove", danger: true }), answer);
-    assert.equal(calls[0].message, "Remove task?");
-    assert.equal(calls[0].danger, true);
+    assert.equal(calls[0].command, "confirm_action");
+    assert.equal(calls[0].options.message, "Remove task?");
+    assert.equal(calls[0].options.kind, "warning");
+    assert.equal(calls[0].options.cancelLabel, "取消");
+  }
+});
+
+test("native confirmation failures never open a page modal or authorize an action", async () => {
+  const context = vm.createContext({
+    window: { __TAURI__: { core: { invoke() {} } } },
+    invokeNative: async () => { throw new Error("Native dialog unavailable"); },
+    showDialog: assert.fail,
+    showToast: (message, kind) => { assert.match(message, /unavailable/); assert.equal(kind, "error"); },
+  });
+  vm.runInContext(declarations("confirmAction"), context);
+  assert.equal(await context.confirmAction({ title: "Remove", message: "Remove?" }), false);
+});
+
+test("confirmation severity and localized labels reach the native boundary", async () => {
+  const context = vm.createContext({
+    window: { __TAURI__: { core: { invoke() {} } } },
+    invokeNative: async (_, { options }) => options,
+    showDialog: assert.fail,
+  });
+  vm.runInContext(declarations("confirmAction"), context);
+  for (const kind of ["info", "warning", "error"]) {
+    const result = await context.confirmAction({ title: "Title", message: "Message", kind, confirmLabel: "Continue", cancelLabel: "Back" });
+    assert.equal(result.kind, kind);
+    assert.equal(result.confirmLabel, "Continue");
+    assert.equal(result.cancelLabel, "Back");
   }
 });
 

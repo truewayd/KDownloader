@@ -532,6 +532,18 @@ function settleDialog(value) {
 }
 
 async function confirmAction(options) {
+  if (window.__TAURI__?.core?.invoke) {
+    const { title, message, confirmLabel = "确认", cancelLabel = "取消", danger = false,
+      kind = danger ? "warning" : "info" } = options;
+    try {
+      return await invokeNative("confirm_action", {
+        options: { title, message, confirmLabel, cancelLabel, kind },
+      });
+    } catch (error) {
+      showToast(`无法打开系统确认窗口：${error.message}`, "error");
+      return false;
+    }
+  }
   return showDialog(options);
 }
 

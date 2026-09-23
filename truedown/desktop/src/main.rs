@@ -4,6 +4,7 @@ mod appearance;
 mod bridge;
 mod build_info;
 mod commands;
+mod confirmations;
 mod core;
 mod drops;
 mod editing;
@@ -133,6 +134,7 @@ fn main() {
         .manage(startup)
         .manage(placement::Tracker::default())
         .manage(pickers::DirectoryPickers::default())
+        .manage(confirmations::Confirmations::default())
         .manage(drops::Drops::default())
         .invoke_handler(tauri::generate_handler![
             commands::core_request,
@@ -142,6 +144,7 @@ fn main() {
             commands::drop_download_links,
             commands::edit_action,
             commands::tray_settings,
+            commands::confirm_action,
             windows::open_auxiliary,
             windows::open_task_details,
             windows::task_details_state,

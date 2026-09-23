@@ -24,6 +24,17 @@ pub fn tray_settings(
 }
 
 #[tauri::command]
+pub async fn confirm_action(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    options: crate::confirmations::Options,
+) -> Result<bool, String> {
+    app.state::<crate::confirmations::Confirmations>()
+        .show(app.clone(), window, options)
+        .await
+}
+
+#[tauri::command]
 pub async fn edit_action(
     window: tauri::WebviewWindow,
     action: crate::editing::Action,

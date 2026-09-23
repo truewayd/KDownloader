@@ -397,14 +397,12 @@ try {
   }
   assert.equal(context.pages().length, 3);
   for (const page of [main, settings, ...Object.values(taskForms)]) {
-    await page.evaluate(() => {
-      window.confirmationResult = undefined;
+    assert.equal(await page.evaluate(() =>
       confirmAction({ title: "Confirm", message: "Remove this fixture?", danger: true })
-        .then(answer => { window.confirmationResult = answer; });
-    });
-    assert.equal(await page.locator("#dialog-overlay").getAttribute("aria-hidden"), "false");
-    await page.evaluate(() => document.getElementById("dialog-cancel-btn").click());
-    await waitForNativeCondition(page, () => window.confirmationResult === false);
+    ), false);
+    assert.match(await page.locator("#toast").textContent(), /suppressed during hidden acceptance/);
+    assert.equal(await page.locator("#dialog-overlay").getAttribute("aria-hidden"), "true");
+    await assert.rejects(invoke(page, "plugin:dialog|message", { message: "Bypass" }), /not allowed|denied|forbidden/i);
   }
   for (const page of [main, settings]) {
     await assert.rejects(invoke(page, "take_dropped_torrent"), /only in the new download form/);
