@@ -46,6 +46,7 @@ impl Cache {
             .inner_size(width, height)
             .visible(false)
             .focused(false)
+            .focusable(kind == Kind::Confirmation)
             .skip_taskbar(true)
             .minimizable(false)
             .maximizable(false)

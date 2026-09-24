@@ -70,6 +70,17 @@ try {
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.waitForFunction(() => document.querySelectorAll("[data-task-category]").length === 8);
+    const writesBeforeMenu = groupWrites;
+    // A group menu targets its editor without changing the active task filter.
+    await page.locator('[data-task-category="project"] .nav-label').dispatchEvent("contextmenu", { button: 2, clientX: 100, clientY: 100 });
+    assert.equal(await page.evaluate(() => currentCategory), "");
+    await page.screenshot({ path: path.join(screenshots, `group-menu-${width}-${colorScheme}.png`) });
+    await page.locator('[data-menu-action="group-edit"]').click();
+    await page.waitForFunction(() => document.activeElement?.closest("[data-group-id]")?.dataset.groupId === "project");
+    assert.equal(await page.evaluate(() => location.hash), "#settings/files");
+    assert.equal(groupWrites, writesBeforeMenu, "opening group settings does not persist anything");
+    await page.evaluate(() => { location.hash = "tasks"; });
+    await page.waitForFunction(() => currentPage === "tasks");
     await page.screenshot({ path: path.join(screenshots, `downloads-${width}-${colorScheme}.png`) });
     await page.locator('[data-task-category="project"]').click();
     await page.waitForFunction(() => document.querySelectorAll("tr[data-task-id]").length === 2);

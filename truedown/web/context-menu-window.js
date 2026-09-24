@@ -4,6 +4,11 @@
     details: ["任务详情", "info"], pause: ["暂停", "pause"], resume: ["继续", "play"], requeue: ["重试", "retry"],
     "open-file": ["打开文件", "file"], "open-folder": ["打开下载目录", "folder-open"], remove: ["移除任务", "trash"],
     "new-task": ["新建下载", "plus"], settings: ["设置", "settings"],
+    "group-show": ["查看此分组", "folder-open"], "group-edit": ["调整此分组", "settings"],
+    "group-add": ["新增分组", "plus"], "group-manage": ["管理分组", "folder"],
+    "pause-queue": ["暂停整个队列", "pause"], "resume-queue": ["恢复整个队列", "play"],
+    "retry-all": ["重试所有失败任务", "retry"], "clear-done": ["清理所有已完成记录", "trash"],
+    "open-downloads": ["打开默认下载目录", "folder-open"],
     undo: ["撤销", "undo", "Z"], redo: ["重做", "redo", "Y"], cut: ["剪切", "cut", "X"], copy: ["复制", "copy", "C"],
     paste: ["粘贴", "paste", "V"], "select-all": ["全选", "select-all", "A"],
   };
@@ -16,14 +21,22 @@
     catch { busy = false; }
   }
   document.addEventListener("contextmenu", event => event.preventDefault());
-  document.addEventListener("keydown", event => {
+  window.navigateContextMenu = key => {
     const items = [...menu.querySelectorAll("button")];
-    if (event.key === "Escape" || event.key === "Tab") { event.preventDefault(); answer(null); return; }
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) || !items.length) return;
-    event.preventDefault();
+    if (["Enter", " "].includes(key)) {
+      if (items.includes(document.activeElement)) document.activeElement.click();
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(key) || !items.length) return;
     const index = items.indexOf(document.activeElement);
-    const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+    const next = key === "Home" ? 0 : key === "End" ? items.length - 1 : (index + (key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
     items[next].focus();
+  };
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" || event.key === "Tab") { event.preventDefault(); answer(null); return; }
+    if (["ArrowDown", "ArrowUp", "Home", "End", "Enter", " "].includes(event.key)) {
+      event.preventDefault(); window.navigateContextMenu(event.key);
+    }
   });
   let initializing = false, initialized = false, refreshQueued = false;
   window.refreshContextMenu = async () => {
@@ -39,7 +52,7 @@
       const button = document.createElement("button");
       button.type = "button"; button.className = "popup-menu-item"; button.dataset.action = action;
       button.setAttribute("role", "menuitem"); button.tabIndex = -1;
-      if (action === "remove") button.classList.add("danger");
+      if (["remove", "clear-done"].includes(action)) button.classList.add("danger");
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.classList.add("icon"); svg.setAttribute("aria-hidden", "true"); svg.setAttribute("focusable", "false");
       const use = document.createElementNS(svg.namespaceURI, "use"); use.setAttribute("href", `/icons.svg#icon-${icon}`); svg.append(use);

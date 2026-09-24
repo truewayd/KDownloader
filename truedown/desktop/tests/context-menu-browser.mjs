@@ -12,7 +12,13 @@ try {
     page.on("pageerror", error => pageErrors.push(error.message));
     await page.setContent(`<input id="edit" value="hello world"><input id="password" type="password" value="secret">
       <textarea id="readonly" readonly>read only</textarea><input id="disabled" disabled>
-      <div id="editable" contenteditable>editable</div><div id="blank">workspace</div>
+      <div id="editable" contenteditable>editable</div><div id="tasks-page"><div id="blank">workspace</div>
+      <button id="pause-queue-btn">pause queue</button><button id="resume-queue-btn" disabled>resume queue</button>
+      <button id="retry-all-btn" aria-disabled="true">retry all</button><button id="clear-done-btn" disabled>clear done</button>
+      <button id="open-downloads-btn">downloads</button></div>
+      <aside id="workspace-sidebar"><nav class="primary-nav"><div id="file-group-navigation">
+      <a href="#tasks" data-task-category="image"><span id="group-label">Images</span></a></div><div id="group-blank">groups</div></nav></aside>
+      <div id="unrelated">other surface</div>
       <div id="caption" data-native-drag>caption</div><pre id="log">diagnostic text</pre>
       <dialog id="modal"><input id="modal-edit" value="modal draft"></dialog>
       <table><tbody><tr data-task-id="1"><td><button data-action="details">name</button>
@@ -25,12 +31,17 @@ try {
       document.execCommand = action => { calls.push({ command: "edit_action", args: { action: action === "selectAll" ? "select-all" : action } }); return true; };
       window.openModal = async () => calls.push({ command: "new-task" });
       window.showToast = message => errors.push(message);
-      document.addEventListener("click", event => { if (event.target.dataset.action) clicked.push(event.target.dataset.action); });
+      document.addEventListener("click", event => {
+        if (event.target.dataset.action) clicked.push(event.target.dataset.action);
+        if (event.target.id === "pause-queue-btn") calls.push({ command: "pause-queue" });
+      });
       document.addEventListener("keydown", event => { if (event.key === "Escape") window.escaped = true; });
     });
     await page.addScriptTag({ content: script });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const open = async (selector, x = 40, y = 50) => {
+      await page.locator(selector).scrollIntoViewIfNeeded();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await page.locator(selector).evaluate((target, { x, y }) => target.dispatchEvent(new MouseEvent("contextmenu", {
         bubbles: true, cancelable: true, button: 2, clientX: x, clientY: y,
       })), { x, y });
@@ -48,7 +59,28 @@ try {
     assert.deepEqual(await open("#password"), ["undo", "redo", "paste", "select-all"]);
     assert.deepEqual(await open("#readonly"), ["copy", "select-all"]);
     assert.deepEqual(await open("#editable"), ["undo", "redo", "paste", "select-all"]);
-    assert.deepEqual(await open("#blank"), ["new-task", "settings"]);
+    assert.deepEqual(await open("#blank"), ["new-task", "pause-queue", "open-downloads"]);
+    await choose("pause-queue");
+    assert.equal(await page.evaluate(() => calls.at(-1).command), "pause-queue");
+    await open("#blank");
+    await page.locator("#pause-queue-btn").evaluate(button => { button.disabled = true; });
+    const queueCalls = await page.evaluate(() => calls.length);
+    await choose("pause-queue");
+    assert.equal(await page.evaluate(() => calls.length), queueCalls, "queue actions revalidate busy/disabled controls");
+    assert.deepEqual(await open("#blank"), ["new-task", "open-downloads"]);
+    assert.deepEqual(await open("#pause-queue-btn"), []);
+    assert.deepEqual(await open("#unrelated"), []);
+    assert.deepEqual(await open("#group-label"), ["group-show", "group-edit", "group-add", "group-manage"]);
+    await choose("group-edit");
+    assert.deepEqual(await page.evaluate(() => calls.at(-1)), { command: "open_group_settings", args: { groupId: "image", add: false } });
+    assert.deepEqual(await open("#group-blank"), ["new-task", "group-add", "group-manage"]);
+    await choose("group-add");
+    assert.deepEqual(await page.evaluate(() => calls.at(-1)), { command: "open_group_settings", args: { groupId: null, add: true } });
+    await open("#group-label");
+    await page.locator("[data-task-category]").evaluate(link => { link.dataset.taskCategory = "video"; });
+    const groupCalls = await page.evaluate(() => calls.length);
+    await choose("group-edit");
+    assert.equal(await page.evaluate(() => calls.length), groupCalls, "changed group identity cannot redirect an old action");
     assert.deepEqual(await open("tr"), ["details", "pause", "remove"]);
     await choose("pause");
     assert.deepEqual(await page.evaluate(() => clicked), ["pause"]);
@@ -88,6 +120,7 @@ try {
     assert.equal(await page.evaluate(() => window.getSelection().toString()), "diagnostic text");
     await page.evaluate(() => window.getSelection().removeAllRanges());
     await page.evaluate(() => { nativeWindowRole = "settings"; });
+    assert.deepEqual(await open("#group-label"), []);
     assert.deepEqual(await open("#blank"), []);
     assert.deepEqual(await open("#disabled"), []);
     assert.deepEqual(await open("#caption"), []);
@@ -129,10 +162,18 @@ try {
   const openNative = () => native.locator('tr').dispatchEvent('contextmenu', { button: 2, clientX: 20, clientY: 20 });
   await openNative();
   assert.equal(await native.locator('[role="menu"]').count(), 0);
+  assert.equal(await native.evaluate(() => calls.at(-1).args.keyboard), false);
+  await native.keyboard.press("ArrowDown");
+  assert.equal(await native.evaluate(() => calls.at(-1).command), "context_menu_key");
   await native.evaluate(() => window.dispatchEvent(new Event('blur')));
-  assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'context_menu_cancel').length), 0, 'opening the native popup must not cancel on caller blur');
+  assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'context_menu_cancel').length), 1, 'mouse menus close when their caller loses focus');
+  await native.locator('button').focus();
+  await native.keyboard.press("Shift+F10");
+  assert.equal(await native.evaluate(() => calls.at(-1).args.keyboard), true);
+  await native.evaluate(() => window.dispatchEvent(new Event('blur')));
+  assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'context_menu_cancel').length), 1, 'keyboard menus may take focus for accessibility');
   await native.evaluate(() => { document.querySelector('button').disabled = true; answerMenu('pause'); });
-  await native.waitForFunction(() => calls.some(call => call.command === 'context_menu_cancel'));
+  await native.waitForFunction(() => calls.filter(call => call.command === 'context_menu_cancel').length === 2);
   assert.equal(await native.evaluate(() => clicked), 0, 'late native actions revalidate the row');
   await native.evaluate(() => { document.querySelector('button').disabled = false; });
   await openNative();
@@ -141,6 +182,26 @@ try {
   assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'context_menu_cancel').at(-1).args.requestId), request);
   await native.evaluate(() => answerMenu('pause'));
   assert.equal(await native.evaluate(() => clicked), 0);
+  await openNative();
+  const typingRequest = await native.evaluate(() => calls.filter(call => call.command === 'show_context_menu').at(-1).args.requestId);
+  await native.keyboard.press("a");
+  assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'context_menu_cancel').at(-1).args.requestId), typingRequest, "typing dismisses a mouse menu before editing the caller");
   await native.close();
   console.log('native bridge: separate window dispatch, caller blur, stale rows and request-scoped cancellation passed');
+  const renderer = await browser.newPage();
+  await renderer.setContent('<div id="menu" role="menu"></div>');
+  await renderer.evaluate(() => {
+    window.results = [];
+    window.__TAURI__ = { core: { invoke: async (command, args) => {
+      if (command === "context_menu_init") return ["group-show", "group-edit", "group-add", "group-manage", "pause-queue", "resume-queue", "retry-all", "clear-done", "open-downloads"];
+      results.push({ command, args });
+    } } };
+  });
+  await renderer.addScriptTag({ content: await readFile(new URL("../../web/context-menu-window.js", import.meta.url), "utf8") });
+  await renderer.waitForFunction(() => window.__popupActive);
+  assert.equal(await renderer.getByRole("menuitem").count(), 9);
+  assert.equal(await renderer.locator('[data-action="clear-done"]').evaluate(button => button.classList.contains("danger")), true);
+  await renderer.evaluate(() => { navigateContextMenu("End"); navigateContextMenu("Enter"); });
+  assert.equal(await renderer.evaluate(() => results.at(-1).args.action), "open-downloads", "caller key relay activates the highlighted fixed action");
+  await renderer.close();
 } finally { await browser.close(); }

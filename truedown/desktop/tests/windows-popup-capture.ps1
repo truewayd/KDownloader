@@ -16,6 +16,7 @@ public static class PopupCapture {
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
   [DllImport("user32.dll")] static extern bool IsWindowEnabled(IntPtr window);
   [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr window, uint command);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out RECT rect);
   [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr window, IntPtr dc, uint flags);
@@ -45,7 +46,7 @@ public static class PopupCapture {
         bitmap.Save(path, ImageFormat.Png);
       }
       var parent = GetWindow(found, 4);
-      return "{\"handle\":\"" + found.ToInt64().ToString("x") + "\",\"owner\":\"" + parent.ToInt64().ToString("x") + "\",\"ownerEnabled\":" + (IsWindowEnabled(parent) ? "true" : "false") + "}";
+      return "{\"handle\":\"" + found.ToInt64().ToString("x") + "\",\"owner\":\"" + parent.ToInt64().ToString("x") + "\",\"ownerEnabled\":" + (IsWindowEnabled(parent) ? "true" : "false") + ",\"ownerForeground\":" + (GetForegroundWindow() == parent ? "true" : "false") + "}";
     } finally { if (previous != IntPtr.Zero) SetThreadDpiAwarenessContext(previous); }
   }
 }

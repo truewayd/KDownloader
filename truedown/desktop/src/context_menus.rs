@@ -16,6 +16,15 @@ const ACTIONS: &[&str] = &[
     "remove",
     "new-task",
     "settings",
+    "group-show",
+    "group-edit",
+    "group-add",
+    "group-manage",
+    "pause-queue",
+    "resume-queue",
+    "retry-all",
+    "clear-done",
+    "open-downloads",
     "undo",
     "redo",
     "cut",
@@ -39,6 +48,7 @@ struct Pending {
     ready: bool,
     activated: bool,
     focused: bool,
+    keyboard: bool,
     _slot: tokio::sync::OwnedMutexGuard<()>,
 }
 
@@ -70,10 +80,11 @@ impl Menus {
         if let Some(entry) = entry {
             let popup = app.get_webview_window(label);
             let _ = app.run_on_main_thread(move || {
-                let restore = action.is_some()
-                    || popup
-                        .as_ref()
-                        .is_some_and(|p| p.is_focused().unwrap_or(false));
+                let restore = entry.keyboard
+                    && (action.is_some()
+                        || popup
+                            .as_ref()
+                            .is_some_and(|p| p.is_focused().unwrap_or(false)));
                 if let Some(popup) = popup {
                     let _ = popup.destroy();
                 }
@@ -103,6 +114,7 @@ pub async fn show_context_menu(
     app: tauri::AppHandle,
     window: WebviewWindow,
     request_id: u32,
+    keyboard: Option<bool>,
     actions: Vec<String>,
     x: f64,
     y: f64,
@@ -155,6 +167,7 @@ pub async fn show_context_menu(
                 ready: false,
                 activated: false,
                 focused: false,
+                keyboard: keyboard.unwrap_or(false),
                 _slot: slot,
             },
         );
@@ -225,6 +238,7 @@ pub async fn show_context_menu(
             Ok(result) => return result.map_err(|_| "Menu closed without a result".into()),
             Err(_) => {
                 if !window.is_visible().unwrap_or(false)
+                    || (!keyboard.unwrap_or(false) && !window.is_focused().unwrap_or(false))
                     || window.inner_position().ok() != Some(origin)
                     || window.inner_size().ok() != Some(parent_size)
                 {
@@ -257,7 +271,7 @@ pub fn context_menu_init(app: tauri::AppHandle, window: WebviewWindow) -> Option
 #[tauri::command]
 pub fn context_menu_ready(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
     let state = app.state::<Menus>();
-    {
+    let keyboard = {
         let mut pending = state.pending.lock().unwrap();
         let entry = pending
             .get_mut(window.label())
@@ -265,13 +279,17 @@ pub fn context_menu_ready(app: tauri::AppHandle, window: WebviewWindow) -> Resul
         if entry.ready {
             return Ok(());
         }
-        if !entry.parent.is_visible().unwrap_or(false) {
-            return Err("Caller hidden".into());
+        if !entry.parent.is_visible().unwrap_or(false)
+            || !entry.parent.is_focused().unwrap_or(false)
+        {
+            return Err("Caller hidden or unfocused".into());
         }
-    }
+        entry.keyboard
+    };
     let result = window
-        .show()
-        .and_then(|_| window.set_focus())
+        .set_focusable(keyboard)
+        .and_then(|_| window.show())
+        .and_then(|_| if keyboard { window.set_focus() } else { Ok(()) })
         .map_err(|e| e.to_string());
     if result.is_err() {
         state.finish(&app, window.label(), None);
@@ -279,6 +297,50 @@ pub fn context_menu_ready(app: tauri::AppHandle, window: WebviewWindow) -> Resul
         entry.ready = true;
     }
     result
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub enum MenuKey {
+    ArrowDown,
+    ArrowUp,
+    Home,
+    End,
+    Enter,
+    #[serde(rename = " ")]
+    Space,
+}
+
+// Mouse menus leave keyboard focus with the caller; relay only navigation keys.
+#[tauri::command]
+pub fn context_menu_key(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    request_id: u32,
+    key: MenuKey,
+) -> Result<(), String> {
+    crate::editing::authorize(window.label())?;
+    if !window.is_visible().unwrap_or(false) || !window.is_focused().unwrap_or(false) {
+        return Err("Menu navigation requires a focused caller".into());
+    }
+    let state = app.state::<Menus>();
+    let pending = state.pending.lock().unwrap();
+    let label = pending
+        .iter()
+        .find(|(_, entry)| {
+            entry.parent.label() == window.label()
+                && entry.request_id == request_id
+                && entry.ready
+                && !entry.keyboard
+        })
+        .map(|(label, _)| label.clone());
+    drop(pending);
+    if let Some(popup) = label.and_then(|label| app.get_webview_window(&label)) {
+        let key = serde_json::to_string(&key).map_err(|error| error.to_string())?;
+        popup
+            .eval(&format!("window.navigateContextMenu?.({key})"))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 #[tauri::command]
 pub fn context_menu_answer(
@@ -292,6 +354,9 @@ pub fn context_menu_answer(
         let entry = pending.get(window.label()).ok_or("Unknown menu window")?;
         if !entry.ready || action.as_ref().is_some_and(|a| !entry.actions.contains(a)) {
             return Err("Unavailable menu action".into());
+        }
+        if !entry.keyboard && !entry.parent.is_focused().unwrap_or(false) {
+            return Err("Menu caller lost focus".into());
         }
     }
     state.finish(&app, window.label(), action);
@@ -329,6 +394,16 @@ mod tests {
     use super::*;
     #[test]
     fn roles_actions_duplicates_and_coordinates_are_bounded() {
+        for key in ["ArrowDown", "ArrowUp", "Home", "End", "Enter", " "] {
+            assert!(serde_json::from_value::<MenuKey>(serde_json::json!(key)).is_ok());
+        }
+        assert!(serde_json::from_str::<MenuKey>("\"paste\"").is_err());
+        for action in ACTIONS.iter().filter(|action| !EDITING.contains(action)) {
+            assert!(validate("main", &[(*action).into()], 0.0, 0.0).is_ok());
+            for role in ["settings", "new-task", "task-details"] {
+                assert!(validate(role, &[(*action).into()], 0.0, 0.0).is_err());
+            }
+        }
         assert!(validate("main", &["settings".into()], 10.0, 10.0).is_ok());
         assert!(validate("settings", &["settings".into()], 0.0, 0.0).is_err());
         assert!(validate("settings", &["copy".into()], 0.0, 0.0).is_ok());

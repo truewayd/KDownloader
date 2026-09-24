@@ -38,7 +38,10 @@ editing restores the selection in the original caller before native dispatch.
 | Context | Actions |
 | --- | --- |
 | Main task row | Currently enabled details, pause/resume/retry, open and remove actions |
-| Main workspace | New download, settings |
+| File-group link | View this group, adjust this group, add group, manage groups |
+| Download navigation whitespace | New download, add group, manage groups |
+| Task-list whitespace | New download, enabled global queue pause/resume/retry/clear actions, default download directory |
+| Other sidebar whitespace | New download, manage groups, settings |
 | Editable text | Undo, redo, cut/copy when selected, paste, select all |
 | Password | Undo, redo, paste, select all; never cut/copy |
 | Read-only text | Copy, select all |
@@ -50,9 +53,24 @@ Right click, Context Menu and Shift+F10 open the menu. Arrow keys and Home/End
 navigate; Enter/Space activate. Escape dismisses only the menu and restores focus;
 Tab dismisses and continues normal focus navigation. Outside click, scroll,
 resize, window blur, hiding, navigation and teardown invalidate the menu.
+Mouse-opened desktop menus are non-focusable: showing, hovering and dismissing
+them leaves the caller active. Caller blur cancels them without raising the caller
+again. A bounded `context_menu_key` command forwards navigation and activation
+from the focused caller to its own pending menu. Keyboard-opened menus may take
+focus and use their existing keyboard accessibility and focus restoration.
 Desktop coordinates remain inside the monitor work area. Task menus revalidate the original row
 and currently enabled action before clicking the existing task control.
 Opening a menu never changes task batch selection.
+
+Group adjustment opens File management in the singleton settings window and focuses
+that group's name; its existing editor also exposes icons, suffixes, output directories
+and removal. `open_group_settings` is main-only and accepts a bounded group ID or an
+add intent, never an arbitrary route. New-window intents arrive in the initial URL;
+existing windows receive a bounded hash navigation without reloading their drafts.
+The editor consumes each intent once after initialization. Missing groups report an
+error rather than editing another group. Queue labels explicitly say they affect the
+whole queue even when the task list is filtered. Task and group identity and enabled
+controls are checked again before dispatch. Other controls receive no workspace menu.
 
 Editing restores the original input range or document selection first.
 `commands::edit_action` accepts only a fixed enum and derives the window role from

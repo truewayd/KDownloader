@@ -166,43 +166,99 @@ pub fn minimum_size(label: &str) -> (f64, f64) {
 pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), String> {
     let state = app.state::<Windows>();
     let _creation = state.creation.lock().await;
-    open_auxiliary_locked(&app, &state, kind).await
+    open_auxiliary_locked(&app, &state, kind, None).await
+}
+
+fn group_settings_route(role: &str, group_id: Option<&str>, add: bool) -> Result<String, String> {
+    if role != "main" || (add && group_id.is_some()) {
+        return Err("Open group settings from the main window".into());
+    }
+    if let Some(id) = group_id {
+        if id.is_empty()
+            || id.len() > 64
+            || !id.as_bytes()[0].is_ascii_lowercase()
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        {
+            return Err("Invalid file group ID".into());
+        }
+        return Ok(format!("settings/files/group/{id}"));
+    }
+    Ok(if add {
+        "settings/files/add-group"
+    } else {
+        "settings/files"
+    }
+    .into())
+}
+
+#[tauri::command]
+pub async fn open_group_settings(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    group_id: Option<String>,
+    add: bool,
+) -> Result<(), String> {
+    let route = group_settings_route(window.label(), group_id.as_deref(), add)?;
+    let state = app.state::<Windows>();
+    let _creation = state.creation.lock().await;
+    open_auxiliary_locked(&app, &state, Kind::Settings, Some(&route)).await
 }
 
 async fn open_auxiliary_locked(
     app: &tauri::AppHandle,
     state: &Windows,
     kind: Kind,
+    settings_route: Option<&str>,
 ) -> Result<(), String> {
-    let window =
-        if let Some(window) = app.get_webview_window(kind.label()) {
-            window
-        } else {
-            let (width, height) = match kind {
-                Kind::Settings | Kind::Logs | Kind::About => (960.0, 760.0),
-                Kind::NewTask => (660.0, 560.0),
-                Kind::TaskDetails => (780.0, 640.0),
-            };
-            let (min_width, min_height) = minimum_size(kind.label());
-            let window = crate::frame::configure(state.storage.configure(
-                WebviewWindowBuilder::new(app, kind.label(), WebviewUrl::App(kind.url().into())),
-            ))
-            .title(kind.title())
-            .icon(kind.icon().map_err(|error| error.to_string())?)
-            .map_err(|error| error.to_string())?
-            .inner_size(width, height)
-            .min_inner_size(min_width, min_height)
-            .visible(false)
-            .transparent(cfg!(any(windows, target_os = "macos")))
-            .center()
-            .on_navigation(local_navigation)
-            .build()
-            .map_err(|error| error.to_string())?;
-            crate::frame::install_async(&window).await?;
-            crate::placement::fit(&window.as_ref().window(), true);
-            window
+    let existing = app.get_webview_window(kind.label());
+    let reused = existing.is_some();
+    let window = if let Some(window) = existing {
+        window
+    } else {
+        let (width, height) = match kind {
+            Kind::Settings | Kind::Logs | Kind::About => (960.0, 760.0),
+            Kind::NewTask => (660.0, 560.0),
+            Kind::TaskDetails => (780.0, 640.0),
         };
-    if matches!(kind, Kind::Settings | Kind::Logs | Kind::About) {
+        let (min_width, min_height) = minimum_size(kind.label());
+        let window = crate::frame::configure(
+            state.storage.configure(WebviewWindowBuilder::new(
+                app,
+                kind.label(),
+                WebviewUrl::App(
+                    settings_route
+                        .map(|route| format!("index.html?window=settings#{route}"))
+                        .unwrap_or_else(|| kind.url().into())
+                        .into(),
+                ),
+            )),
+        )
+        .title(kind.title())
+        .icon(kind.icon().map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())?
+        .inner_size(width, height)
+        .min_inner_size(min_width, min_height)
+        .visible(false)
+        .transparent(cfg!(any(windows, target_os = "macos")))
+        .center()
+        .on_navigation(local_navigation)
+        .build()
+        .map_err(|error| error.to_string())?;
+        crate::frame::install_async(&window).await?;
+        crate::placement::fit(&window.as_ref().window(), true);
+        window
+    };
+    if let Some(route) = settings_route {
+        // A new window receives the intent in its initial URL exactly once.
+        if reused {
+            let hash =
+                serde_json::to_string(&format!("#{route}")).map_err(|error| error.to_string())?;
+            window.eval(&format!("if (location.hash === {hash}) {{ window.focusFileGroupRoute?.(); }} else {{ location.hash = {hash}; }}"))
+                .map_err(|error| error.to_string())?;
+        }
+    } else if matches!(kind, Kind::Settings | Kind::Logs | Kind::About) {
         let page = match kind {
             Kind::Logs => "logs",
             Kind::About => "about",
@@ -265,7 +321,7 @@ pub async fn open_task_details(
         details.open = true;
         details.revision += 1;
     }
-    open_auxiliary_locked(&app, &state, Kind::TaskDetails).await?;
+    open_auxiliary_locked(&app, &state, Kind::TaskDetails, None).await?;
     emit_task_details(&app)
 }
 
@@ -364,6 +420,42 @@ mod tests {
         assert!(!allowed(window, "POST", "/system/exit"));
         assert!(!allowed(window, "GET", "/tasks"));
         assert!(!allowed(window, "GET", "/auth/token"));
+    }
+
+    #[test]
+    fn group_settings_targets_are_bounded_and_main_only() {
+        assert_eq!(
+            group_settings_route("main", Some("group-123"), false).unwrap(),
+            "settings/files/group/group-123"
+        );
+        assert_eq!(
+            group_settings_route("main", None, true).unwrap(),
+            "settings/files/add-group"
+        );
+        assert_eq!(
+            group_settings_route("main", None, false).unwrap(),
+            "settings/files"
+        );
+        for role in [
+            "settings",
+            "new-task",
+            "task-details",
+            "context-menu-main-0",
+        ] {
+            assert!(group_settings_route(role, Some("image"), false).is_err());
+        }
+        for id in [
+            "",
+            "../image",
+            "image/other",
+            "Image",
+            "1group",
+            "a\";alert(1)",
+            &"a".repeat(65),
+        ] {
+            assert!(group_settings_route("main", Some(id), false).is_err());
+        }
+        assert!(group_settings_route("main", Some("image"), true).is_err());
     }
 
     #[test]

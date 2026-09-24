@@ -151,6 +151,10 @@ try {
   await assert.rejects(invoke(menu, "core_request", { request: { method: "GET", path: "/tasks" } }));
   await assert.rejects(invoke(menu, "context_menu_answer", { action: "remove" }));
   assert.notEqual(menuState.owner, "0"); assert.equal(menuState.ownerEnabled, true);
+  assert.equal(menuState.ownerForeground, true, "mouse menus must keep their caller as the foreground HWND");
+  assert.equal(await settings.evaluate(() => document.hasFocus()), true, "mouse menus must retain editor focus");
+  await settings.keyboard.press("End");
+  await until(() => menu.evaluate(() => document.activeElement?.dataset.action === "select-all"));
   evidence.push({ kind: "menu", ...menuState });
   await menu.locator('[data-action="select-all"]').click();
   await until(() => !context.pages().includes(menu));

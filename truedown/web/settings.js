@@ -98,7 +98,7 @@ async function loadSettingsPage() {
     initializeSettingsCategory(page);
     els.settingsLoadStatus.textContent = "";
     els.settingsResetBtn.disabled = false;
-
+    if (page === "files") focusFileGroupRoute();
     return;
   }
   els.settingsResetBtn.disabled = true;
@@ -133,6 +133,7 @@ async function loadSettingsPage() {
   } finally {
     // A category becomes editable only after its own read has succeeded.
     settingsPanels(page).forEach((panel) => { panel.inert = !settingsReady.has(page); });
+    if (epoch === routeEpoch && page === "files") focusFileGroupRoute();
   }
 }
 

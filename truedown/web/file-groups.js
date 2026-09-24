@@ -6,6 +6,24 @@ let fileGroupsBase = null;
 let fileGroupsNeedsSync = false;
 let fileGroupsSaving = false, fileGroupsSaveQueued = false, fileGroupsMutationVersion = 0;
 
+function focusFileGroupRoute() {
+  if (currentPage !== "settings" || currentSettingsPage !== "files" || !settingsReady.has("files")) return;
+  const [, , action, id] = location.hash.slice(1).split("/");
+  if (!["group", "add-group"].includes(action)) return;
+  // Consume the navigation intent once; later reads must preserve focus and drafts.
+  history.replaceState(null, "", "#settings/files");
+  if (action === "add-group") {
+    const button = document.getElementById("file-group-add");
+    if (button.disabled) showToast("最多创建 32 个分组。", "error");
+    else button.click();
+    return;
+  }
+  const row = [...document.querySelectorAll("[data-group-id]")].find(row => row.dataset.groupId === id);
+  if (!row) { showToast("此分组已不存在，请选择其他分组。", "error"); return; }
+  row.scrollIntoView({ block: "center" });
+  row.querySelector("input").focus({ preventScroll: true });
+}
+
 function scheduleFileGroupsSave() {
   fileGroupsSaveQueued = true;
   queueMicrotask(() => {

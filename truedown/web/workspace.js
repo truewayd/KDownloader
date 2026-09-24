@@ -82,11 +82,11 @@ function applyWorkspaceRoute(focus = true) {
   if (currentPage === "tasks") refreshAndSchedule();
   if (currentPage === "task") showTaskDetails(Number(category), tab);
 
-  if (currentPage === "settings") loadSettingsPage();
   document.documentElement.dataset.workspacePage = currentPage;
   if (focus) {
     const heading = document.querySelector(`[data-page="${currentPage}"] h1`);
     heading?.setAttribute("tabindex", "-1");
     heading?.focus({ preventScroll: true });
   }
+  if (currentPage === "settings") loadSettingsPage();
 }
