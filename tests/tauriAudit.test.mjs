@@ -14,13 +14,14 @@ function declarations(...names) {
 test("settings loaded after navigation initialize once on return and retain later drafts", async () => {
   let finish;
   const renders = [];
+  const content = { dataset: {}, scrollTop: 0 };
   const context = vm.createContext({
     currentSettingsPage: "general", currentPage: "settings", routeEpoch: 1,
     settingsReady: new Set(), settingsRendered: new Set(), settingsLoads: new Map(), settingsMessages: new Map(),
     cancelReadRetry() {}, scheduleReadRetry() {},
     EDITABLE_SETTINGS_PAGES: new Set(["general"]),
     els: Object.fromEntries(["settingsFooter", "settingsSaveStatus", "settingsReloadBtn", "settingsSaveBtn", "settingsResetBtn", "settingsLoadStatus"].map(id => [id, {}])),
-    document: { querySelectorAll: () => [], querySelector: () => null, getElementById: () => ({}) }, settingsPanels: () => [],
+    document: { querySelectorAll: () => [], querySelector: selector => selector === ".settings-content" ? content : null, getElementById: () => ({}) }, settingsPanels: () => [],
     loadServerTaskDefaults: () => new Promise(resolve => { finish = resolve; }),
     loadServerRuntimeSettings: async () => {}, loadServerDownloadRules() {}, loadFileGroupsEditor() {},
     loadStartupSettings() {}, loadStorageLocation() {}, loadResolverModules() {}, loadSystemUpdateState() {},

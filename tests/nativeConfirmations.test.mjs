@@ -7,7 +7,7 @@ function declarations(...names) {
   return names.map((name) => source.match(new RegExp(`(?:async )?function ${name}\\([^]*?\\n\\}`))[0]).join("\n");
 }
 
-test("desktop confirmations use parented native dialogs and preserve cancellation", async () => {
+test("explicit native confirmations use parented dialogs and preserve cancellation", async () => {
   for (const answer of [false, true]) {
     const calls = [];
     const context = vm.createContext({
@@ -16,7 +16,7 @@ test("desktop confirmations use parented native dialogs and preserve cancellatio
       showDialog: assert.fail,
     });
     vm.runInContext(declarations("confirmAction"), context);
-    assert.equal(await context.confirmAction({ title: "Remove", message: "Remove task?", confirmLabel: "Remove", danger: true }), answer);
+    assert.equal(await context.confirmAction({ native: true, title: "Remove", message: "Remove task?", confirmLabel: "Remove", danger: true }), answer);
     assert.equal(calls[0].command, "confirm_action");
     assert.equal(calls[0].options.message, "Remove task?");
     assert.equal(calls[0].options.kind, "warning");
@@ -32,7 +32,7 @@ test("native confirmation failures never open a page modal or authorize an actio
     showToast: (message, kind) => { assert.match(message, /unavailable/); assert.equal(kind, "error"); },
   });
   vm.runInContext(declarations("confirmAction"), context);
-  assert.equal(await context.confirmAction({ title: "Remove", message: "Remove?" }), false);
+  assert.equal(await context.confirmAction({ native: true, title: "Remove", message: "Remove?" }), false);
 });
 
 test("confirmation severity and localized labels reach the native boundary", async () => {
@@ -43,7 +43,7 @@ test("confirmation severity and localized labels reach the native boundary", asy
   });
   vm.runInContext(declarations("confirmAction"), context);
   for (const kind of ["info", "warning", "error"]) {
-    const result = await context.confirmAction({ title: "Title", message: "Message", kind, confirmLabel: "Continue", cancelLabel: "Back" });
+    const result = await context.confirmAction({ native: true, title: "Title", message: "Message", kind, confirmLabel: "Continue", cancelLabel: "Back" });
     assert.equal(result.kind, kind);
     assert.equal(result.confirmLabel, "Continue");
     assert.equal(result.cancelLabel, "Back");
@@ -54,6 +54,18 @@ test("browser confirmations retain the shared page dialog", async () => {
   const context = vm.createContext({ window: {}, showDialog: (options) => options.title === "Remove" });
   vm.runInContext(declarations("confirmAction"), context);
   assert.equal(await context.confirmAction({ title: "Remove" }), true);
+});
+
+test("desktop product confirmations use the project dialog by default", async () => {
+  for (const answer of [false, true]) {
+    const context = vm.createContext({
+      window: { __TAURI__: { core: { invoke: assert.fail } } },
+      invokeNative: assert.fail,
+      showDialog: options => { assert.equal(options.title, "Reset"); return answer; },
+    });
+    vm.runInContext(declarations("confirmAction"), context);
+    assert.equal(await context.confirmAction({ title: "Reset" }), answer);
+  }
 });
 
 test("single retries dispatch immediately while deletion still honors cancellation", async () => {

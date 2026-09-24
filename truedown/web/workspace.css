@@ -96,19 +96,20 @@
 [data-native-window="settings"] .dashboard { padding: 0; }
 [data-native-window="settings"] .settings-page { border: 0; border-radius: 0; }
 #settings-form { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
-.settings-category-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 24px 0; }
-.settings-category-header h2 { margin: 0; font-size: 18px; }
-.settings-save-error { margin: 0; padding: 8px 24px 0; color: var(--kd-error-text); }
+.settings-category-header { display: flex; flex-shrink: 0; align-items: center; gap: 12px; margin-bottom: 32px; }
+.settings-category-header h2 { margin: 0; font-size: 24px; font-weight: 600; line-height: 1.4; }
+#settings-reset-btn { flex-shrink: 0; color: var(--kd-muted); }
+.settings-save-error { margin: 0 0 20px; color: var(--kd-error-text); }
 .settings-save-error:empty { display: none; }
-.settings-content { padding: 24px; overflow-y: auto; flex: 1; min-height: 0; scrollbar-gutter: stable; }
-.settings-content > .settings-section { display: grid; align-content: start; gap: 20px; max-width: 960px; padding: 20px; border: 0; border-radius: 8px; background: var(--kd-surface); }
-.settings-content > .settings-section:not([hidden]) { margin-bottom: 20px; }
+.settings-content { padding: 28px 32px 40px; overflow-y: auto; flex: 1; min-height: 0; scrollbar-gutter: stable; background: var(--kd-surface); }
+.settings-content > .settings-section { display: grid; align-content: start; gap: 24px; max-width: 880px; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.settings-content > .settings-section:not([hidden]) { margin-bottom: 36px; }
 .settings-content > .settings-section:last-child { margin-bottom: 0; }
 .settings-content .settings-section-heading { margin: 0; }
 #settings-general-title, #settings-file-title, #settings-application-title, #settings-update-title, #settings-advanced-title { display: none; }
 .settings-section-heading h3, .runtime-guide h3 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.5; }
-.settings-content .form-grid { gap: 20px; }
-.settings-group { min-width: 0; margin: 0; padding: 16px; border: 0; border-radius: 8px; background: var(--kd-bg); }
+.settings-content .form-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+.settings-group { min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .settings-group legend { float: left; width: 100%; padding: 0; margin-bottom: 16px; font-size: 14px; font-weight: 600; }
 .settings-group legend + * { clear: both; }
 .settings-help { color: var(--kd-muted); font-size: 12px; }
@@ -116,7 +117,7 @@
 .settings-help summary:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 3px; }
 .settings-help p { margin: 8px 0 0; line-height: 1.6; }
 .settings-section-heading:has(> h3:only-child:is(#settings-general-title, #settings-file-title)) { display: none; }
-.settings-content .runtime-guide { padding: 16px; border-radius: 8px; background: var(--kd-bg); }
+.settings-content .runtime-guide { padding: 0; border-radius: 0; background: transparent; }
 .settings-group > * + * { margin-top: 16px; }
 .settings-group > .hint { margin-top: 0; margin-bottom: 16px; }
 .settings-steps { margin: 0; padding-left: 22px; color: var(--kd-muted); font-size: 13px; line-height: 1.7; }
@@ -126,16 +127,26 @@
 .settings-content [data-settings-page="files"] .toggle-grid > :only-child { grid-column: 1 / -1; }
 .settings-content .field { gap: 8px; }
 .settings-content .field > label, .settings-content .field-label { font-size: 12px; font-weight: 500; }
-.settings-content .setting-toggle { padding: 14px; gap: 16px; align-items: center; }
+.settings-content .setting-toggle { padding: 12px 0; gap: 16px; align-items: center; border: 0; background: transparent; }
 .setting-toggle > .kd-switch, .inline-update-toggle > .kd-switch { order: 1; margin-left: auto; }
 .setting-toggle > span, .inline-update-toggle > span { flex: 1; }
 .settings-content .setting-toggle span { gap: 5px; min-width: 0; }
 .settings-content .setting-toggle strong { font-weight: 500; line-height: 18px; }
 .settings-content .setting-toggle small { line-height: 1.6; }
-.settings-content .extension-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.settings-content .extension-grid { grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 8px; margin: 0; }
 .settings-content .extension-grid label { min-height: 36px; padding: 8px 10px; gap: 8px; }
 .settings-content > #settings-load-status:not(:empty) { margin-bottom: 16px; }
 .settings-content > .settings-section > .kd-button { justify-self: start; }
+.settings-content .field-span-2 { grid-column: auto; }
+.settings-content .field:not(:has(textarea)) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 44%); column-gap: 24px; align-items: center; }
+.settings-content .field:not(:has(textarea)) > label { grid-column: 1; grid-row: 1; font-size: 13px; }
+.settings-content .field:not(:has(textarea)) > :is(input, select, .input-group, .directory-field) { grid-column: 2; grid-row: 1 / span 2; min-width: 0; width: 100%; }
+.settings-content .field:not(:has(textarea)) > :is(.hint, .settings-help) { grid-column: 1; margin: 0; }
+.settings-content .field:has(.directory-field) { grid-template-columns: minmax(0, 1fr); }
+.settings-content .field:has(.directory-field) > .directory-field { grid-column: 1; grid-row: 2; }
+.settings-page :is(.kd-button, .kd-input, .kd-select, .kd-icon-button) { box-shadow: none; }
+.settings-nav-link[aria-current]::before { display: none; }
+.settings-nav-link[aria-current] { background: var(--kd-secondary-hover); }
 
 
 
@@ -192,10 +203,12 @@
   .settings-nav { padding: 4px; }
   .settings-nav-link { justify-content: center; padding: 8px; }
   .settings-nav-link span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .settings-content { min-width: 0; padding: 8px; }
-  .settings-category-header { padding: 12px 12px 4px; }
-  .settings-content > .settings-section { min-width: 0; padding: 12px; }
-  .settings-content .settings-group, .settings-content .runtime-guide { padding: 12px; }
+  .settings-content { min-width: 0; padding: 20px 16px; }
+  .settings-category-header { margin-bottom: 24px; }
+  .settings-category-header h2 { font-size: 20px; }
+  .settings-content > .settings-section { min-width: 0; }
+  .settings-content .field:not(:has(textarea)) { grid-template-columns: minmax(0, 1fr); }
+  .settings-content .field:not(:has(textarea)) > :is(input, select, .input-group, .directory-field) { grid-column: 1; grid-row: 2; }
   .settings-content .form-grid > * { min-width: 0; }
   .settings-content [data-settings-page="files"] .toggle-grid { grid-template-columns: minmax(0, 1fr); }
   .settings-content .extension-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

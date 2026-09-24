@@ -534,7 +534,7 @@ function settleDialog(value) {
 }
 
 async function confirmAction(options) {
-  if (window.__TAURI__?.core?.invoke) {
+  if (options.native === true && window.__TAURI__?.core?.invoke) {
     const { title, message, confirmLabel = "确认", cancelLabel = "取消", danger = false,
       kind = danger ? "warning" : "info" } = options;
     try {

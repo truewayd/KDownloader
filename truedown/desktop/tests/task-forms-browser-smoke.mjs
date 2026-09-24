@@ -41,7 +41,7 @@ try {
             window.nativeCalls.push({ command, args });
             if (command === "apply_material") return true;
             if (command === "frame_state") return { maximized: false };
-            if (command === "confirm_action") return new Promise(resolve => { window.answerConfirmation = resolve; });
+            if (command === "confirm_action") throw new Error("Task forms must use the project confirmation dialog");
             if (command === "choose_download_directory") return window.directoryChoice ?? null;
             if (command === "take_dropped_torrent") {
               const value = window.pendingDroppedTorrent;
@@ -180,17 +180,16 @@ try {
         });
         await page.locator("#m-link").fill("https://example.test/retained.zip");
         await dropTorrent();
-        await page.waitForFunction(() => typeof window.answerConfirmation === "function");
-        assert.equal(await page.locator("#dialog-overlay").getAttribute("aria-hidden"), "true");
+          await page.locator("#dialog-cancel-btn").waitFor({ state: "visible" });
+          assert.equal(await page.locator("#dialog-overlay").getAttribute("aria-hidden"), "false");
         const closesBeforeCancel = await page.evaluate(() => nativeCalls.filter(call => call.command === "close_auxiliary").length);
-        await page.evaluate(() => { window.answerConfirmation(false); window.answerConfirmation = null; });
+          await page.locator("#dialog-cancel-btn").click();
         await page.waitForFunction(() => !applyingDrop);
         assert.equal(await page.locator("#overlay").evaluate(element => element.inert), false);
         assert.equal(await page.evaluate(() => nativeCalls.filter(call => call.command === "close_auxiliary").length), closesBeforeCancel);
         assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/retained.zip");
         await dropTorrent();
-        await page.waitForFunction(() => typeof window.answerConfirmation === "function");
-        await page.evaluate(() => { window.answerConfirmation(true); window.answerConfirmation = null; });
+          await page.locator("#dialog-confirm-btn").click();
         await page.waitForFunction(() => !applyingDrop);
         assert.equal(await page.locator("#torrent-file-name").textContent(), "dropped.torrent");
         assert.equal(await page.locator("#m-link").inputValue(), "");

@@ -173,13 +173,14 @@ test("settings navigation stays immediate and a late category read never overwri
   let loads = 0;
   let rendered = 0;
   const panels = { general: { inert: false }, advanced: { inert: false } };
+  const content = { dataset: {}, scrollTop: 120 };
   const fields = Object.fromEntries(["settingsFooter", "settingsSaveStatus", "settingsReloadBtn", "settingsSaveBtn", "settingsResetBtn", "settingsLoadStatus"].map((name) => [name, control()]));
   const context = vm.createContext({
     els: fields, currentPage: "settings", currentSettingsPage: "general", routeEpoch: 1,
     settingsLoads: new Map(), settingsReady: new Set(), settingsRendered: new Set(), settingsMessages: new Map(),
     cancelReadRetry() {}, scheduleReadRetry() {},
     EDITABLE_SETTINGS_PAGES: new Set(["general", "advanced"]),
-    document: { querySelectorAll: () => [], querySelector: () => null, getElementById: () => control() },
+    document: { querySelectorAll: () => [], querySelector: selector => selector === ".settings-content" ? content : null, getElementById: () => control() },
     settingsPanels: (page) => [panels[page]],
     loadServerRuntimeSettings: () => { loads++; return new Promise((resolve) => { complete = resolve; }); },
     loadServerTaskDefaults() {}, loadServerDownloadRules() {}, loadSettingsOverview() {}, loadStartupSettings() {},
@@ -188,7 +189,10 @@ test("settings navigation stays immediate and a late category read never overwri
   });
   vm.runInContext(declaration("initializeSettingsCategory") + "\n" + declaration("loadSettingsPage"), context);
   const first = context.loadSettingsPage();
+  assert.equal(content.scrollTop, 0, "a new category starts at its title");
+  content.scrollTop = 80;
   const second = context.loadSettingsPage();
+  assert.equal(content.scrollTop, 80, "same-category refresh preserves scrolling");
   await Promise.resolve();
   assert.equal(loads, 1);
   assert.equal(panels.general.inert, true);

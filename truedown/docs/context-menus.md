@@ -1,19 +1,24 @@
 # Project dialogs and context menus
 
-TrueDown uses operating-system confirmations and independent native windows for
+TrueDown uses project-themed confirmations and independent native windows for
 large forms. Compact input/icon pickers, Toasts and content-area menus retain the
 project surface. System caption menus, tray menus and file/directory pickers are OS-owned.
 
 ## Dialogs
 
-`confirmAction` uses `commands::confirm_action` in desktop windows. Rust validates
+`confirmAction` uses `showDialog` by default in desktop and browser views, including
+Restore defaults, task deletion and draft replacement. It retains inert background
+roots, focus trapping/restoration and cancellation on Escape, hiding and navigation.
+Do not use browser confirm/alert or OS message boxes for routine product actions.
+
+Only an explicit `native: true` OS integration exception uses `commands::confirm_action`. Rust validates
 the caller role, bounded text, distinct button labels and an explicit info/warning/error
 kind. The OS dialog is parented to the caller. One callback-owned slot per window
 prevents duplicates even when the originating IPC is cancelled. A failed request
 shows an error Toast and cancels the operation; it never falls back to a page modal.
 Hidden acceptance suppresses native prompts without approving operations.
 
-`showDialog` remains available for compact input prompts and browser fixtures,
+`showDialog` also handles compact input prompts,
 with inert background roots, keyboard focus trapping, cancellation and focus restoration.
 Large new-download forms, settings and task details use independent native windows
 with meaningful captions; Windows/macOS title strips include decorative role icons.
@@ -53,10 +58,34 @@ menu/tray mutation capability is granted to the WebView.
 
 ## Validation
 
+### Native menu customization options (2026-09-24)
+
+The supplied Codex screenshot is a visual reference; it cannot establish the
+underlying implementation. Tauri's Rust menu builders support icons, shortcuts,
+separators and submenus. Native menu construction should remain in Rust with fixed
+action IDs and caller-window checks, without granting WebViews menu mutation.
+
+Deeper Windows customization uses owner-drawn menu items (`MFT_OWNERDRAW`,
+`WM_MEASUREITEM`, `WM_DRAWITEM`). This requires application handling of drawing,
+DPI, high contrast, disabled/selected states and keyboard behavior; CSS cannot
+style native menus. A separate popup WebView window could extend outside the
+parent content, but adds focus, activation, monitor and dismissal lifecycle work.
+
+For the current content menus, retain the existing themed implementation and use
+consistent icon/label/shortcut alignment and meaningful action groups. Add submenus
+only for actual grouped actions, with arrow-key navigation and viewport-aware
+placement. Keep title-strip and tray menus native. No native menu replacement is
+included in this settings change.
+
+Sources: [Tauri menus](https://v2.tauri.app/learn/window-menu/),
+[Microsoft owner-drawn menus](https://learn.microsoft.com/en-us/windows/win32/menurc/using-menus#creating-owner-drawn-menu-items).
+
+### Checks
+
 - `npm run test:context-menu`: light/dark styles, editing ranges, password
   restrictions, changing task actions, keyboard operation, viewport placement,
   modal scope, roles and teardown.
-- `npm run test:forms`: native confirmation dispatch, cancellation and retained drafts.
+- `npm run test:forms`: project confirmation, cancellation and retained drafts.
 - `npm run test:details`: native close shortcuts, no duplicate Close control,
   retained tabs/drafts and responsive layout.
 - `cargo test --locked`: editor action allowlist and caller roles.

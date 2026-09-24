@@ -67,7 +67,7 @@ try {
           }
           return structuredClone(window.trayFixture);
         }
-        if (command === "confirm_action") return window.confirmResult !== false;
+        if (command === "confirm_action") throw new Error("Settings must use the project confirmation dialog");
         if (command === "apply_material") return true;
         if (command === "frame_state") return { maximized: false };
         if (command !== "core_request") return;
@@ -196,6 +196,7 @@ try {
         assert.equal(await page.locator("#auto-update-truedown").getAttribute("role"), "switch");
         assert.equal(await page.locator("#auto-update-truedown").isChecked(), true);
       }
+      await page.locator(".settings-content").evaluate(element => { element.scrollTop = 0; });
       await page.screenshot({ path: path.join(screenshots, `${name}-${category}.png`) });
     }
     await page.locator('[data-settings-link="experimental"]').click();
@@ -204,6 +205,8 @@ try {
     await page.mouse.move(contentBox.x + contentBox.width / 2, contentBox.y + contentBox.height / 2);
     await page.mouse.wheel(0, 2000);
     await page.waitForFunction(() => { const e = document.querySelector(".settings-content"); return e.scrollTop > 0 || e.scrollHeight <= e.clientHeight; });
+    assert.equal(await page.locator("#settings-reset-btn").getAttribute("aria-label"), "恢复当前分类默认设置");
+    assert.equal(await page.locator(".settings-category-header").evaluate(element => element.parentElement.classList.contains("settings-content")), true, "category heading scrolls with settings");
     await page.locator("#settings-reset-btn").focus();
     assert.equal(await page.evaluate(() => document.activeElement.id), "settings-reset-btn");
     await page.locator('[data-settings-link="files"]').click();
@@ -213,11 +216,12 @@ try {
     await page.waitForFunction(() => !document.querySelector("#settings-form").inert && downloadSettings.allocation === "trunc");
     assert.equal(fixture["/settings/task-defaults"].values.allocation, "trunc", "an incomplete group draft must not block file-option saves");
     assert.equal(fixture["/settings/file-groups"].groups[0].name, "其他", "file-option saves must not write group drafts");
-    await page.evaluate(() => { window.confirmResult = false; });
     await page.locator("#settings-reset-btn").click();
+    await page.locator("#dialog-cancel-btn").click();
     assert.equal(fixture["/settings/task-defaults"].values.allocation, "trunc", "cancelled reset must not write");
-    await page.evaluate(() => { window.confirmResult = true; });
     await page.locator("#settings-reset-btn").click();
+    await page.screenshot({ path: path.join(screenshots, `${name}-reset.png`) });
+    await page.locator("#dialog-confirm-btn").click();
     await page.waitForFunction(() => !document.querySelector("#settings-form").inert && downloadSettings.allocation === DEFAULT_DOWNLOAD_SETTINGS.allocation);
     assert.equal(await page.locator('[data-group-id="other"] .group-name-field input').inputValue(), "", "file-option reset preserves group drafts");
     for (const [oldPage, newPage] of Object.entries({ network: "general", groups: "files", security: "application", modules: "engine" })) {

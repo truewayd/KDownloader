@@ -75,6 +75,11 @@ function renderSettingsCategory(page, settings = downloadSettings, rules = downl
 async function loadSettingsPage() {
   const page = currentSettingsPage;
   const epoch = routeEpoch;
+  const content = document.querySelector(".settings-content");
+  if (content.dataset.category !== page) {
+    content.dataset.category = page;
+    content.scrollTop = 0;
+  }
   document.querySelectorAll("[data-settings-page]").forEach((panel) => {
     panel.hidden = panel.dataset.settingsPage !== page;
   });
