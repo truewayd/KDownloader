@@ -99,6 +99,8 @@ jobs:
           node tests/task-settings-core-smoke.mjs target/debug/truedown-core
       - name: Check private core transport on Windows
         if: runner.os == 'Windows'
+        env:
+          TRUEDOWN_ASSERT_FAST_EXIT: "1"
         run: |
           node ../tools/smoke-desktop.mjs target/debug/truedown-core.exe
           node tests/task-settings-core-smoke.mjs target/debug/truedown-core.exe

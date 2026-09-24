@@ -458,7 +458,9 @@ try {
   await waitForNativeCondition(settings, () => document.querySelectorAll("[data-group-id]").length === 8 && !document.querySelector('[data-settings-page="files"]').inert);
   await settings.locator('[data-group-id="document"] .group-name-field input').fill("Documents review");
   await settings.locator('[data-group-id="document"] .group-name-field input').dispatchEvent("change");
-  await waitForNativeCondition(settings, () => document.querySelector("#file-groups-status").textContent.includes("\u5df2\u4fdd\u5b58"));
+  await waitForNativeCondition(settings, () => !fileGroupsSaving && !fileGroupsSaveQueued
+    && fileGroupsState.groups.find(group => group.id === "document")?.name === "Documents review"
+    && fileGroupsDraft.find(group => group.id === "document")?.name === "Documents review");
   assert.equal((await api(settings, "GET", "/settings/file-groups")).groups.find(group => group.id === "document").name, "Documents review");
   await main.evaluate(() => refreshAndSchedule(true));
   await waitForNativeCondition(main, () => document.querySelector('[data-task-category="document"]')?.textContent.includes("Documents review"));

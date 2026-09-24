@@ -72,16 +72,19 @@ func RunHelper(args []string) (bool, error) {
 	if ok, _, err := attachConsole.Call(uintptr(pid)); ok == 0 {
 		return true, fmt.Errorf("attach engine console: %w", err)
 	}
-	defer freeConsole.Call()
-	// CTRL_C_EVENT broadcasts to a console. Refuse any shared console so it
+	// Console control events broadcast to a console. Refuse any shared console so it
 	// cannot interrupt a terminal, the service, or unrelated applications.
 	var ids [3]uint32
 	count, _, err := getConsoleProcessList.Call(uintptr(unsafe.Pointer(&ids[0])), uintptr(len(ids)))
 	if count != 2 || !((ids[0] == uint32(pid) && ids[1] == uint32(os.Getpid())) || (ids[1] == uint32(pid) && ids[0] == uint32(os.Getpid()))) {
 		return true, fmt.Errorf("engine console is not private (count=%d): %v", count, err)
 	}
-	if ok, _, err := setConsoleCtrlHandler.Call(0, 1); ok == 0 {
+	// BREAK is not suppressed by an inherited CTRL+C-ignore flag. Both aria2
+	// engines map it to their normal SIGINT checkpoint/cleanup handler.
+	// Keep our handler installed until process exit: delivery is asynchronous.
+	ignore := windows.NewCallback(func(uint32) uintptr { return 1 })
+	if ok, _, err := setConsoleCtrlHandler.Call(ignore, 1); ok == 0 {
 		return true, fmt.Errorf("ignore helper interrupt: %w", err)
 	}
-	return true, windows.GenerateConsoleCtrlEvent(windows.CTRL_C_EVENT, 0)
+	return true, windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, 0)
 }
