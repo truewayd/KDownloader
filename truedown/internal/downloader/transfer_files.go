@@ -14,6 +14,10 @@ const (
 	transferRecheck = "recheck"
 )
 
+func (m *Manager) usesNativeHTTPState() bool {
+	return m.aria2Next && aria2NextVersionAtLeast(m.aria2NextVersion, 2, 8, 2)
+}
+
 func retryTransferState(task *Task) string {
 	var identity requestIdentity
 	if json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.BitTorrent != nil {
@@ -62,8 +66,9 @@ func (m *Manager) prepareHTTPOutput(id int64, recheck bool) (*Task, error) {
 		return nil, err
 	}
 	// A sparse or preallocated file's length says nothing about which pieces
-	// arrived. Without the control file, resume could silently accept holes.
-	if !recheck && output != control {
+	// arrived. Legacy aria2 needs its control file; NEXT's curl engine owns
+	// range checkpoints in state-dir and validates existing output itself.
+	if !recheck && !m.usesNativeHTTPState() && output != control {
 		if err := removePartialFiles(proposed, ""); err != nil {
 			return nil, fmt.Errorf("restart incomplete download without valid resume files: %w", err)
 		}

@@ -158,6 +158,9 @@ func TestManagerDetectsUnexpectedAria2ExitForRecovery(t *testing.T) {
 }
 
 func integrationAria2Path() (string, error) {
+	if path := os.Getenv("TRUEDOWN_ARIA2_PATH"); path != "" {
+		return filepath.Abs(path)
+	}
 	if runtime.GOOS != "windows" {
 		return exec.LookPath("aria2c")
 	}

@@ -23,6 +23,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"truedown/internal/enginesignal"
 	"truedown/internal/profile"
 	"unicode/utf8"
 )
@@ -433,15 +434,30 @@ func (m *Manager) Stop() {
 		}
 		close(m.done)
 		m.wg.Wait()
+		gracefulTimeout := 4 * time.Second
 		if m.rpc != nil {
 			m.trackerResearch.restoreAllIfSupported(m.rpc)
 			m.trackerResearch.close()
-			_ = m.rpc.shutdown()
+			if client, ok := m.rpc.(*ariaClient); ok {
+				defer client.http.CloseIdleConnections()
+			}
+			// aria2's shutdown RPC deliberately waits three seconds. A normal
+			// interrupt enters the same checkpoint/cleanup path immediately.
+			if m.cmd == nil || m.cmd.Process == nil {
+				_ = m.rpc.shutdown()
+			} else if err := enginesignal.Interrupt(m.cmd.Process); err != nil {
+				log.Printf("engine interrupt unavailable; using shutdown RPC: %v", err)
+				_ = m.rpc.shutdown()
+			} else {
+				// Preserve the old total grace budget (3s RPC delay + 4s wait)
+				// for NEXT's BitTorrent state flush and network cleanup.
+				gracefulTimeout = 7 * time.Second
+			}
 		} else {
 			m.trackerResearch.close()
 		}
 		if m.cmdDone != nil {
-			if !waitForManagedCommand(m.cmd, m.cmdDone, 4*time.Second, 2*time.Second) {
+			if !waitForManagedCommand(m.cmd, m.cmdDone, gracefulTimeout, 2*time.Second) {
 				log.Printf("timed out reaping the aria2 process after shutdown")
 			}
 		}
@@ -1908,6 +1924,11 @@ func (m *Manager) submit(item submission) bool {
 		return false
 	}
 	options := ariaOptions(snapshot, item.recheck)
+	if m.usesNativeHTTPState() {
+		// NEXT's curl downloader rejects the retired legacy resume switch.
+		// Continue and the output ownership/overwrite guards remain active.
+		delete(options, "always-resume")
+	}
 	if snapshot.Opts.ProxyMode != "" {
 		if err := applyDownloadProxy(options, snapshot.Link, snapshot.Opts); err != nil {
 			m.failTask(snapshot.ID, err)

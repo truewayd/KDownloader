@@ -78,6 +78,29 @@ func TestHTTPRepeatedRetriesKeepOwnedPathWithoutControlFile(t *testing.T) {
 	}
 }
 
+func TestNextNativeHTTPResumePreservesOutputForEngineValidation(t *testing.T) {
+	m, rpc := transferTestManager(t)
+	m.aria2Next, m.aria2NextVersion = true, "2.8.2"
+	task := transferTestTask(t, m, "native-state.bin")
+	options := rpc.addedOptions[0]
+	if _, exists := options["always-resume"]; exists {
+		t.Fatal("NEXT received a retired option")
+	}
+	if options["continue"] != "true" || options["allow-overwrite"] != "false" || options["auto-file-renaming"] != "false" {
+		t.Fatalf("native resume lost output guards: %v", options)
+	}
+	path := filepath.Join(task.Folder, task.OutputName)
+	if err := os.WriteFile(path, []byte("checkpoint-owned output"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.prepareHTTPOutput(task.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "checkpoint-owned output" {
+		t.Fatalf("native output was removed before engine checkpoint validation: %q, %v", got, err)
+	}
+}
+
 func TestHTTPResumeKeepsBothFilesAndPinsUnnamedTask(t *testing.T) {
 	m, rpc := transferTestManager(t)
 	task := transferTestTask(t, m, "")

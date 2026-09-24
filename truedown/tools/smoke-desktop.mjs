@@ -52,6 +52,12 @@ async function bounded(promise){
  try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error("native smoke timeout")),30000)})]);}
  finally{clearTimeout(timer);}
 }
+async function stopped(child, started, label){
+ assert.equal((await bounded(child.done)).code,0);
+ const milliseconds=Math.round(performance.now()-started);
+ console.log(`${label}_exit_ms=${milliseconds}`);
+ if(process.env.TRUEDOWN_ASSERT_FAST_EXIT==="1")assert.ok(milliseconds<3000,`${label} retained the shutdown RPC delay: ${milliseconds}ms`);
+}
 try{
  const service=launch(false);
  for(let i=0;i<100;i++){
@@ -72,8 +78,9 @@ try{
  assert.equal((await fetch(endpoint+"/system/info")).status,200);
  attached.stdin.end();
  assert.equal((await bounded(attached.done)).code,0);
+ const serviceStop=performance.now();
  await fetch(endpoint+"/system/exit",{method:"POST"});
- assert.equal((await bounded(service.done)).code,0);
+ await stopped(service,serviceStop,"standalone");
  const reconnect=launch(true,true);
  reconnect.stdout.resume();
  assert.equal((await bounded(reconnect.done)).code,1);
@@ -95,12 +102,14 @@ try{
  await checkCLI();
  assert.equal((await fetch(endpoint+"/tasks?limit=1")).status,401);
  assert.equal((await ownedRPC.send("GET","/tasks?limit=1")).status,200);
+ const ownedStop=performance.now();
  owned.stdin.end();
- assert.equal((await bounded(owned.done)).code,0);
+ await stopped(owned,ownedStop,"owner_eof");
  for(const mode of ["http","pipe"]){
   const stopping=launch(true),stoppingRPC=rpc(stopping);
   assert.equal((await bounded(stoppingRPC.ready)).owned,true);
   assert.equal((await stoppingRPC.send("POST","/auth/settings",JSON.stringify({enabled:false}))).status,200);
+  const stopStart=performance.now();
   if(mode==="http"){
    const response=await fetch(endpoint+"/system/exit",{method:"POST",signal:AbortSignal.timeout(5000)});
    assert.equal(response.status,202);
@@ -110,7 +119,7 @@ try{
   // The shell retains its writer until the core exits. Shutdown must cancel
   // the inherited stdin read without relying on EOF from that parent.
   assert.equal(stopping.stdin.writableEnded,false);
-  assert.equal((await bounded(stopping.done)).code,0);
+  await stopped(stopping,stopStart,mode);
   await assert.rejects(fetch(endpoint+"/system/info",{signal:AbortSignal.timeout(5000)}));
  }
  console.log("native_pipe=ok attach_preserves_service=ok private_auth=ok api_only=ok owner_eof_exit=ok http_exit=ok pipe_exit=ok");
