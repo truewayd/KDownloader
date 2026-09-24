@@ -943,7 +943,9 @@ unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
 }
 
 fn matte(rgba: &[u8], foreground: COLORREF, background: COLORREF) -> Vec<u8> {
-    rgba.chunks_exact(4)
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|pixel| {
             let alpha = u32::from(pixel[3]);
             let blend = |shift: u32| {

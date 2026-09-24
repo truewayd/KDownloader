@@ -255,7 +255,7 @@ async fn open_auxiliary_locked(
         if reused {
             let hash =
                 serde_json::to_string(&format!("#{route}")).map_err(|error| error.to_string())?;
-            window.eval(&format!("if (location.hash === {hash}) {{ window.focusFileGroupRoute?.(); }} else {{ location.hash = {hash}; }}"))
+            window.eval(format!("if (location.hash === {hash}) {{ window.focusFileGroupRoute?.(); }} else {{ location.hash = {hash}; }}"))
                 .map_err(|error| error.to_string())?;
         }
     } else if matches!(kind, Kind::Settings | Kind::Logs | Kind::About) {
