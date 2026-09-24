@@ -31,7 +31,11 @@ try {
       "/settings/task-defaults": { revision: 1, values: {} },
       "/settings/runtime": { concurrentDownloads: 3, globalDownloadLimitBps: 0 },
       "/settings/download-rules": { enabled: true, dropboxMode: "direct", excludedExtensions: [".psd", ".clip", ".sai", ".sai2", ".kra", ".xcf", ".procreate", ".afphoto", ".afdesign", ".blend"] },
-      "/settings/file-groups": { revision: 1, groups: [{ id: "other", name: "其他", extensions: [], directory: "Other" }] },
+      "/settings/file-groups": { revision: 1, groups: [
+        { id: "image", name: "图片", extensions: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".heic", ".heif", ".bmp", ".tif", ".tiff", ".svg", ".ico"], directory: "Pictures" },
+        { id: "archive", name: "压缩包", extensions: [".zip", ".7z", ".rar", ".tar.gz"], directory: "Archives" },
+        { id: "other", name: "其他", extensions: [], directory: "Other" },
+      ] },
       "/settings/startup": { supported: true, enabled: false },
       "/settings/tracker-research": { enabled: false, engine: "stable" },
       "/auth/settings": { enabled: false, managed: false },
@@ -107,6 +111,16 @@ try {
     await page.waitForFunction(() => currentSettingsPage === "about" && document.querySelector(".settings-search-highlight"));
     assert.equal(await page.locator("#auto-update-truedown").isVisible(), true);
     assert.equal(await page.locator(".settings-navigation-links").isVisible(), true);
+    for (const [query, title] of [["falloc", "文件预分配"], [".tar.gz", "文件分组"], ["浏览器扩展", "排除的文件后缀"], ["RPC", "额外 aria2 参数"], ["中间人解密", "Tracker 流量研究"], ["真实下载倍率区间", "真实下载倍率区间"]]) {
+      await search.fill(query);
+      await page.locator(".settings-search-result").filter({ hasText: title }).first().click();
+      await page.waitForFunction(() => document.querySelector(".settings-search-highlight"));
+      assert.equal(await page.locator(".settings-search-highlight").isVisible(), true, `${name}: authored help ${query} navigates to visible settings`);
+    }
+    await search.fill("Pictures");
+    assert.equal(await page.locator("#settings-search-results").textContent(), "没有匹配的设置", "profile values must stay out of search");
+    await search.press("Escape");
+    assert.equal(await page.locator('.settings-section details').count(), 0, "settings help is readable without disclosure controls");
     await search.fill("代理地址");
     await page.locator(".settings-search-result").first().click();
     await page.waitForFunction(() => currentSettingsPage === "general" && document.querySelector(".settings-search-highlight"));
@@ -135,6 +149,25 @@ try {
         assert.equal(await page.locator('[data-download-extension]').first().getAttribute("role"), null, "extension selection remains a checkbox");
         assert.equal(await page.locator("#cfg-allocation").evaluate(element => element.closest("fieldset").querySelector("legend").textContent), "文件写入与校验");
         assert.equal(await page.locator("#cfg-dropbox-mode").evaluate(element => element.closest("fieldset").querySelector("legend").textContent), "Dropbox 目录展开与过滤");
+        const layout = await page.evaluate(() => {
+          const rect = node => node.getBoundingClientRect();
+          const fields = [...document.querySelectorAll(".file-group-editor-row .field")].map(field => {
+            const label = rect(field.querySelector("label")), control = rect(field.querySelector("input, textarea")), bounds = rect(field);
+            return { label: { x: label.x, right: label.right, bottom: label.bottom, height: label.height }, control: { x: control.x, right: control.right, top: control.top }, right: bounds.right };
+          });
+          const extensions = document.querySelector(".extension-grid"), bounds = rect(extensions), title = rect(document.querySelector("#excluded-extensions-label"));
+          const toggles = [...document.querySelectorAll('[data-settings-page="files"] .kd-switch')].map(node => rect(node).right);
+          return { fields, extensions: { x: bounds.x, width: bounds.width, parentWidth: rect(extensions.parentElement).width, top: bounds.top, titleBottom: title.bottom }, toggles };
+        });
+        for (const field of layout.fields) {
+          assert.ok(field.label.height <= 22, `${name}: group labels stay on one line`);
+          assert.ok(field.control.top >= field.label.bottom + 4, `${name}: group controls sit below labels`);
+          assert.ok(field.control.x >= field.label.x - 1 && field.control.right <= field.right + 1, `${name}: group fields stay within their columns`);
+        }
+        assert.ok(Math.abs(layout.extensions.width - layout.extensions.parentWidth) < 2 && layout.extensions.top > layout.extensions.titleBottom, `${name}: suffix choices span their own row`);
+        assert.ok(Math.max(...layout.toggles) - Math.min(...layout.toggles) < 2, `${name}: file switches share one aligned column`);
+        await page.locator("#file-groups-title").evaluate(element => element.scrollIntoView({ block: "start" }));
+        await page.screenshot({ path: path.join(screenshots, `${name}-file-groups.png`) });
       }
       if (category === "application") {
         const startup = page.getByRole("switch", { name: /开机启动/ });
@@ -215,7 +248,7 @@ try {
     await page.evaluate(() => document.activeElement.blur());
     await page.waitForFunction(() => !document.querySelector("#settings-form").inert && downloadSettings.allocation === "trunc");
     assert.equal(fixture["/settings/task-defaults"].values.allocation, "trunc", "an incomplete group draft must not block file-option saves");
-    assert.equal(fixture["/settings/file-groups"].groups[0].name, "其他", "file-option saves must not write group drafts");
+    assert.equal(fixture["/settings/file-groups"].groups.find(group => group.id === "other").name, "其他", "file-option saves must not write group drafts");
     await page.evaluate(() => { window.confirmResult = false; });
     await page.locator("#settings-reset-btn").click();
     assert.equal(await page.locator("#dialog-overlay").getAttribute("aria-hidden"), "true");

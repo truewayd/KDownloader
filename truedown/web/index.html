@@ -192,8 +192,8 @@
               <legend>托盘图标</legend>
               <p class="hint" id="tray-support">正在读取托盘设置…</p>
               <div class="form-grid">
-                <label id="tray-single-field" for="tray-single">左键单击<select class="kd-select" id="tray-single" disabled><option value="main">打开主窗口</option><option value="newTask">新建下载</option><option value="settings">打开设置</option><option value="none">无操作</option><option value="menu">显示菜单</option></select></label>
-                <label id="tray-double-field" for="tray-double">左键双击<select class="kd-select" id="tray-double" disabled><option value="main">打开主窗口</option><option value="newTask">新建下载</option><option value="settings">打开设置</option><option value="none">无操作</option></select></label>
+                <div class="field settings-row" id="tray-single-field"><label for="tray-single">左键单击</label><select class="kd-select" id="tray-single" disabled><option value="main">打开主窗口</option><option value="newTask">新建下载</option><option value="settings">打开设置</option><option value="none">无操作</option><option value="menu">显示菜单</option></select></div>
+                <div class="field settings-row" id="tray-double-field"><label for="tray-double">左键双击</label><select class="kd-select" id="tray-double" disabled><option value="main">打开主窗口</option><option value="newTask">新建下载</option><option value="settings">打开设置</option><option value="none">无操作</option></select></div>
               </div>
               <p class="hint" id="tray-status" role="status"></p>
             </fieldset>
@@ -210,14 +210,14 @@
               <div class="field field-span-2">
                 <label for="cfg-folder">保存位置</label>
                 <div class="directory-field"><input class="kd-input" id="cfg-folder" type="text" placeholder="留空使用默认下载目录"><button class="kd-icon-button native-folder-picker" type="button" data-directory-input="cfg-folder" title="选择默认保存目录" aria-label="选择默认保存目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button></div>
-                <details class="settings-help"><summary>说明</summary><p class="hint" id="cfg-folder-help">此处选择保存根目录，文件会按分组存入子目录。留空使用默认下载目录；修改不会移动已有文件。子目录规则见<a href="#settings/files">文件管理</a>。</p></details>
+                <p class="hint" id="cfg-folder-help">留空使用默认下载目录，文件按<a href="#settings/files">分组</a>存入子目录。修改保存根目录不会移动已有文件。</p>
               </div>
-              <div class="field">
+              <div class="field settings-row">
                 <label for="cfg-conns">连接数</label>
                 <input class="kd-input" id="cfg-conns" type="number" min="1" max="64" placeholder="16" aria-describedby="cfg-conns-help">
                 <p class="hint" id="cfg-conns-help">1–64，默认 16；实际连接数取决于服务器。</p>
               </div>
-              <div class="field">
+              <div class="field settings-row">
                 <label for="cfg-speed">任务限速</label>
                 <div class="input-group">
                   <input class="kd-input" id="cfg-speed" type="number" min="0" step="0.1" placeholder="0">
@@ -235,12 +235,12 @@
               <legend>当前下载队列</legend>
               <p class="hint">立即作用于当前队列。</p>
               <div class="form-grid">
-                <div class="field">
+                <div class="field settings-row">
                   <label for="cfg-task-concurrency">并行任务</label>
                   <input class="kd-input" id="cfg-task-concurrency" type="number" min="1" max="64" placeholder="3" aria-describedby="cfg-task-concurrency-help">
                   <p class="hint" id="cfg-task-concurrency-help">1–64，默认 3；其余任务排队等待。</p>
                 </div>
-                <div class="field">
+                <div class="field settings-row">
                   <label for="cfg-global-speed">总限速</label>
                   <div class="input-group">
                     <input class="kd-input" id="cfg-global-speed" type="number" min="0" step="any" placeholder="0">
@@ -263,12 +263,12 @@
             <fieldset class="settings-group">
               <legend>失败重试</legend>
               <div class="form-grid">
-              <div class="field">
+              <div class="field settings-row">
                 <label for="cfg-tries">尝试次数</label>
                 <input class="kd-input" id="cfg-tries" type="number" min="1" max="100" placeholder="5">
                 <p class="hint">1–100，默认 5。</p>
               </div>
-              <div class="field">
+              <div class="field settings-row">
                 <label for="cfg-wait">重试间隔（秒）</label>
                 <input class="kd-input" id="cfg-wait" type="number" min="1" max="3600" placeholder="3">
                 <p class="hint">1–3600 秒，默认 3 秒。</p>
@@ -277,14 +277,14 @@
             </fieldset>
             <fieldset class="settings-group">
               <legend>代理连接</legend>
-              <details class="settings-help"><summary>说明</summary><p class="hint">用于普通下载及 Dropbox、Google Drive 链接解析。本机服务连接保持直连。</p></details>
+              <p class="hint">用于下载及 Dropbox、Google Drive 链接解析；本机服务保持直连。</p>
               <div class="form-grid">
-              <div class="field field-span-2">
+              <div class="field settings-row field-span-2">
                 <label for="cfg-proxy-mode">代理</label>
                 <select class="kd-select" id="cfg-proxy-mode"><option value="system">系统代理</option><option value="custom">自定义代理</option><option value="none">无代理</option></select>
-                <details class="settings-help"><summary>说明</summary><p class="hint">默认使用系统代理；选择自定义时填写 HTTP(S) 地址，选择无代理时直接连接下载来源。</p></details>
+                <p class="hint">默认跟随系统；自定义使用 HTTP(S) 地址，无代理则直连。</p>
               </div>
-              <div class="field field-span-2" id="cfg-proxy-field" hidden>
+              <div class="field settings-row field-span-2" id="cfg-proxy-field" hidden>
                 <label for="cfg-proxy">代理地址</label>
                 <input class="kd-input" id="cfg-proxy" type="url" placeholder="http://127.0.0.1:7890">
               </div>
@@ -294,12 +294,12 @@
               <legend>请求信息</legend>
               <p class="hint">仅在下载来源要求时填写。默认请求头会被新任务继承，请确认其中的凭据适用于下载来源。</p>
               <div class="form-grid">
-              <div class="field">
+              <div class="field settings-row">
                 <label for="cfg-user-agent">User-Agent</label>
                 <input class="kd-input" id="cfg-user-agent" type="text" placeholder="留空使用 aria2 默认值">
                 <p class="hint">留空使用内核默认值。</p>
               </div>
-              <div class="field">
+              <div class="field settings-row">
                 <label for="cfg-referer">Referer</label>
                 <input class="kd-input" id="cfg-referer" type="url" placeholder="https://example.com/">
                 <p class="hint">下载来源页面地址。</p>
@@ -307,7 +307,7 @@
               <div class="field field-span-2">
                 <label for="cfg-headers">请求头（JSON）</label>
                 <textarea class="kd-input" id="cfg-headers" rows="3" placeholder='{"Authorization": "Bearer ..."}'></textarea>
-                <details class="settings-help"><summary>说明</summary><p class="hint">填写 JSON 对象，键和值均为字符串，例如 {"Accept": "application/octet-stream"}；留空不添加。</p></details>
+                <p class="hint">JSON 对象的键和值均为字符串，如 {"Accept": "application/octet-stream"}；留空不添加。</p>
               </div>
               </div>
             </fieldset>
@@ -319,7 +319,7 @@
             <fieldset class="settings-group">
               <legend>文件写入与校验</legend>
             <div class="form-grid">
-              <div class="field field-span-2">
+              <div class="field settings-row field-span-2">
                 <label for="cfg-allocation">文件预分配</label>
                 <select class="kd-select" id="cfg-allocation">
                   <option value="none">不预分配（速度优先）</option>
@@ -327,7 +327,7 @@
                   <option value="trunc">快速截断</option>
                   <option value="falloc">falloc（Linux）</option>
                 </select>
-                <details class="settings-help"><summary>说明</summary><p class="hint">默认不预分配。预分配会提前准备文件空间；快速截断和 falloc 的支持情况取决于操作系统与文件系统。</p></details>
+                <p class="hint">提前分配文件空间，默认关闭。快速截断与 falloc 需操作系统和文件系统支持。</p>
               </div>
             </div>
             <div class="toggle-grid">
@@ -343,13 +343,13 @@
             </fieldset>
             <fieldset class="settings-group">
               <legend>Dropbox 目录展开与过滤</legend>
-              <div class="field">
+              <div class="field settings-row">
                 <label for="cfg-dropbox-mode">目录下载</label>
                 <select class="kd-select" id="cfg-dropbox-mode">
                   <option value="direct">直接下载目录压缩包</option>
                   <option value="expand">默认展开为独立文件任务</option>
                 </select>
-                <details class="settings-help"><summary>说明</summary><p class="hint">默认下载目录压缩包；展开后每个文件作为独立任务下载，可分别重试。仅展开模式支持以下后缀过滤。</p></details>
+                <p class="hint">默认下载压缩包。展开后可逐个文件重试，并按后缀过滤。</p>
               </div>
             <div class="toggle-grid">
               <label class="setting-toggle" for="cfg-filter-enabled">
@@ -358,8 +358,9 @@
               </label>
             </div>
             <div class="field">
-              <span class="field-label">排除的文件后缀</span>
-              <div class="extension-grid" role="group" aria-label="排除的文件后缀">
+              <span class="field-label" id="excluded-extensions-label">排除的文件后缀</span>
+              <p class="hint">勾选即排除，不区分大小写；仅在 Dropbox 目录展开且选择过滤时生效。支持规则同步的浏览器扩展也可更新此列表。</p>
+              <div class="extension-grid" role="group" aria-labelledby="excluded-extensions-label">
                 <label><input type="checkbox" value=".psd" data-download-extension><span>.psd</span></label>
                 <label><input type="checkbox" value=".clip" data-download-extension><span>.clip</span></label>
                 <label><input type="checkbox" value=".sai" data-download-extension><span>.sai</span></label>
@@ -371,15 +372,15 @@
                 <label><input type="checkbox" value=".afdesign" data-download-extension><span>.afdesign</span></label>
                 <label><input type="checkbox" value=".blend" data-download-extension><span>.blend</span></label>
               </div>
-              <p class="hint">不区分大小写，仅在 Dropbox 目录展开且该次选择过滤时生效。</p>
-              <details class="settings-help"><summary>说明</summary><p class="hint">勾选的后缀会被排除。支持规则同步的浏览器扩展也可更新此列表；文件的分类和保存子目录在下方“文件分组”中设置。</p></details>
             </div>
             </fieldset>
           </section>
         <section class="settings-section" data-settings-page="files" data-settings-independent hidden aria-labelledby="file-groups-title">
-          <h3 id="file-groups-title">文件分组</h3>
-          <details class="settings-help"><summary>说明</summary><p class="hint">按文件后缀自动分类，忽略大小写。支持 .tar.gz 等复合后缀，优先匹配较长的后缀；未匹配文件归入“其他”。新文件会保存到所选目录下的分组子目录；修改规则会更新已有任务的列表分组，已有文件与续传任务保留原路径。</p></details>
-          <p class="hint">编辑后自动保存。恢复本页默认只调整文件写入与过滤选项，保留自定义分组。</p>
+          <div class="settings-section-heading">
+            <h3 id="file-groups-title">文件分组</h3>
+            <p class="hint">按后缀分类并保存到分组子目录，忽略大小写；支持 .tar.gz 等复合后缀，优先匹配较长后缀，未匹配的归入“其他”。</p>
+            <p class="hint">编辑后自动保存并更新任务分组，已有文件和续传任务保留原路径。恢复本页默认不会重置分组。</p>
+          </div>
           <div id="file-groups-editor"></div>
           <div class="group-editor-actions"><button class="kd-button secondary" id="file-group-add" type="button">新增分组</button></div>
           <p class="hint" id="file-groups-status" role="status"></p>
@@ -413,7 +414,7 @@
               <h3 id="settings-modules-title">解析模块</h3>
               <p>支持的分享链接。</p>
             </div>
-            <details class="settings-help"><summary>说明</summary><p class="hint">Dropbox 和 Google Drive 使用各自的解析模块。停用后不再接管新链接，已有任务仍保留模块信息以便恢复；Dropbox 目录展开方式在<a href="#settings/files">文件管理</a>中设置。</p></details>
+            <p class="hint">Dropbox、Google Drive 模块停用后只影响新链接，已有任务仍可恢复。Dropbox 目录展开见<a href="#settings/files">文件管理</a>。</p>
             <div class="module-list" id="module-list" aria-live="polite"></div>
           </section>
 <section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-bt-diagnostics-title">
@@ -421,7 +422,7 @@
               <h3 id="settings-bt-diagnostics-title">BitTorrent 诊断</h3>
             </div>
             <p class="hint" id="bt-client-identity" aria-live="polite">正在读取当前内核身份…</p>
-            <details class="settings-help"><summary>说明</summary><p class="hint">Aria2 Next 2.6.5 及以上将诊断日志保存至数据目录的 <code>aria2.log</code>。连接与可用性信息可在任务进度中查看。</p></details>
+            <p class="hint">Aria2 Next 2.6.5+ 的诊断日志位于数据目录的 <code>aria2.log</code>；连接和可用性见任务进度。</p>
           </section>
 <section data-settings-page="experimental" hidden class="settings-section tracker-research-section" aria-labelledby="settings-tracker-research-title">
             <div class="settings-section-heading">
@@ -434,35 +435,35 @@
               <span><strong>启用研究</strong><small>需 Aria2 Next 2.5.7+，启用前须确认。</small></span>
             </label>
             <div class="form-grid tracker-research-grid">
-              <div class="field">
+              <div class="field settings-row">
                 <label for="tracker-minimum-leechers">Leecher 阈值</label>
                 <input class="kd-input" id="tracker-minimum-leechers" type="number" min="0" max="1000000" step="1">
                 <p class="hint">低于该数量时只累计真实上传增量。</p>
               </div>
-              <div class="field">
+              <div class="field settings-row">
                 <span class="field-label">真实下载倍率区间</span>
                 <div class="input-group ratio-input-group">
                   <input class="kd-input" id="tracker-download-multiplier-min" type="number" min="0" max="1000" step="0.001" aria-label="真实下载倍率下限">
                   <input class="kd-input" id="tracker-download-multiplier-max" type="number" min="0" max="1000" step="0.001" aria-label="真实下载倍率上限">
                 </div>
               </div>
-              <div class="field">
+              <div class="field settings-row">
                 <span class="field-label">真实上传倍率区间</span>
                 <div class="input-group ratio-input-group">
                   <input class="kd-input" id="tracker-upload-multiplier-min" type="number" min="0" max="1000" step="0.1" aria-label="真实上传倍率下限">
                   <input class="kd-input" id="tracker-upload-multiplier-max" type="number" min="0" max="1000" step="0.1" aria-label="真实上传倍率上限">
                 </div>
               </div>
-              <div class="field">
+              <div class="field settings-row">
                 <label for="tracker-bonus-kib-per-second">随机增量上限（KiB/s）</label>
                 <input class="kd-input" id="tracker-bonus-kib-per-second" type="number" min="0" max="1000000" step="0.1">
               </div>
-              <div class="field">
+              <div class="field settings-row">
                 <label for="tracker-bonus-chance-percent">随机增量概率（%）</label>
                 <input class="kd-input" id="tracker-bonus-chance-percent" type="number" min="0" max="100" step="0.1">
               </div>
             </div>
-            <details class="settings-help"><summary>说明</summary><p class="hint">达到 Leecher 阈值后，上报上传量按“上次上报 + 本次真实上传增量 + 随机下载倍率 × 真实下载增量 + 随机上传倍率 × 真实上传增量 + 可选随机增量”累计。</p></details>
+            <p class="hint">达到 Leecher 阈值后，上报上传量累计为：上次上报 + 真实上传增量 + 随机下载倍率 × 真实下载增量 + 随机上传倍率 × 真实上传增量 + 可选随机增量。</p>
             <div class="toggle-grid tracker-research-toggles">
               <label class="setting-toggle" for="tracker-report-download-zero">
                 <input id="tracker-report-download-zero" type="checkbox" role="switch" class="kd-switch">
@@ -482,7 +483,7 @@
               </label>
             </div>
             <p class="hint tracker-research-status" id="tracker-research-status" aria-live="polite">正在读取模块状态…</p>
-            <details class="settings-help"><summary>说明</summary><p class="hint">仅改写 HTTP/HTTPS tracker；UDP tracker 保持原样。HTTPS 由 relay 作为普通客户端连接上游，不进行中间人解密，也不安装自定义证书。模块更新跟随 TrueDown。</p></details>
+            <p class="hint">仅改写 HTTP/HTTPS tracker，UDP 保持原样。HTTPS 由 relay 直连上游，无中间人解密或自定义证书。模块随 TrueDown 更新。</p>
           </section>
 <section data-settings-page="advanced" hidden class="settings-section" aria-labelledby="settings-advanced-title">
             <div class="settings-section-heading">
@@ -492,8 +493,7 @@
             <div class="field">
               <label for="cfg-extra">额外 aria2 参数</label>
               <textarea class="kd-input" id="cfg-extra" rows="4" placeholder="--min-split-size=1M"></textarea>
-              <p class="hint">每行一个参数，不支持进程、RPC 或本地文件选项。</p>
-              <details class="settings-help"><summary>说明</summary><p class="hint">使用 --名称=值 格式，例如 --min-split-size=1M。只接受 TrueDown 允许的任务参数；留空不添加额外参数。</p></details>
+              <p class="hint">每行一个 --名称=值，如 --min-split-size=1M；留空不添加。仅接受允许的任务参数，不支持进程、RPC 或本地文件选项。</p>
             </div>
           </section>
 <section data-settings-page="application" hidden class="settings-section token-card" aria-labelledby="settings-security-title">

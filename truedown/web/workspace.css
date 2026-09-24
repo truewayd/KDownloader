@@ -102,7 +102,7 @@
 #settings-reset-btn:hover { background: var(--kd-secondary-hover); }
 .settings-save-error { margin: 0 0 20px; color: var(--kd-error-text); }
 .settings-save-error:empty { display: none; }
-.settings-content { padding: 28px 32px 40px; overflow-y: auto; flex: 1; min-height: 0; scrollbar-gutter: stable; background: var(--kd-surface); }
+.settings-content { container: settings / inline-size; padding: 28px 32px 40px; overflow-y: auto; flex: 1; min-width: 0; min-height: 0; scrollbar-gutter: stable; background: var(--kd-surface); }
 .settings-content > .settings-section { display: grid; align-content: start; gap: 24px; max-width: 880px; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .settings-content > .settings-section:not([hidden]) { margin-bottom: 36px; }
 .settings-content > .settings-section:last-child { margin-bottom: 0; }
@@ -113,10 +113,8 @@
 .settings-group { min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .settings-group legend { float: left; width: 100%; padding: 0; margin-bottom: 16px; font-size: 14px; font-weight: 600; }
 .settings-group legend + * { clear: both; }
-.settings-help { color: var(--kd-muted); font-size: 12px; }
-.settings-help summary { width: fit-content; cursor: pointer; }
-.settings-help summary:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 3px; }
-.settings-help p { margin: 8px 0 0; line-height: 1.6; }
+.settings-content .hint { margin: 0; line-height: 1.6; overflow-wrap: anywhere; }
+.settings-content .settings-section-heading .hint { margin-top: 8px; }
 .settings-section-heading:has(> h3:only-child:is(#settings-general-title, #settings-file-title)) { display: none; }
 .settings-content .runtime-guide { padding: 0; border-radius: 0; background: transparent; }
 .settings-group > * + * { margin-top: 16px; }
@@ -124,9 +122,8 @@
 .settings-steps { margin: 0; padding-left: 22px; color: var(--kd-muted); font-size: 13px; line-height: 1.7; }
 .settings-steps li + li { margin-top: 8px; }
 .settings-content .toggle-grid { gap: 12px; }
-.settings-content [data-settings-page="files"] .toggle-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.settings-content [data-settings-page="files"] .toggle-grid > :only-child { grid-column: 1 / -1; }
-.settings-content .field { gap: 8px; }
+.settings-content .toggle-grid { grid-template-columns: minmax(0, 1fr); }
+.settings-content .field { gap: 8px; margin: 0; }
 .settings-content .field > label, .settings-content .field-label { font-size: 12px; font-weight: 500; }
 .settings-content .setting-toggle { padding: 12px 0; gap: 16px; align-items: center; border: 0; background: transparent; }
 .setting-toggle > .kd-switch, .inline-update-toggle > .kd-switch { order: 1; margin-left: auto; }
@@ -134,17 +131,42 @@
 .settings-content .setting-toggle span { gap: 5px; min-width: 0; }
 .settings-content .setting-toggle strong { font-weight: 500; line-height: 18px; }
 .settings-content .setting-toggle small { line-height: 1.6; }
-.settings-content .extension-grid { grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 8px; margin: 0; }
-.settings-content .extension-grid label { min-height: 36px; padding: 8px 10px; gap: 8px; }
+.settings-content .extension-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px 12px; margin: 0; }
+.settings-content .extension-grid label { min-height: 36px; padding: 8px 0; gap: 8px; background: transparent; }
+.settings-content .extension-grid input { flex-shrink: 0; }
 .settings-content > #settings-load-status:not(:empty) { margin-bottom: 16px; }
 .settings-content > .settings-section > .kd-button { justify-self: start; }
 .settings-content .field-span-2 { grid-column: auto; }
-.settings-content .field:not(:has(textarea)) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 44%); column-gap: 24px; align-items: center; }
-.settings-content .field:not(:has(textarea)) > label { grid-column: 1; grid-row: 1; font-size: 13px; }
-.settings-content .field:not(:has(textarea)) > :is(input, select, .input-group, .directory-field) { grid-column: 2; grid-row: 1 / span 2; min-width: 0; width: 100%; }
-.settings-content .field:not(:has(textarea)) > :is(.hint, .settings-help) { grid-column: 1; margin: 0; }
-.settings-content .field:has(.directory-field) { grid-template-columns: minmax(0, 1fr); }
-.settings-content .field:has(.directory-field) > .directory-field { grid-column: 1; grid-row: 2; }
+/* Only simple setting rows use two columns; editors and selections stay stacked. */
+.settings-content .settings-row { grid-template-columns: minmax(0, 1fr) minmax(180px, 42%); column-gap: 32px; row-gap: 4px; align-items: center; }
+.settings-content .settings-row > :is(label, .field-label) { grid-column: 1; grid-row: 1; font-size: 13px; }
+.settings-content .settings-row > :is(input, select, .input-group) { grid-column: 2; grid-row: 1 / span 2; min-width: 0; width: 100%; }
+.settings-content .settings-row:not(:has(> .hint)) > :is(input, select, .input-group) { grid-row: 1; }
+.settings-content .settings-row > .hint { grid-column: 1; grid-row: 2; }
+#file-groups-editor { display: grid; gap: 24px; }
+.file-group-editor-row { display: grid; grid-template-columns: 36px minmax(104px, 1fr) minmax(136px, 1.2fr) minmax(0, 2.4fr) 32px; gap: 12px; align-items: start; }
+.file-group-editor-row > button { margin-top: 26px; }
+.file-group-editor-row .field > label { white-space: nowrap; }
+.file-group-editor-row textarea { min-height: 72px; }
+.group-editor-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+@container settings (max-width: 680px) {
+  .settings-content .extension-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .file-group-editor-row { grid-template-columns: 36px minmax(0, 1fr) minmax(0, 1fr) 32px; }
+  .file-group-editor-row .group-suffix-field { grid-column: 2 / 4; grid-row: 2; }
+  .file-group-editor-row > button:last-child { grid-column: 4; grid-row: 1; }
+}
+@container settings (max-width: 480px) {
+  .settings-content .settings-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .settings-content .settings-row > :is(input, select, .input-group),
+  .settings-content .settings-row:not(:has(> .hint)) > :is(input, select, .input-group) { grid-column: 1; grid-row: 2; }
+  .settings-content .extension-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-content .settings-row > .hint { grid-row: 3; }
+  .file-group-editor-row { grid-template-columns: 32px minmax(0, 1fr) 32px; gap: 12px 8px; }
+  .file-group-editor-row .group-name-field { grid-column: 2; grid-row: 1; }
+  .file-group-editor-row .group-directory-field { grid-column: 1 / -1; grid-row: 2; }
+  .file-group-editor-row .group-suffix-field { grid-column: 1 / -1; grid-row: 3; }
+  .file-group-editor-row > button:last-child { grid-column: 3; grid-row: 1; }
+}
 .settings-page :is(.kd-button, .kd-input, .kd-select, .kd-icon-button) { box-shadow: none; }
 .settings-nav-link[aria-current]::before { display: none; }
 .settings-nav-link[aria-current] { background: var(--kd-secondary-hover); }
@@ -208,10 +230,7 @@
   .settings-category-header { margin-bottom: 24px; }
   .settings-category-header h2 { font-size: 20px; }
   .settings-content > .settings-section { min-width: 0; }
-  .settings-content .field:not(:has(textarea)) { grid-template-columns: minmax(0, 1fr); }
-  .settings-content .field:not(:has(textarea)) > :is(input, select, .input-group, .directory-field) { grid-column: 1; grid-row: 2; }
   .settings-content .form-grid > * { min-width: 0; }
-  .settings-content [data-settings-page="files"] .toggle-grid { grid-template-columns: minmax(0, 1fr); }
   .settings-content .extension-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 

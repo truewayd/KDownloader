@@ -135,6 +135,11 @@ and material integration only. Page styles own layout, not alternate palettes.
 - Use one generated Lucide icon system. Icon-only actions require accessible
   labels. The category reset is a small icon next to its heading. Settings
   headings scroll with content; saving is automatic, with no floating save bar.
+- Settings help is concise and visible by default, never hidden behind a generic
+  disclosure. Search indexes all authored help and field labels before profile
+  reads; runtime status and user values are excluded. Simple settings opt into
+  the two-column `settings-row` layout. File-group editors, suffix selections
+  and multiline fields retain stacked labels and adapt to the content width.
 - Do not repeat a purpose icon in both native caption and content. Windows
   confirmation frames omit the caption icon; warning/error content has one
   severity icon, while informational content needs none. macOS keeps the single

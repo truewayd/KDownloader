@@ -6,18 +6,21 @@ document.addEventListener("DOMContentLoaded", () => {
   const navigation = document.querySelector(".settings-navigation-links");
   const status = document.getElementById("settings-search-status");
   const entries = [], targets = new Set();
-  for (const label of document.querySelectorAll('.settings-section label[for], .settings-section legend, .settings-section-heading, .update-card-heading, #file-groups-title, #settings-about-title')) {
+  for (const label of document.querySelectorAll('.settings-section label[for], .settings-section .field-label, .settings-section legend, .settings-section-heading, .update-card-heading, #file-groups-title, #settings-about-title')) {
     const panel = label.closest("[data-settings-page]");
     const target = label.matches("legend") ? label.closest("fieldset") : label.closest(".setting-toggle, .field, .settings-section-heading") || label;
     if (!panel || targets.has(target)) continue;
     const copy = label.cloneNode(true);
-    copy.querySelectorAll("input, select, textarea, button").forEach(node => node.remove());
+    copy.querySelectorAll("input, select, textarea, button, .hint, p").forEach(node => node.remove());
     const title = copy.textContent.replace(/\s+/g, " ").trim();
     if (!title) continue;
     targets.add(target);
     const page = panel.dataset.settingsPage;
     const category = document.querySelector(`[data-settings-link="${page}"] span`).textContent;
-    entries.push({ target, page, category, title, text: `${category} ${title} ${target.querySelector(".hint")?.textContent || ""}`.toLocaleLowerCase() });
+    const help = [...target.querySelectorAll(".hint, p, small")];
+    if (target.matches(".settings-section-heading")) help.push(...panel.querySelectorAll(":scope > .hint, :scope > p"));
+    const authoredHelp = help.filter(node => !node.closest('[role="status"], [aria-live]')).map(node => node.textContent).join(" ");
+    entries.push({ target, page, category, title, text: `${category} ${title} ${authoredHelp}`.toLocaleLowerCase() });
   }
   let highlighted, highlightTimer, selection = 0;
   function clearHighlight() {
