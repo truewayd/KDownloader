@@ -6,6 +6,20 @@ use std::{
 use tauri::{Manager, WebviewWindow};
 use tokio::sync::oneshot;
 
+#[cfg(windows)]
+mod windows;
+
+fn caller_active(window: &WebviewWindow) -> bool {
+    #[cfg(windows)]
+    {
+        windows::is_active(window)
+    }
+    #[cfg(not(windows))]
+    {
+        window.is_focused().unwrap_or(false)
+    }
+}
+
 const ACTIONS: &[&str] = &[
     "details",
     "pause",
@@ -49,6 +63,8 @@ struct Pending {
     activated: bool,
     focused: bool,
     keyboard: bool,
+    #[cfg(windows)]
+    caller_focus: Option<windows::CallerFocus>,
     _slot: tokio::sync::OwnedMutexGuard<()>,
 }
 
@@ -91,6 +107,10 @@ impl Menus {
                 if restore && entry.parent.is_visible().unwrap_or(false) {
                     let _ = entry.parent.set_focus();
                 }
+                #[cfg(windows)]
+                if let Some(focus) = entry.caller_focus {
+                    focus.restore();
+                }
                 let _ = entry.sender.send(action);
                 drop(entry._slot);
             });
@@ -123,7 +143,7 @@ pub async fn show_context_menu(
     if app.state::<crate::windows::Windows>().suppress {
         return Err("Native menus are suppressed during hidden acceptance".into());
     }
-    if !window.is_visible().unwrap_or(false) || !window.is_focused().unwrap_or(false) {
+    if !window.is_visible().unwrap_or(false) || !caller_active(&window) {
         return Err("Menus require a visible focused caller".into());
     }
     let state = app.state::<Menus>();
@@ -168,6 +188,8 @@ pub async fn show_context_menu(
                 activated: false,
                 focused: false,
                 keyboard: keyboard.unwrap_or(false),
+                #[cfg(windows)]
+                caller_focus: None,
                 _slot: slot,
             },
         );
@@ -213,8 +235,8 @@ pub async fn show_context_menu(
             tauri::WindowEvent::Focused(focused) => {
                 let mut pending = state.pending.lock().unwrap();
                 if let Some(entry) = pending.get_mut(&event_label) {
-                    let close = !focused && entry.focused;
-                    entry.focused |= focused;
+                    let close = entry.keyboard && !focused && entry.focused;
+                    entry.focused |= entry.keyboard && *focused;
                     close
                 } else {
                     false
@@ -238,7 +260,7 @@ pub async fn show_context_menu(
             Ok(result) => return result.map_err(|_| "Menu closed without a result".into()),
             Err(_) => {
                 if !window.is_visible().unwrap_or(false)
-                    || (!keyboard.unwrap_or(false) && !window.is_focused().unwrap_or(false))
+                    || (!keyboard.unwrap_or(false) && !caller_active(&window))
                     || window.inner_position().ok() != Some(origin)
                     || window.inner_size().ok() != Some(parent_size)
                 {
@@ -269,7 +291,10 @@ pub fn context_menu_init(app: tauri::AppHandle, window: WebviewWindow) -> Option
         .map(|p| p.actions.clone())
 }
 #[tauri::command]
-pub fn context_menu_ready(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
+pub async fn context_menu_ready(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+) -> Result<(), String> {
     let state = app.state::<Menus>();
     let keyboard = {
         let mut pending = state.pending.lock().unwrap();
@@ -279,13 +304,30 @@ pub fn context_menu_ready(app: tauri::AppHandle, window: WebviewWindow) -> Resul
         if entry.ready {
             return Ok(());
         }
-        if !entry.parent.is_visible().unwrap_or(false)
-            || !entry.parent.is_focused().unwrap_or(false)
-        {
+        if !entry.parent.is_visible().unwrap_or(false) || !caller_active(&entry.parent) {
             return Err("Caller hidden or unfocused".into());
         }
         entry.keyboard
     };
+    #[cfg(windows)]
+    if !keyboard {
+        let parent = state
+            .pending
+            .lock()
+            .unwrap()
+            .get(window.label())
+            .ok_or("Menu closed")?
+            .parent
+            .clone();
+        let focus = windows::capture(&parent).await?;
+        state
+            .pending
+            .lock()
+            .unwrap()
+            .get_mut(window.label())
+            .ok_or("Menu closed")?
+            .caller_focus = Some(focus);
+    }
     let result = window
         .set_focusable(keyboard)
         .and_then(|_| window.show())
@@ -319,7 +361,7 @@ pub fn context_menu_key(
     key: MenuKey,
 ) -> Result<(), String> {
     crate::editing::authorize(window.label())?;
-    if !window.is_visible().unwrap_or(false) || !window.is_focused().unwrap_or(false) {
+    if !window.is_visible().unwrap_or(false) || !caller_active(&window) {
         return Err("Menu navigation requires a focused caller".into());
     }
     let state = app.state::<Menus>();
@@ -355,7 +397,7 @@ pub fn context_menu_answer(
         if !entry.ready || action.as_ref().is_some_and(|a| !entry.actions.contains(a)) {
             return Err("Unavailable menu action".into());
         }
-        if !entry.keyboard && !entry.parent.is_focused().unwrap_or(false) {
+        if !entry.keyboard && !caller_active(&entry.parent) {
             return Err("Menu caller lost focus".into());
         }
     }

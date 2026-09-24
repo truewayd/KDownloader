@@ -30,10 +30,12 @@ await new Promise((resolve, reject) => {
   captureReply = line => { clearTimeout(timer); captureReply = null; assert.equal(line, "ready"); resolve(); };
   captureWorker.once("error", error => { clearTimeout(timer); reject(error); });
 });
-const child = spawn(path.join(fixture, "TrueDown.exe"), ["--data-dir", path.join(fixture, "profile")], { windowsHide: true, stdio: "ignore", env: {
+const child = spawn(path.join(fixture, "TrueDown.exe"), ["--data-dir", path.join(fixture, "profile")], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"], env: {
   ...process.env, TRUEDOWN_DESKTOP_TEST: "0", TRUEDOWN_ADDR: `127.0.0.1:${apiPort}`, TRUEDOWN_API_TOKEN: "", TRUEDOWN_REQUIRE_TOKEN: "", TRUEDOWN_TLS_CERT: "", TRUEDOWN_TLS_KEY: "", TRUEDOWN_DESKTOP_TEST_DEBUG_PORT: String(debugPort), WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: "",
 } });
 let browser, launchError;
+let nativeErrors = "";
+child.stderr.on("data", data => { nativeErrors = (nativeErrors + data).slice(-4096); });
 child.on("error", error => { launchError = error; });
 async function until(check, timeout = 15000) {
   const deadline = Date.now() + timeout;
@@ -46,14 +48,14 @@ async function until(check, timeout = 15000) {
   throw new Error("Popup acceptance timed out");
 }
 const invoke = (page, command, args) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
-const capture = (title, name) => new Promise((resolve, reject) => {
+const capture = (title, name, point = null) => new Promise((resolve, reject) => {
   const timer = setTimeout(() => { captureReply = null; reject(new Error("Capture timed out")); }, 15000);
   captureReply = line => {
     clearTimeout(timer); captureReply = null;
     try { const result = JSON.parse(line); if (result.error) reject(new Error(result.error)); else resolve(result); }
     catch (error) { reject(error); }
   };
-  captureWorker.stdin.write(JSON.stringify({ processId: child.pid, title, path: name ? path.join(fixture, name) : "" }) + "\n");
+  captureWorker.stdin.write(JSON.stringify({ processId: child.pid, title, path: name ? path.join(fixture, name) : "", point }) + "\n");
 });
 try {
   await until(() => fetch(`http://127.0.0.1:${debugPort}/json/version`, { signal: AbortSignal.timeout(1500) }).then(r => r.ok, () => false), 90000);
@@ -61,9 +63,37 @@ try {
   const context = browser.contexts()[0], main = context.pages()[0];
   await main.emulateMedia({ colorScheme: null });
   await until(() => main.evaluate(() => typeof confirmAction === "function" && Boolean(window.__TAURI__?.core)).catch(() => false));
-  await invoke(main, "open_auxiliary", { kind: "settings" });
+  await main.evaluate(() => {
+    window.contextCalls = [];
+    const original = invokeNative;
+    window.addEventListener("blur", () => contextCalls.push({ event: "caller-blur" }));
+    invokeNative = async (command, args) => {
+      contextCalls.push({ command });
+      try { const result = await original(command, args); if (command === "show_context_menu") contextCalls.push({ result }); return result; }
+      catch (error) { contextCalls.push({ command, error: error.message }); throw error; }
+    };
+  });
+  const chooseMainMenu = async (selector, action) => {
+    await capture(await main.title(), null);
+    await main.locator(selector).click({ button: "right" });
+    const popup = await until(async () => {
+      for (const page of context.pages().filter(page => page.url().endsWith("context-menu-window.html"))) {
+        if (await page.evaluate(() => window.__popupActive).catch(() => false)) return page;
+      }
+    }).catch(async error => { throw new Error(`${error.message}: ${JSON.stringify(await main.evaluate(() => contextCalls))}`); });
+    await popup.emulateMedia({ colorScheme: null });
+    assert.equal(await main.evaluate(() => document.hasFocus()), true);
+    const box = await popup.locator(`[data-action="${action}"]`).boundingBox();
+    await capture("操作菜单", null, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+    await until(() => !context.pages().includes(popup));
+  };
+  await chooseMainMenu('[data-task-category="project"] .nav-label', "group-edit");
+  await until(() => context.pages().some(page => page.url().includes("window=settings")))
+    .catch(async error => { throw new Error(`${error.message}: ${JSON.stringify(await main.evaluate(() => contextCalls))}`); });
   const settings = await until(() => context.pages().find(page => page.url().includes("window=settings")));
   await settings.emulateMedia({ colorScheme: null });
+  await until(() => settings.evaluate(() => currentSettingsPage === "files" && document.activeElement?.closest("[data-group-id]")?.dataset.groupId === "project"));
+  await invoke(main, "open_auxiliary", { kind: "settings" });
   await until(() => settings.evaluate(() => typeof settingsReady !== "undefined" && settingsReady.has("general")));
   const evidence = [];
   const baseline = page => page.evaluate(() => {
@@ -156,7 +186,8 @@ try {
   await settings.keyboard.press("End");
   await until(() => menu.evaluate(() => document.activeElement?.dataset.action === "select-all"));
   evidence.push({ kind: "menu", ...menuState });
-  await menu.locator('[data-action="select-all"]').click();
+  const selectAllBox = await menu.locator('[data-action="select-all"]').boundingBox();
+  await capture("操作菜单", null, { x: selectAllBox.x + selectAllBox.width / 2, y: selectAllBox.y + selectAllBox.height / 2 });
   await until(() => !context.pages().includes(menu));
   await until(() => settings.locator("#cfg-folder").evaluate(e => e.selectionStart === 0 && e.selectionEnd === e.value.length));
   await until(() => settings.evaluate(() => !els.settingsForm.inert));
@@ -185,6 +216,7 @@ try {
   console.log(`Independent confirmation HWNDs, owner disable/restore, fail-closed IPC and results passed. Screenshots: ${fixture}`);
 } catch (error) {
   console.error(error);
+  if (nativeErrors) console.error(nativeErrors);
   process.exitCode = 1;
 } finally {
   if (browser?.isConnected()) {

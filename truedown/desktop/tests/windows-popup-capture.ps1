@@ -21,7 +21,33 @@ public static class PopupCapture {
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out RECT rect);
   [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr window, IntPtr dc, uint flags);
   [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
-  public static string Capture(uint process, string title, string path) {
+  [StructLayout(LayoutKind.Sequential)] struct POINT { public int x, y; }
+  [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr window, ref POINT point);
+  [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr window);
+  [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr window, out RECT rect);
+  [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT point);
+  [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr window, uint flags);
+  [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
+  public static string Click(uint process, string title, double x, double y) {
+    var found = Find(process, title);
+    var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
+    try {
+      var scale = GetDpiForWindow(found) / 96.0;
+      var point = new POINT { x = (int)Math.Round(x * scale), y = (int)Math.Round(y * scale) };
+      RECT rect;
+      if (!GetClientRect(found, out rect) || point.x < 0 || point.y < 0 || point.x >= rect.right || point.y >= rect.bottom)
+        throw new Exception("Click must stay inside the owned window");
+      if (!ClientToScreen(found, ref point)) throw new Exception("Click position unavailable");
+      if (GetAncestor(WindowFromPoint(point), 2) != found) throw new Exception("Owned click target is covered by another window");
+      if (!SetCursorPos(point.x, point.y)) throw new Exception("Click position unavailable");
+      mouse_event(2, 0, 0, 0, UIntPtr.Zero);
+      mouse_event(4, 0, 0, 0, UIntPtr.Zero);
+      System.Threading.Thread.Sleep(100);
+      return "{\"clicked\":true}";
+    } finally { if (previous != IntPtr.Zero) SetThreadDpiAwarenessContext(previous); }
+  }
+  static IntPtr Find(uint process, string title) {
     IntPtr found = IntPtr.Zero;
     EnumWindows((window, data) => {
       uint owner; GetWindowThreadProcessId(window, out owner);
@@ -30,8 +56,15 @@ public static class PopupCapture {
       return true;
     }, IntPtr.Zero);
     if (found == IntPtr.Zero) throw new Exception("Owned visible popup not found");
+    return found;
+  }
+  public static string Capture(uint process, string title, string path) {
+    var found = Find(process, title);
     if (String.IsNullOrEmpty(path)) {
-      if (!SetForegroundWindow(found)) throw new Exception("Owned window could not receive foreground focus");
+      if (title == "操作菜单") throw new Exception("Do not activate mouse menu windows");
+      if (GetForegroundWindow() != found && !SetForegroundWindow(found)) {
+        throw new Exception("Owned window could not receive foreground focus");
+      }
       return "{\"focused\":true}";
     }
     var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
@@ -58,7 +91,11 @@ if ($Server) {
   while ($null -ne ($line = [Console]::ReadLine())) {
     try {
       $request = $line | ConvertFrom-Json
-      [Console]::WriteLine([PopupCapture]::Capture([uint32]$request.processId, [string]$request.title, [string]$request.path))
+      if ($null -ne $request.point) {
+        [Console]::WriteLine([PopupCapture]::Click([uint32]$request.processId, [string]$request.title, [double]$request.point.x, [double]$request.point.y))
+      } else {
+        [Console]::WriteLine([PopupCapture]::Capture([uint32]$request.processId, [string]$request.title, [string]$request.path))
+      }
     } catch { [Console]::WriteLine((@{ error = $_.Exception.Message } | ConvertTo-Json -Compress)) }
   }
 } else { [PopupCapture]::Capture([uint32]$ProcessId, $Title, $OutputPath) }

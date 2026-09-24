@@ -147,15 +147,16 @@ try {
     console.log(`${colorScheme}: themed menus, selection, password protection, stale actions, modal scope, keyboard, viewport and teardown passed`);
   }
   const native = await browser.newPage();
-  await native.setContent('<table><tr data-task-id="1"><td><button data-action="pause">Pause</button></td></tr></table>');
+  await native.setContent('<table><tr data-task-id="1"><td><button data-action="pause">Pause</button></td></tr></table><div id="file-group-navigation"><a data-task-category="image">Images</a></div><aside id="workspace-sidebar">Sidebar</aside>');
   await native.evaluate(() => {
-    window.calls = []; window.clicked = 0; window.nativeWindowRole = "main";
+    window.calls = []; window.errors = []; window.clicked = 0; window.nativeWindowRole = "main";
     window.__TAURI__ = { core: { invoke() {} } };
     window.invokeNative = (command, args) => {
       calls.push({ command, args });
+      if (["open_group_settings", "open_auxiliary"].includes(command)) return Promise.reject(new Error(`Failed: ${command}`));
       return command === "show_context_menu" ? new Promise(resolve => { window.answerMenu = resolve; }) : Promise.resolve();
     };
-    window.showToast = () => {};
+    window.showToast = message => errors.push(message);
     document.querySelector('button').onclick = () => clicked++;
   });
   await native.addScriptTag({ content: script });
@@ -166,7 +167,10 @@ try {
   await native.keyboard.press("ArrowDown");
   assert.equal(await native.evaluate(() => calls.at(-1).command), "context_menu_key");
   await native.evaluate(() => window.dispatchEvent(new Event('blur')));
-  assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'context_menu_cancel').length), 1, 'mouse menus close when their caller loses focus');
+  assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'context_menu_cancel').length), 0, 'native activation checks own mouse-menu cancellation');
+  await native.evaluate(() => answerMenu('pause'));
+  await native.waitForFunction(() => clicked === 1);
+  await native.evaluate(() => { clicked = 0; });
   await native.locator('button').focus();
   await native.keyboard.press("Shift+F10");
   assert.equal(await native.evaluate(() => calls.at(-1).args.keyboard), true);
@@ -186,6 +190,19 @@ try {
   const typingRequest = await native.evaluate(() => calls.filter(call => call.command === 'show_context_menu').at(-1).args.requestId);
   await native.keyboard.press("a");
   assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'context_menu_cancel').at(-1).args.requestId), typingRequest, "typing dismisses a mouse menu before editing the caller");
+  for (const [selector, action, command] of [
+    ["[data-task-category]", "group-edit", "open_group_settings"],
+    ["[data-task-category]", "group-add", "open_group_settings"],
+    ["[data-task-category]", "group-manage", "open_group_settings"],
+    ["#workspace-sidebar", "settings", "open_auxiliary"],
+  ]) {
+    const before = await native.evaluate(() => errors.length);
+    await native.locator(selector).dispatchEvent("contextmenu", { button: 2, clientX: 20, clientY: 20 });
+    await native.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await native.evaluate(action => answerMenu(action), action);
+    await native.waitForFunction(before => errors.length === before + 1, before, { timeout: 2000 });
+    assert.equal(await native.evaluate(() => errors.at(-1)), `Failed: ${command}`, "action errors remain visible after the menu closes");
+  }
   await native.close();
   console.log('native bridge: separate window dispatch, caller blur, stale rows and request-scoped cancellation passed');
   const renderer = await browser.newPage();

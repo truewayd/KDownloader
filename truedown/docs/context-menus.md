@@ -54,8 +54,12 @@ navigate; Enter/Space activate. Escape dismisses only the menu and restores focu
 Tab dismisses and continues normal focus navigation. Outside click, scroll,
 resize, window blur, hiding, navigation and teardown invalidate the menu.
 Mouse-opened desktop menus are non-focusable: showing, hovering and dismissing
-them leaves the caller active. Caller blur cancels them without raising the caller
-again. A bounded `context_menu_key` command forwards navigation and activation
+them leaves the caller active. Native activation checks cancel them when the caller
+leaves the foreground, without raising it again. Windows distinguishes the foreground
+HWND from WebView keyboard focus: clicking the non-activating popup can move the
+latter and emit DOM blur. Neither caller DOM blur nor mouse-popup WebView blur may
+cancel an otherwise active native menu. Closing it restores the saved caller child
+HWND only while the original parent remains foreground. A bounded `context_menu_key` command forwards navigation and activation
 from the focused caller to its own pending menu. Keyboard-opened menus may take
 focus and use their existing keyboard accessibility and focus restoration.
 Desktop coordinates remain inside the monitor work area. Task menus revalidate the original row
@@ -71,6 +75,8 @@ The editor consumes each intent once after initialization. Missing groups report
 error rather than editing another group. Queue labels explicitly say they affect the
 whole queue even when the task list is filtered. Task and group identity and enabled
 controls are checked again before dispatch. Other controls receive no workspace menu.
+Action failures are reported independently of menu dismissal, including failures
+opening group settings or other auxiliary windows.
 
 Editing restores the original input range or document selection first.
 `commands::edit_action` accepts only a fixed enum and derives the window role from
@@ -105,12 +111,20 @@ Sources: [Tauri menus](https://v2.tauri.app/learn/window-menu/),
 
 ### Checks
 
+The lifecycle follows the separation used by [VS Code's native menu service](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/services/contextmenu/electron-browser/contextmenuService.ts):
+close the menu once, then execute the selected action with independent error reporting.
+[Electron's menu API](https://www.electronjs.org/docs/latest/api/menu) also binds a menu
+to its owning window and distinguishes mouse and keyboard invocation.
+[Microsoft's activation guidance](https://devblogs.microsoft.com/oldnewthing/20240919-00/?p=110283)
+explains why `WS_EX_NOACTIVATE` alone is not a complete focus lifecycle.
+
 - `npm run test:context-menu`: light/dark styles, editing ranges, password
   restrictions, changing task actions, keyboard operation, viewport placement,
   modal scope, roles and teardown.
 - `npm run test:forms`: independent confirmation dispatch, cancellation and retained drafts.
 - `node tests/windows-popups-visual.mjs --visible`: isolated visible HWNDs, owned-window
-  screenshots, parent disable/restore, confirmation results and popup IPC boundaries.
+  screenshots, actual OS mouse clicks on group/editor menus, parent disable/restore,
+  confirmation results and popup IPC boundaries.
 - `npm run test:details`: native close shortcuts, no duplicate Close control,
   retained tabs/drafts and responsive layout.
 - `cargo test --locked`: editor action allowlist and caller roles.

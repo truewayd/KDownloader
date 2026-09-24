@@ -143,7 +143,8 @@
         y: keyboard || !Number.isFinite(event.clientY) ? rect.bottom : event.clientY,
       }).then(action => {
         if (current !== context) return;
-        if (actions.includes(action)) return activate(context, action);
+        // Activation closes the menu before running the chosen operation.
+        if (actions.includes(action)) return activate(context, action).catch(report);
         close();
       }).catch(error => { if (current === context) { close(false); report(error); } });
       return;
@@ -224,7 +225,9 @@
   document.addEventListener("visibilitychange", visibility);
   window.addEventListener("hashchange", invalidate);
   window.addEventListener("resize", invalidate);
-  const blur = () => { if (!current?.native || !current.keyboard) invalidate(); };
+  // Native menus own OS activation checks. WebView focus can move into a
+  // non-activating popup while its caller remains the foreground window.
+  const blur = () => { if (!current?.native) invalidate(); };
   window.addEventListener("blur", blur);
   window.addEventListener("pagehide", () => {
     disposed = true; invalidate();
