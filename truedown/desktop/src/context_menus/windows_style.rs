@@ -1,8 +1,6 @@
 //! Owner drawing changes pixels only; HMENU still owns input and accessibility.
 use std::cell::Cell;
 use tauri::image::Image;
-#[path = "windows_acrylic.rs"]
-mod acrylic;
 use windows_sys::Win32::{
     Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM},
     Graphics::{Dwm::*, Gdi::*},
@@ -43,8 +41,8 @@ impl Palette {
             }
         } else {
             Self {
-                surface: rgb(255, 255, 255),
-                hover: rgb(240, 240, 240),
+                surface: rgb(249, 249, 249),
+                hover: rgb(237, 237, 237),
                 text: rgb(32, 32, 32),
                 muted: rgb(96, 96, 96),
                 danger: rgb(196, 43, 28),
@@ -59,7 +57,7 @@ struct Item {
     danger: bool,
 }
 struct Style {
-    acrylic: Cell<bool>,
+    geometry: Cell<Option<(usize, RECT, RECT, POINT)>>,
     popup: Cell<HWND>,
     shadow_class: Cell<Option<usize>>,
     shadow_suppressed: Cell<bool>,
@@ -157,10 +155,10 @@ pub unsafe fn attach(
         return Err("Menu font unavailable".into());
     }
     metrics.lfMenuFont.lfHeight = -metrics.lfMenuFont.lfHeight.abs().max(px(dpi, 13));
-    // Grayscale glyph coverage remains valid on both opaque and acrylic surfaces.
+    // Use grayscale antialiasing for a consistent system-font appearance.
     metrics.lfMenuFont.lfQuality = ANTIALIASED_QUALITY;
     let mut style = Box::new(Style {
-        acrylic: Cell::new(false),
+        geometry: Cell::new(None),
         popup: Cell::new(std::ptr::null_mut()),
         shadow_class: Cell::new(None),
         shadow_suppressed: Cell::new(false),
@@ -236,7 +234,8 @@ pub unsafe fn attach(
     guard.attached = true;
     let info = MENUINFO {
         cbSize: std::mem::size_of::<MENUINFO>() as u32,
-        fMask: MIM_BACKGROUND,
+        fMask: MIM_BACKGROUND | MIM_STYLE,
+        dwStyle: MNS_NOCHECK,
         hbrBack: guard.style.surface,
         ..Default::default()
     };
@@ -264,8 +263,8 @@ pub unsafe fn attach(
         return Err("Menu owner thread unavailable".into());
     }
     guard.hook = SetWindowsHookExW(
-        WH_CALLWNDPROC,
-        Some(before_popup_message),
+        WH_CALLWNDPROCRET,
+        Some(after_popup_message),
         std::ptr::null_mut(),
         thread,
     );
@@ -276,10 +275,10 @@ pub unsafe fn attach(
     Ok(Some(guard))
 }
 
-unsafe extern "system" fn before_popup_message(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+unsafe extern "system" fn after_popup_message(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     if code >= 0 && lp != 0 {
-        let message = &*(lp as *const CWPSTRUCT);
-        if message.message == WM_CREATE || message.message == WM_WINDOWPOSCHANGING {
+        let message = &*(lp as *const CWPRETSTRUCT);
+        if message.message == WM_CREATE || message.message == WM_WINDOWPOSCHANGED {
             TRACKED_STYLE.with(|slot| {
                 if let Some(style) = slot.get().as_ref() {
                     let mut class = [0u16; 32];
@@ -292,8 +291,9 @@ unsafe extern "system" fn before_popup_message(code: i32, wp: WPARAM, lp: LPARAM
                             cbSize: std::mem::size_of::<MENUBARINFO>() as u32,
                             ..Default::default()
                         };
-                        // Bind only our HMENU, on its owning thread, before show.
-                        // Buffered WM_DRAWITEM DCs need not belong to any HWND.
+                        // Wait for the native window procedure to finish creation
+                        // or positioning before querying or styling its HMENU.
+                        // Never reenter its pending WM_WINDOWPOSCHANGING layout.
                         if GetMenuBarInfo(message.hwnd, OBJID_CLIENT, 0, &mut info) != 0
                             && info.hMenu == style.menu
                         {
@@ -330,9 +330,26 @@ fn log_frame(style: &Style) {
                 .open(path)
             {
                 let _ = writeln!(file,
-                    "frame4 seen={} bound={} corner={} legacy_shadow_disabled={} frame_paints={} shadow_windows={} acrylic={}",
+                    "frame5 seen={} bound={} corner={} legacy_shadow_disabled={} frame_paints={} shadow_windows={} material=opaque",
                     style.saw_popup.get(), style.bound_popup.get(), style.corner_result.get(),
-                    style.shadow_suppressed.get(), style.frame_paints.get(), style.shadow_windows.get(), style.acrylic.get());
+                    style.shadow_suppressed.get(), style.frame_paints.get(), style.shadow_windows.get());
+                if let Some((index, window, row, cursor)) = style.geometry.get() {
+                    let _ = writeln!(
+                        file,
+                        "selected={} window=[{},{},{},{}] row=[{},{},{},{}] cursor=[{},{}]",
+                        index,
+                        window.left,
+                        window.top,
+                        window.right,
+                        window.bottom,
+                        row.left,
+                        row.top,
+                        row.right,
+                        row.bottom,
+                        cursor.x,
+                        cursor.y
+                    );
+                }
             }
         }
     }
@@ -359,6 +376,16 @@ unsafe extern "system" fn paint(
         {
             measure.itemWidth = style.width;
             measure.itemHeight = style.height;
+            // Padding participates in native measurement and therefore in hit
+            // testing too; never translate or resize the popup after tracking.
+            for edge in [style.items.first(), style.items.last()]
+                .into_iter()
+                .flatten()
+            {
+                if (edge as *const Item) as usize == measure.itemData {
+                    measure.itemHeight += px(style.dpi, 4) as u32;
+                }
+            }
             return 1;
         }
     } else if message == WM_DRAWITEM && lp != 0 {
@@ -450,7 +477,13 @@ unsafe fn frame(style: &Style, popup: HWND) {
         (&border as *const COLORREF).cast(),
         std::mem::size_of_val(&border) as u32,
     );
-    acrylic::configure(style, popup);
+    let disabled: i32 = 1;
+    DwmSetWindowAttribute(
+        popup,
+        DWMWA_TRANSITIONS_FORCEDISABLED as u32,
+        (&disabled as *const i32).cast(),
+        std::mem::size_of_val(&disabled) as u32,
+    );
     // The pending native show lays out and paints it. No reentrant positioning.
 }
 
@@ -481,10 +514,6 @@ unsafe extern "system" fn popup_frame(
     if message == WM_NCDESTROY {
         detach_popup(style);
         return DefSubclassProc(hwnd, message, wp, lp);
-    }
-    if message == WM_SETTINGCHANGE || message == WM_THEMECHANGED {
-        acrylic::configure(style, hwnd);
-        InvalidateRect(hwnd, std::ptr::null(), 1);
     }
     // Owner-drawn items do not replace the stock menu's beveled NC border.
     // DWM rounds the outside; paint its inner border with the same flat surface
@@ -537,15 +566,7 @@ unsafe fn paint_frame(hwnd: HWND, style: &Style) -> bool {
                 right: bounds.right - bounds.left,
                 bottom: bounds.bottom - bounds.top,
             };
-            painted = FillRect(
-                dc,
-                &rect,
-                if style.acrylic.get() {
-                    GetStockObject(BLACK_BRUSH)
-                } else {
-                    style.surface
-                },
-            ) != 0;
+            painted = FillRect(dc, &rect, style.surface) != 0;
         }
         RestoreDC(dc, saved);
     }
@@ -554,46 +575,47 @@ unsafe fn paint_frame(hwnd: HWND, style: &Style) -> bool {
 }
 
 unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
-    if style.acrylic.get() {
-        if acrylic::draw_item(style, item, draw) {
-            return;
+    #[cfg(debug_assertions)]
+    if draw.itemState & ODS_SELECTED != 0 && !style.popup.get().is_null() {
+        if let Some(index) = style
+            .items
+            .iter()
+            .position(|entry| std::ptr::eq(entry, item))
+        {
+            let mut window = RECT::default();
+            let mut row = RECT::default();
+            let mut cursor = POINT::default();
+            if GetWindowRect(style.popup.get(), &mut window) != 0
+                && GetMenuItemRect(std::ptr::null_mut(), style.menu, index as u32, &mut row) != 0
+                && GetCursorPos(&mut cursor) != 0
+            {
+                style.geometry.set(Some((index, window, row, cursor)));
+            }
         }
-        // A failed alpha buffer must not leave opaque GDI text on glass.
-        acrylic::disable(style, style.popup.get());
     }
-    draw_content(style, item, draw, false);
-}
-
-// The acrylic path uses a grayscale mask to preserve glyph/icon alpha. Native
-// menu selection and rectangles remain the source of truth for both renderers.
-unsafe fn draw_content(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT, mask: bool) {
-    let palette = if mask {
-        Palette {
-            surface: 0,
-            hover: 0,
-            text: rgb(255, 255, 255),
-            muted: rgb(255, 255, 255),
-            danger: rgb(255, 255, 255),
-        }
-    } else {
-        style.palette
-    };
+    let palette = style.palette;
     let dc = draw.hDC;
     let saved = SaveDC(dc);
     if saved == 0 {
         return;
     }
-    let rect = draw.rcItem;
-    let selected = !mask && draw.itemState & ODS_SELECTED != 0;
-    FillRect(
-        dc,
-        &rect,
-        if mask {
-            GetStockObject(BLACK_BRUSH)
-        } else {
-            style.surface
-        },
-    );
+    let mut rect = draw.rcItem;
+    let selected = draw.itemState & ODS_SELECTED != 0;
+    FillRect(dc, &rect, style.surface);
+    if style
+        .items
+        .first()
+        .is_some_and(|edge| std::ptr::eq(edge, item))
+    {
+        rect.top += px(style.dpi, 4);
+    }
+    if style
+        .items
+        .last()
+        .is_some_and(|edge| std::ptr::eq(edge, item))
+    {
+        rect.bottom -= px(style.dpi, 4);
+    }
     if selected {
         let inset = px(style.dpi, 4);
         let vertical = px(style.dpi, 2);
@@ -750,7 +772,7 @@ mod tests {
                     for selected in [false, true] {
                         let palette = Palette::new(dark);
                         let style = Style {
-                            acrylic: Cell::new(false),
+                            geometry: Cell::new(None),
                             popup: Cell::new(std::ptr::null_mut()),
                             shadow_class: Cell::new(None),
                             shadow_suppressed: Cell::new(false),
