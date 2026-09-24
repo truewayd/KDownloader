@@ -159,8 +159,14 @@ and material integration only. Page styles own layout, not alternate palettes.
   window is bound by an owning-thread hook before show, with an exact HMENU
   match. Suppress the legacy class shadow before its separate window can be
   created, restoring the flag when the popup closes; painting-time DC lookup
-  is not a reliable way to bind a buffered menu. The GDI surface is opaque,
-  not Acrylic.
+  is not a reliable way to bind a buffered menu. Preserve native nonclient
+  layout policy and disable menu slide animation so visual and hit rectangles
+  stay aligned. Prefer a top-left anchor (opens right); let native work-area
+  fitting move the popup left/up at monitor edges.
+  Windows 11 supports the transient Acrylic backdrop with full-frame glass
+  and premultiplied glyph/icon/hover pixels. Older systems, disabled system
+  transparency and allocation/API failures use an opaque surface. Do not
+  reduce the opacity of the entire menu or blur its text.
   Page modals are a
   browser-fixture fallback only; compact pickers and transient toasts may remain
   in-page. A failed native request must never approve an action or fall back to

@@ -1,6 +1,8 @@
 //! Owner drawing changes pixels only; HMENU still owns input and accessibility.
 use std::cell::Cell;
 use tauri::image::Image;
+#[path = "windows_acrylic.rs"]
+mod acrylic;
 use windows_sys::Win32::{
     Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM},
     Graphics::{Dwm::*, Gdi::*},
@@ -57,6 +59,7 @@ struct Item {
     danger: bool,
 }
 struct Style {
+    acrylic: Cell<bool>,
     popup: Cell<HWND>,
     shadow_class: Cell<Option<usize>>,
     shadow_suppressed: Cell<bool>,
@@ -154,7 +157,10 @@ pub unsafe fn attach(
         return Err("Menu font unavailable".into());
     }
     metrics.lfMenuFont.lfHeight = -metrics.lfMenuFont.lfHeight.abs().max(px(dpi, 13));
+    // Grayscale glyph coverage remains valid on both opaque and acrylic surfaces.
+    metrics.lfMenuFont.lfQuality = ANTIALIASED_QUALITY;
     let mut style = Box::new(Style {
+        acrylic: Cell::new(false),
         popup: Cell::new(std::ptr::null_mut()),
         shadow_class: Cell::new(None),
         shadow_suppressed: Cell::new(false),
@@ -324,9 +330,9 @@ fn log_frame(style: &Style) {
                 .open(path)
             {
                 let _ = writeln!(file,
-                    "frame3 seen={} bound={} corner={} legacy_shadow_disabled={} frame_paints={} shadow_windows={}",
+                    "frame4 seen={} bound={} corner={} legacy_shadow_disabled={} frame_paints={} shadow_windows={} acrylic={}",
                     style.saw_popup.get(), style.bound_popup.get(), style.corner_result.get(),
-                    style.shadow_suppressed.get(), style.frame_paints.get(), style.shadow_windows.get());
+                    style.shadow_suppressed.get(), style.frame_paints.get(), style.shadow_windows.get(), style.acrylic.get());
             }
         }
     }
@@ -375,7 +381,7 @@ unsafe extern "system" fn paint(
 
 // Called before show for the popup whose HMENU matches the active request.
 // DWM owns clipping and shadows: regions/layered windows would disable its rounding.
-// HMENU's GDI surface remains opaque; requesting Acrylic here would be misleading.
+// Only visual attributes: never change NC layout after HMENU measures its rows.
 unsafe fn frame(style: &Style, popup: HWND) {
     if popup.is_null() || style.popup.get() == popup {
         return;
@@ -426,13 +432,6 @@ unsafe fn frame(style: &Style, popup: HWND) {
             style.shadow_suppressed.set(true);
         }
     }
-    let policy = DWMNCRP_ENABLED;
-    DwmSetWindowAttribute(
-        popup,
-        DWMWA_NCRENDERING_POLICY as u32,
-        (&policy as *const DWMNCRENDERINGPOLICY).cast(),
-        std::mem::size_of_val(&policy) as u32,
-    );
     let dark: i32 = (style.palette.surface == Palette::new(true).surface).into();
     DwmSetWindowAttribute(
         popup,
@@ -451,6 +450,7 @@ unsafe fn frame(style: &Style, popup: HWND) {
         (&border as *const COLORREF).cast(),
         std::mem::size_of_val(&border) as u32,
     );
+    acrylic::configure(style, popup);
     // The pending native show lays out and paints it. No reentrant positioning.
 }
 
@@ -481,6 +481,10 @@ unsafe extern "system" fn popup_frame(
     if message == WM_NCDESTROY {
         detach_popup(style);
         return DefSubclassProc(hwnd, message, wp, lp);
+    }
+    if message == WM_SETTINGCHANGE || message == WM_THEMECHANGED {
+        acrylic::configure(style, hwnd);
+        InvalidateRect(hwnd, std::ptr::null(), 1);
     }
     // Owner-drawn items do not replace the stock menu's beveled NC border.
     // DWM rounds the outside; paint its inner border with the same flat surface
@@ -533,7 +537,15 @@ unsafe fn paint_frame(hwnd: HWND, style: &Style) -> bool {
                 right: bounds.right - bounds.left,
                 bottom: bounds.bottom - bounds.top,
             };
-            painted = FillRect(dc, &rect, style.surface) != 0;
+            painted = FillRect(
+                dc,
+                &rect,
+                if style.acrylic.get() {
+                    GetStockObject(BLACK_BRUSH)
+                } else {
+                    style.surface
+                },
+            ) != 0;
         }
         RestoreDC(dc, saved);
     }
@@ -542,14 +554,46 @@ unsafe fn paint_frame(hwnd: HWND, style: &Style) -> bool {
 }
 
 unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
+    if style.acrylic.get() {
+        if acrylic::draw_item(style, item, draw) {
+            return;
+        }
+        // A failed alpha buffer must not leave opaque GDI text on glass.
+        acrylic::disable(style, style.popup.get());
+    }
+    draw_content(style, item, draw, false);
+}
+
+// The acrylic path uses a grayscale mask to preserve glyph/icon alpha. Native
+// menu selection and rectangles remain the source of truth for both renderers.
+unsafe fn draw_content(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT, mask: bool) {
+    let palette = if mask {
+        Palette {
+            surface: 0,
+            hover: 0,
+            text: rgb(255, 255, 255),
+            muted: rgb(255, 255, 255),
+            danger: rgb(255, 255, 255),
+        }
+    } else {
+        style.palette
+    };
     let dc = draw.hDC;
     let saved = SaveDC(dc);
     if saved == 0 {
         return;
     }
     let rect = draw.rcItem;
-    let selected = draw.itemState & ODS_SELECTED != 0;
-    FillRect(dc, &rect, style.surface);
+    let selected = !mask && draw.itemState & ODS_SELECTED != 0;
+    FillRect(
+        dc,
+        &rect,
+        if mask {
+            GetStockObject(BLACK_BRUSH)
+        } else {
+            style.surface
+        },
+    );
     if selected {
         let inset = px(style.dpi, 4);
         let vertical = px(style.dpi, 2);
@@ -569,9 +613,9 @@ unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
     SelectObject(dc, style.font);
     SetBkMode(dc, TRANSPARENT as i32);
     let color = if item.danger {
-        style.palette.danger
+        palette.danger
     } else {
-        style.palette.text
+        palette.text
     };
     SetTextColor(dc, color);
     let mut label = RECT {
@@ -580,14 +624,27 @@ unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
         right: rect.right - px(style.dpi, 12),
         bottom: rect.bottom,
     };
+    let mut shortcut_size = SIZE::default();
+    if !item.shortcut.is_empty() {
+        GetTextExtentPoint32W(
+            dc,
+            item.shortcut.as_ptr(),
+            item.shortcut.len() as i32,
+            &mut shortcut_size,
+        );
+    }
+    let mut label_rect = label;
+    if shortcut_size.cx > 0 {
+        label_rect.right -= shortcut_size.cx + px(style.dpi, 24);
+    }
     DrawTextW(
         dc,
         item.label.as_ptr(),
         item.label.len() as i32,
-        &mut label,
-        DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
+        &mut label_rect,
+        DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS,
     );
-    SetTextColor(dc, style.palette.muted);
+    SetTextColor(dc, palette.muted);
     if !item.shortcut.is_empty() {
         DrawTextW(
             dc,
@@ -598,9 +655,9 @@ unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
         );
     }
     let background = if selected {
-        style.palette.hover
+        palette.hover
     } else {
-        style.palette.surface
+        palette.surface
     };
     let pixels = matte(item.icon.rgba(), color, background);
     let info = BITMAPINFO {
@@ -693,6 +750,7 @@ mod tests {
                     for selected in [false, true] {
                         let palette = Palette::new(dark);
                         let style = Style {
+                            acrylic: Cell::new(false),
                             popup: Cell::new(std::ptr::null_mut()),
                             shadow_class: Cell::new(None),
                             shadow_suppressed: Cell::new(false),

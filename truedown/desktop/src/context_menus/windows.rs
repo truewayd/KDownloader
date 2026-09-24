@@ -13,7 +13,12 @@ use windows_sys::Win32::{
     Foundation::{POINT, RECT},
     Graphics::Gdi::ClientToScreen,
     UI::{
-        HiDpi::GetDpiForWindow, Input::KeyboardAndMouse::IsWindowEnabled, WindowsAndMessaging::*,
+        HiDpi::{
+            GetDpiForWindow, GetWindowDpiAwarenessContext, SetThreadDpiAwarenessContext,
+            DPI_AWARENESS_CONTEXT,
+        },
+        Input::KeyboardAndMouse::IsWindowEnabled,
+        WindowsAndMessaging::*,
     },
 };
 
@@ -121,6 +126,16 @@ pub async fn show_context_menu(
 }
 
 struct Menu(HMENU);
+struct DpiContext(DPI_AWARENESS_CONTEXT);
+impl Drop for DpiContext {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                SetThreadDpiAwarenessContext(self.0);
+            }
+        }
+    }
+}
 impl Drop for Menu {
     fn drop(&mut self) {
         unsafe {
@@ -139,6 +154,14 @@ unsafe fn track(
     if IsWindowVisible(hwnd) == 0 || IsWindowEnabled(hwnd) == 0 || GetForegroundWindow() != hwnd {
         return Err("Menus require a visible focused caller".into());
     }
+    // Measure, place and track in the caller's coordinate space, even if another
+    // native dialog temporarily changed this UI thread's DPI awareness.
+    let context = GetWindowDpiAwarenessContext(hwnd);
+    let _dpi = DpiContext(if context.is_null() {
+        std::ptr::null_mut()
+    } else {
+        SetThreadDpiAwarenessContext(context)
+    });
     let menu = Menu(CreatePopupMenu());
     if menu.0.is_null() {
         return Err("Cannot create context menu".into());
@@ -163,15 +186,15 @@ unsafe fn track(
     if ClientToScreen(hwnd, &mut point) == 0 {
         return Err("Menu position unavailable".into());
     }
-    let alignment = if GetSystemMetrics(SM_MENUDROPALIGNMENT) != 0 {
-        TPM_RIGHTALIGN
-    } else {
-        TPM_LEFTALIGN
-    };
     // Do not raise or focus windows: only the already-active owner can open it.
     let selected = TrackPopupMenuEx(
         menu.0,
-        alignment | TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
+        TPM_LEFTALIGN
+            | TPM_WORKAREA
+            | TPM_NOANIMATION
+            | TPM_RETURNCMD
+            | TPM_NONOTIFY
+            | TPM_RIGHTBUTTON,
         point.x,
         point.y,
         hwnd,
