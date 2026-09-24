@@ -24,7 +24,7 @@ impl Cache {
         kind: Kind,
     ) -> Result<WebviewWindow, String> {
         let (prefix, page, width, height) = match kind {
-            Kind::Confirmation => ("confirmation", "confirmation.html", 480.0, 240.0),
+            Kind::Confirmation => ("confirmation", "confirmation.html", 440.0, 160.0),
             Kind::Menu => ("context-menu", "context-menu-window.html", 256.0, 80.0),
         };
         let label = format!(
@@ -54,7 +54,7 @@ impl Cache {
             .on_navigation(crate::windows::local_navigation);
         let builder = if kind == Kind::Confirmation {
             builder
-                .min_inner_size(320.0, 220.0)
+                .min_inner_size(320.0, 144.0)
                 .center()
                 .icon(
                     tauri::image::Image::from_bytes(include_bytes!("../icons/window/info.png"))
@@ -64,7 +64,11 @@ impl Cache {
         } else {
             builder.shadow(true)
         };
-        builder.build().map_err(|e| e.to_string())
+        let popup = builder.build().map_err(|e| e.to_string())?;
+        if kind == Kind::Confirmation {
+            configure_confirmation_frame(&popup)?;
+        }
+        Ok(popup)
     }
     pub async fn take(
         &self,
@@ -80,6 +84,38 @@ impl Cache {
         }
         self.build(app, parent, kind)
     }
+}
+
+// Secondary Windows dialogs have a title and Close button, but no caption icon.
+// Keep the warning/error symbol in the content only. Tao retains icon ownership.
+#[cfg(target_os = "windows")]
+fn configure_confirmation_frame(window: &WebviewWindow) -> Result<(), String> {
+    let popup = window.clone();
+    window
+        .run_on_main_thread(move || unsafe {
+            use windows_sys::Win32::UI::WindowsAndMessaging::*;
+            if let Ok(handle) = popup.hwnd() {
+                let hwnd = handle.0 as _;
+                let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_DLGMODALFRAME as isize);
+                SendMessageW(hwnd, WM_SETICON, ICON_SMALL as usize, 0);
+                SendMessageW(hwnd, WM_SETICON, ICON_BIG as usize, 0);
+                SetWindowPos(
+                    hwnd,
+                    std::ptr::null_mut(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                );
+            }
+        })
+        .map_err(|e| e.to_string())
+}
+#[cfg(not(target_os = "windows"))]
+fn configure_confirmation_frame(_: &WebviewWindow) -> Result<(), String> {
+    Ok(())
 }
 
 #[tauri::command]

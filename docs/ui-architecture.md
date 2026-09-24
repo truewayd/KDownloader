@@ -115,6 +115,56 @@ positioning, adds a relative context only to static containers, and releases
 its marker classes when the final overlay action is removed. This keeps route
 swaps and hostile generic site selectors from moving or disabling controls.
 
+## TrueDown visual baseline
+
+`truedown/web/ui-baseline.css` is the authoritative product theme, loaded by
+the main/settings/task pages and independent confirmation/menu pages. The base
+primitives retain the shared extension token contract; this single product
+layer supplies neutral desktop surfaces. `native-appearance.css` owns OS frame
+and material integration only. Page styles own layout, not alternate palettes.
+
+- Neutral light/dark surfaces; retain the teal brand accent for active actions.
+- System fonts; body 14px, controls/menu labels 13px, section headings 15px,
+  category headings 24px. Ordinary controls use weight 500, headings 600.
+- Spacing follows 4/8/12/16/24/32px. Controls are normally 36px tall; menus use
+  34px rows and 16px icons. Compact toolbars may use 32px controls.
+- Controls have 6px corners; panels have at most 8px. Use whitespace and surface
+  tones for grouping. No decorative panel outlines, button shadows or repeated
+  separators. Editable fields and visible keyboard/high-contrast focus retain
+  necessary boundaries; popup separation may use the OS-owned shadow.
+- Use one generated Lucide icon system. Icon-only actions require accessible
+  labels. The category reset is a small icon next to its heading. Settings
+  headings scroll with content; saving is automatic, with no floating save bar.
+- Do not repeat a purpose icon in both native caption and content. Windows
+  confirmation frames omit the caption icon; warning/error content has one
+  severity icon, while informational content needs none. macOS keeps the single
+  content icon. Linux content omits an extra icon because window-manager
+  decorations may already supply one. Native utility windows retain their
+  role icon without duplicating it in an interior heading.
+- A native window title names its purpose once. Do not repeat that title as a
+  visible heading inside the window; show explanatory detail and actions there.
+  Hidden accessible headings may remain. Distinct category titles inside the
+  Settings window are appropriate because they convey another level.
+- Information/warning/danger prompts and context menus are separate parented
+  native WebView windows, styled with this same baseline. Page modals are a
+  browser-fixture fallback only; compact pickers and transient toasts may remain
+  in-page. A failed native request must never approve an action or fall back to
+  a page modal.
+- Popup pages stay small and avoid application initialization or polling.
+  Intent-based warm windows are bounded, expire after 60 seconds and are consumed
+  once. Display only after content is ready; keep cancellation and request
+  ownership intact when optimizing latency.
+
+Check light/dark and narrow layouts, actual Windows popup HWND ownership,
+keyboard dismissal and native editing delivery. Browser screenshots establish
+layout only, not native composition or delivery on other operating systems.
+
+Platform references: [Windows secondary dialogs](https://learn.microsoft.com/en-us/windows/win32/uxguide/win-dialog-box#title-bars)
+explicitly omit caption icons; [Apple alerts](https://developer.apple.com/design/human-interface-guidelines/alerts)
+allow an alert icon on macOS; [GNOME dialogs](https://developer.gnome.org/hig/patterns/feedback/dialogs.html)
+emphasize a clear message, parent ownership and specific action labels. The
+Linux icon placement above is our cross-window-manager choice, not a GNOME rule.
+
 ## Change rules
 
 - Add reusable behavior to `shared/components.js`, not page scripts.

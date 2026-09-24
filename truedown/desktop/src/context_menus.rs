@@ -184,9 +184,7 @@ pub async fn show_context_menu(
         area.position.y as f64,
         area.position.y as f64 + area.size.height as f64 - height,
     );
-    popup
-        .set_title("TrueDown menu")
-        .map_err(|e| e.to_string())?;
+    popup.set_title("操作菜单").map_err(|e| e.to_string())?;
     popup
         .set_size(tauri::PhysicalSize::new(width as u32, height as u32))
         .map_err(|e| e.to_string())?;

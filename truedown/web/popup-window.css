@@ -1,19 +1,21 @@
 html, body.popup-window { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--kd-surface); color: var(--kd-text); }
-.popup-window { font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif; }
-.confirmation { display: flex; flex-direction: column; gap: 20px; height: 100%; padding: 24px; box-sizing: border-box; }
-.confirmation-heading { display: flex; align-items: center; gap: 12px; }
-.confirmation-heading .icon { width: 22px; height: 22px; flex: 0 0 auto; }
-.confirmation h1 { font-size: 19px; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
-.confirmation #message { flex: 1; min-height: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.7; margin: 0; }
-.confirmation footer { display: flex; justify-content: flex-end; gap: 10px; flex-shrink: 0; }
+.confirmation { display: flex; flex-direction: column; gap: var(--kd-space-4); height: 100%; padding: 20px var(--kd-space-6); box-sizing: border-box; }
+.confirmation-content { display: flex; flex: 1; min-height: 0; align-items: flex-start; gap: var(--kd-space-3); }
+.confirmation-content .icon { width: 20px; height: 20px; margin-top: 2px; flex: 0 0 auto; }
+.confirmation-content .icon[hidden] { display: none; }
+.confirmation #message { flex: 1; min-width: 0; min-height: 0; max-height: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--kd-font-body); line-height: 1.7; margin: 0; }
+.confirmation footer { display: flex; justify-content: flex-end; gap: var(--kd-space-2); flex-shrink: 0; }
 .confirmation #error { color: var(--kd-error-text); font-size: 12px; margin: 0; }
-.confirmation[data-kind="warning"] .confirmation-heading .icon { color: var(--kd-warning-text, var(--kd-text)); }
-.confirmation[data-kind="error"] .confirmation-heading .icon { color: var(--kd-error-text); }
+.confirmation[data-kind="warning"] .confirmation-content .icon { color: var(--kd-warning); }
+.confirmation[data-kind="error"] .confirmation-content .icon { color: var(--kd-error-text); }
 .popup-window .kd-button { box-shadow: none; }
 .popup-window #menu { padding: 6px; height: 100%; overflow: auto; box-sizing: border-box; }
 .popup-menu-item { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--kd-text); text-align: left; font: inherit; font-size: 13px; cursor: pointer; }
 .popup-menu-item .icon { width: 16px; height: 16px; }
 .popup-menu-item:hover, .popup-menu-item:focus { background: var(--kd-secondary-hover); outline: none; }
-.popup-menu-item:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -2px; }
+.popup-menu-item:focus-visible { background: var(--kd-secondary-hover); }
 .popup-menu-shortcut { color: var(--kd-muted); font-size: 12px; }
 .popup-menu-item.danger { color: var(--kd-danger-button-text); }
+@media (forced-colors: active) {
+  .popup-menu-item:focus { outline: 2px solid Highlight; outline-offset: -2px; }
+}

@@ -215,7 +215,14 @@ pub fn confirmation_init(app: tauri::AppHandle, window: WebviewWindow) -> Option
 }
 
 #[tauri::command]
-pub fn confirmation_ready(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
+pub fn confirmation_ready(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    height: u32,
+) -> Result<(), String> {
+    if !(144..=420).contains(&height) {
+        return Err("Invalid confirmation height".into());
+    }
     let state = app.state::<Confirmations>();
     let parent = {
         let mut pending = state.pending.lock().unwrap();
@@ -232,6 +239,34 @@ pub fn confirmation_ready(app: tauri::AppHandle, window: WebviewWindow) -> Resul
             if !parent.is_visible().map_err(|e| e.to_string())? {
                 return Err("Parent window is hidden".into());
             }
+            let monitor = parent
+                .current_monitor()
+                .map_err(|e| e.to_string())?
+                .ok_or("Confirmation monitor unavailable")?;
+            let scale = monitor.scale_factor();
+            let area = monitor.work_area();
+            let width = (440.0_f64 * scale)
+                .min(area.size.width as f64 - 32.0 * scale)
+                .max(1.0);
+            let height = (height as f64 * scale)
+                .min(area.size.height as f64 - 64.0 * scale)
+                .max(1.0);
+            window
+                .set_size(tauri::PhysicalSize::new(width as u32, height as u32))
+                .map_err(|e| e.to_string())?;
+            let origin = parent.inner_position().map_err(|e| e.to_string())?;
+            let size = parent.inner_size().map_err(|e| e.to_string())?;
+            let x = (origin.x as f64 + (size.width as f64 - width) / 2.0).clamp(
+                area.position.x as f64,
+                area.position.x as f64 + area.size.width as f64 - width,
+            );
+            let y = (origin.y as f64 + (size.height as f64 - height) / 2.0).clamp(
+                area.position.y as f64,
+                area.position.y as f64 + area.size.height as f64 - height - 32.0 * scale,
+            );
+            window
+                .set_position(tauri::PhysicalPosition::new(x as i32, y as i32))
+                .map_err(|e| e.to_string())?;
             parent.set_enabled(false).map_err(|e| e.to_string())?;
             window.show().map_err(|e| e.to_string())?;
             window.set_focus().map_err(|e| e.to_string())?;

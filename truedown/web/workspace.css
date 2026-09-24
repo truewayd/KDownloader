@@ -34,7 +34,7 @@
 .dashboard { width: auto; margin: 0; min-width: 0; padding: 8px 12px 12px 0; }
 .dashboard > .kd-panel { box-shadow: none; }
 .dashboard .kd-button { font-weight: 500; }
-.task-toolbar { flex-shrink: 0; flex-wrap: nowrap; align-items: flex-start; padding: 16px 20px; justify-content: flex-start; gap: 12px; border-bottom: 1px solid var(--kd-border); }
+.task-toolbar { flex-shrink: 0; flex-wrap: nowrap; align-items: flex-start; padding: var(--kd-space-4) var(--kd-space-6); justify-content: flex-start; gap: var(--kd-space-3); border: 0; }
 .task-queue-actions { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6px; }
 .task-toolbar > .kd-icon-button { flex: 0 0 auto; margin-inline-start: auto; }
 .task-toolbar .kd-button { min-height: 32px; padding: 6px 9px; border-color: transparent; background: transparent; box-shadow: none; }
@@ -97,8 +97,9 @@
 [data-native-window="settings"] .settings-page { border: 0; border-radius: 0; }
 #settings-form { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .settings-category-header { display: flex; flex-shrink: 0; align-items: center; gap: 12px; margin-bottom: 32px; }
-.settings-category-header h2 { margin: 0; font-size: 24px; font-weight: 600; line-height: 1.4; }
-#settings-reset-btn { flex-shrink: 0; color: var(--kd-muted); }
+.settings-category-header h2 { margin: 0; font-size: var(--kd-font-title); font-weight: 600; line-height: 1.4; }
+#settings-reset-btn { flex-shrink: 0; min-height: 32px; width: 32px; padding: 6px; color: var(--kd-muted); background: transparent; }
+#settings-reset-btn:hover { background: var(--kd-secondary-hover); }
 .settings-save-error { margin: 0 0 20px; color: var(--kd-error-text); }
 .settings-save-error:empty { display: none; }
 .settings-content { padding: 28px 32px 40px; overflow-y: auto; flex: 1; min-height: 0; scrollbar-gutter: stable; background: var(--kd-surface); }
@@ -107,7 +108,7 @@
 .settings-content > .settings-section:last-child { margin-bottom: 0; }
 .settings-content .settings-section-heading { margin: 0; }
 #settings-general-title, #settings-file-title, #settings-application-title, #settings-update-title, #settings-advanced-title { display: none; }
-.settings-section-heading h3, .runtime-guide h3 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.5; }
+.settings-section-heading h3, .runtime-guide h3 { margin: 0; font-size: var(--kd-font-section); font-weight: 600; line-height: 1.5; }
 .settings-content .form-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
 .settings-group { min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .settings-group legend { float: left; width: 100%; padding: 0; margin-bottom: 16px; font-size: 14px; font-weight: 600; }

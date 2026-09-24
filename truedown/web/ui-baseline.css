@@ -1,0 +1,67 @@
+/* TrueDown visual baseline. All product and popup windows load this file. */
+:root {
+  --kd-bg: #202020;
+  --kd-surface: #2b2b2b;
+  --kd-surface-raised: #353535;
+  --kd-input: #242424;
+  --kd-input-focus: #202020;
+  --kd-text: #f5f5f5;
+  --kd-muted: #bcbcbc;
+  --kd-subtle: #a8a8a8;
+  --kd-placeholder: #9b9b9b;
+  --kd-border: rgb(255 255 255 / 9%);
+  --kd-border-strong: rgb(255 255 255 / 20%);
+  --kd-secondary-hover: #3b3b3b;
+  --kd-secondary-hover-border: rgb(255 255 255 / 22%);
+  --kd-shadow: 0 4px 16px rgb(0 0 0 / 14%);
+  --native-chrome: rgb(32 32 32 / 55%);
+}
+
+:root {
+  --kd-panel-inset: none;
+  --kd-control-height: 36px;
+  --kd-control-radius: 6px;
+  --kd-radius: 8px;
+  --kd-space-1: 4px;
+  --kd-space-2: 8px;
+  --kd-space-3: 12px;
+  --kd-space-4: 16px;
+  --kd-space-6: 24px;
+  --kd-space-8: 32px;
+  --kd-font-label: 13px;
+  --kd-font-body: 14px;
+  --kd-font-section: 15px;
+  --kd-font-dialog: 19px;
+  --kd-font-title: 24px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --kd-bg: #f3f3f3;
+    --kd-surface: #ffffff;
+    --kd-surface-raised: #f5f5f5;
+    --kd-input: #ffffff;
+    --kd-input-focus: #ffffff;
+    --kd-text: #202020;
+    --kd-muted: #606060;
+    --kd-subtle: #6a6a6a;
+    --kd-placeholder: #707070;
+    --kd-border: rgb(0 0 0 / 8%);
+    --kd-border-strong: rgb(0 0 0 / 20%);
+    --kd-secondary-hover: #f0f0f0;
+    --kd-secondary-hover-border: rgb(0 0 0 / 18%);
+    --kd-shadow: 0 4px 16px rgb(0 0 0 / 8%);
+    --native-chrome: rgb(245 245 245 / 45%);
+  }
+}
+
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif; font-size: var(--kd-font-body); }
+.kd-button, .kd-icon-button, .kd-input, .kd-select { border-radius: var(--kd-control-radius); }
+.kd-button, .kd-icon-button { font-weight: 500; box-shadow: none; }
+.panel-header h1 { font-size: var(--kd-font-title); font-weight: 600; }
+.kd-panel { box-shadow: none; }
+.icon { flex-shrink: 0; }
+/* Editable fields and keyboard focus retain boundaries; ordinary surfaces do not. */
+@media (forced-colors: active) {
+  .kd-button, .kd-icon-button { border: 1px solid ButtonText; }
+  .kd-panel { outline: 1px solid CanvasText; }
+}
