@@ -360,7 +360,7 @@ pub fn context_menu_key(
     if let Some(popup) = label.and_then(|label| app.get_webview_window(&label)) {
         let key = serde_json::to_string(&key).map_err(|error| error.to_string())?;
         popup
-            .eval(&format!("window.navigateContextMenu?.({key})"))
+            .eval(format!("window.navigateContextMenu?.({key})"))
             .map_err(|error| error.to_string())?;
     }
     Ok(())
