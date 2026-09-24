@@ -158,9 +158,11 @@ and material integration only. Page styles own layout, not alternate palettes.
   menu surface while excluding all client content from that paint pass. Menu
   creation/initial positioning is observed by a temporary owning-thread call
   hook which attaches a popup subclass. Suppress the legacy class shadow before
-  display, restoring its flag on teardown. Only after DefSubclassProc returns
-  from WM_WINDOWPOSCHANGED may the subclass query the exact HMENU and set DWM
-  visual attributes. The return hook did not observe system-menu messages in
+  display, restoring its flag on teardown. WM_WINDOWPOSCHANGED posts an owner
+  message with a unique ticket; only that later dispatch may query the exact
+  HMENU and set DWM visual attributes. Returning from DefSubclassProc is still
+  inside native positioning and does not make synchronous styling safe.
+  Stale tickets and hidden popups are ignored. The return hook did not observe system-menu messages in
   user acceptance; querying/styling during pending positioning risks reentrancy.
   Painting-time DC lookup is unreliable for buffered menus. Preserve native nonclient
   layout policy and disable menu slide animation so visual and hit rectangles
@@ -172,6 +174,14 @@ and material integration only. Page styles own layout, not alternate palettes.
   full-frame glass are disabled: native menu dismissal did not reliably retain
   their alpha and produced black fade frames. Disable DWM popup transitions
   without changing the user's global animation or transparency preferences.
+  A scoped menu message filter validates native highlighted rows and pointer
+  rectangles, records mouse/Enter/Space activation, and ends/hides the menu
+  before USER32 can create a selected-item fade snapshot. Native arrows and
+  hit testing are retained. Chinese labels use the baseline's YaHei UI at 14px
+  regular, Latin shortcuts prefer Segoe UI Variable Text/Segoe UI, and missing
+  fonts fall back to the system menu font. Keep larger accessibility text and
+  system font smoothing; do not force grayscale on opaque surfaces. GDI and
+  WebView text rasterization can still differ slightly.
   Page modals are a
   browser-fixture fallback only; compact pickers and transient toasts may remain
   in-page. A failed native request must never approve an action or fall back to

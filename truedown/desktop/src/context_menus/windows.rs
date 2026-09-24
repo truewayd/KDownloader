@@ -9,6 +9,8 @@ use std::{
 use tauri::{Manager, WebviewWindow};
 #[path = "windows_style.rs"]
 mod style;
+#[path = "windows_tracking.rs"]
+mod tracking;
 use windows_sys::Win32::{
     Foundation::{POINT, RECT},
     Graphics::Gdi::ClientToScreen,
@@ -46,7 +48,7 @@ impl Menus {
                 .is_some_and(|request| Arc::ptr_eq(&request.cancelled, &token))
             {
                 unsafe {
-                    EndMenu();
+                    style::dismiss();
                 }
             }
         });
@@ -174,6 +176,7 @@ unsafe fn track(
         }
     }
     let _style = style::attach(window, menu.0, actions)?;
+    let tracking = tracking::Tracking::attach(menu.0, hwnd, actions.len())?;
     let scale = GetDpiForWindow(hwnd) as f64 / 96.0;
     let mut rect: RECT = std::mem::zeroed();
     if GetClientRect(hwnd, &mut rect) == 0 {
@@ -200,6 +203,7 @@ unsafe fn track(
         hwnd,
         std::ptr::null(),
     );
+    let selected = tracking.selected(selected as u32);
     if cancelled.load(Ordering::SeqCst)
         || IsWindowVisible(hwnd) == 0
         || GetForegroundWindow() != hwnd

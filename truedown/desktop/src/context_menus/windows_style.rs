@@ -1,5 +1,8 @@
 //! Owner drawing changes pixels only; HMENU still owns input and accessibility.
-use std::cell::Cell;
+use std::{
+    cell::Cell,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 use tauri::image::Image;
 use windows_sys::Win32::{
     Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM},
@@ -15,6 +18,7 @@ use windows_sys::Win32::{
 
 const SUBCLASS: usize = 0x54444d53;
 const POPUP_SUBCLASS: usize = 0x54444d46;
+static FRAME_TICKET: AtomicUsize = AtomicUsize::new(1);
 thread_local! {
     static TRACKED_STYLE: Cell<*const Style> = const { Cell::new(std::ptr::null()) };
 }
@@ -58,6 +62,13 @@ struct Item {
 }
 struct Style {
     geometry: Cell<Option<(usize, RECT, RECT, POINT)>>,
+    frame_geometry: Cell<Option<(RECT, RECT)>>,
+    pointer_geometry: Cell<Option<(RECT, RECT, POINT, u32)>>,
+    owner: HWND,
+    frame_message: u32,
+    frame_ticket: usize,
+    frame_queued: Cell<bool>,
+    closing: Cell<bool>,
     popup: Cell<HWND>,
     checking_popup: Cell<bool>,
     frame_attempted: Cell<bool>,
@@ -74,6 +85,7 @@ struct Style {
     height: u32,
     palette: Palette,
     font: HFONT,
+    shortcut_font: HFONT,
     surface: HBRUSH,
     hover: HBRUSH,
     items: Vec<Item>,
@@ -82,6 +94,7 @@ impl Drop for Style {
     fn drop(&mut self) {
         unsafe {
             DeleteObject(self.font);
+            DeleteObject(self.shortcut_font);
             DeleteObject(self.surface);
             DeleteObject(self.hover);
         }
@@ -120,6 +133,59 @@ fn px(dpi: u32, logical: i32) -> i32 {
     ((logical as i64 * dpi as i64 + 48) / 96) as i32
 }
 
+pub unsafe fn dismiss() {
+    // Cancelling (rather than executing inside USER32) skips selection fade.
+    EndMenu();
+    TRACKED_STYLE.with(|slot| {
+        if let Some(style) = slot.get().as_ref() {
+            let popup = style.popup.get();
+            if !popup.is_null() {
+                disable_close_transition(style, popup);
+                ShowWindow(popup, SW_HIDE);
+            }
+        }
+    });
+}
+
+unsafe fn disable_close_transition(style: &Style, popup: HWND) {
+    if style.closing.replace(true) {
+        return;
+    }
+    let disabled: i32 = 1;
+    DwmSetWindowAttribute(
+        popup,
+        DWMWA_TRANSITIONS_FORCEDISABLED as u32,
+        (&disabled as *const i32).cast(),
+        std::mem::size_of_val(&disabled) as u32,
+    );
+}
+
+pub unsafe fn record_pointer(point: POINT) {
+    #[cfg(debug_assertions)]
+    TRACKED_STYLE.with(|slot| {
+        if let Some(style) = slot.get().as_ref() {
+            let popup = style.popup.get();
+            let mut window = RECT::default();
+            let mut composed = RECT::default();
+            if !popup.is_null()
+                && GetWindowRect(popup, &mut window) != 0
+                && DwmGetWindowAttribute(
+                    popup,
+                    DWMWA_EXTENDED_FRAME_BOUNDS as u32,
+                    (&mut composed as *mut RECT).cast(),
+                    std::mem::size_of::<RECT>() as u32,
+                ) >= 0
+            {
+                style
+                    .pointer_geometry
+                    .set(Some((window, composed, point, GetDpiForWindow(popup))));
+            }
+        }
+    });
+    #[cfg(not(debug_assertions))]
+    let _ = point;
+}
+
 pub unsafe fn attach(
     window: &tauri::WebviewWindow,
     menu: HMENU,
@@ -156,11 +222,33 @@ pub unsafe fn attach(
     {
         return Err("Menu font unavailable".into());
     }
-    metrics.lfMenuFont.lfHeight = -metrics.lfMenuFont.lfHeight.abs().max(px(dpi, 13));
-    // Use grayscale antialiasing for a consistent system-font appearance.
-    metrics.lfMenuFont.lfQuality = ANTIALIASED_QUALITY;
+    // Match ui-baseline.css: 14px regular, YaHei UI for Chinese labels and
+    // Segoe UI for Latin shortcuts. Preserve larger accessibility menu text.
+    metrics.lfMenuFont.lfHeight = -metrics.lfMenuFont.lfHeight.abs().max(px(dpi, 14));
+    metrics.lfMenuFont.lfWeight = FW_NORMAL as i32;
+    // DEFAULT_QUALITY honors system font smoothing (including ClearType).
+    // Forced grayscale was needed for glass, but makes opaque text look thin.
+    metrics.lfMenuFont.lfQuality = DEFAULT_QUALITY;
+    let font = ui_font(hwnd, metrics.lfMenuFont, &["Microsoft YaHei UI"]);
+    let shortcut_font = ui_font(
+        hwnd,
+        metrics.lfMenuFont,
+        &["Segoe UI Variable Text", "Segoe UI"],
+    );
     let mut style = Box::new(Style {
         geometry: Cell::new(None),
+        frame_geometry: Cell::new(None),
+        pointer_geometry: Cell::new(None),
+        owner: hwnd,
+        frame_message: RegisterWindowMessageW(
+            "TrueDown.ContextMenu.ApplyFrame.v7\0"
+                .encode_utf16()
+                .collect::<Vec<_>>()
+                .as_ptr(),
+        ),
+        frame_queued: Cell::new(false),
+        closing: Cell::new(false),
+        frame_ticket: FRAME_TICKET.fetch_add(1, Ordering::Relaxed),
         popup: Cell::new(std::ptr::null_mut()),
         checking_popup: Cell::new(false),
         frame_attempted: Cell::new(false),
@@ -176,12 +264,18 @@ pub unsafe fn attach(
         width: px(dpi, 240) as u32,
         height: px(dpi, 36).max(metrics.lfMenuFont.lfHeight.abs() + px(dpi, 16)) as u32,
         palette,
-        font: CreateFontIndirectW(&metrics.lfMenuFont),
+        font,
+        shortcut_font,
         surface: CreateSolidBrush(palette.surface),
         hover: CreateSolidBrush(palette.hover),
         items: Vec::with_capacity(actions.len()),
     });
-    if style.font.is_null() || style.surface.is_null() || style.hover.is_null() {
+    if style.frame_message == 0
+        || style.font.is_null()
+        || style.shortcut_font.is_null()
+        || style.surface.is_null()
+        || style.hover.is_null()
+    {
         return Err("Menu drawing resources unavailable".into());
     }
     for action in actions {
@@ -202,10 +296,12 @@ pub unsafe fn attach(
     }
     let previous = SelectObject(dc, style.font);
     for item in &style.items {
+        SelectObject(dc, style.font);
         let mut label = SIZE::default();
         let mut shortcut = SIZE::default();
         GetTextExtentPoint32W(dc, item.label.as_ptr(), item.label.len() as i32, &mut label);
         if !item.shortcut.is_empty() {
+            SelectObject(dc, style.shortcut_font);
             GetTextExtentPoint32W(
                 dc,
                 item.shortcut.as_ptr(),
@@ -279,6 +375,51 @@ pub unsafe fn attach(
     Ok(Some(guard))
 }
 
+unsafe fn ui_font(hwnd: HWND, mut font: LOGFONTW, families: &[&str]) -> HFONT {
+    unsafe extern "system" fn found(
+        _: *const LOGFONTW,
+        _: *const TEXTMETRICW,
+        _: u32,
+        data: LPARAM,
+    ) -> i32 {
+        *(data as *mut bool) = true;
+        0
+    }
+    let dc = GetDC(hwnd);
+    let original = font.lfFaceName;
+    if !dc.is_null() {
+        for family in families {
+            font.lfFaceName = [0; 32];
+            for (slot, ch) in font
+                .lfFaceName
+                .iter_mut()
+                .take(31)
+                .zip(family.encode_utf16())
+            {
+                *slot = ch;
+            }
+            let mut available = false;
+            let mut query = font;
+            query.lfCharSet = DEFAULT_CHARSET;
+            EnumFontFamiliesExW(
+                dc,
+                &query,
+                Some(found),
+                (&mut available as *mut bool) as isize,
+                0,
+            );
+            if available {
+                ReleaseDC(hwnd, dc);
+                font.lfCharSet = DEFAULT_CHARSET;
+                return CreateFontIndirectW(&font);
+            }
+        }
+        ReleaseDC(hwnd, dc);
+    }
+    font.lfFaceName = original;
+    CreateFontIndirectW(&font)
+}
+
 unsafe extern "system" fn observe_popup_creation(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     if code >= 0 && lp != 0 {
         let message = &*(lp as *const CWPSTRUCT);
@@ -323,9 +464,30 @@ fn log_frame(style: &Style) {
                 .open(path)
             {
                 let _ = writeln!(file,
-                    "frame6 seen={} bound={} corner={} legacy_shadow_disabled={} frame_paints={} shadow_windows={} material=opaque",
+                    "frame7 seen={} bound={} corner={} legacy_shadow_disabled={} frame_paints={} shadow_windows={} material=opaque frame_dispatch=posted",
                     style.saw_popup.get(), style.bound_popup.get(), style.corner_result.get(),
                     style.shadow_suppressed.get(), style.frame_paints.get(), style.shadow_windows.get());
+                if let Some((before, after)) = style.frame_geometry.get() {
+                    let _ = writeln!(
+                        file,
+                        "frame_before=[{},{},{},{}] frame_after=[{},{},{},{}]",
+                        before.left,
+                        before.top,
+                        before.right,
+                        before.bottom,
+                        after.left,
+                        after.top,
+                        after.right,
+                        after.bottom
+                    );
+                }
+                if let Some((window, composed, point, dpi)) = style.pointer_geometry.get() {
+                    let _ =
+                        writeln!(file,
+                        "pointer=[{},{}] window=[{},{},{},{}] composed=[{},{},{},{}] popup_dpi={}",
+                        point.x, point.y, window.left, window.top, window.right, window.bottom,
+                        composed.left, composed.top, composed.right, composed.bottom, dpi);
+                }
                 if let Some((index, window, row, cursor)) = style.geometry.get() {
                     let _ = writeln!(
                         file,
@@ -359,6 +521,27 @@ unsafe extern "system" fn paint(
     data: usize,
 ) -> LRESULT {
     let style = &*(data as *const Style);
+    if message == style.frame_message {
+        // Never carry a raw Style pointer in a queued message: stale deliveries
+        // must match this live menu and popup, and must not resurrect a hidden one.
+        if wp == style.frame_ticket
+            && lp == style.popup.get() as isize
+            && !style.popup.get().is_null()
+            && !style.closing.get()
+            && IsWindowVisible(style.popup.get()) != 0
+        {
+            finish_popup_frame(style, style.popup.get());
+            if style.bound_popup.get() {
+                RedrawWindow(
+                    style.popup.get(),
+                    std::ptr::null(),
+                    std::ptr::null_mut(),
+                    RDW_INVALIDATE | RDW_FRAME | RDW_UPDATENOW,
+                );
+            }
+        }
+        return 0;
+    }
     if message == WM_MEASUREITEM && lp != 0 {
         let measure = &mut *(lp as *mut MEASUREITEMSTRUCT);
         if measure.CtlType == ODT_MENU
@@ -444,8 +627,8 @@ unsafe fn observe_popup(style: &Style, popup: HWND) {
     }
 }
 
-// Run from our subclass AFTER the native position handler returns. Native menu
-// windows do not reliably invoke WH_CALLWNDPROCRET for these internal messages.
+// A posted owner message runs after the ENTIRE native positioning call unwinds.
+// Returning from DefSubclassProc(WM_WINDOWPOSCHANGED) is still inside that call.
 unsafe fn finish_popup_frame(style: &Style, popup: HWND) {
     if style.frame_attempted.get() || style.checking_popup.replace(true) {
         return;
@@ -463,6 +646,8 @@ unsafe fn finish_popup_frame(style: &Style, popup: HWND) {
     // Protect against nested messages sent by DWM. Never resize, move, extend
     // glass, replace WM_NCCALCSIZE, or change the native NC rendering policy.
     style.frame_attempted.set(true);
+    let mut before = RECT::default();
+    GetWindowRect(popup, &mut before);
     let corner = DWMWCP_ROUND;
     let result = DwmSetWindowAttribute(
         popup,
@@ -501,6 +686,9 @@ unsafe fn finish_popup_frame(style: &Style, popup: HWND) {
         (&disabled as *const i32).cast(),
         std::mem::size_of_val(&disabled) as u32,
     );
+    let mut after = RECT::default();
+    GetWindowRect(popup, &mut after);
+    style.frame_geometry.set(Some((before, after)));
 }
 
 unsafe fn detach_popup(style: &Style) {
@@ -527,6 +715,16 @@ unsafe extern "system" fn popup_frame(
     data: usize,
 ) -> LRESULT {
     let style = &*(data as *const Style);
+    // Native outside-click, focus-loss and teardown paths also pass here.
+    // Closing before the posted styling message must not retain DWM fading.
+    if (message == WM_SHOWWINDOW && wp == 0)
+        || message == WM_DESTROY
+        || (message == WM_WINDOWPOSCHANGING
+            && lp != 0
+            && (*(lp as *const WINDOWPOS)).flags & SWP_HIDEWINDOW != 0)
+    {
+        disable_close_transition(style, hwnd);
+    }
     if message == WM_NCDESTROY {
         detach_popup(style);
         return DefSubclassProc(hwnd, message, wp, lp);
@@ -538,11 +736,17 @@ unsafe extern "system" fn popup_frame(
         return 0;
     }
     let result = DefSubclassProc(hwnd, message, wp, lp);
-    if message == WM_WINDOWPOSCHANGED {
-        finish_popup_frame(style, hwnd);
+    if message == WM_WINDOWPOSCHANGED && !style.frame_queued.get() && IsWindowVisible(hwnd) != 0 {
+        style.frame_queued.set(
+            PostMessageW(
+                style.owner,
+                style.frame_message,
+                style.frame_ticket,
+                hwnd as isize,
+            ) != 0,
+        );
     }
-    if style.bound_popup.get() && matches!(message, WM_PAINT | WM_NCACTIVATE | WM_WINDOWPOSCHANGED)
-    {
+    if style.bound_popup.get() && matches!(message, WM_PAINT | WM_NCACTIVATE) {
         // The native menu can repaint its edge with the client/activation pass.
         paint_frame(hwnd, style);
     }
@@ -668,6 +872,7 @@ unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
     };
     let mut shortcut_size = SIZE::default();
     if !item.shortcut.is_empty() {
+        SelectObject(dc, style.shortcut_font);
         GetTextExtentPoint32W(
             dc,
             item.shortcut.as_ptr(),
@@ -679,6 +884,7 @@ unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
     if shortcut_size.cx > 0 {
         label_rect.right -= shortcut_size.cx + px(style.dpi, 24);
     }
+    SelectObject(dc, style.font);
     DrawTextW(
         dc,
         item.label.as_ptr(),
@@ -688,6 +894,7 @@ unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
     );
     SetTextColor(dc, palette.muted);
     if !item.shortcut.is_empty() {
+        SelectObject(dc, style.shortcut_font);
         DrawTextW(
             dc,
             item.shortcut.as_ptr(),
@@ -793,6 +1000,13 @@ mod tests {
                         let palette = Palette::new(dark);
                         let style = Style {
                             geometry: Cell::new(None),
+                            frame_geometry: Cell::new(None),
+                            pointer_geometry: Cell::new(None),
+                            owner: std::ptr::null_mut(),
+                            frame_message: 0,
+                            frame_ticket: 0,
+                            frame_queued: Cell::new(false),
+                            closing: Cell::new(false),
                             popup: Cell::new(std::ptr::null_mut()),
                             checking_popup: Cell::new(false),
                             frame_attempted: Cell::new(false),
@@ -809,6 +1023,10 @@ mod tests {
                             height: 54,
                             palette,
                             font: CreateFontIndirectW(&LOGFONTW {
+                                lfHeight: -20,
+                                ..Default::default()
+                            }),
+                            shortcut_font: CreateFontIndirectW(&LOGFONTW {
                                 lfHeight: -20,
                                 ..Default::default()
                             }),
