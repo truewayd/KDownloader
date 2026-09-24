@@ -456,8 +456,14 @@ try {
   }
   await settings.locator('[data-settings-link="files"]').click();
   await waitForNativeCondition(settings, () => document.querySelectorAll("[data-group-id]").length === 8 && !document.querySelector('[data-settings-page="files"]').inert);
-  await settings.locator('[data-group-id="document"] .group-name-field input').fill("Documents review");
-  await settings.locator('[data-group-id="document"] .group-name-field input').dispatchEvent("change");
+  // CDP fill can acknowledge without inserting text into an inactive WebView2.
+  // This hidden fixture checks persistence; windows-editing covers OS editing.
+  await settings.evaluate(() => {
+    const input = document.querySelector('[data-group-id="document"] .group-name-field input');
+    input.value = "Documents review";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
   const readGroupRenameState = () => ({
     value: document.querySelector('[data-group-id="document"] .group-name-field input').value,
     draft: fileGroupsDraft.find(group => group.id === "document")?.name,
