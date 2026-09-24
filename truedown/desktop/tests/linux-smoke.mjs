@@ -70,7 +70,15 @@ try {
   const info = await evaluate("return window.__TAURI__.core.invoke('core_request',{request:{method:'GET',path:'/system/info'}})");
   assert.equal(JSON.parse(info.body).product, "TrueDown");
   phase = "native editor and clipboard delivery";
-  await acceptNativeEditing(evaluate, until);
+  const editingCaller = await command("GET", "/window");
+  await acceptNativeEditing(evaluate, until, async action => {
+    const popup = await until(async () => (await command("GET", "/window/handles")).find(handle => handle !== editingCaller));
+    await command("POST", "/window", { handle: popup });
+    await until(() => evaluate(`return Boolean(document.querySelector('[data-action="${action}"]'))`));
+    await evaluate(`document.querySelector('[data-action="${action}"]').click(); return true`);
+    await until(async () => !(await command("GET", "/window/handles")).includes(popup));
+    await command("POST", "/window", { handle: editingCaller });
+  });
   phase = "native windows and settings";
   for (const kind of ["settings", "logs", "about", "new-task"]) await evaluate("return window.__TAURI__.core.invoke('open_auxiliary',{kind:arguments[0]})", [kind]);
   const handles = await until(async () => { const handles = await command("GET", "/window/handles"); return handles.length === 3 && handles; });

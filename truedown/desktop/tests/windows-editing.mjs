@@ -53,7 +53,8 @@ async function until(check, milliseconds = 30000) {
   while (Date.now() < deadline) {
     if (launchError) throw launchError;
     assert.equal(child.exitCode, null, `Desktop exited: ${diagnostic}`);
-    if (await bounded(check(), deadline - Date.now())) return;
+    const result = await bounded(check(), deadline - Date.now());
+    if (result) return result;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   throw new Error('Native editing readiness timed out');
@@ -62,11 +63,24 @@ const request = (route, options = {}) => fetch(`http://127.0.0.1:${apiPort}${rou
 try {
   await until(() => fetch(`http://127.0.0.1:${debugPort}/json/version`, { signal: AbortSignal.timeout(2000) }).then(r => r.ok, () => false), 60000);
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { timeout: 10000 });
-  const page = browser.contexts()[0].pages()[0];
+  let page = browser.contexts()[0].pages()[0];
   await bounded(page.emulateMedia({ colorScheme: null }));
   const evaluate = script => bounded(page.evaluate(`(async()=>{${script}})()`));
   await until(() => nativeEditingDocumentReady(evaluate));
-  await acceptNativeEditing(evaluate, until);
+  await evaluate("return window.__TAURI__.core.invoke('open_auxiliary',{kind:'settings'})");
+  page = await until(() => browser.contexts()[0].pages().find(candidate => candidate.url().includes('window=settings')));
+  await page.emulateMedia({ colorScheme: null });
+  await until(() => nativeEditingDocumentReady(evaluate));
+  await until(() => evaluate("return typeof settingsReady !== 'undefined' && settingsReady.has('general')"));
+  await page.locator('#cfg-folder').click();
+  await acceptNativeEditing(evaluate, until, async action => {
+    const menu = await until(() => browser.contexts()[0].pages().find(candidate => candidate.url().endsWith('context-menu-window.html')))
+      .catch(async error => { throw new Error(`${action}: ${error.message}; ${diagnostic}; ${JSON.stringify(await evaluate('return window.__nativeEditing.debug()'))}`); });
+    await menu.emulateMedia({ colorScheme: null });
+    await menu.locator(`[data-action="${action}"]`).click()
+      .catch(async error => { throw new Error(`${action}: ${error.message}; ${diagnostic}; ${JSON.stringify(await evaluate('return window.__nativeEditing.debug()'))}`); });
+    await until(() => !browser.contexts()[0].pages().includes(menu));
+  });
   console.log('windows_native_editing=ok clipboard_round_trip=ok editor_actions=ok');
 } finally {
   // Check profile identity before asking a possibly recycled port to exit.

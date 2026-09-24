@@ -5,6 +5,7 @@ mod bridge;
 mod build_info;
 mod commands;
 mod confirmations;
+mod context_menus;
 mod core;
 mod drops;
 mod editing;
@@ -135,8 +136,22 @@ fn main() {
         .manage(placement::Tracker::default())
         .manage(pickers::DirectoryPickers::default())
         .manage(confirmations::Confirmations::default())
+        .manage(context_menus::Menus::default())
         .manage(drops::Drops::default())
         .invoke_handler(|invoke| {
+            if invoke
+                .message
+                .webview_ref()
+                .label()
+                .starts_with("context-menu-")
+                && !matches!(
+                    invoke.message.command(),
+                    "context_menu_init" | "context_menu_ready" | "context_menu_answer"
+                )
+            {
+                invoke.resolver.reject("Unavailable in menu windows");
+                return true;
+            }
             if invoke
                 .message
                 .webview_ref()
@@ -165,6 +180,11 @@ fn main() {
                 confirmations::confirmation_ready,
                 confirmations::confirmation_answer,
                 confirmations::confirmation_cancel,
+                context_menus::show_context_menu,
+                context_menus::context_menu_init,
+                context_menus::context_menu_ready,
+                context_menus::context_menu_answer,
+                context_menus::context_menu_cancel,
                 windows::open_auxiliary,
                 windows::open_task_details,
                 windows::task_details_state,
@@ -300,7 +320,9 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label().starts_with("confirmation-") {
+            if window.label().starts_with("confirmation-")
+                || window.label().starts_with("context-menu-")
+            {
                 return;
             }
             if let WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {

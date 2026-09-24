@@ -13,7 +13,13 @@ function installNativeEditingAcceptance() {
   target.style.cssText = 'position:fixed;left:40px;top:170px;width:240px;height:50px;z-index:100';
   document.body.append(source, target);
   let pending = false, completed = false, failed = false;
+  let menuRequests = 0, menuError = "", menuResult;
   window.invokeNative = async (command, args) => {
+    if (command === 'show_context_menu') {
+      menuRequests++;
+      try { return menuResult = await original(command, args); }
+      catch (error) { menuError = String(error); throw error; }
+    }
     if (command !== 'edit_action') return original(command, args);
     pending = true;
     try {
@@ -28,6 +34,7 @@ function installNativeEditingAcceptance() {
     } finally { pending = false; }
   };
   window.__nativeEditing = {
+    debug() { return { menuRequests, menuError, menuResult, visible: source.checkVisibility(), inert: Boolean(source.closest('[inert]')), pageMenus: document.querySelectorAll('[role="menu"]').length }; },
     async start(action) {
       if (pending) throw new Error('Overlapping editor actions');
       completed = false; failed = false;
@@ -42,9 +49,7 @@ function installNativeEditingAcceptance() {
         input.dispatchEvent(new MouseEvent('contextmenu', {
           bubbles: true, cancelable: true, button: 2, clientX: 20, clientY: 20,
         }));
-        const button = document.querySelector(`[data-menu-action="${action}"]`);
-        if (!button) throw new Error('Missing editing menu action');
-        button.click();
+        // The native driver chooses the action in the separate popup WebView.
       }
       return true;
     },

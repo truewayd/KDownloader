@@ -125,6 +125,34 @@ impl Fixture {
                 "select-all",
             ] {
                 self.check("main", &format!("window.__nativeEditing.start('{action}')"))?;
+                if action != "select-all" {
+                    let end = self.deadline.min(Instant::now() + Duration::from_secs(15));
+                    let label = loop {
+                        if let Some(label) = self
+                            .app
+                            .webview_windows()
+                            .keys()
+                            .find(|label| label.starts_with("context-menu-"))
+                            .cloned()
+                        {
+                            break label;
+                        }
+                        if Instant::now() >= end {
+                            return Err("Editing menu did not open".into());
+                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                    };
+                    self.until(
+                        &label,
+                        &format!("Boolean(document.querySelector('[data-action=\"{action}\"]'))"),
+                    )?;
+                    // Acknowledge the evaluation before clicking destroys its WebView.
+                    self.window(&label)?
+                        .eval(format!(
+                            "document.querySelector('[data-action=\"{action}\"]').click()"
+                        ))
+                        .map_err(|e| e.to_string())?;
+                }
                 self.until("main", &format!("window.__nativeEditing.ready('{action}')"))?;
             }
             self.check("main", "window.__TAURI__.core.invoke('edit_action',{action:'read-clipboard'}).then(()=>false,()=>true)")?;

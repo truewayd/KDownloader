@@ -1,6 +1,7 @@
 // One themed menu for tasks, the workspace, and editing in every window.
 (() => {
   let current = null, disposed = false;
+  let requestID = Date.now() % 0x80000000;
   const role = () => typeof nativeWindowRole === "undefined" ? "browser" : nativeWindowRole;
   const report = error => { if (!disposed) showToast(String(error?.message || error), "error"); };
   const enabled = button => !button.disabled && button.getAttribute("aria-disabled") !== "true";
@@ -20,6 +21,7 @@
     if (!context) return;
     current = null;
     context.observer?.disconnect();
+    if (context.native) invokeNative("context_menu_cancel", { requestId: context.requestId }).catch(() => {});
     context.menu.remove();
     if (restore && available(context.focus)) context.focus.focus({ preventScroll: true });
   }
@@ -93,6 +95,24 @@
     const context = { menu, target, input, row, route: location.hash, focus: input || (target.isContentEditable ? target : document.activeElement),
       selection: input && typeof input.selectionStart === "number" ? [input.selectionStart, input.selectionEnd, input.selectionDirection] : null,
       ranges: selection ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index).cloneRange()) : [] };
+    if (window.__TAURI__?.core?.invoke) {
+      const rect = target.getBoundingClientRect();
+      context.native = true;
+      context.requestId = ++requestID % 0xffffffff;
+      current = context;
+      context.observer = new MutationObserver(() => { if (!available(target)) close(false); });
+      context.observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["inert", "hidden"] });
+      invokeNative("show_context_menu", {
+        requestId: context.requestId, actions,
+        x: keyboard || !Number.isFinite(event.clientX) ? rect.left : event.clientX,
+        y: keyboard || !Number.isFinite(event.clientY) ? rect.bottom : event.clientY,
+      }).then(action => {
+        if (current !== context) return;
+        if (actions.includes(action)) return activate(context, action);
+        close();
+      }).catch(error => { if (current === context) { close(false); report(error); } });
+      return;
+    }
     for (const action of actions) {
       const button = document.createElement("button");
       button.type = "button";
@@ -139,6 +159,7 @@
       if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); }
       return;
     }
+    if (current.native) return;
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
     event.preventDefault(); event.stopImmediatePropagation();
     const items = [...current.menu.querySelectorAll("button")];
@@ -149,7 +170,8 @@
   const pointerdown = event => { if (current && !current.menu.contains(event.target)) close(false); };
   const invalidate = () => close(false);
   const visibility = () => { if (document.hidden) invalidate(); };
-  const scroll = event => { if (current && !current.menu.contains(event.target)) invalidate(); };
+  // Restoring an editor selection can scroll that editor after the popup opens.
+  const scroll = event => { if (current && event.target !== current.input && !current.menu.contains(event.target)) invalidate(); };
   document.addEventListener("contextmenu", contextmenu);
   document.addEventListener("keydown", keydown, true);
   document.addEventListener("pointerdown", pointerdown, true);
@@ -157,7 +179,8 @@
   document.addEventListener("visibilitychange", visibility);
   window.addEventListener("hashchange", invalidate);
   window.addEventListener("resize", invalidate);
-  window.addEventListener("blur", invalidate);
+  const blur = () => { if (!current?.native) invalidate(); };
+  window.addEventListener("blur", blur);
   window.addEventListener("pagehide", () => {
     disposed = true; invalidate();
     document.removeEventListener("contextmenu", contextmenu);
@@ -167,6 +190,6 @@
     document.removeEventListener("visibilitychange", visibility);
     window.removeEventListener("hashchange", invalidate);
     window.removeEventListener("resize", invalidate);
-    window.removeEventListener("blur", invalidate);
+    window.removeEventListener("blur", blur);
   }, { once: true });
 })();

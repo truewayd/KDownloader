@@ -42,10 +42,12 @@ test("native editing acceptance rejects acknowledgments without delivery and nev
   context.installNativeEditingAcceptance();
   const fixture = context.window.__nativeEditing;
   await fixture.start("paste");
+  await context.window.invokeNative("edit_action", { action: "paste" });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(fixture.ready("paste"), false, "unit response alone cannot prove native delivery");
   response = "must not be returned to the driver";
   await fixture.start("paste");
+  await context.window.invokeNative("edit_action", { action: "paste" });
   await new Promise(resolve => setImmediate(resolve));
   assert.throws(() => fixture.ready("paste"), /failed or returned data/);
   fixture.cleanup();

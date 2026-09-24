@@ -10,3 +10,10 @@ html, body.popup-window { width: 100%; height: 100%; margin: 0; overflow: hidden
 .confirmation[data-kind="warning"] .confirmation-heading .icon { color: var(--kd-warning-text, var(--kd-text)); }
 .confirmation[data-kind="error"] .confirmation-heading .icon { color: var(--kd-error-text); }
 .popup-window .kd-button { box-shadow: none; }
+.popup-window #menu { padding: 6px; height: 100%; overflow: auto; box-sizing: border-box; }
+.popup-menu-item { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--kd-text); text-align: left; font: inherit; font-size: 13px; cursor: pointer; }
+.popup-menu-item .icon { width: 16px; height: 16px; }
+.popup-menu-item:hover, .popup-menu-item:focus { background: var(--kd-secondary-hover); outline: none; }
+.popup-menu-item:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -2px; }
+.popup-menu-shortcut { color: var(--kd-muted); font-size: 12px; }
+.popup-menu-item.danger { color: var(--kd-danger-button-text); }

@@ -21,8 +21,8 @@ try {
     await page.evaluate(() => {
       window.calls = []; window.errors = []; window.clicked = [];
       window.nativeWindowRole = "main";
-      window.__TAURI__ = { core: { invoke: async (command, args) => { calls.push({ command, args }); } } };
-      window.invokeNative = window.__TAURI__.core.invoke;
+      window.invokeNative = async (command, args) => { calls.push({ command, args }); };
+      document.execCommand = action => { calls.push({ command: "edit_action", args: { action: action === "selectAll" ? "select-all" : action } }); return true; };
       window.openModal = async () => calls.push({ command: "new-task" });
       window.showToast = message => errors.push(message);
       document.addEventListener("click", event => { if (event.target.dataset.action) clicked.push(event.target.dataset.action); });
@@ -113,4 +113,34 @@ try {
     await page.close();
     console.log(`${colorScheme}: themed menus, selection, password protection, stale actions, modal scope, keyboard, viewport and teardown passed`);
   }
+  const native = await browser.newPage();
+  await native.setContent('<table><tr data-task-id="1"><td><button data-action="pause">Pause</button></td></tr></table>');
+  await native.evaluate(() => {
+    window.calls = []; window.clicked = 0; window.nativeWindowRole = "main";
+    window.__TAURI__ = { core: { invoke() {} } };
+    window.invokeNative = (command, args) => {
+      calls.push({ command, args });
+      return command === "show_context_menu" ? new Promise(resolve => { window.answerMenu = resolve; }) : Promise.resolve();
+    };
+    window.showToast = () => {};
+    document.querySelector('button').onclick = () => clicked++;
+  });
+  await native.addScriptTag({ content: script });
+  const openNative = () => native.locator('tr').dispatchEvent('contextmenu', { button: 2, clientX: 20, clientY: 20 });
+  await openNative();
+  assert.equal(await native.locator('[role="menu"]').count(), 0);
+  await native.evaluate(() => window.dispatchEvent(new Event('blur')));
+  assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'context_menu_cancel').length), 0, 'opening the native popup must not cancel on caller blur');
+  await native.evaluate(() => { document.querySelector('button').disabled = true; answerMenu('pause'); });
+  await native.waitForFunction(() => calls.some(call => call.command === 'context_menu_cancel'));
+  assert.equal(await native.evaluate(() => clicked), 0, 'late native actions revalidate the row');
+  await native.evaluate(() => { document.querySelector('button').disabled = false; });
+  await openNative();
+  const request = await native.evaluate(() => calls.filter(call => call.command === 'show_context_menu').at(-1).args.requestId);
+  await native.evaluate(() => window.dispatchEvent(new Event('hashchange')));
+  assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'context_menu_cancel').at(-1).args.requestId), request);
+  await native.evaluate(() => answerMenu('pause'));
+  assert.equal(await native.evaluate(() => clicked), 0);
+  await native.close();
+  console.log('native bridge: separate window dispatch, caller blur, stale rows and request-scoped cancellation passed');
 } finally { await browser.close(); }

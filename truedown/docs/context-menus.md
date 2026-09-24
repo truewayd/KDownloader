@@ -22,9 +22,18 @@ with meaningful captions; Windows/macOS title strips include decorative role ico
 
 ## Menus
 
-`web/context-menu.js` renders a single menu with native buttons and menu semantics.
-The surface uses the top layer where available, with a fixed-position fallback
-for older WebViews. Menus inside dialogs share that dialog's focus scope.
+`web/context-menu.js` collects eligible actions and retains the caller's selection.
+Desktop views invoke `show_context_menu` to create an independent frameless native
+WebView (`context-menu-window.html`) owned by the caller. It renders project icons,
+labels and shortcut hints and is clamped to the monitor work area, rather than the
+parent WebView bounds. The parent stays enabled. A browser-only fallback retains
+the page menu; native failures never fall back to it.
+
+Rust bounds the actions, coordinates and per-caller concurrency. Each request has
+a unique native window identity and caller-bound cancellation ID. The popup may
+only read its own offered actions and return one of them; core access and arbitrary
+menu/tray mutations remain denied. Task actions revalidate the original row and
+editing restores the selection in the original caller before native dispatch.
 
 | Context | Actions |
 | --- | --- |
@@ -41,7 +50,7 @@ Right click, Context Menu and Shift+F10 open the menu. Arrow keys and Home/End
 navigate; Enter/Space activate. Escape dismisses only the menu and restores focus;
 Tab dismisses and continues normal focus navigation. Outside click, scroll,
 resize, window blur, hiding, navigation and teardown invalidate the menu.
-Coordinates remain inside the viewport. Task menus revalidate the original row
+Desktop coordinates remain inside the monitor work area. Task menus revalidate the original row
 and currently enabled action before clicking the existing task control.
 Opening a menu never changes task batch selection.
 
@@ -68,11 +77,10 @@ DPI, high contrast, disabled/selected states and keyboard behavior; CSS cannot
 style native menus. A separate popup WebView window could extend outside the
 parent content, but adds focus, activation, monitor and dismissal lifecycle work.
 
-For the current content menus, retain the existing themed implementation and use
-consistent icon/label/shortcut alignment and meaningful action groups. Add submenus
-only for actual grouped actions, with arrow-key navigation and viewport-aware
-placement. Keep title-strip and tray menus native. No native menu replacement is
-included in this settings change.
+Content menus now use separate themed native WebView windows. Keep consistent
+icon/label/shortcut alignment and meaningful action groups. Add submenus only for
+actual grouped actions, with arrow-key navigation and monitor-aware placement.
+Title-strip and tray menus retain their existing OS implementations.
 
 Sources: [Tauri menus](https://v2.tauri.app/learn/window-menu/),
 [Microsoft owner-drawn menus](https://learn.microsoft.com/en-us/windows/win32/menurc/using-menus#creating-owner-drawn-menu-items).
@@ -104,7 +112,7 @@ Windows result does not establish clipboard delivery.
 
 The shared `desktop/tests/native-editing.js` scenario uses a fresh, unique text
 marker for every run. It selects a substring, activates the production editing
-menu, and checks copy/paste, undo/redo, cut/paste and native select-all by comparing
+menu in its separate WebView, and checks copy/paste, undo/redo, cut/paste and native select-all by comparing
 DOM state inside the WebView. Drivers receive booleans only. A successful command
 response without the expected editor change fails the check. Clipboard-read IPC
 must remain denied; no permissions or production test commands are added.

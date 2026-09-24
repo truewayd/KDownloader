@@ -63,6 +63,28 @@ try {
     assert.equal(await main.evaluate(() => window.popupResult), kind === "info");
     await until(() => !context.pages().includes(popup));
   }
+  await invoke(main, "open_auxiliary", { kind: "settings" });
+  const settings = await until(() => context.pages().find(page => page.url().includes("window=settings")));
+  await settings.emulateMedia({ colorScheme: null });
+  await settings.locator("#cfg-user-agent").fill("TrueDown editor selection");
+  await settings.locator("#cfg-user-agent").evaluate(element => { element.focus(); element.setSelectionRange(0, 8); element.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: innerWidth - 10, clientY: innerHeight - 10 })); });
+  const menu = await until(() => context.pages().find(page => page.url().endsWith("context-menu-window.html")));
+  await menu.emulateMedia({ colorScheme: null });
+  await menu.locator('[data-action="select-all"]').waitFor({ state: "visible" });
+  assert.equal(await settings.locator('.kd-context-menu').count(), 0, "desktop menus must not exist in the caller DOM");
+  await assert.rejects(invoke(menu, "core_request", { request: { method: "GET", path: "/tasks" } }));
+  await assert.rejects(invoke(menu, "context_menu_answer", { action: "remove" }));
+  const menuState = capture("TrueDown menu", "context-menu-editor.png");
+  assert.notEqual(menuState.owner, "0"); assert.equal(menuState.ownerEnabled, true);
+  evidence.push({ kind: "menu", ...menuState });
+  await menu.locator('[data-action="select-all"]').click();
+  await until(() => !context.pages().includes(menu));
+  await until(() => settings.locator("#cfg-user-agent").evaluate(e => e.selectionStart === 0 && e.selectionEnd === e.value.length));
+  await settings.locator("#cfg-user-agent").click({ button: "right" });
+  const escapeMenu = await until(() => context.pages().find(page => page.url().endsWith("context-menu-window.html")));
+  await escapeMenu.locator('[data-action="select-all"]').waitFor({ state: "visible" });
+  await escapeMenu.keyboard.press("Escape");
+  await until(() => !context.pages().includes(escapeMenu));
   await fs.writeFile(path.join(fixture, "evidence.json"), JSON.stringify(evidence, null, 2));
   console.log(`Independent confirmation HWNDs, owner disable/restore, fail-closed IPC and results passed. Screenshots: ${fixture}`);
 } finally {

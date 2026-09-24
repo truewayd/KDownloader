@@ -12,11 +12,12 @@ export async function nativeEditingDocumentReady(evaluate) {
     throw error;
   }
 }
-export async function acceptNativeEditing(evaluate, until) {
+export async function acceptNativeEditing(evaluate, until, chooseMenu) {
   await evaluate(`${fixture}; return installNativeEditingAcceptance()`);
   try {
     for (const action of ['copy', 'paste', 'undo', 'redo', 'cut', 'paste', 'select-all']) {
       assert.equal(await evaluate(`return window.__nativeEditing.start('${action}')`), true);
+      if (action !== 'select-all') await chooseMenu(action);
       await until(() => evaluate(`return window.__nativeEditing.ready('${action}')`), 10000);
     }
     assert.equal(await evaluate(`return window.__TAURI__.core.invoke('edit_action',{action:'read-clipboard'}).then(()=>false,()=>true)`), true);
