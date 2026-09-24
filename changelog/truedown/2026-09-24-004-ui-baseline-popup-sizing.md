@@ -8,6 +8,8 @@
 
 ## Verification
 
+- Source-contract fixtures include both deferred scripts and the early native-window initializer, preserving task completion and subscription cleanup checks on CI.
+
 - Node suite: 366 passed, one skipped. Rust: 36 unit tests and one dependency regression passed; Clippy warnings denied.
 - Settings, workspace, forms, auxiliary and context-menu browser acceptance covers light/dark, narrow layouts and keyboard behavior.
 - Windows visible popup acceptance checks independent HWND ownership, parent modality, IPC restrictions, shared theme tokens and screenshots. Native editing copy/paste/cut/undo/redo/select-all acceptance passed.
