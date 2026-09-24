@@ -156,15 +156,18 @@ and material integration only. Page styles own layout, not alternate palettes.
   native input and labels; high contrast uses the stock menu. DWM rounds the
   frame; the popup subclass replaces the stock beveled nonclient inset with the
   menu surface while excluding all client content from that paint pass. Menu
-  window is bound by an owning-thread return hook after native creation or
-  positioning completes, with an exact HMENU match. Never change styling from
-  inside pending WM_WINDOWPOSCHANGING processing. Suppress the legacy class shadow before its separate window can be
-  created, restoring the flag when the popup closes; painting-time DC lookup
-  is not a reliable way to bind a buffered menu. Preserve native nonclient
+  creation/initial positioning is observed by a temporary owning-thread call
+  hook which attaches a popup subclass. Suppress the legacy class shadow before
+  display, restoring its flag on teardown. Only after DefSubclassProc returns
+  from WM_WINDOWPOSCHANGED may the subclass query the exact HMENU and set DWM
+  visual attributes. The return hook did not observe system-menu messages in
+  user acceptance; querying/styling during pending positioning risks reentrancy.
+  Painting-time DC lookup is unreliable for buffered menus. Preserve native nonclient
   layout policy and disable menu slide animation so visual and hit rectangles
   stay aligned. Prefer a top-left anchor (opens right); let native work-area
   fitting move the popup left/up at monitor edges.
-  Menus use an opaque neutral surface, subtle hover, 4px vertical outer padding
+  Menus use a near-white/dark opaque surface, a subtle gray outline, DWM rounded
+  corners and shadow, subtle hover, 4px vertical outer padding
   included in native row measurements, and a single icon column. Acrylic and
   full-frame glass are disabled: native menu dismissal did not reliably retain
   their alpha and produced black fade frames. Disable DWM popup transitions

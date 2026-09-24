@@ -41,8 +41,8 @@ impl Palette {
             }
         } else {
             Self {
-                surface: rgb(249, 249, 249),
-                hover: rgb(237, 237, 237),
+                surface: rgb(252, 252, 252),
+                hover: rgb(239, 239, 239),
                 text: rgb(32, 32, 32),
                 muted: rgb(96, 96, 96),
                 danger: rgb(196, 43, 28),
@@ -59,6 +59,8 @@ struct Item {
 struct Style {
     geometry: Cell<Option<(usize, RECT, RECT, POINT)>>,
     popup: Cell<HWND>,
+    checking_popup: Cell<bool>,
+    frame_attempted: Cell<bool>,
     shadow_class: Cell<Option<usize>>,
     shadow_suppressed: Cell<bool>,
     saw_popup: Cell<bool>,
@@ -160,6 +162,8 @@ pub unsafe fn attach(
     let mut style = Box::new(Style {
         geometry: Cell::new(None),
         popup: Cell::new(std::ptr::null_mut()),
+        checking_popup: Cell::new(false),
+        frame_attempted: Cell::new(false),
         shadow_class: Cell::new(None),
         shadow_suppressed: Cell::new(false),
         saw_popup: Cell::new(false),
@@ -263,8 +267,8 @@ pub unsafe fn attach(
         return Err("Menu owner thread unavailable".into());
     }
     guard.hook = SetWindowsHookExW(
-        WH_CALLWNDPROCRET,
-        Some(after_popup_message),
+        WH_CALLWNDPROC,
+        Some(observe_popup_creation),
         std::ptr::null_mut(),
         thread,
     );
@@ -275,10 +279,10 @@ pub unsafe fn attach(
     Ok(Some(guard))
 }
 
-unsafe extern "system" fn after_popup_message(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+unsafe extern "system" fn observe_popup_creation(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     if code >= 0 && lp != 0 {
-        let message = &*(lp as *const CWPRETSTRUCT);
-        if message.message == WM_CREATE || message.message == WM_WINDOWPOSCHANGED {
+        let message = &*(lp as *const CWPSTRUCT);
+        if message.message == WM_CREATE || message.message == WM_WINDOWPOSCHANGING {
             TRACKED_STYLE.with(|slot| {
                 if let Some(style) = slot.get().as_ref() {
                     let mut class = [0u16; 32];
@@ -287,18 +291,7 @@ unsafe extern "system" fn after_popup_message(code: i32, wp: WPARAM, lp: LPARAM)
                     if name == [35, 51, 50, 55, 54, 56] {
                         // #32768
                         style.saw_popup.set(true);
-                        let mut info = MENUBARINFO {
-                            cbSize: std::mem::size_of::<MENUBARINFO>() as u32,
-                            ..Default::default()
-                        };
-                        // Wait for the native window procedure to finish creation
-                        // or positioning before querying or styling its HMENU.
-                        // Never reenter its pending WM_WINDOWPOSCHANGING layout.
-                        if GetMenuBarInfo(message.hwnd, OBJID_CLIENT, 0, &mut info) != 0
-                            && info.hMenu == style.menu
-                        {
-                            frame(style, message.hwnd);
-                        }
+                        observe_popup(style, message.hwnd);
                     } else if message.message == WM_CREATE
                         && name == [83, 121, 115, 83, 104, 97, 100, 111, 119]
                     {
@@ -330,7 +323,7 @@ fn log_frame(style: &Style) {
                 .open(path)
             {
                 let _ = writeln!(file,
-                    "frame5 seen={} bound={} corner={} legacy_shadow_disabled={} frame_paints={} shadow_windows={} material=opaque",
+                    "frame6 seen={} bound={} corner={} legacy_shadow_disabled={} frame_paints={} shadow_windows={} material=opaque",
                     style.saw_popup.get(), style.bound_popup.get(), style.corner_result.get(),
                     style.shadow_suppressed.get(), style.frame_paints.get(), style.shadow_windows.get());
                 if let Some((index, window, row, cursor)) = style.geometry.get() {
@@ -406,32 +399,24 @@ unsafe extern "system" fn paint(
     DefSubclassProc(hwnd, message, wp, lp)
 }
 
-// Called before show for the popup whose HMENU matches the active request.
-// DWM owns clipping and shadows: regions/layered windows would disable its rounding.
-// Only visual attributes: never change NC layout after HMENU measures its rows.
-unsafe fn frame(style: &Style, popup: HWND) {
-    if popup.is_null() || style.popup.get() == popup {
+// The creation hook only observes. Querying the HMENU or setting DWM attributes
+// here can reenter native layout before its window and hit rectangles agree.
+unsafe fn observe_popup(style: &Style, popup: HWND) {
+    if !style.popup.get().is_null() {
         return;
     }
-    let mut class = [0u16; 32];
-    let len = GetClassNameW(popup, class.as_mut_ptr(), class.len() as i32);
-    if class[..len.max(0) as usize] != "#32768".encode_utf16().collect::<Vec<_>>() {
-        return;
-    }
-    // DWM/subclass calls can send nested window messages through our hook.
-    style.popup.set(popup);
-    let corner = DWMWCP_ROUND;
-    let corner_result = DwmSetWindowAttribute(
+    // Unsupported systems retain the complete stock frame and shadow.
+    let mut corner = DWMWCP_DEFAULT;
+    if DwmGetWindowAttribute(
         popup,
         DWMWA_WINDOW_CORNER_PREFERENCE as u32,
-        (&corner as *const DWM_WINDOW_CORNER_PREFERENCE).cast(),
+        (&mut corner as *mut DWM_WINDOW_CORNER_PREFERENCE).cast(),
         std::mem::size_of_val(&corner) as u32,
-    );
-    style.corner_result.set(corner_result);
-    if corner_result < 0 {
-        style.popup.set(std::ptr::null_mut());
-        return; // Older Windows keeps the stock frame and shadow.
+    ) < 0
+    {
+        return;
     }
+    style.popup.set(popup);
     if SetWindowSubclass(
         popup,
         Some(popup_frame),
@@ -442,8 +427,6 @@ unsafe fn frame(style: &Style, popup: HWND) {
         style.popup.set(std::ptr::null_mut());
         return;
     }
-    style.popup.set(popup);
-    style.bound_popup.set(true);
     // This must precede the first show: changing class flags after WM_DRAWITEM
     // cannot remove an already-created, separate SysShadow window.
     if IsWindowVisible(popup) == 0 {
@@ -459,6 +442,40 @@ unsafe fn frame(style: &Style, popup: HWND) {
             style.shadow_suppressed.set(true);
         }
     }
+}
+
+// Run from our subclass AFTER the native position handler returns. Native menu
+// windows do not reliably invoke WH_CALLWNDPROCRET for these internal messages.
+unsafe fn finish_popup_frame(style: &Style, popup: HWND) {
+    if style.frame_attempted.get() || style.checking_popup.replace(true) {
+        return;
+    }
+    let mut info = MENUBARINFO {
+        cbSize: std::mem::size_of::<MENUBARINFO>() as u32,
+        ..Default::default()
+    };
+    let matches =
+        GetMenuBarInfo(popup, OBJID_CLIENT, 0, &mut info) != 0 && info.hMenu == style.menu;
+    style.checking_popup.set(false);
+    if !matches {
+        return;
+    }
+    // Protect against nested messages sent by DWM. Never resize, move, extend
+    // glass, replace WM_NCCALCSIZE, or change the native NC rendering policy.
+    style.frame_attempted.set(true);
+    let corner = DWMWCP_ROUND;
+    let result = DwmSetWindowAttribute(
+        popup,
+        DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+        (&corner as *const DWM_WINDOW_CORNER_PREFERENCE).cast(),
+        std::mem::size_of_val(&corner) as u32,
+    );
+    style.corner_result.set(result);
+    if result < 0 {
+        detach_popup(style);
+        return;
+    }
+    style.bound_popup.set(true);
     let dark: i32 = (style.palette.surface == Palette::new(true).surface).into();
     DwmSetWindowAttribute(
         popup,
@@ -469,7 +486,7 @@ unsafe fn frame(style: &Style, popup: HWND) {
     let border = if dark != 0 {
         rgb(70, 70, 70)
     } else {
-        rgb(220, 220, 220)
+        rgb(208, 208, 208)
     };
     DwmSetWindowAttribute(
         popup,
@@ -484,7 +501,6 @@ unsafe fn frame(style: &Style, popup: HWND) {
         (&disabled as *const i32).cast(),
         std::mem::size_of_val(&disabled) as u32,
     );
-    // The pending native show lays out and paints it. No reentrant positioning.
 }
 
 unsafe fn detach_popup(style: &Style) {
@@ -518,11 +534,15 @@ unsafe extern "system" fn popup_frame(
     // Owner-drawn items do not replace the stock menu's beveled NC border.
     // DWM rounds the outside; paint its inner border with the same flat surface
     // instead of leaving the old dark right/bottom bevel beside the round edge.
-    if message == WM_NCPAINT && paint_frame(hwnd, style) {
+    if message == WM_NCPAINT && style.bound_popup.get() && paint_frame(hwnd, style) {
         return 0;
     }
     let result = DefSubclassProc(hwnd, message, wp, lp);
-    if message == WM_PAINT || message == WM_NCACTIVATE {
+    if message == WM_WINDOWPOSCHANGED {
+        finish_popup_frame(style, hwnd);
+    }
+    if style.bound_popup.get() && matches!(message, WM_PAINT | WM_NCACTIVATE | WM_WINDOWPOSCHANGED)
+    {
         // The native menu can repaint its edge with the client/activation pass.
         paint_frame(hwnd, style);
     }
@@ -774,6 +794,8 @@ mod tests {
                         let style = Style {
                             geometry: Cell::new(None),
                             popup: Cell::new(std::ptr::null_mut()),
+                            checking_popup: Cell::new(false),
+                            frame_attempted: Cell::new(false),
                             shadow_class: Cell::new(None),
                             shadow_suppressed: Cell::new(false),
                             saw_popup: Cell::new(false),
