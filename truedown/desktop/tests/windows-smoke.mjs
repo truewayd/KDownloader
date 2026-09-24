@@ -458,9 +458,27 @@ try {
   await waitForNativeCondition(settings, () => document.querySelectorAll("[data-group-id]").length === 8 && !document.querySelector('[data-settings-page="files"]').inert);
   await settings.locator('[data-group-id="document"] .group-name-field input').fill("Documents review");
   await settings.locator('[data-group-id="document"] .group-name-field input').dispatchEvent("change");
-  await waitForNativeCondition(settings, () => !fileGroupsSaving && !fileGroupsSaveQueued
-    && fileGroupsState.groups.find(group => group.id === "document")?.name === "Documents review"
-    && fileGroupsDraft.find(group => group.id === "document")?.name === "Documents review");
+  const readGroupRenameState = () => ({
+    value: document.querySelector('[data-group-id="document"] .group-name-field input').value,
+    draft: fileGroupsDraft.find(group => group.id === "document")?.name,
+    saved: fileGroupsState.groups.find(group => group.id === "document")?.name,
+    status: document.querySelector("#file-groups-status").textContent,
+    revision: fileGroupsEditorRevision, savedRevision: fileGroupsState.revision,
+    saving: fileGroupsSaving, queued: fileGroupsSaveQueued,
+    invalid: [...document.querySelector("#file-groups-editor").querySelectorAll("input")].filter(input => !input.validity.valid).map(input => input.id),
+  });
+  const renameInput = await settings.evaluate(readGroupRenameState);
+  console.log("group_rename_input=" + JSON.stringify(renameInput));
+  assert.equal(renameInput.value, "Documents review", "hidden WebView must receive the complete edit");
+  assert.equal(renameInput.draft, "Documents review", "input event must update the group draft");
+  try {
+    await waitForNativeCondition(settings, () => !fileGroupsSaving && !fileGroupsSaveQueued
+      && fileGroupsState.groups.find(group => group.id === "document")?.name === "Documents review"
+      && fileGroupsDraft.find(group => group.id === "document")?.name === "Documents review");
+  } catch (error) {
+    console.error("group_rename_failure=" + JSON.stringify(await settings.evaluate(readGroupRenameState)));
+    throw error;
+  }
   assert.equal((await api(settings, "GET", "/settings/file-groups")).groups.find(group => group.id === "document").name, "Documents review");
   await main.evaluate(() => refreshAndSchedule(true));
   await waitForNativeCondition(main, () => document.querySelector('[data-task-category="document"]')?.textContent.includes("Documents review"));
