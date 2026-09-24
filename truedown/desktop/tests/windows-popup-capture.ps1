@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][int]$ProcessId, [Parameter(Mandatory=$true)][string]$Title, [Parameter(Mandatory=$true)][string]$OutputPath)
+param([int]$ProcessId, [string]$Title, [string]$OutputPath, [switch]$Server)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
@@ -15,6 +15,7 @@ public static class PopupCapture {
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr window, StringBuilder title, int count);
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
   [DllImport("user32.dll")] static extern bool IsWindowEnabled(IntPtr window);
+  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
   [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr window, uint command);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out RECT rect);
   [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr window, IntPtr dc, uint flags);
@@ -28,6 +29,10 @@ public static class PopupCapture {
       return true;
     }, IntPtr.Zero);
     if (found == IntPtr.Zero) throw new Exception("Owned visible popup not found");
+    if (String.IsNullOrEmpty(path)) {
+      if (!SetForegroundWindow(found)) throw new Exception("Owned window could not receive foreground focus");
+      return "{\"focused\":true}";
+    }
     var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
     try {
       RECT rect; if (!GetWindowRect(found, out rect)) throw new Exception("Window geometry unavailable");
@@ -45,4 +50,14 @@ public static class PopupCapture {
   }
 }
 '@
-[PopupCapture]::Capture([uint32]$ProcessId, $Title, $OutputPath)
+if ($Server) {
+  [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+  [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+  [Console]::WriteLine('ready')
+  while ($null -ne ($line = [Console]::ReadLine())) {
+    try {
+      $request = $line | ConvertFrom-Json
+      [Console]::WriteLine([PopupCapture]::Capture([uint32]$request.processId, [string]$request.title, [string]$request.path))
+    } catch { [Console]::WriteLine((@{ error = $_.Exception.Message } | ConvertTo-Json -Compress)) }
+  }
+} else { [PopupCapture]::Capture([uint32]$ProcessId, $Title, $OutputPath) }
