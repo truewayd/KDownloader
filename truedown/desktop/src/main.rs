@@ -136,27 +136,49 @@ fn main() {
         .manage(pickers::DirectoryPickers::default())
         .manage(confirmations::Confirmations::default())
         .manage(drops::Drops::default())
-        .invoke_handler(tauri::generate_handler![
-            commands::core_request,
-            commands::desktop_state,
-            commands::copy_api_token,
-            commands::take_dropped_torrent,
-            commands::drop_download_links,
-            commands::edit_action,
-            commands::tray_settings,
-            commands::confirm_action,
-            windows::open_auxiliary,
-            windows::open_task_details,
-            windows::task_details_state,
-            windows::close_auxiliary,
-            windows::finish_task_window,
-            frame::frame_action,
-            frame::frame_state,
-            frame::frame_title,
-            pickers::choose_download_directory,
-            appearance::apply_material,
-            update::desktop_ready
-        ])
+        .invoke_handler(|invoke| {
+            if invoke
+                .message
+                .webview_ref()
+                .label()
+                .starts_with("confirmation-")
+                && !matches!(
+                    invoke.message.command(),
+                    "confirmation_init" | "confirmation_ready" | "confirmation_answer"
+                )
+            {
+                invoke
+                    .resolver
+                    .reject("Unavailable in confirmation windows");
+                return true;
+            }
+            let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+                commands::core_request,
+                commands::desktop_state,
+                commands::copy_api_token,
+                commands::take_dropped_torrent,
+                commands::drop_download_links,
+                commands::edit_action,
+                commands::tray_settings,
+                commands::confirm_action,
+                confirmations::confirmation_init,
+                confirmations::confirmation_ready,
+                confirmations::confirmation_answer,
+                confirmations::confirmation_cancel,
+                windows::open_auxiliary,
+                windows::open_task_details,
+                windows::task_details_state,
+                windows::close_auxiliary,
+                windows::finish_task_window,
+                frame::frame_action,
+                frame::frame_state,
+                frame::frame_title,
+                pickers::choose_download_directory,
+                appearance::apply_material,
+                update::desktop_ready
+            ];
+            handler(invoke)
+        })
         .setup(move |app| {
             if let Err(error) = app.state::<startup::Startup>().migrate_legacy() {
                 eprintln!("Cannot migrate login registration: {error}");
@@ -278,6 +300,9 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label().starts_with("confirmation-") {
+                return;
+            }
             if let WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
                 drops::receive(window, paths);
             }

@@ -511,6 +511,7 @@ function submitDialog(event) {
 }
 
 function cancelDialog() {
+  if (window.__TAURI__?.core?.invoke) invokeNative("confirmation_cancel").catch(() => {});
   settleDialog(dialogHasInput ? null : false);
 }
 
@@ -534,7 +535,7 @@ function settleDialog(value) {
 }
 
 async function confirmAction(options) {
-  if (options.native === true && window.__TAURI__?.core?.invoke) {
+  if (window.__TAURI__?.core?.invoke) {
     const { title, message, confirmLabel = "确认", cancelLabel = "取消", danger = false,
       kind = danger ? "warning" : "info" } = options;
     try {
@@ -542,7 +543,7 @@ async function confirmAction(options) {
         options: { title, message, confirmLabel, cancelLabel, kind },
       });
     } catch (error) {
-      showToast(`无法打开系统确认窗口：${error.message}`, "error");
+      showToast(`无法打开确认窗口：${error.message || error}`, "error");
       return false;
     }
   }

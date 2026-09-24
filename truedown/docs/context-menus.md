@@ -1,25 +1,22 @@
 # Project dialogs and context menus
 
-TrueDown uses project-themed confirmations and independent native windows for
+TrueDown uses independent project-themed confirmation windows and native windows for
 large forms. Compact input/icon pickers, Toasts and content-area menus retain the
 project surface. System caption menus, tray menus and file/directory pickers are OS-owned.
 
 ## Dialogs
 
-`confirmAction` uses `showDialog` by default in desktop and browser views, including
-Restore defaults, task deletion and draft replacement. It retains inert background
-roots, focus trapping/restoration and cancellation on Escape, hiding and navigation.
-Do not use browser confirm/alert or OS message boxes for routine product actions.
-
-Only an explicit `native: true` OS integration exception uses `commands::confirm_action`. Rust validates
-the caller role, bounded text, distinct button labels and an explicit info/warning/error
-kind. The OS dialog is parented to the caller. One callback-owned slot per window
-prevents duplicates even when the originating IPC is cancelled. A failed request
-shows an error Toast and cancels the operation; it never falls back to a page modal.
-Hidden acceptance suppresses native prompts without approving operations.
-
-`showDialog` also handles compact input prompts,
-with inert background roots, keyboard focus trapping, cancellation and focus restoration.
+`confirmAction` opens an independent, caller-owned WebView window through
+`commands::confirm_action` for information, warnings and dangerous actions, including
+Restore defaults, task deletion and draft replacement. It uses `confirmation.html`
+with project styling rather than an OS message box or a modal inside the parent page.
+Rust validates the role, bounded text, distinct labels and info/warning/error kind.
+The parent is disabled until the popup is destroyed. Each invocation has a unique
+window label; one slot per caller remains held through native cleanup. Popup IPC is
+limited to initializing, showing and answering its own request, with no core access.
+Escape, close, caller hiding/navigation, initialization timeout and cancellation
+fail closed. Native failure never falls back to a page modal. Hidden acceptance
+suppresses prompts without approving actions. `showDialog` is a browser-only fallback.
 Large new-download forms, settings and task details use independent native windows
 with meaningful captions; Windows/macOS title strips include decorative role icons.
 
@@ -85,7 +82,9 @@ Sources: [Tauri menus](https://v2.tauri.app/learn/window-menu/),
 - `npm run test:context-menu`: light/dark styles, editing ranges, password
   restrictions, changing task actions, keyboard operation, viewport placement,
   modal scope, roles and teardown.
-- `npm run test:forms`: project confirmation, cancellation and retained drafts.
+- `npm run test:forms`: independent confirmation dispatch, cancellation and retained drafts.
+- `node tests/windows-popups-visual.mjs --visible`: isolated visible HWNDs, owned-window
+  screenshots, parent disable/restore, confirmation results and popup IPC boundaries.
 - `npm run test:details`: native close shortcuts, no duplicate Close control,
   retained tabs/drafts and responsive layout.
 - `cargo test --locked`: editor action allowlist and caller roles.

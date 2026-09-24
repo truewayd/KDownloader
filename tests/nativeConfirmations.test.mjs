@@ -56,12 +56,12 @@ test("browser confirmations retain the shared page dialog", async () => {
   assert.equal(await context.confirmAction({ title: "Remove" }), true);
 });
 
-test("desktop product confirmations use the project dialog by default", async () => {
+test("desktop product confirmations use an independent window by default", async () => {
   for (const answer of [false, true]) {
     const context = vm.createContext({
       window: { __TAURI__: { core: { invoke: assert.fail } } },
-      invokeNative: assert.fail,
-      showDialog: options => { assert.equal(options.title, "Reset"); return answer; },
+      invokeNative: (command, { options }) => { assert.equal(command, "confirm_action"); assert.equal(options.title, "Reset"); return answer; },
+      showDialog: assert.fail,
     });
     vm.runInContext(declarations("confirmAction"), context);
     assert.equal(await context.confirmAction({ title: "Reset" }), answer);

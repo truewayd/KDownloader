@@ -67,7 +67,7 @@ try {
           }
           return structuredClone(window.trayFixture);
         }
-        if (command === "confirm_action") throw new Error("Settings must use the project confirmation dialog");
+        if (command === "confirm_action") return window.confirmResult !== false;
         if (command === "apply_material") return true;
         if (command === "frame_state") return { maximized: false };
         if (command !== "core_request") return;
@@ -216,12 +216,12 @@ try {
     await page.waitForFunction(() => !document.querySelector("#settings-form").inert && downloadSettings.allocation === "trunc");
     assert.equal(fixture["/settings/task-defaults"].values.allocation, "trunc", "an incomplete group draft must not block file-option saves");
     assert.equal(fixture["/settings/file-groups"].groups[0].name, "其他", "file-option saves must not write group drafts");
+    await page.evaluate(() => { window.confirmResult = false; });
     await page.locator("#settings-reset-btn").click();
-    await page.locator("#dialog-cancel-btn").click();
+    assert.equal(await page.locator("#dialog-overlay").getAttribute("aria-hidden"), "true");
     assert.equal(fixture["/settings/task-defaults"].values.allocation, "trunc", "cancelled reset must not write");
+    await page.evaluate(() => { window.confirmResult = true; });
     await page.locator("#settings-reset-btn").click();
-    await page.screenshot({ path: path.join(screenshots, `${name}-reset.png`) });
-    await page.locator("#dialog-confirm-btn").click();
     await page.waitForFunction(() => !document.querySelector("#settings-form").inert && downloadSettings.allocation === DEFAULT_DOWNLOAD_SETTINGS.allocation);
     assert.equal(await page.locator('[data-group-id="other"] .group-name-field input').inputValue(), "", "file-option reset preserves group drafts");
     for (const [oldPage, newPage] of Object.entries({ network: "general", groups: "files", security: "application", modules: "engine" })) {
