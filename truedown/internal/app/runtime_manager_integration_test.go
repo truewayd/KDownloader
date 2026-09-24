@@ -2,12 +2,14 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,12 +27,15 @@ func TestManagerHostReloadsStableEngineInProcess(t *testing.T) {
 	}
 	root := t.TempDir()
 	payload := bytes.Repeat([]byte("TrueDown warm engine switch\n"), 32*1024)
-	sourceDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(sourceDir, "payload.bin"), payload, 0600); err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(http.FileServer(http.Dir(sourceDir)))
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	finishTransfer := func() { releaseOnce.Do(func() { close(release) }) }
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reader := &reloadPayloadReader{Reader: bytes.NewReader(payload), ctx: r.Context(), release: release}
+		http.ServeContent(w, r, "payload.bin", time.Time{}, reader)
+	}))
 	defer server.Close()
+	defer finishTransfer()
 	spec := systemupdate.EngineSpec{Kind: systemupdate.EngineStable, Version: "1.37.0", Path: aria2Path, File: filepath.Base(aria2Path)}
 	build := func(spec systemupdate.EngineSpec) (*downloader.Manager, error) {
 		return downloader.NewManager(spec.Path, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
@@ -46,12 +51,23 @@ func TestManagerHostReloadsStableEngineInProcess(t *testing.T) {
 	host := &managerHost{}
 	host.configure(manager, spec, build, func(*downloader.Manager) http.Handler { return http.NewServeMux() })
 	defer host.stop()
-	task, duplicate, err := manager.AddTask(server.URL+"/payload.bin", "payload.bin", "", nil, "", 0, downloader.Aria2Opts{MaxSpeedBps: 32 * 1024})
+	task, duplicate, err := manager.AddTask(server.URL+"/payload.bin", "payload.bin", "", nil, "", 0, downloader.Aria2Opts{Connections: 1})
 	if err != nil || duplicate {
 		t.Fatalf("add integration task: task=%+v duplicate=%v err=%v", task, duplicate, err)
 	}
 	waitForManagerStatus(t, manager, task.ID, downloader.StatusDownloading, 10*time.Second)
-	paused, duplicate, err := manager.AddTask(server.URL+"/payload.bin", "paused.bin", "", nil, "", 0, downloader.Aria2Opts{MaxSpeedBps: 32 * 1024})
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		current, _ := manager.GetTask(task.ID)
+		if current != nil && current.CompletedLength > 0 && current.CompletedLength < int64(len(payload)) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task did not persist partial progress before reload: %+v", current)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	paused, duplicate, err := manager.AddTask(server.URL+"/payload.bin", "paused.bin", "", nil, "", 0, downloader.Aria2Opts{Connections: 1})
 	if err != nil || duplicate {
 		t.Fatalf("add paused integration task: task=%+v duplicate=%v err=%v", paused, duplicate, err)
 	}
@@ -69,6 +85,7 @@ func TestManagerHostReloadsStableEngineInProcess(t *testing.T) {
 	reloaded := host.current.manager
 	host.mu.RUnlock()
 	waitForManagerStatus(t, reloaded, paused.ID, downloader.StatusPaused, 10*time.Second)
+	finishTransfer()
 	waitForManagerStatus(t, reloaded, task.ID, downloader.StatusDone, 45*time.Second)
 	data, err := os.ReadFile(filepath.Join(task.Folder, "payload.bin"))
 	if err != nil {
@@ -77,6 +94,28 @@ func TestManagerHostReloadsStableEngineInProcess(t *testing.T) {
 	if !bytes.Equal(data, payload) {
 		t.Fatalf("reloaded download bytes=%d, want %d", len(data), len(payload))
 	}
+}
+
+// Serve a real partial payload, then wait for the engine reload. Cancellation
+// releases old engine requests; resumed HTTP ranges remain supported by Seek.
+type reloadPayloadReader struct {
+	*bytes.Reader
+	ctx     context.Context
+	release <-chan struct{}
+}
+
+func (reader *reloadPayloadReader) Read(p []byte) (int, error) {
+	if reader.Size()-int64(reader.Len()) >= 32*1024 {
+		select {
+		case <-reader.release:
+		case <-reader.ctx.Done():
+			return 0, reader.ctx.Err()
+		}
+	}
+	if len(p) > 32*1024 {
+		p = p[:32*1024]
+	}
+	return reader.Reader.Read(p)
 }
 
 func integrationAria2Path() (string, error) {

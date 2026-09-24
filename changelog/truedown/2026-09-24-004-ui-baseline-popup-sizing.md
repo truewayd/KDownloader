@@ -9,6 +9,7 @@
 ## Verification
 
 - Source-contract fixtures include both deferred scripts and the early native-window initializer, preserving task completion and subscription cleanup checks on CI.
+- Engine-reload integration coverage uses a server-controlled partial transfer instead of download throttling, avoiding CI timing failures while retaining partial-progress, paused-task and final-byte integrity checks.
 
 - Node suite: 366 passed, one skipped. Rust: 36 unit tests and one dependency regression passed; Clippy warnings denied.
 - Settings, workspace, forms, auxiliary and context-menu browser acceptance covers light/dark, narrow layouts and keyboard behavior.
