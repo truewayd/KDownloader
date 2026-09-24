@@ -22,8 +22,14 @@
       event.preventDefault(); (document.activeElement === cancel ? confirm : cancel).focus();
     }
   });
-  (async () => {
+  let initializing = false, initialized = false, refreshQueued = false;
+  window.refreshConfirmation = async () => {
+    if (initialized) return;
+    if (initializing) { refreshQueued = true; return; }
+    initializing = true;
+    try {
     const options = await invoke("confirmation_init");
+    if (!options) return;
     document.title = options.title;
     document.getElementById("title").textContent = options.title;
     document.getElementById("message").textContent = options.message;
@@ -33,5 +39,10 @@
     confirm.className = `kd-button ${options.kind === "info" ? "primary" : "danger"}`;
     (options.kind === "info" ? confirm : cancel).focus();
     await invoke("confirmation_ready");
-  })().catch(error => { document.getElementById("message").textContent = String(error); });
+    initialized = true; window.__popupActive = true;
+    } catch (error) { document.getElementById("message").textContent = String(error); }
+    finally { initializing = false; if (refreshQueued) { refreshQueued = false; window.refreshConfirmation(); } }
+  };
+  window.__popupLoaded = true;
+  window.refreshConfirmation();
 })();

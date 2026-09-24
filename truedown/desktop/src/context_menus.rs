@@ -1,10 +1,7 @@
 //! Independent, caller-owned menu windows. No clipboard data or task payload crosses IPC.
 use std::{
     collections::HashMap,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
 };
 use tauri::{Manager, WebviewWindow};
 use tokio::sync::oneshot;
@@ -31,7 +28,6 @@ const EDITING: &[&str] = &["undo", "redo", "cut", "copy", "paste", "select-all"]
 #[derive(Default)]
 pub struct Menus {
     pending: Mutex<HashMap<String, Pending>>,
-    sequence: AtomicU64,
     slots: [Arc<tokio::sync::Mutex<()>>; 4],
     cancelled: Mutex<HashMap<String, u32>>,
 }
@@ -41,6 +37,7 @@ struct Pending {
     actions: Vec<String>,
     sender: oneshot::Sender<Option<String>>,
     ready: bool,
+    activated: bool,
     focused: bool,
     _slot: tokio::sync::OwnedMutexGuard<()>,
 }
@@ -132,11 +129,15 @@ pub async fn show_context_menu(
     if state.cancelled.lock().unwrap().get(window.label()) == Some(&request_id) {
         return Ok(None);
     }
-    let label = format!(
-        "context-menu-{}-{}",
-        window.label(),
-        state.sequence.fetch_add(1, Ordering::Relaxed)
-    );
+    let popup = app
+        .state::<crate::popup_cache::Cache>()
+        .take(&app, &window, crate::popup_cache::Kind::Menu)
+        .await?;
+    let label = popup.label().to_string();
+    if state.cancelled.lock().unwrap().get(window.label()) == Some(&request_id) {
+        let _ = popup.destroy();
+        return Ok(None);
+    }
     let (sender, mut receiver) = oneshot::channel();
     let height = actions.len() as f64 * 34.0 + 12.0;
     {
@@ -152,6 +153,7 @@ pub async fn show_context_menu(
                 actions,
                 sender,
                 ready: false,
+                activated: false,
                 focused: false,
                 _slot: slot,
             },
@@ -182,26 +184,8 @@ pub async fn show_context_menu(
         area.position.y as f64,
         area.position.y as f64 + area.size.height as f64 - height,
     );
-    let popup = app
-        .state::<crate::windows::Windows>()
-        .storage
-        .configure(tauri::WebviewWindowBuilder::new(
-            &app,
-            &label,
-            tauri::WebviewUrl::App("context-menu-window.html".into()),
-        ))
-        .parent(&window)
-        .map_err(|e| e.to_string())?
-        .title("TrueDown menu")
-        .decorations(false)
-        .resizable(false)
-        .skip_taskbar(true)
-        .shadow(true)
-        .visible(false)
-        .focused(false)
-        .inner_size(width / scale, height / scale)
-        .on_navigation(crate::windows::local_navigation)
-        .build()
+    popup
+        .set_title("TrueDown menu")
         .map_err(|e| e.to_string())?;
     popup
         .set_size(tauri::PhysicalSize::new(width as u32, height as u32))
@@ -231,6 +215,12 @@ pub async fn show_context_menu(
             state.finish(&handle, &event_label, None);
         }
     });
+    if let Some(entry) = state.pending.lock().unwrap().get_mut(&label) {
+        entry.activated = true;
+    }
+    popup
+        .eval("window.refreshContextMenu?.()")
+        .map_err(|e| e.to_string())?;
     let started = std::time::Instant::now();
     loop {
         match tokio::time::timeout(std::time::Duration::from_millis(150), &mut receiver).await {
@@ -257,17 +247,14 @@ pub async fn show_context_menu(
 }
 
 #[tauri::command]
-pub fn context_menu_init(
-    app: tauri::AppHandle,
-    window: WebviewWindow,
-) -> Result<Vec<String>, String> {
+pub fn context_menu_init(app: tauri::AppHandle, window: WebviewWindow) -> Option<Vec<String>> {
     app.state::<Menus>()
         .pending
         .lock()
         .unwrap()
         .get(window.label())
+        .filter(|entry| entry.activated)
         .map(|p| p.actions.clone())
-        .ok_or_else(|| "Unknown menu window".into())
 }
 #[tauri::command]
 pub fn context_menu_ready(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
@@ -284,9 +271,15 @@ pub fn context_menu_ready(app: tauri::AppHandle, window: WebviewWindow) -> Resul
             return Err("Caller hidden".into());
         }
     }
-    let result = window.show().and_then(|_| window.set_focus()).map_err(|e| e.to_string());
-    if result.is_err() { state.finish(&app, window.label(), None); }
-    else if let Some(entry) = state.pending.lock().unwrap().get_mut(window.label()) { entry.ready = true; }
+    let result = window
+        .show()
+        .and_then(|_| window.set_focus())
+        .map_err(|e| e.to_string());
+    if result.is_err() {
+        state.finish(&app, window.label(), None);
+    } else if let Some(entry) = state.pending.lock().unwrap().get_mut(window.label()) {
+        entry.ready = true;
+    }
     result
 }
 #[tauri::command]

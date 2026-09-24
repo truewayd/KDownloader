@@ -110,6 +110,25 @@ Windows result does not establish clipboard delivery.
 
 ## Running native editing acceptance
 
+## Popup preparation
+
+`popup-preload.js` prepares a hidden native window only on a likely interaction:
+right-button press for menus, or hovering a destructive/reset control for
+confirmations. Rust permits one unused window per caller and kind (four caller
+roles, two kinds), and expires unused windows after 60 seconds. There is no
+startup-wide warmup. Each window is consumed once and destroyed on dismissal;
+request identities and action permissions are never reused. Cancellation while
+creation is pending is checked again before activation. Renderers load only
+their small page and the shared visual baseline, with no task polling.
+
+The explicit Windows popup fixture records request-to-ready time alongside HWND
+ownership and caller modality checks. On the development machine one observed
+cold confirmation took 1084 ms; two fully prepared confirmations took 79 and
+178 ms. These include CDP observation overhead and are not a latency guarantee.
+A quick click or keyboard request can still take the cold path.
+
+### Editing scenario
+
 The shared `desktop/tests/native-editing.js` scenario uses a fresh, unique text
 marker for every run. It selects a substring, activates the production editing
 menu in its separate WebView, and checks copy/paste, undo/redo, cut/paste and native select-all by comparing

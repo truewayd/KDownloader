@@ -25,8 +25,14 @@
     const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
     items[next].focus();
   });
-  (async () => {
+  let initializing = false, initialized = false, refreshQueued = false;
+  window.refreshContextMenu = async () => {
+    if (initialized) return;
+    if (initializing) { refreshQueued = true; return; }
+    initializing = true;
+    try {
     const actions = await invoke("context_menu_init");
+    if (!actions) return;
     const mac = window.__TRUEDOWN_PLATFORM__ === "macos";
     for (const action of actions) {
       const [label, icon, shortcut] = definitions[action];
@@ -46,5 +52,10 @@
     }
     menu.querySelector("button")?.focus();
     await invoke("context_menu_ready");
-  })().catch(() => answer(null));
+    initialized = true; window.__popupActive = true;
+    } catch { answer(null); }
+    finally { initializing = false; if (refreshQueued) { refreshQueued = false; window.refreshContextMenu(); } }
+  };
+  window.__popupLoaded = true;
+  window.refreshContextMenu();
 })();

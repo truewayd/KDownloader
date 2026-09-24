@@ -15,6 +15,7 @@ mod macos_acceptance;
 mod menu_icons;
 mod pickers;
 mod placement;
+mod popup_cache;
 mod profile;
 mod startup;
 mod tray_actions;
@@ -137,6 +138,7 @@ fn main() {
         .manage(pickers::DirectoryPickers::default())
         .manage(confirmations::Confirmations::default())
         .manage(context_menus::Menus::default())
+        .manage(popup_cache::Cache::default())
         .manage(drops::Drops::default())
         .invoke_handler(|invoke| {
             if invoke
@@ -185,6 +187,7 @@ fn main() {
                 context_menus::context_menu_ready,
                 context_menus::context_menu_answer,
                 context_menus::context_menu_cancel,
+                popup_cache::prepare_popup,
                 windows::open_auxiliary,
                 windows::open_task_details,
                 windows::task_details_state,

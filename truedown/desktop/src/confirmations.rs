@@ -6,7 +6,7 @@ use tokio::sync::{oneshot, Mutex};
 pub struct Confirmations {
     slots: [Arc<Mutex<()>>; 4],
     pending: std::sync::Mutex<std::collections::HashMap<String, Pending>>,
-    sequence: std::sync::atomic::AtomicU64,
+    cancellations: std::sync::Mutex<std::collections::HashMap<String, u64>>,
 }
 
 struct Pending {
@@ -15,6 +15,7 @@ struct Pending {
     sender: oneshot::Sender<bool>,
     _slot: tokio::sync::OwnedMutexGuard<()>,
     ready: bool,
+    activated: bool,
 }
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
@@ -87,12 +88,28 @@ impl Confirmations {
             .try_lock_owned()
             .map_err(|_| "A confirmation is already open for this window")?;
         let (sender, receiver) = oneshot::channel();
-        let label = format!(
-            "confirmation-{}-{}",
-            window.label(),
-            self.sequence
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        );
+        let cancellation = self
+            .cancellations
+            .lock()
+            .unwrap()
+            .get(window.label())
+            .copied();
+        let popup = app
+            .state::<crate::popup_cache::Cache>()
+            .take(&app, &window, crate::popup_cache::Kind::Confirmation)
+            .await?;
+        let label = popup.label().to_string();
+        if self
+            .cancellations
+            .lock()
+            .unwrap()
+            .get(window.label())
+            .copied()
+            != cancellation
+        {
+            let _ = popup.destroy();
+            return Ok(false);
+        }
         let title = options.title.clone();
         self.pending.lock().unwrap().insert(
             label.clone(),
@@ -102,40 +119,14 @@ impl Confirmations {
                 sender,
                 _slot: pending,
                 ready: false,
+                activated: false,
             },
         );
         let _cleanup = Cleanup {
             app: app.clone(),
             label: label.clone(),
         };
-        let builder = tauri::WebviewWindowBuilder::new(
-            &app,
-            &label,
-            tauri::WebviewUrl::App("confirmation.html".into()),
-        );
-        let popup = app
-            .state::<crate::windows::Windows>()
-            .storage
-            .configure(builder)
-            .parent(&window)
-            .map_err(|e| e.to_string())?
-            .title(title)
-            .inner_size(480.0, 280.0)
-            .min_inner_size(320.0, 220.0)
-            .icon(
-                tauri::image::Image::from_bytes(include_bytes!("../icons/window/info.png"))
-                    .map_err(|e| e.to_string())?,
-            )
-            .map_err(|e| e.to_string())?
-            .visible(false)
-            .focused(false)
-            .minimizable(false)
-            .maximizable(false)
-            .skip_taskbar(true)
-            .center()
-            .on_navigation(crate::windows::local_navigation)
-            .build()
-            .map_err(|e| e.to_string())?;
+        popup.set_title(&title).map_err(|e| e.to_string())?;
         let handle = app.clone();
         let event_label = label.clone();
         popup.on_window_event(move |event| {
@@ -148,6 +139,12 @@ impl Confirmations {
                     .finish(&handle, &event_label, false);
             }
         });
+        if let Some(entry) = self.pending.lock().unwrap().get_mut(&label) {
+            entry.activated = true;
+        }
+        popup
+            .eval("window.refreshConfirmation?.()")
+            .map_err(|e| e.to_string())?;
         let mut receiver = receiver;
         let started = std::time::Instant::now();
         loop {
@@ -207,14 +204,14 @@ impl Drop for Cleanup {
 }
 
 #[tauri::command]
-pub fn confirmation_init(app: tauri::AppHandle, window: WebviewWindow) -> Result<Options, String> {
+pub fn confirmation_init(app: tauri::AppHandle, window: WebviewWindow) -> Option<Options> {
     app.state::<Confirmations>()
         .pending
         .lock()
         .unwrap()
         .get(window.label())
+        .filter(|entry| entry.activated)
         .map(|entry| entry.options.clone())
-        .ok_or_else(|| "Unknown confirmation window".into())
 }
 
 #[tauri::command]
@@ -228,18 +225,25 @@ pub fn confirmation_ready(app: tauri::AppHandle, window: WebviewWindow) -> Resul
         if entry.ready {
             return Ok(());
         }
-        entry.ready = true;
         entry.parent.clone()
     };
-    if !app.state::<crate::windows::Windows>().suppress {
-        if !parent.is_visible().map_err(|e| e.to_string())? {
-            return Err("Parent window is hidden".into());
+    let result = (|| {
+        if !app.state::<crate::windows::Windows>().suppress {
+            if !parent.is_visible().map_err(|e| e.to_string())? {
+                return Err("Parent window is hidden".into());
+            }
+            parent.set_enabled(false).map_err(|e| e.to_string())?;
+            window.show().map_err(|e| e.to_string())?;
+            window.set_focus().map_err(|e| e.to_string())?;
         }
-        parent.set_enabled(false).map_err(|e| e.to_string())?;
-        window.show().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+    if result.is_err() {
+        state.finish(&app, window.label(), false);
+    } else if let Some(entry) = state.pending.lock().unwrap().get_mut(window.label()) {
+        entry.ready = true;
     }
-    Ok(())
+    result
 }
 
 #[tauri::command]
@@ -269,6 +273,11 @@ pub fn confirmation_answer(
 pub fn confirmation_cancel(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
     let state = app.state::<Confirmations>();
     state.slot(window.label())?;
+    {
+        let mut cancellations = state.cancellations.lock().unwrap();
+        let generation = cancellations.entry(window.label().to_string()).or_default();
+        *generation = generation.wrapping_add(1);
+    }
     let labels: Vec<_> = state
         .pending
         .lock()

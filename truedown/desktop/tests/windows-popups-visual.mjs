@@ -45,11 +45,26 @@ try {
   for (const kind of ["info", "warning", "error"]) {
     const title = { info: "信息", warning: "恢复默认设置？", error: "移除下载任务？" }[kind];
     const message = { info: "设置已更新，新任务将使用新的默认值。", warning: "恢复当前分类的默认设置并立即保存。自定义文件分组保持不变。", error: "此操作会移除所选任务。请确认后继续。" }[kind];
+    if (kind !== "info") {
+      await invoke(main, "prepare_popup", { kind: "confirmation" });
+      const warm = await until(() => context.pages().find(page => page.url().endsWith("confirmation.html")));
+      await until(() => warm.evaluate(() => window.__popupLoaded && !window.__popupActive));
+      await invoke(main, "prepare_popup", { kind: "confirmation" });
+      assert.equal(context.pages().filter(page => page.url().endsWith("confirmation.html")).length, 1);
+    }
+    const started = performance.now();
     await main.evaluate(options => { window.popupResult = undefined; confirmAction(options).then(value => { window.popupResult = value; }); }, { title, message, kind, confirmLabel: kind === "info" ? "知道了" : "继续", cancelLabel: "取消" });
     const popup = await until(() => context.pages().find(page => page.url().endsWith("confirmation.html")));
     await popup.emulateMedia({ colorScheme: null });
     await popup.locator("#confirm").waitFor({ state: "visible" });
     await until(() => popup.locator("#title").textContent().then(value => value === title));
+    await until(async () => {
+      if (popup.isClosed()) throw new Error(`Popup ${kind} closed during readiness: ${await main.evaluate(() => window.popupResult)}`);
+      const state = await popup.evaluate(() => ({ active: window.__popupActive, message: document.getElementById("message").textContent }));
+      if (!state.active && state.message !== message) throw new Error(`Popup readiness failed: ${JSON.stringify(state)}`);
+      return state.active;
+    });
+    const readyMs = Math.round(performance.now() - started);
     await assert.rejects(invoke(popup, "core_request", { request: { method: "GET", path: "/tasks" } }));
     await assert.rejects(invoke(popup, "open_auxiliary", { kind: "settings" }));
     await assert.rejects(invoke(main, "confirmation_answer", { accepted: true }));
@@ -57,7 +72,7 @@ try {
     assert.equal(await main.locator("#dialog-overlay").getAttribute("aria-hidden"), "true");
     const state = capture(title, `confirmation-${kind}.png`);
     assert.notEqual(state.owner, "0"); assert.equal(state.ownerEnabled, false);
-    evidence.push({ kind, ...state });
+    evidence.push({ kind, prepared: kind !== "info", readyMs, ...state });
     await popup.locator(kind === "info" ? "#confirm" : "#cancel").click();
     await until(() => main.evaluate(() => window.popupResult !== undefined));
     assert.equal(await main.evaluate(() => window.popupResult), kind === "info");
@@ -83,6 +98,7 @@ try {
   await settings.locator("#cfg-user-agent").click({ button: "right" });
   const escapeMenu = await until(() => context.pages().find(page => page.url().endsWith("context-menu-window.html")));
   await escapeMenu.locator('[data-action="select-all"]').waitFor({ state: "visible" });
+  await until(() => escapeMenu.evaluate(() => window.__popupActive));
   await escapeMenu.keyboard.press("Escape");
   await until(() => !context.pages().includes(escapeMenu));
   await fs.writeFile(path.join(fixture, "evidence.json"), JSON.stringify(evidence, null, 2));
