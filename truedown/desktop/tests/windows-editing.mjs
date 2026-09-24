@@ -7,6 +7,7 @@ import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
 import { acceptNativeEditing, nativeEditingDocumentReady } from './native-editing.mjs';
+import { nativeMenuDriver, menuLabels } from './windows-native-menu.mjs';
 
 assert.equal(process.platform, 'win32');
 assert.equal(process.argv[2], '--visible', 'Editing acceptance requires explicit --visible (uses the system clipboard)');
@@ -27,6 +28,7 @@ async function freePort() {
   return port;
 }
 const apiPort = await freePort(), debugPort = await freePort();
+const menus = await nativeMenuDriver();
 const child = spawn(path.join(fixture, 'TrueDown.exe'), ['--data-dir', profile], {
   windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env,
     TRUEDOWN_DESKTOP_TEST: '', TRUEDOWN_ADDR: `127.0.0.1:${apiPort}`,
@@ -74,15 +76,14 @@ try {
   await until(() => evaluate("return typeof settingsReady !== 'undefined' && settingsReady.has('general')"));
   await page.locator('#cfg-folder').click();
   await acceptNativeEditing(evaluate, until, async action => {
-    const menu = await until(() => browser.contexts()[0].pages().find(candidate => candidate.url().endsWith('context-menu-window.html')))
-      .catch(async error => { throw new Error(`${action}: ${error.message}; ${diagnostic}; ${JSON.stringify(await evaluate('return window.__nativeEditing.debug()'))}`); });
-    await menu.emulateMedia({ colorScheme: null });
-    await menu.locator(`[data-action="${action}"]`).click()
-      .catch(async error => { throw new Error(`${action}: ${error.message}; ${diagnostic}; ${JSON.stringify(await evaluate('return window.__nativeEditing.debug()'))}`); });
-    await until(() => !browser.contexts()[0].pages().includes(menu));
+    await until(() => menus.request(child.pid).catch(() => false));
+    assert.ok(menuLabels[action], `Unknown native menu action: ${action}`);
+    await menus.request(child.pid, { label: menuLabels[action] });
+    await until(() => menus.request(child.pid).then(() => false, () => true));
   });
   console.log('windows_native_editing=ok clipboard_round_trip=ok editor_actions=ok');
 } finally {
+  menus.close();
   // Check profile identity before asking a possibly recycled port to exit.
   try {
     const storage = await request('/system/storage');

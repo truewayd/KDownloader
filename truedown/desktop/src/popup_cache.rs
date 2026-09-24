@@ -126,6 +126,10 @@ pub async fn prepare_popup(
     kind: Kind,
 ) -> Result<(), String> {
     crate::editing::authorize(window.label())?;
+    // Windows content menus use HMENU and never allocate a popup WebView.
+    if cfg!(windows) && kind == Kind::Menu {
+        return Ok(());
+    }
     if app.state::<crate::windows::Windows>().suppress || !window.is_visible().unwrap_or(false) {
         return Ok(());
     }

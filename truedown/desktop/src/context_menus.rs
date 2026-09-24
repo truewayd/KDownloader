@@ -1,23 +1,22 @@
-//! Independent, caller-owned menu windows. No clipboard data or task payload crosses IPC.
+//! Caller-bound context menus. Windows uses HMENU; other desktops use owned WebViews.
+#[cfg(not(windows))]
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
+#[cfg(not(windows))]
 use tauri::{Manager, WebviewWindow};
+#[cfg(not(windows))]
 use tokio::sync::oneshot;
 
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+pub use windows::*;
 
+#[cfg(not(windows))]
 fn caller_active(window: &WebviewWindow) -> bool {
-    #[cfg(windows)]
-    {
-        windows::is_active(window)
-    }
-    #[cfg(not(windows))]
-    {
-        window.is_focused().unwrap_or(false)
-    }
+    window.is_focused().unwrap_or(false)
 }
 
 const ACTIONS: &[&str] = &[
@@ -49,11 +48,13 @@ const ACTIONS: &[&str] = &[
 const EDITING: &[&str] = &["undo", "redo", "cut", "copy", "paste", "select-all"];
 
 #[derive(Default)]
+#[cfg(not(windows))]
 pub struct Menus {
     pending: Mutex<HashMap<String, Pending>>,
     slots: [Arc<tokio::sync::Mutex<()>>; 4],
     cancelled: Mutex<HashMap<String, u32>>,
 }
+#[cfg(not(windows))]
 struct Pending {
     parent: WebviewWindow,
     request_id: u32,
@@ -63,8 +64,6 @@ struct Pending {
     activated: bool,
     focused: bool,
     keyboard: bool,
-    #[cfg(windows)]
-    caller_focus: Option<windows::CallerFocus>,
     _slot: tokio::sync::OwnedMutexGuard<()>,
 }
 
@@ -90,6 +89,7 @@ fn validate(role: &str, actions: &[String], x: f64, y: f64) -> Result<(), String
     Ok(())
 }
 
+#[cfg(not(windows))]
 impl Menus {
     fn finish(&self, app: &tauri::AppHandle, label: &str, action: Option<String>) {
         let entry = self.pending.lock().unwrap().remove(label);
@@ -107,20 +107,18 @@ impl Menus {
                 if restore && entry.parent.is_visible().unwrap_or(false) {
                     let _ = entry.parent.set_focus();
                 }
-                #[cfg(windows)]
-                if let Some(focus) = entry.caller_focus {
-                    focus.restore();
-                }
                 let _ = entry.sender.send(action);
                 drop(entry._slot);
             });
         }
     }
 }
+#[cfg(not(windows))]
 struct Cleanup {
     app: tauri::AppHandle,
     label: String,
 }
+#[cfg(not(windows))]
 impl Drop for Cleanup {
     fn drop(&mut self) {
         self.app
@@ -129,6 +127,7 @@ impl Drop for Cleanup {
     }
 }
 
+#[cfg(not(windows))]
 #[tauri::command]
 pub async fn show_context_menu(
     app: tauri::AppHandle,
@@ -188,8 +187,6 @@ pub async fn show_context_menu(
                 activated: false,
                 focused: false,
                 keyboard: keyboard.unwrap_or(false),
-                #[cfg(windows)]
-                caller_focus: None,
                 _slot: slot,
             },
         );
@@ -280,6 +277,7 @@ pub async fn show_context_menu(
     }
 }
 
+#[cfg(not(windows))]
 #[tauri::command]
 pub fn context_menu_init(app: tauri::AppHandle, window: WebviewWindow) -> Option<Vec<String>> {
     app.state::<Menus>()
@@ -290,6 +288,7 @@ pub fn context_menu_init(app: tauri::AppHandle, window: WebviewWindow) -> Option
         .filter(|entry| entry.activated)
         .map(|p| p.actions.clone())
 }
+#[cfg(not(windows))]
 #[tauri::command]
 pub async fn context_menu_ready(
     app: tauri::AppHandle,
@@ -309,25 +308,6 @@ pub async fn context_menu_ready(
         }
         entry.keyboard
     };
-    #[cfg(windows)]
-    if !keyboard {
-        let parent = state
-            .pending
-            .lock()
-            .unwrap()
-            .get(window.label())
-            .ok_or("Menu closed")?
-            .parent
-            .clone();
-        let focus = windows::capture(&parent).await?;
-        state
-            .pending
-            .lock()
-            .unwrap()
-            .get_mut(window.label())
-            .ok_or("Menu closed")?
-            .caller_focus = Some(focus);
-    }
     let result = window
         .set_focusable(keyboard)
         .and_then(|_| window.show())
@@ -353,6 +333,7 @@ pub enum MenuKey {
 }
 
 // Mouse menus leave keyboard focus with the caller; relay only navigation keys.
+#[cfg(not(windows))]
 #[tauri::command]
 pub fn context_menu_key(
     app: tauri::AppHandle,
@@ -384,6 +365,7 @@ pub fn context_menu_key(
     }
     Ok(())
 }
+#[cfg(not(windows))]
 #[tauri::command]
 pub fn context_menu_answer(
     app: tauri::AppHandle,
@@ -404,6 +386,7 @@ pub fn context_menu_answer(
     state.finish(&app, window.label(), action);
     Ok(())
 }
+#[cfg(not(windows))]
 #[tauri::command]
 pub fn context_menu_cancel(
     app: tauri::AppHandle,

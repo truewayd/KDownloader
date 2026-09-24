@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { menuLabels } from "./windows-native-menu.mjs";
 
 assert.equal(process.platform, "win32");
 assert.equal(process.argv[2], "--visible", "Visible popup checks require explicit opt-in");
@@ -48,15 +49,16 @@ async function until(check, timeout = 15000) {
   throw new Error("Popup acceptance timed out");
 }
 const invoke = (page, command, args) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
-const capture = (title, name, point = null) => new Promise((resolve, reject) => {
+const capture = (title, name, point = null, nativeMenu = null) => new Promise((resolve, reject) => {
   const timer = setTimeout(() => { captureReply = null; reject(new Error("Capture timed out")); }, 15000);
   captureReply = line => {
     clearTimeout(timer); captureReply = null;
     try { const result = JSON.parse(line); if (result.error) reject(new Error(result.error)); else resolve(result); }
     catch (error) { reject(error); }
   };
-  captureWorker.stdin.write(JSON.stringify({ processId: child.pid, title, path: name ? path.join(fixture, name) : "", point }) + "\n");
+  captureWorker.stdin.write(JSON.stringify({ processId: child.pid, title, path: name ? path.join(fixture, name) : "", point, nativeMenu }) + "\n");
 });
+const nativeMenu = (options = {}) => capture(null, null, null, options);
 try {
   await until(() => fetch(`http://127.0.0.1:${debugPort}/json/version`, { signal: AbortSignal.timeout(1500) }).then(r => r.ok, () => false), 90000);
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
@@ -76,16 +78,10 @@ try {
   const chooseMainMenu = async (selector, action) => {
     await capture(await main.title(), null);
     await main.locator(selector).click({ button: "right" });
-    const popup = await until(async () => {
-      for (const page of context.pages().filter(page => page.url().endsWith("context-menu-window.html"))) {
-        if (await page.evaluate(() => window.__popupActive).catch(() => false)) return page;
-      }
-    }).catch(async error => { throw new Error(`${error.message}: ${JSON.stringify(await main.evaluate(() => contextCalls))}`); });
-    await popup.emulateMedia({ colorScheme: null });
-    assert.equal(await main.evaluate(() => document.hasFocus()), true);
-    const box = await popup.locator(`[data-action="${action}"]`).boundingBox();
-    await capture("操作菜单", null, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
-    await until(() => !context.pages().includes(popup));
+    await until(() => nativeMenu().catch(() => false));
+    assert.ok(menuLabels[action]);
+    await nativeMenu({ label: menuLabels[action] });
+    await until(() => nativeMenu().then(() => false, () => true));
   };
   await chooseMainMenu('[data-task-category="project"] .nav-label', "group-edit");
   await until(() => context.pages().some(page => page.url().includes("window=settings")))
@@ -170,38 +166,24 @@ try {
     };
   });
   await settings.locator("#cfg-folder").evaluate(element => { element.focus(); element.setSelectionRange(0, 8); element.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: innerWidth - 10, clientY: innerHeight - 10 })); });
-  const menu = await until(() => context.pages().find(page => page.url().endsWith("context-menu-window.html")))
-    .catch(async error => { throw new Error(`${error.message}: ${JSON.stringify(await settings.evaluate(() => ({ events: window.menuEvents, visible: document.visibilityState, focused: document.hasFocus() })))}`); });
-  await menu.emulateMedia({ colorScheme: null });
-  await menu.locator('[data-action="select-all"]').waitFor({ state: "visible" });
-  await until(() => menu.evaluate(() => window.__popupActive));
-  const menuState = await capture("操作菜单", "context-menu-editor.png");
-  assert.deepEqual(await baseline(menu), mainBaseline);
+  await until(() => nativeMenu().catch(() => false));
+  const menuState = await capture("#32768", "context-menu-editor.png");
   assert.equal(await settings.locator('.kd-context-menu').count(), 0, "desktop menus must not exist in the caller DOM");
-  await assert.rejects(invoke(menu, "core_request", { request: { method: "GET", path: "/tasks" } }));
-  await assert.rejects(invoke(menu, "context_menu_answer", { action: "remove" }));
+  assert.equal(context.pages().filter(page => page.url().endsWith("context-menu-window.html")).length, 0);
+  await assert.rejects(invoke(settings, "context_menu_answer", { action: "remove" }));
   assert.notEqual(menuState.owner, "0"); assert.equal(menuState.ownerEnabled, true);
   assert.equal(menuState.ownerForeground, true, "mouse menus must keep their caller as the foreground HWND");
-  assert.equal(await settings.evaluate(() => document.hasFocus()), true, "mouse menus must retain editor focus");
-  await settings.keyboard.press("End");
-  await until(() => menu.evaluate(() => document.activeElement?.dataset.action === "select-all"));
   evidence.push({ kind: "menu", ...menuState });
-  const selectAllBox = await menu.locator('[data-action="select-all"]').boundingBox();
-  await capture("操作菜单", null, { x: selectAllBox.x + selectAllBox.width / 2, y: selectAllBox.y + selectAllBox.height / 2 });
-  await until(() => !context.pages().includes(menu));
+  await nativeMenu({ key: "End" });
+  await nativeMenu({ key: "Enter" });
+  await until(() => nativeMenu().then(() => false, () => true));
   await until(() => settings.locator("#cfg-folder").evaluate(e => e.selectionStart === 0 && e.selectionEnd === e.value.length));
   await until(() => settings.evaluate(() => !els.settingsForm.inert));
   await capture("设置", null);
   await settings.locator("#cfg-folder").click({ button: "right" });
-  const escapeMenu = await until(async () => {
-    for (const page of context.pages().filter(page => page.url().endsWith("context-menu-window.html"))) {
-      if (await page.evaluate(() => window.__popupActive).catch(() => false)) return page;
-    }
-  });
-  await escapeMenu.locator('[data-action="select-all"]').waitFor({ state: "visible" });
-  await until(() => escapeMenu.evaluate(() => window.__popupActive));
-  await escapeMenu.keyboard.press("Escape");
-  await until(() => !context.pages().includes(escapeMenu));
+  await until(() => nativeMenu().catch(() => false));
+  await nativeMenu({ key: "Escape" });
+  await until(() => nativeMenu().then(() => false, () => true));
   await invoke(settings, "close_auxiliary");
   await invoke(main, "open_auxiliary", { kind: "new-task" });
   const form = await until(() => context.pages().find(page => page.url().includes("window=new-task")));

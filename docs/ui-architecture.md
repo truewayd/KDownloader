@@ -150,8 +150,13 @@ and material integration only. Page styles own layout, not alternate palettes.
   visible heading inside the window; show explanatory detail and actions there.
   Hidden accessible headings may remain. Distinct category titles inside the
   Settings window are appropriate because they convey another level.
-- Information/warning/danger prompts and context menus are separate parented
-  native WebView windows, styled with this same baseline. Page modals are a
+- Information/warning/danger prompts are separate parented native WebView
+  windows. Context menus use native HMENU on Windows and parented WebViews on
+  other desktops, styled with this same baseline. Windows owner drawing keeps
+  native input and labels; high contrast uses the stock menu. DWM rounds the
+  frame, with the legacy square drop shadow suppressed only during the menu's
+  lifetime and restored on teardown. The GDI menu surface is opaque, not Acrylic.
+  Page modals are a
   browser-fixture fallback only; compact pickers and transient toasts may remain
   in-page. A failed native request must never approve an action or fall back to
   a page modal.
