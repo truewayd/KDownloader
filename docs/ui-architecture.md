@@ -154,8 +154,9 @@ and material integration only. Page styles own layout, not alternate palettes.
   windows. Context menus use native HMENU on Windows and parented WebViews on
   other desktops, styled with this same baseline. Windows owner drawing keeps
   native input and labels; high contrast uses the stock menu. DWM rounds the
-  frame, with the legacy square drop shadow suppressed only during the menu's
-  lifetime and restored on teardown. The GDI menu surface is opaque, not Acrylic.
+  frame; the popup subclass replaces the stock beveled nonclient inset with the
+  menu surface while excluding all client content from that paint pass. Menu
+  class shadow flags remain unchanged. The GDI surface is opaque, not Acrylic.
   Page modals are a
   browser-fixture fallback only; compact pickers and transient toasts may remain
   in-page. A failed native request must never approve an action or fall back to

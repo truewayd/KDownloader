@@ -2,7 +2,7 @@
 use std::cell::Cell;
 use tauri::image::Image;
 use windows_sys::Win32::{
-    Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM},
+    Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM},
     Graphics::{Dwm::*, Gdi::*},
     UI::{
         Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW},
@@ -55,7 +55,6 @@ struct Item {
 }
 struct Style {
     popup: Cell<HWND>,
-    shadow_class: Cell<Option<usize>>,
     menu: HMENU,
     dpi: u32,
     width: u32,
@@ -141,7 +140,6 @@ pub unsafe fn attach(
     metrics.lfMenuFont.lfHeight = -metrics.lfMenuFont.lfHeight.abs().max(px(dpi, 13));
     let mut style = Box::new(Style {
         popup: Cell::new(std::ptr::null_mut()),
-        shadow_class: Cell::new(None),
         menu,
         dpi,
         width: px(dpi, 240) as u32,
@@ -305,19 +303,6 @@ unsafe fn frame(style: &Style, popup: HWND) {
         return;
     }
     style.popup.set(popup);
-    // The classic CS_DROPSHADOW is a separate square right/bottom shadow.
-    // DWM rounding clips the menu, but cannot clip that legacy shadow window.
-    // Suppress it only for the active menu loop, then restore the class style.
-    let class_style = GetClassLongPtrW(popup, GCL_STYLE);
-    if class_style & CS_DROPSHADOW as usize != 0
-        && SetClassLongPtrW(
-            popup,
-            GCL_STYLE,
-            (class_style & !(CS_DROPSHADOW as usize)) as isize,
-        ) != 0
-    {
-        style.shadow_class.set(Some(class_style));
-    }
     let policy = DWMNCRP_ENABLED;
     DwmSetWindowAttribute(
         popup,
@@ -352,20 +337,17 @@ unsafe fn frame(style: &Style, popup: HWND) {
         0,
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
     );
+    RedrawWindow(
+        popup,
+        std::ptr::null(),
+        std::ptr::null_mut(),
+        RDW_INVALIDATE | RDW_FRAME,
+    );
 }
 
 unsafe fn detach_popup(style: &Style) {
     let popup = style.popup.replace(std::ptr::null_mut());
     if !popup.is_null() {
-        if let Some(original) = style.shadow_class.take() {
-            // Preserve any unrelated class bits changed while the menu was open.
-            let current = GetClassLongPtrW(popup, GCL_STYLE);
-            SetClassLongPtrW(
-                popup,
-                GCL_STYLE,
-                (current | (original & CS_DROPSHADOW as usize)) as isize,
-            );
-        }
         RemoveWindowSubclass(popup, Some(popup_frame), POPUP_SUBCLASS);
     }
 }
@@ -378,10 +360,65 @@ unsafe extern "system" fn popup_frame(
     _: usize,
     data: usize,
 ) -> LRESULT {
+    let style = &*(data as *const Style);
     if message == WM_NCDESTROY {
-        detach_popup(&*(data as *const Style));
+        detach_popup(style);
+        return DefSubclassProc(hwnd, message, wp, lp);
     }
-    DefSubclassProc(hwnd, message, wp, lp)
+    // Owner-drawn items do not replace the stock menu's beveled NC border.
+    // DWM rounds the outside; paint its inner border with the same flat surface
+    // instead of leaving the old dark right/bottom bevel beside the round edge.
+    if message == WM_NCPAINT && paint_frame(hwnd, style) {
+        return 0;
+    }
+    let result = DefSubclassProc(hwnd, message, wp, lp);
+    if message == WM_PAINT || message == WM_NCACTIVATE {
+        // The native menu can repaint its edge with the client/activation pass.
+        paint_frame(hwnd, style);
+    }
+    result
+}
+
+unsafe fn paint_frame(hwnd: HWND, style: &Style) -> bool {
+    let mut bounds = RECT::default();
+    let mut client = RECT::default();
+    let mut origin = POINT::default();
+    if GetWindowRect(hwnd, &mut bounds) == 0
+        || GetClientRect(hwnd, &mut client) == 0
+        || ClientToScreen(hwnd, &mut origin) == 0
+    {
+        return false;
+    }
+    let dc = GetWindowDC(hwnd);
+    if dc.is_null() {
+        return false;
+    }
+    let saved = SaveDC(dc);
+    let mut painted = false;
+    if saved != 0 {
+        let x = origin.x - bounds.left;
+        let y = origin.y - bounds.top;
+        // Never erase an item, its current hover, or a scrolling menu's client.
+        if ExcludeClipRect(
+            dc,
+            client.left + x,
+            client.top + y,
+            client.right + x,
+            client.bottom + y,
+        ) != ERROR
+        {
+            let rect = RECT {
+                left: 0,
+                top: 0,
+                right: bounds.right - bounds.left,
+                bottom: bounds.bottom - bounds.top,
+            };
+            painted = FillRect(dc, &rect, style.surface) != 0;
+        }
+        RestoreDC(dc, saved);
+    }
+    ReleaseDC(hwnd, dc);
+    painted
 }
 
 unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
@@ -537,7 +574,6 @@ mod tests {
                         let palette = Palette::new(dark);
                         let style = Style {
                             popup: Cell::new(std::ptr::null_mut()),
-                            shadow_class: Cell::new(None),
                             menu: std::ptr::null_mut(),
                             dpi: 144,
                             width: 360,
