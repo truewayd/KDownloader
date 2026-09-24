@@ -156,7 +156,11 @@ and material integration only. Page styles own layout, not alternate palettes.
   native input and labels; high contrast uses the stock menu. DWM rounds the
   frame; the popup subclass replaces the stock beveled nonclient inset with the
   menu surface while excluding all client content from that paint pass. Menu
-  class shadow flags remain unchanged. The GDI surface is opaque, not Acrylic.
+  window is bound by an owning-thread hook before show, with an exact HMENU
+  match. Suppress the legacy class shadow before its separate window can be
+  created, restoring the flag when the popup closes; painting-time DC lookup
+  is not a reliable way to bind a buffered menu. The GDI surface is opaque,
+  not Acrylic.
   Page modals are a
   browser-fixture fallback only; compact pickers and transient toasts may remain
   in-page. A failed native request must never approve an action or fall back to

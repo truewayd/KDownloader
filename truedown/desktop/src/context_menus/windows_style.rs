@@ -15,6 +15,9 @@ use windows_sys::Win32::{
 
 const SUBCLASS: usize = 0x54444d53;
 const POPUP_SUBCLASS: usize = 0x54444d46;
+thread_local! {
+    static TRACKED_STYLE: Cell<*const Style> = const { Cell::new(std::ptr::null()) };
+}
 #[derive(Clone, Copy)]
 struct Palette {
     surface: COLORREF,
@@ -55,6 +58,13 @@ struct Item {
 }
 struct Style {
     popup: Cell<HWND>,
+    shadow_class: Cell<Option<usize>>,
+    shadow_suppressed: Cell<bool>,
+    saw_popup: Cell<bool>,
+    bound_popup: Cell<bool>,
+    frame_paints: Cell<u32>,
+    shadow_windows: Cell<u32>,
+    corner_result: Cell<i32>,
     menu: HMENU,
     dpi: u32,
     width: u32,
@@ -78,10 +88,16 @@ pub struct Guard {
     hwnd: HWND,
     style: Box<Style>,
     attached: bool,
+    hook: HHOOK,
 }
 impl Drop for Guard {
     fn drop(&mut self) {
         unsafe {
+            if !self.hook.is_null() {
+                UnhookWindowsHookEx(self.hook);
+                TRACKED_STYLE.with(|slot| slot.set(std::ptr::null()));
+            }
+            log_frame(&self.style);
             detach_popup(&self.style);
             if self.attached {
                 RemoveWindowSubclass(self.hwnd, Some(paint), SUBCLASS);
@@ -140,6 +156,13 @@ pub unsafe fn attach(
     metrics.lfMenuFont.lfHeight = -metrics.lfMenuFont.lfHeight.abs().max(px(dpi, 13));
     let mut style = Box::new(Style {
         popup: Cell::new(std::ptr::null_mut()),
+        shadow_class: Cell::new(None),
+        shadow_suppressed: Cell::new(false),
+        saw_popup: Cell::new(false),
+        bound_popup: Cell::new(false),
+        frame_paints: Cell::new(0),
+        shadow_windows: Cell::new(0),
+        corner_result: Cell::new(i32::MIN),
         menu,
         dpi,
         width: px(dpi, 240) as u32,
@@ -193,6 +216,7 @@ pub unsafe fn attach(
         hwnd,
         style,
         attached: false,
+        hook: std::ptr::null_mut(),
     };
     if SetWindowSubclass(
         hwnd,
@@ -226,7 +250,88 @@ pub unsafe fn attach(
             return Err("Cannot style menu item".into());
         }
     }
+    if TRACKED_STYLE.with(|slot| !slot.get().is_null()) {
+        return Err("Menu frame tracking is already active".into());
+    }
+    let thread = GetWindowThreadProcessId(hwnd, std::ptr::null_mut());
+    if thread == 0 {
+        return Err("Menu owner thread unavailable".into());
+    }
+    guard.hook = SetWindowsHookExW(
+        WH_CALLWNDPROC,
+        Some(before_popup_message),
+        std::ptr::null_mut(),
+        thread,
+    );
+    if guard.hook.is_null() {
+        return Err("Cannot track native menu creation".into());
+    }
+    TRACKED_STYLE.with(|slot| slot.set(&*guard.style));
     Ok(Some(guard))
+}
+
+unsafe extern "system" fn before_popup_message(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    if code >= 0 && lp != 0 {
+        let message = &*(lp as *const CWPSTRUCT);
+        if message.message == WM_CREATE || message.message == WM_WINDOWPOSCHANGING {
+            TRACKED_STYLE.with(|slot| {
+                if let Some(style) = slot.get().as_ref() {
+                    let mut class = [0u16; 32];
+                    let len = GetClassNameW(message.hwnd, class.as_mut_ptr(), class.len() as i32);
+                    let name = &class[..len.max(0) as usize];
+                    if name == [35, 51, 50, 55, 54, 56] {
+                        // #32768
+                        style.saw_popup.set(true);
+                        let mut info = MENUBARINFO {
+                            cbSize: std::mem::size_of::<MENUBARINFO>() as u32,
+                            ..Default::default()
+                        };
+                        // Bind only our HMENU, on its owning thread, before show.
+                        // Buffered WM_DRAWITEM DCs need not belong to any HWND.
+                        if GetMenuBarInfo(message.hwnd, OBJID_CLIENT, 0, &mut info) != 0
+                            && info.hMenu == style.menu
+                        {
+                            frame(style, message.hwnd);
+                        }
+                    } else if message.message == WM_CREATE
+                        && name == [83, 121, 115, 83, 104, 97, 100, 111, 119]
+                    {
+                        // SysShadow
+                        style
+                            .shadow_windows
+                            .set(style.shadow_windows.get().saturating_add(1));
+                    }
+                }
+            });
+        }
+    }
+    CallNextHookEx(std::ptr::null_mut(), code, wp, lp)
+}
+
+fn log_frame(style: &Style) {
+    #[cfg(debug_assertions)]
+    {
+        use std::io::Write;
+        // Bounded local build diagnostics, with no menu labels or profile values.
+        if let Ok(exe) = std::env::current_exe() {
+            let path = exe.with_file_name("menu-frame-diagnostics.log");
+            let large = std::fs::metadata(&path).is_ok_and(|meta| meta.len() > 65536);
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .append(!large)
+                .truncate(large)
+                .open(path)
+            {
+                let _ = writeln!(file,
+                    "frame3 seen={} bound={} corner={} legacy_shadow_disabled={} frame_paints={} shadow_windows={}",
+                    style.saw_popup.get(), style.bound_popup.get(), style.corner_result.get(),
+                    style.shadow_suppressed.get(), style.frame_paints.get(), style.shadow_windows.get());
+            }
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    let _ = style;
 }
 
 unsafe extern "system" fn paint(
@@ -258,20 +363,17 @@ unsafe extern "system" fn paint(
                 .iter()
                 .find(|item| (*item as *const Item) as usize == draw.itemData)
             {
-                frame(style, WindowFromDC(draw.hDC));
                 draw_item(style, item, draw);
                 return 1;
             }
         }
-    } else if message == WM_ENTERIDLE && wp == MSGF_MENU as usize {
-        frame(style, lp as HWND);
     } else if message == WM_NCDESTROY {
         RemoveWindowSubclass(hwnd, Some(paint), SUBCLASS);
     }
     DefSubclassProc(hwnd, message, wp, lp)
 }
 
-// Style only the popup provided by this menu's drawing/idle notifications.
+// Called before show for the popup whose HMENU matches the active request.
 // DWM owns clipping and shadows: regions/layered windows would disable its rounding.
 // HMENU's GDI surface remains opaque; requesting Acrylic here would be misleading.
 unsafe fn frame(style: &Style, popup: HWND) {
@@ -283,14 +385,18 @@ unsafe fn frame(style: &Style, popup: HWND) {
     if class[..len.max(0) as usize] != "#32768".encode_utf16().collect::<Vec<_>>() {
         return;
     }
+    // DWM/subclass calls can send nested window messages through our hook.
+    style.popup.set(popup);
     let corner = DWMWCP_ROUND;
-    if DwmSetWindowAttribute(
+    let corner_result = DwmSetWindowAttribute(
         popup,
         DWMWA_WINDOW_CORNER_PREFERENCE as u32,
         (&corner as *const DWM_WINDOW_CORNER_PREFERENCE).cast(),
         std::mem::size_of_val(&corner) as u32,
-    ) < 0
-    {
+    );
+    style.corner_result.set(corner_result);
+    if corner_result < 0 {
+        style.popup.set(std::ptr::null_mut());
         return; // Older Windows keeps the stock frame and shadow.
     }
     if SetWindowSubclass(
@@ -300,9 +406,26 @@ unsafe fn frame(style: &Style, popup: HWND) {
         (style as *const Style) as usize,
     ) == 0
     {
+        style.popup.set(std::ptr::null_mut());
         return;
     }
     style.popup.set(popup);
+    style.bound_popup.set(true);
+    // This must precede the first show: changing class flags after WM_DRAWITEM
+    // cannot remove an already-created, separate SysShadow window.
+    if IsWindowVisible(popup) == 0 {
+        let original = GetClassLongPtrW(popup, GCL_STYLE);
+        if original & CS_DROPSHADOW as usize != 0
+            && SetClassLongPtrW(
+                popup,
+                GCL_STYLE,
+                (original & !(CS_DROPSHADOW as usize)) as isize,
+            ) != 0
+        {
+            style.shadow_class.set(Some(original));
+            style.shadow_suppressed.set(true);
+        }
+    }
     let policy = DWMNCRP_ENABLED;
     DwmSetWindowAttribute(
         popup,
@@ -328,26 +451,20 @@ unsafe fn frame(style: &Style, popup: HWND) {
         (&border as *const COLORREF).cast(),
         std::mem::size_of_val(&border) as u32,
     );
-    SetWindowPos(
-        popup,
-        std::ptr::null_mut(),
-        0,
-        0,
-        0,
-        0,
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-    );
-    RedrawWindow(
-        popup,
-        std::ptr::null(),
-        std::ptr::null_mut(),
-        RDW_INVALIDATE | RDW_FRAME,
-    );
+    // The pending native show lays out and paints it. No reentrant positioning.
 }
 
 unsafe fn detach_popup(style: &Style) {
     let popup = style.popup.replace(std::ptr::null_mut());
     if !popup.is_null() {
+        if let Some(original) = style.shadow_class.take() {
+            let current = GetClassLongPtrW(popup, GCL_STYLE);
+            SetClassLongPtrW(
+                popup,
+                GCL_STYLE,
+                (current | (original & CS_DROPSHADOW as usize)) as isize,
+            );
+        }
         RemoveWindowSubclass(popup, Some(popup_frame), POPUP_SUBCLASS);
     }
 }
@@ -380,6 +497,9 @@ unsafe extern "system" fn popup_frame(
 }
 
 unsafe fn paint_frame(hwnd: HWND, style: &Style) -> bool {
+    style
+        .frame_paints
+        .set(style.frame_paints.get().saturating_add(1));
     let mut bounds = RECT::default();
     let mut client = RECT::default();
     let mut origin = POINT::default();
@@ -574,6 +694,13 @@ mod tests {
                         let palette = Palette::new(dark);
                         let style = Style {
                             popup: Cell::new(std::ptr::null_mut()),
+                            shadow_class: Cell::new(None),
+                            shadow_suppressed: Cell::new(false),
+                            saw_popup: Cell::new(false),
+                            bound_popup: Cell::new(false),
+                            frame_paints: Cell::new(0),
+                            shadow_windows: Cell::new(0),
+                            corner_result: Cell::new(i32::MIN),
                             menu: std::ptr::null_mut(),
                             dpi: 144,
                             width: 360,
