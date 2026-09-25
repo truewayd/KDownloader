@@ -188,6 +188,7 @@ pub unsafe fn record_pointer(point: POINT) {
 
 pub unsafe fn attach(
     window: &tauri::WebviewWindow,
+    hwnd: HWND,
     menu: HMENU,
     actions: &[String],
 ) -> Result<Option<Guard>, String> {
@@ -205,7 +206,6 @@ pub unsafe fn attach(
     {
         return Ok(None);
     }
-    let hwnd = window.hwnd().map_err(|error| error.to_string())?.0;
     let dpi = GetDpiForWindow(hwnd).max(96);
     let palette = Palette::new(window.theme().ok() == Some(tauri::Theme::Dark));
     let mut metrics = NONCLIENTMETRICSW {
@@ -974,9 +974,10 @@ fn icon(action: &str, large: bool) -> Result<Image<'static>, String> {
         "resume" | "resume-queue" => bytes!("play"),
         "requeue" | "retry-all" => bytes!("retry"),
         "open-file" => bytes!("file"),
-        "open-folder" | "open-downloads" | "group-show" => bytes!("folder-open"),
+        "open-folder" | "open-downloads" | "tray-open" => bytes!("folder-open"),
         "remove" | "clear-done" => bytes!("trash"),
-        "new-task" | "group-add" => bytes!("plus"),
+        "new-task" | "group-add" | "tray-new" => bytes!("plus"),
+        "tray-exit" => bytes!("power"),
         "settings" | "group-edit" => bytes!("settings"),
         "group-manage" => bytes!("folder"),
         "undo" => bytes!("undo"),
@@ -1102,7 +1103,11 @@ mod tests {
     }
     #[test]
     fn icons_cover_actions_and_matte_preserves_transparency() {
-        for action in super::super::super::ACTIONS {
+        for action in super::super::super::ACTIONS.iter().copied().chain([
+            "tray-new",
+            "tray-open",
+            "tray-exit",
+        ]) {
             for large in [false, true] {
                 let image = super::icon(action, large).unwrap();
                 assert_eq!(image.width(), if large { 32 } else { 16 });

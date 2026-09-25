@@ -29,7 +29,6 @@ const ACTIONS: &[&str] = &[
     "remove",
     "new-task",
     "settings",
-    "group-show",
     "group-edit",
     "group-add",
     "group-manage",
@@ -436,5 +435,8 @@ mod tests {
         assert!(validate("main", &["copy".into(), "copy".into()], 0.0, 0.0).is_err());
         assert!(validate("main", &["copy".into()], f64::NAN, 0.0).is_err());
         assert!(validate("main", &["exit".into()], 0.0, 0.0).is_err());
+        for action in ["tray-new", "tray-open", "tray-exit", "group-show"] {
+            assert!(validate("main", &[action.into()], 0.0, 0.0).is_err());
+        }
     }
 }

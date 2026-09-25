@@ -33,6 +33,12 @@ const server = http.createServer(async (request, response) => {
   }
   if (url.pathname === "/settings/task-defaults") return json({ revision: 1, values: {} });
   if (url.pathname === "/settings/download-rules") return json({ enabled: false, dropboxMode: "direct", excludedExtensions: [] });
+  if (url.pathname === "/settings/file-groups/order") {
+    const next = await body(request);
+    if (next.revision !== groups.revision) return json("conflict", 409);
+    groups = { ...groups, revision: groups.revision + 1, groups: next.ids.map(id => groups.groups.find(group => group.id === id)) };
+    return json(groups);
+  }
   if (url.pathname === "/settings/file-groups") {
     if (request.method === "POST") {
       const next = await body(request);
@@ -71,9 +77,11 @@ try {
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.waitForFunction(() => document.querySelectorAll("[data-task-category]").length === 8);
     const writesBeforeMenu = groupWrites;
-    // A group menu targets its editor without changing the active task filter.
+    // Right-click selects the group before opening its actions.
     await page.locator('[data-task-category="project"] .nav-label').dispatchEvent("contextmenu", { button: 2, clientX: 100, clientY: 100 });
-    assert.equal(await page.evaluate(() => currentCategory), "");
+    assert.equal(await page.evaluate(() => currentCategory), "project");
+    assert.equal(await page.locator('[data-task-category="project"]').getAttribute("aria-current"), "page");
+    assert.equal(await page.locator('[data-menu-action="group-show"]').count(), 0);
     await page.screenshot({ path: path.join(screenshots, `group-menu-${width}-${colorScheme}.png`) });
     await page.locator('[data-menu-action="group-edit"]').click();
     await page.waitForFunction(() => document.activeElement?.closest("[data-group-id]")?.dataset.groupId === "project");
@@ -81,6 +89,44 @@ try {
     assert.equal(groupWrites, writesBeforeMenu, "opening group settings does not persist anything");
     await page.evaluate(() => { location.hash = "tasks"; });
     await page.waitForFunction(() => currentPage === "tasks");
+    const image = page.locator('[data-task-category="image"]');
+    const video = page.locator('[data-task-category="video"]');
+    const start = await image.boundingBox(), end = await video.boundingBox();
+    const beforeDrag = groups.revision;
+    await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(end.x + end.width / 2, end.y + end.height - 2, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForFunction(revision => fileGroupsState.revision > revision && !fileGroupOrderSaving, beforeDrag);
+    assert.deepEqual(groups.groups.slice(0, 2).map(group => group.id), ["video", "image"]);
+    assert.equal(await page.evaluate(() => currentCategory), "project", "sorting must not activate the dragged group");
+    await image.focus();
+    await page.keyboard.press("Alt+ArrowUp");
+    await page.waitForFunction(() => !fileGroupOrderSaving);
+    assert.deepEqual(groups.groups.slice(0, 2).map(group => group.id), ["image", "video"]);
+    assert.equal(await image.evaluate(link => document.activeElement === link), true);
+    const beforeCancel = groups.revision;
+    const cancelStart = await image.boundingBox(), cancelEnd = await video.boundingBox();
+    await page.mouse.move(cancelStart.x + 12, cancelStart.y + 12);
+    await page.mouse.down();
+    await page.mouse.move(cancelEnd.x + 12, cancelEnd.y + cancelEnd.height - 2, { steps: 4 });
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    assert.equal(groups.revision, beforeCancel, "Escape cancels sorting without saving");
+    assert.deepEqual(await page.locator('[data-task-category]').evaluateAll(links => links.slice(0, 2).map(link => link.dataset.taskCategory)), ["image", "video"]);
+    if (width === 1200 && colorScheme === "light") {
+      await page.route("**/settings/file-groups/order", route => route.fulfill({ status: 503, body: "unavailable" }), { times: 1 });
+      await image.focus();
+      await page.keyboard.press("Alt+ArrowDown");
+      await page.waitForFunction(() => !fileGroupOrderSaving);
+      assert.equal(groups.revision, beforeCancel, "failed sorting keeps the confirmed order");
+      groups.revision++;
+      await image.focus();
+      await page.keyboard.press("Alt+ArrowDown");
+      await page.waitForFunction(revision => !fileGroupOrderSaving && fileGroupsState.revision === revision, groups.revision);
+      assert.deepEqual(groups.groups.slice(0, 2).map(group => group.id), ["image", "video"], "conflicting sorting reloads without replaying the write");
+    }
+    assert.equal(await page.locator('[href="#settings/general"]').first().evaluate(link => getComputedStyle(link).webkitUserDrag), "none");
     await page.screenshot({ path: path.join(screenshots, `downloads-${width}-${colorScheme}.png`) });
     await page.locator('[data-task-category="project"]').click();
     await page.waitForFunction(() => document.querySelectorAll("tr[data-task-id]").length === 2);
@@ -114,7 +160,7 @@ try {
     await page.waitForFunction(() => document.querySelector("#task-settings-status").textContent.includes("\u8349\u7a3f"));
     assert.equal(await page.locator("#task-setting-tries").inputValue(), "9");
     await page.evaluate(() => { location.hash = "settings/groups"; });
-    await page.waitForFunction(() => document.querySelectorAll("[data-group-id]").length === 8);
+    await page.waitForFunction(() => document.querySelectorAll("[data-group-id]").length === 8 && fileGroupsEditorRevision === fileGroupsState.revision && !fileGroupsNeedsSync);
     await page.locator('[data-group-id="project"] textarea').fill(".blend");
     await page.locator("#file-group-add").click();
     const custom = page.locator('[data-group-id^="group-"]');

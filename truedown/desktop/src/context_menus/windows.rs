@@ -164,19 +164,6 @@ unsafe fn track(
     } else {
         SetThreadDpiAwarenessContext(context)
     });
-    let menu = Menu(CreatePopupMenu());
-    if menu.0.is_null() {
-        return Err("Cannot create context menu".into());
-    }
-    for (index, action) in actions.iter().enumerate() {
-        let label = label(action).ok_or("Unavailable menu action")?;
-        let text: Vec<u16> = label.encode_utf16().chain(Some(0)).collect();
-        if AppendMenuW(menu.0, MF_STRING, index + 1, text.as_ptr()) == 0 {
-            return Err("Cannot create context menu item".into());
-        }
-    }
-    let _style = style::attach(window, menu.0, actions)?;
-    let tracking = tracking::Tracking::attach(menu.0, hwnd, actions.len())?;
     let scale = GetDpiForWindow(hwnd) as f64 / 96.0;
     let mut rect: RECT = std::mem::zeroed();
     if GetClientRect(hwnd, &mut rect) == 0 {
@@ -189,7 +176,33 @@ unsafe fn track(
     if ClientToScreen(hwnd, &mut point) == 0 {
         return Err("Menu position unavailable".into());
     }
-    // Do not raise or focus windows: only the already-active owner can open it.
+    track_at(window, hwnd, actions, point, cancelled, true)
+}
+
+unsafe fn track_at(
+    window: &WebviewWindow,
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    actions: &[String],
+    point: POINT,
+    cancelled: &AtomicBool,
+    visible_owner: bool,
+) -> Result<Option<String>, String> {
+    let menu = Menu(CreatePopupMenu());
+    if menu.0.is_null() {
+        return Err("Cannot create context menu".into());
+    }
+    for (index, action) in actions.iter().enumerate() {
+        let text: Vec<u16> = label(action)
+            .ok_or("Unavailable menu action")?
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        if AppendMenuW(menu.0, MF_STRING, index + 1, text.as_ptr()) == 0 {
+            return Err("Cannot create context menu item".into());
+        }
+    }
+    let _style = style::attach(window, hwnd, menu.0, actions)?;
+    let tracking = tracking::Tracking::attach(menu.0, hwnd, actions.len(), visible_owner)?;
     let selected = TrackPopupMenuEx(
         menu.0,
         TPM_LEFTALIGN
@@ -205,7 +218,7 @@ unsafe fn track(
     );
     let selected = tracking.selected(selected as u32);
     if cancelled.load(Ordering::SeqCst)
-        || IsWindowVisible(hwnd) == 0
+        || (visible_owner && IsWindowVisible(hwnd) == 0)
         || GetForegroundWindow() != hwnd
     {
         return Ok(None);
@@ -214,6 +227,85 @@ unsafe fn track(
         .checked_sub(1)
         .and_then(|index| actions.get(index as usize))
         .cloned())
+}
+
+// Native-only tray entry: these actions are never accepted from a WebView.
+pub fn show_tray_menu(app: &tauri::AppHandle, x: f64, y: f64) -> Result<Option<String>, String> {
+    if app.state::<crate::windows::Windows>().suppress {
+        return Ok(None);
+    }
+    let window = app
+        .get_webview_window("main")
+        .ok_or("Main window unavailable")?;
+    let state = app.state::<Menus>();
+    let token = Arc::new(AtomicBool::new(false));
+    {
+        let mut active = state.active.lock().unwrap();
+        if active.is_some() {
+            return Ok(None);
+        }
+        *active = Some(Request {
+            caller: "tray".into(),
+            id: 0,
+            cancelled: token.clone(),
+        });
+    }
+    let result = unsafe { track_tray(&window, x, y, &token) };
+    state.active.lock().unwrap().take();
+    result
+}
+
+unsafe fn track_tray(
+    window: &WebviewWindow,
+    x: f64,
+    y: f64,
+    token: &AtomicBool,
+) -> Result<Option<String>, String> {
+    struct Owner(windows_sys::Win32::Foundation::HWND);
+    impl Drop for Owner {
+        fn drop(&mut self) {
+            unsafe {
+                DestroyWindow(self.0);
+            }
+        }
+    }
+    // A dedicated hidden top-level owner lets the tray work with every product
+    // window hidden, without raising the main window just to display a menu.
+    let owner = Owner(CreateWindowExW(
+        WS_EX_TOOLWINDOW,
+        windows_sys::w!("STATIC"),
+        windows_sys::w!("TrueDown tray menu"),
+        WS_POPUP,
+        x as i32,
+        y as i32,
+        0,
+        0,
+        std::ptr::null_mut(),
+        std::ptr::null_mut(),
+        std::ptr::null_mut(),
+        std::ptr::null(),
+    ));
+    if owner.0.is_null() {
+        return Err("Cannot create tray menu owner".into());
+    }
+    if SetForegroundWindow(owner.0) == 0 {
+        return Err("Cannot activate tray menu".into());
+    }
+    let actions = ["tray-new", "tray-open", "settings", "tray-exit"].map(str::to_string);
+    let result = track_at(
+        window,
+        owner.0,
+        &actions,
+        POINT {
+            x: x as i32,
+            y: y as i32,
+        },
+        token,
+        false,
+    );
+    // Required by the notification-area menu lifecycle for reliable dismissal.
+    PostMessageW(owner.0, WM_NULL, 0, 0);
+    result
 }
 
 #[tauri::command]
@@ -277,7 +369,9 @@ fn label(action: &str) -> Option<&'static str> {
         "remove" => "\u{79fb}\u{9664}\u{4efb}\u{52a1}",
         "new-task" => "\u{65b0}\u{5efa}\u{4e0b}\u{8f7d}",
         "settings" => "\u{8bbe}\u{7f6e}",
-        "group-show" => "\u{67e5}\u{770b}\u{6b64}\u{5206}\u{7ec4}",
+        "tray-new" => "\u{65b0}\u{5efa}",
+        "tray-open" => "\u{6253}\u{5f00}",
+        "tray-exit" => "\u{9000}\u{51fa}",
         "group-edit" => "\u{8c03}\u{6574}\u{6b64}\u{5206}\u{7ec4}",
         "group-add" => "\u{65b0}\u{589e}\u{5206}\u{7ec4}",
         "group-manage" => "\u{7ba1}\u{7406}\u{5206}\u{7ec4}",
@@ -300,6 +394,9 @@ mod tests {
     #[test]
     fn every_offered_action_has_a_native_label() {
         for action in super::super::ACTIONS {
+            assert!(super::label(action).is_some());
+        }
+        for action in ["tray-new", "tray-open", "tray-exit"] {
             assert!(super::label(action).is_some());
         }
         assert!(super::label("read-clipboard").is_none());

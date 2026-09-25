@@ -3,8 +3,6 @@ use tauri::image::Image;
 pub enum Icon {
     Download,
     Settings,
-    Logs,
-    Info,
     Power,
 }
 
@@ -17,10 +15,6 @@ pub fn image(icon: Icon) -> tauri::Result<Image<'static>> {
         (Icon::Download, true) => include_bytes!("../icons/menu/download-32.png"),
         (Icon::Settings, false) => include_bytes!("../icons/menu/settings-16.png"),
         (Icon::Settings, true) => include_bytes!("../icons/menu/settings-32.png"),
-        (Icon::Logs, false) => include_bytes!("../icons/menu/logs-16.png"),
-        (Icon::Logs, true) => include_bytes!("../icons/menu/logs-32.png"),
-        (Icon::Info, false) => include_bytes!("../icons/menu/info-16.png"),
-        (Icon::Info, true) => include_bytes!("../icons/menu/info-32.png"),
         (Icon::Power, false) => include_bytes!("../icons/menu/power-16.png"),
         (Icon::Power, true) => include_bytes!("../icons/menu/power-32.png"),
     };
@@ -34,13 +28,7 @@ mod tests {
     #[test]
     fn native_menu_icons_decode_at_the_platform_size() {
         let size = if cfg!(target_os = "macos") { 32 } else { 16 };
-        for icon in [
-            Icon::Download,
-            Icon::Settings,
-            Icon::Logs,
-            Icon::Info,
-            Icon::Power,
-        ] {
+        for icon in [Icon::Download, Icon::Settings, Icon::Power] {
             let image = image(icon).unwrap();
             assert_eq!((image.width(), image.height()), (size, size));
             assert!(image

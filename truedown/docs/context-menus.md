@@ -2,7 +2,9 @@
 
 TrueDown uses independent project-themed confirmation windows and native windows for
 large forms. Compact input/icon pickers, Toasts and content-area menus retain the
-project surface. System caption menus, tray menus and file/directory pickers are OS-owned.
+project surface. System caption menus and file/directory pickers are OS-owned.
+Windows tray menus share the project's native HMENU rendering; macOS/Linux retain
+their system tray menus. All tray menus contain exactly New, Open, Settings and Exit.
 
 ## Dialogs
 
@@ -23,8 +25,8 @@ with meaningful captions; Windows/macOS title strips include decorative role ico
 ## Menus
 
 `web/context-menu.js` collects eligible actions and retains the caller's selection.
-Desktop views invoke `show_context_menu` to create an independent frameless native
-WebView (`context-menu-window.html`) owned by the caller. It renders project icons,
+Desktop views invoke `show_context_menu`: Windows uses an owned HMENU; other desktops
+use an independent frameless WebView (`context-menu-window.html`). They render project icons,
 labels and shortcut hints and is clamped to the monitor work area, rather than the
 parent WebView bounds. The parent stays enabled. A browser-only fallback retains
 the page menu; native failures never fall back to it.
@@ -38,7 +40,7 @@ editing restores the selection in the original caller before native dispatch.
 | Context | Actions |
 | --- | --- |
 | Main task row | Currently enabled details, pause/resume/retry, open and remove actions |
-| File-group link | View this group, adjust this group, add group, manage groups |
+| File-group link | Select the group first; adjust this group, add group, manage groups |
 | Download navigation whitespace | New download, add group, manage groups |
 | Task-list whitespace | New download, enabled global queue pause/resume/retry/clear actions, default download directory |
 | Other sidebar whitespace | New download, manage groups, settings |
@@ -47,7 +49,23 @@ editing restores the selection in the original caller before native dispatch.
 | Read-only text | Copy, select all |
 | Selected page text | Copy, select all |
 | Auxiliary blank area / disabled control | No content menu |
-| Title strip / tray | Existing native system menu |
+| Title strip | Native system menu at the right-click screen position; Alt+Space keeps OS keyboard placement |
+| Tray | New, Open, Settings, Exit |
+
+Sidebar groups support pointer sorting and Alt+Up/Down. Only order IDs and the
+current revision reach `POST /settings/file-groups/order`; definitions cannot change
+through this main-window-only route. Failure restores the confirmed order and a
+revision conflict reloads the latest groups for a new user attempt. Editor drafts
+merge with newer order snapshots. Internal navigation and decorative controls do
+not export browser drag payloads, and internal text drags do not import downloads.
+
+Windows tray tracking uses the same HMENU rendering and input hook as content menus,
+with a dedicated hidden top-level owner at the tray event's physical coordinates.
+It sets the owner foreground before tracking and posts WM_NULL afterwards as required
+by the [notification-area menu lifecycle](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-trackpopupmenu).
+This never shows the main WebView. Tray-only actions cannot pass the WebView menu
+allowlist; native callbacks dispatch the existing new-task, main, settings and shutdown
+operations. macOS status-item and Linux AppIndicator menus keep OS-owned placement.
 
 Right click, Context Menu and Shift+F10 open the menu. Arrow keys and Home/End
 navigate; Enter/Space activate. Escape dismisses only the menu and restores focus;

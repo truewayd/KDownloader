@@ -78,6 +78,7 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
             ]
             .contains(&path),
             "POST" => [
+                "/settings/file-groups/order",
                 "/tasks/batch",
                 "/tasks/open-file",
                 "/tasks/open-folder",
@@ -397,6 +398,11 @@ mod tests {
             ));
         }
         assert!(!allowed("main", "POST", "/auth/settings"));
+        assert!(allowed("main", "POST", "/settings/file-groups/order"));
+        assert!(!allowed("main", "POST", "/settings/file-groups"));
+        for role in ["settings", "new-task", "task-details"] {
+            assert!(!allowed(role, "POST", "/settings/file-groups/order"));
+        }
         assert!(!allowed("main", "POST", "/settings/startup"));
         assert!(!allowed("main", "POST", "/tasks/detail"));
         assert!(allowed("task-details", "GET", "/tasks/detail"));

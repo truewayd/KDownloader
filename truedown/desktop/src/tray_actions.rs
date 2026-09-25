@@ -274,6 +274,23 @@ fn perform(app: &tauri::AppHandle, action: Action) {
 }
 
 pub fn handle(app: &tauri::AppHandle, event: TrayIconEvent) {
+    #[cfg(windows)]
+    if let TrayIconEvent::Click {
+        button: MouseButton::Right,
+        button_state: MouseButtonState::Up,
+        position,
+        ..
+    } = &event
+    {
+        let state = app.state::<Arc<TraySettings>>();
+        state.inner.lock().unwrap().pending = None;
+        match crate::context_menus::show_tray_menu(app, position.x, position.y) {
+            Ok(Some(action)) => menu_action(app, &action),
+            Ok(None) => {}
+            Err(error) => eprintln!("Cannot open tray menu: {error}"),
+        }
+        return;
+    }
     let state = app.state::<Arc<TraySettings>>();
     let result = dispatch(&mut state.inner.lock().unwrap(), state.platform, &event);
     match result {
@@ -299,6 +316,23 @@ pub fn handle(app: &tauri::AppHandle, event: TrayIconEvent) {
             });
         }
         Dispatch::Ignore => {}
+    }
+}
+
+pub fn menu_action(app: &tauri::AppHandle, action: &str) {
+    match action {
+        "tray-new" => perform(app, Action::NewTask),
+        "tray-open" => perform(app, Action::Main),
+        "settings" => perform(app, Action::Settings),
+        "tray-exit" => {
+            let app = app.clone();
+            let core = app.state::<Arc<crate::core::Core>>().inner().clone();
+            tauri::async_runtime::spawn(async move {
+                core.shutdown().await;
+                app.exit(0);
+            });
+        }
+        _ => {}
     }
 }
 

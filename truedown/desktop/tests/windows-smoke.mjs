@@ -310,6 +310,12 @@ try {
   assert.equal(await main.evaluate(() => window.__TRUEDOWN_PLATFORM__), "windows");
   await assert.rejects(invoke(main, "edit_action", { action: "paste" }), /suppressed during hidden acceptance/);
   await assert.rejects(invoke(main, "edit_action", { action: "read-clipboard" }), /unknown variant/);
+  const originalGroups = await api(main, "GET", "/settings/file-groups");
+  const reversedIDs = originalGroups.groups.map(group => group.id).reverse();
+  const reorderedGroups = await api(main, "POST", "/settings/file-groups/order", { revision: originalGroups.revision, ids: reversedIDs });
+  assert.deepEqual(reorderedGroups.groups, [...originalGroups.groups].reverse());
+  await api(main, "POST", "/settings/file-groups/order", { revision: reorderedGroups.revision, ids: originalGroups.groups.map(group => group.id) });
+  await assert.rejects(invoke(main, "core_request", { request: { method: "POST", path: "/settings/file-groups", body: JSON.stringify(originalGroups) } }));
   await invoke(main, "open_group_settings", { groupId: "project", add: false });
   const settings = await waitUntil(() => context.pages().find(page => page.url().includes("window=settings")));
   await waitForNativeCondition(settings, () => currentSettingsPage === "files" && document.activeElement?.closest("[data-group-id]")?.dataset.groupId === "project");

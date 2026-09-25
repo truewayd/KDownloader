@@ -16,6 +16,7 @@ struct State {
     menu: HMENU,
     owner: HWND,
     count: usize,
+    visible_owner: bool,
     selected: Cell<u32>,
 }
 pub struct Tracking {
@@ -23,7 +24,12 @@ pub struct Tracking {
     hook: HHOOK,
 }
 impl Tracking {
-    pub unsafe fn attach(menu: HMENU, owner: HWND, count: usize) -> Result<Self, String> {
+    pub unsafe fn attach(
+        menu: HMENU,
+        owner: HWND,
+        count: usize,
+        visible_owner: bool,
+    ) -> Result<Self, String> {
         if ACTIVE.with(|slot| !slot.get().is_null()) {
             return Err("Menu input tracking is already active".into());
         }
@@ -31,6 +37,7 @@ impl Tracking {
             menu,
             owner,
             count,
+            visible_owner,
             selected: Cell::new(0),
         });
         let hook = SetWindowsHookExW(
@@ -103,7 +110,9 @@ unsafe extern "system" fn filter(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
             {
                 return false;
             }
-            if GetForegroundWindow() != state.owner || IsWindowVisible(state.owner) == 0 {
+            if GetForegroundWindow() != state.owner
+                || (state.visible_owner && IsWindowVisible(state.owner) == 0)
+            {
                 super::style::dismiss();
                 return true;
             }

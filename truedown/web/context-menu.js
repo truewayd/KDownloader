@@ -17,7 +17,7 @@
     details: "\u4efb\u52a1\u8be6\u60c5", pause: "\u6682\u505c", resume: "\u7ee7\u7eed", requeue: "\u91cd\u8bd5",
     "open-file": "\u6253\u5f00\u6587\u4ef6", "open-folder": "\u6253\u5f00\u4e0b\u8f7d\u76ee\u5f55", remove: "\u79fb\u9664\u4efb\u52a1",
     "new-task": "\u65b0\u5efa\u4e0b\u8f7d", settings: "\u8bbe\u7f6e",
-    "group-show": "查看此分组", "group-edit": "调整此分组", "group-add": "新增分组", "group-manage": "管理分组",
+    "group-edit": "调整此分组", "group-add": "新增分组", "group-manage": "管理分组",
     "pause-queue": "暂停整个队列", "resume-queue": "恢复整个队列", "retry-all": "重试所有失败任务",
     "clear-done": "清理所有已完成记录", "open-downloads": "打开默认下载目录",
     undo: "\u64a4\u9500", redo: "\u91cd\u505a", cut: "\u526a\u5207", copy: "\u590d\u5236", paste: "\u7c98\u8d34", "select-all": "\u5168\u9009",
@@ -54,8 +54,6 @@
       // Polling may remove the task or change which actions are allowed.
       if (context.row.dataset.taskId !== context.taskID) return;
       taskButtons(context.row).find(button => button.dataset.action === action)?.click();
-    } else if (action === "group-show") {
-      if (context.group?.dataset.taskCategory === context.groupID) context.group.click();
     } else if (["group-edit", "group-add", "group-manage"].includes(action)) {
       if (action === "group-edit" && context.group?.dataset.taskCategory !== context.groupID) return;
       const groupId = action === "group-edit" ? context.groupID : null;
@@ -109,7 +107,9 @@
       actions = taskButtons(row).map(button => button.dataset.action).filter(action => labels[action]);
     } else if (["main", "browser"].includes(role()) && !target.closest('[role="dialog"], dialog, input, textarea, select')) {
       if ((group = target.closest("#file-group-navigation [data-task-category]"))) {
-        actions = ["group-show", "group-edit", "group-add", "group-manage"];
+        selectFileGroup(group);
+        group.focus({ preventScroll: true });
+        actions = ["group-edit", "group-add", "group-manage"];
       } else if (target.closest('button, a, [role="button"]')) {
         actions = [];
       } else if (target.closest(".primary-nav")) {

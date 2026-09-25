@@ -63,7 +63,12 @@ test("hidden or disposed native detail windows never start a request", async () 
 });
 
 test("detail windows do not register new-download drop handlers", () => {
-  const context = vm.createContext({ nativeWindowRole: "task-details", document: { addEventListener: assert.fail } });
+  const events = [];
+  const context = vm.createContext({ nativeWindowRole: "task-details",
+    document: { addEventListener: name => events.push(name) },
+    window: { addEventListener: name => assert.equal(name, "pagehide") },
+  });
   vm.runInContext(declarations("bindDownloadDrops"), context);
   context.bindDownloadDrops();
+  assert.deepEqual(events, ["dragstart", "dragend"], "drag policy is shared, download imports are not");
 });

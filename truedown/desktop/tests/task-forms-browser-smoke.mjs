@@ -216,6 +216,15 @@ try {
         });
         await page.waitForFunction(() => !applyingDrop);
         assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/drop.zip");
+        assert.equal(await page.evaluate(() => {
+          const input = document.getElementById("m-link"), dataTransfer = new DataTransfer();
+          dataTransfer.setData("text/plain", "https://example.test/internal.zip");
+          const allowed = input.dispatchEvent(new DragEvent("dragstart", { dataTransfer, bubbles: true, cancelable: true }));
+          document.dispatchEvent(new DragEvent("drop", { dataTransfer, bubbles: true, cancelable: true }));
+          input.dispatchEvent(new DragEvent("dragend", { bubbles: true }));
+          return allowed;
+        }), true, "input text dragging keeps native editing behavior");
+        assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/drop.zip", "internal text drags cannot replace the download draft");
       }
       assert.deepEqual(errors, []);
       console.log(`${role} ${colorScheme}: DPI=200% frame/form boundaries, wheel, keyboard, file/directory selection, live defaults/modules, draft hide, submission OK`);

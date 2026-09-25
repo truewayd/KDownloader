@@ -258,43 +258,26 @@ fn main() {
                     None::<&str>,
                 )
             };
-            let open = item("open", "打开 TrueDown", menu_icons::Icon::Download)?;
-            let settings = item("settings", "设置…", menu_icons::Icon::Settings)?;
-            let logs = item("logs", "应用日志…", menu_icons::Icon::Logs)?;
-            let about = item("about", "关于 TrueDown…", menu_icons::Icon::Info)?;
-            let exit = item("exit", "退出 TrueDown", menu_icons::Icon::Power)?;
-            let menu = Menu::with_items(app, &[&open, &settings, &logs, &about, &exit])?;
+            let new = item("tray-new", "新建", menu_icons::Icon::Download)?;
+            let open = item("tray-open", "打开", menu_icons::Icon::Download)?;
+            let settings = item("settings", "设置", menu_icons::Icon::Settings)?;
+            let exit = item("tray-exit", "退出", menu_icons::Icon::Power)?;
+            let menu = Menu::with_items(app, &[&new, &open, &settings, &exit])?;
             // macOS renders an 18pt status item using its exact Retina raster.
             let icon =
                 tray_image::image_for_pixels(if cfg!(target_os = "macos") { 36 } else { 32 })?;
             let tray = TrayIconBuilder::with_id("main-tray")
                 .icon(icon)
                 .tooltip("TrueDown")
-                .menu(&menu)
-                .show_menu_on_left_click(menu_on_left_click)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "open" => show_main(app),
-                    "settings" | "logs" | "about" => {
-                        let kind = match event.id.as_ref() {
-                            "settings" => windows::Kind::Settings,
-                            "logs" => windows::Kind::Logs,
-                            _ => windows::Kind::About,
-                        };
-                        let app = app.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let _ = windows::open_auxiliary(app, kind).await;
-                        });
-                    }
-                    "exit" => {
-                        let app = app.clone();
-                        let core = app.state::<Arc<Core>>().inner().clone();
-                        tauri::async_runtime::spawn(async move {
-                            core.shutdown().await;
-                            app.exit(0)
-                        });
-                    }
-                    _ => {}
-                })
+                .show_menu_on_left_click(menu_on_left_click);
+            // AppIndicator/macOS own tray popup placement and activation.
+            let tray = if cfg!(windows) {
+                tray
+            } else {
+                tray.menu(&menu)
+            };
+            let tray = tray
+                .on_menu_event(|app, event| tray_actions::menu_action(app, event.id.as_ref()))
                 .on_tray_icon_event(|tray, event| {
                     tray_actions::handle(tray.app_handle(), event);
                 })

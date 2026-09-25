@@ -4,9 +4,51 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestFileGroupOrderPreservesDefinitionsAndRejectsStaleOrPartialOrders(t *testing.T) {
+	mux, manager := testHandler(t)
+	defer manager.Stop()
+	before := manager.FileGroups()
+	ids := make([]string, len(before.Groups))
+	for i, group := range before.Groups {
+		ids[len(ids)-1-i] = group.ID
+	}
+	post := func(value any) *httptest.ResponseRecorder {
+		data, _ := json.Marshal(value)
+		reply := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/settings/file-groups/order", bytes.NewReader(data))
+		req.Header.Set("Content-Type", "application/json")
+		mux.ServeHTTP(reply, req)
+		return reply
+	}
+	for _, invalid := range [][]string{ids[:len(ids)-1], append([]string{ids[1]}, ids[1:]...), append([]string{"missing"}, ids[1:]...)} {
+		if reply := post(map[string]any{"revision": before.Revision, "ids": invalid}); reply.Code != 400 {
+			t.Fatal(reply.Code, reply.Body.String())
+		}
+		if !reflect.DeepEqual(before, manager.FileGroups()) {
+			t.Fatal("invalid order changed groups")
+		}
+	}
+	if reply := post(map[string]any{"revision": before.Revision, "ids": ids}); reply.Code != 200 {
+		t.Fatal(reply.Code, reply.Body.String())
+	}
+	after := manager.FileGroups()
+	for i, group := range after.Groups {
+		if !reflect.DeepEqual(group, before.Groups[len(ids)-1-i]) {
+			t.Fatal("order changed a group definition")
+		}
+	}
+	if reply := post(map[string]any{"revision": before.Revision, "ids": ids}); reply.Code != 409 {
+		t.Fatal("stale order accepted", reply.Code)
+	}
+	if !reflect.DeepEqual(after, manager.FileGroups()) {
+		t.Fatal("stale order changed groups")
+	}
+}
 
 func TestFileGroupsAndTaskDetailsAPI(t *testing.T) {
 	mux, manager := testHandler(t)

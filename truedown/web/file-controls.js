@@ -135,14 +135,33 @@ async function drainNativeDrop() {
 }
 
 function bindDownloadDrops() {
+  // Internal navigation/icons have no payload to export. Keep text editing and
+  // external-link drags native, but never reinterpret them as imported downloads.
+  let internalDrag = false;
+  const start = event => {
+    internalDrag = true;
+    if (event.target instanceof Element && !event.target.closest('input, textarea, [contenteditable="true"]')
+      && event.target.closest('a[href^="#"], button, label, svg, img, [data-native-drag]')) {
+      event.preventDefault();
+      internalDrag = false;
+    }
+  };
+  const end = () => { internalDrag = false; };
+  document.addEventListener("dragstart", start, true);
+  document.addEventListener("dragend", end, true);
+  window.addEventListener("pagehide", () => {
+    document.removeEventListener("dragstart", start, true);
+    document.removeEventListener("dragend", end, true);
+  }, { once: true });
   if (!["browser", "main", "new-task"].includes(nativeWindowRole)) return;
   const error = (cause) => { if (!dropDisposed) showToast(cause.message || String(cause), "error"); };
   const over = (event) => {
-    if (!event.dataTransfer) return;
+    if (event.defaultPrevented || internalDrag || !event.dataTransfer) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
   };
   const drop = (event) => {
+    if (event.defaultPrevented || internalDrag) return;
     event.preventDefault();
     const transfer = event.dataTransfer;
     if (!transfer) return;

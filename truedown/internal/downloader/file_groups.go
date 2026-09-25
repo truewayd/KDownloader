@@ -161,6 +161,37 @@ func (m *Manager) SetFileGroups(revision uint64, groups []FileGroup) (FileGroups
 	if revision != m.fileGroups.Revision {
 		return FileGroupsSnapshot{}, ErrFileGroupsConflict
 	}
+	return m.saveFileGroupsLocked(revision, normalized)
+}
+
+// Reordering cannot edit definitions and must include every current identity once.
+func (m *Manager) ReorderFileGroups(revision uint64, ids []string) (FileGroupsSnapshot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if revision != m.fileGroups.Revision {
+		return FileGroupsSnapshot{}, ErrFileGroupsConflict
+	}
+	current := m.fileGroupsLocked()
+	if len(ids) != len(current.Groups) {
+		return FileGroupsSnapshot{}, &ValidationError{Message: "include every file group once"}
+	}
+	byID := make(map[string]FileGroup, len(current.Groups))
+	for _, group := range current.Groups {
+		byID[group.ID] = group
+	}
+	ordered := make([]FileGroup, 0, len(ids))
+	for _, id := range ids {
+		group, exists := byID[id]
+		if !exists {
+			return FileGroupsSnapshot{}, &ValidationError{Message: "unknown or duplicate file group"}
+		}
+		ordered = append(ordered, group)
+		delete(byID, id)
+	}
+	return m.saveFileGroupsLocked(revision, ordered)
+}
+
+func (m *Manager) saveFileGroupsLocked(revision uint64, normalized []FileGroup) (FileGroupsSnapshot, error) {
 	next := FileGroupsSnapshot{Revision: revision + 1, Groups: normalized}
 	data, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {

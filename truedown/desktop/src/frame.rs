@@ -116,14 +116,60 @@ pub fn frame_action(window: WebviewWindow, action: Action) -> Result<(), String>
 
 #[cfg(windows)]
 fn system_menu(window: &WebviewWindow) -> Result<(), String> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, SC_KEYMENU, WM_SYSCOMMAND};
-    let handle = window.hwnd().map_err(|error| error.to_string())?;
-    // Let DefWindowProc place and operate the genuine system menu. Posting
-    // avoids holding an IPC response open for the lifetime of the menu loop.
-    if unsafe { PostMessageW(handle.0, WM_SYSCOMMAND, SC_KEYMENU as usize, 0x20) } == 0 {
+    use windows_sys::Win32::{Foundation::POINT, UI::WindowsAndMessaging::*};
+    let mut point = POINT::default();
+    if unsafe { GetCursorPos(&mut point) } == 0 {
         return Err(std::io::Error::last_os_error().to_string());
     }
-    Ok(())
+    let owned = window.clone();
+    window
+        .run_on_main_thread(move || unsafe {
+            let Ok(handle) = owned.hwnd() else {
+                return;
+            };
+            let hwnd = handle.0;
+            if IsWindowVisible(hwnd) == 0 || GetForegroundWindow() != hwnd {
+                return;
+            }
+            // Our title strip is client area: a forwarded WM_CONTEXTMENU may fail
+            // the OS caption hit test. Track the genuine borrowed system menu here.
+            let menu = GetSystemMenu(hwnd, 0);
+            if menu.is_null() {
+                return;
+            }
+            let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+            let maximized = IsZoomed(hwnd) != 0;
+            let minimized = IsIconic(hwnd) != 0;
+            for (command, enabled) in [
+                (SC_RESTORE, maximized || minimized),
+                (SC_MOVE, !maximized && !minimized),
+                (
+                    SC_SIZE,
+                    !maximized && !minimized && style & WS_THICKFRAME != 0,
+                ),
+                (SC_MINIMIZE, !minimized && style & WS_MINIMIZEBOX != 0),
+                (SC_MAXIMIZE, !maximized && style & WS_MAXIMIZEBOX != 0),
+            ] {
+                EnableMenuItem(
+                    menu,
+                    command,
+                    MF_BYCOMMAND | if enabled { MF_ENABLED } else { MF_GRAYED },
+                );
+            }
+            let selected = TrackPopupMenuEx(
+                menu,
+                TPM_LEFTALIGN | TPM_WORKAREA | TPM_NOANIMATION | TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                point.x,
+                point.y,
+                hwnd,
+                std::ptr::null(),
+            );
+            if selected != 0 {
+                let position = ((point.y as u16 as u32) << 16 | point.x as u16 as u32) as isize;
+                PostMessageW(hwnd, WM_SYSCOMMAND, selected as usize, position);
+            }
+        })
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(not(windows))]

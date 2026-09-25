@@ -136,6 +136,15 @@ body {
   height: 100%;
 }
 
+a[href^="#"], button, label, svg, img {
+  -webkit-user-drag: none;
+}
+
+#file-group-navigation [data-task-category] { touch-action: pan-x; }
+#file-group-navigation.group-sorting,
+#file-group-navigation.group-sorting * { cursor: grabbing; }
+#file-group-navigation .group-dragging { outline: 2px solid var(--kd-accent); outline-offset: -2px; }
+
 body {
   margin: 0;
   -webkit-user-select: none;
