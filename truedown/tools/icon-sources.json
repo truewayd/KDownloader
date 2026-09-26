@@ -45,6 +45,7 @@
     "filter": "list-filter",
     "folder": "folder",
     "folder-open": "folder-open",
+    "gauge": "gauge",
     "info": "info",
     "list": "list",
     "logs": "file-text",

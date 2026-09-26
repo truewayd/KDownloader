@@ -27,6 +27,10 @@
   left: 12px;
   z-index: 31;
   width: calc(var(--sidebar-width) - 24px);
+  transition: width 220ms cubic-bezier(.2, .8, .2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-native-frame="custom"][data-native-window="main"] .sidebar-brand { transition: none; }
 }
 [data-native-frame="overlay"] .native-titlebar-drag { padding-left: 84px; }
 @media (forced-colors: active) {

@@ -4,6 +4,15 @@ import { chromium } from "playwright";
 import { readUIFixtureAsset } from "./ui-fixture-assets.mjs";
 
 const assets = new URL("../../web/", import.meta.url);
+const updateScenarios = {
+  update: { trueDown: { updateAvailable: true, availableVersion: "1.2.3" } },
+  restart: { trueDown: { restartRequired: true, pendingVersion: "1.2.3" } },
+  "update-failure": { error: "Checksum mismatch" },
+  "update-check": { busy: "truedown" },
+  "engine-ready": { engine: { restartRequired: true } },
+  ...Object.fromEntries(["downloading", "paused", "queued", "error", "done"].map(status => [`update-${status}`, { busy: "truedown", download: { status, totalLength: 104857600, completedLength: 41943040, downloadSpeed: 4404019 } }])),
+  "update-unknown": { busy: "next-engine", download: { status: "downloading", totalLength: 0, completedLength: 41943040, downloadSpeed: 4404019 } },
+};
 const failure = "The server temporarily refused this download (HTTP 503). Retry the task later; the existing partial file will be preserved.";
 const tasks = [
   { id: 1, status: "downloading", outputName: "Coastal landscapes.zip", totalLength: 104857600, completedLength: 41943040, downloadSpeed: 4404019, progress: "40%" },
@@ -15,10 +24,11 @@ const server = http.createServer(async (request, response) => {
   const scenario = new URL(request.headers.referer || url, "http://localhost").searchParams.get("scenario");
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   if (url.pathname === "/tasks") {
-    const idle = scenario === "idle" || scenario === "update";
-    response.end(JSON.stringify({ tasks: tasks.map(task => idle && task.id === 1 ? { ...task, status: "paused", downloadSpeed: 0 } : task), total: 3, summary: { total: 3, downloading: idle ? 0 : 1, error: 1, done: 1, paused: idle ? 1 : 0, downloadSpeed: idle ? 0 : 4404019 } })); return;
+    const idle = scenario === "idle" || scenario in updateScenarios;
+    const speed = idle || scenario === "stalled" ? 0 : scenario === "fast" ? 1023.9 * 1024 ** 4 : 4404019;
+    response.end(JSON.stringify({ tasks: tasks.map(task => idle && task.id === 1 ? { ...task, status: "paused", downloadSpeed: 0 } : task), total: 3, summary: { total: 3, downloading: idle ? 0 : scenario === "fast" ? 10000 : 1, error: scenario === "fast" ? 10000 : 1, done: 1, paused: idle ? 1 : 0, downloadSpeed: speed } })); return;
   }
-  if (url.pathname === "/system/update") { response.end(JSON.stringify({ trueDown: scenario === "update" ? { updateAvailable: true, availableVersion: "1.2.3" } : {}, engine: {} })); return; }
+  if (url.pathname === "/system/update") { response.end(JSON.stringify(updateScenarios[scenario] || { trueDown: {}, engine: {} })); return; }
   if (url.pathname.startsWith("/settings/")) { response.end("{}"); return; }
   const file = url.pathname.slice(1) || "index.html";
   if (!/^[a-z0-9-]+\.(html|js|css|svg)$/.test(file)) { response.writeHead(404).end(); return; }
@@ -43,7 +53,7 @@ if (process.argv.includes("--serve")) {
       await page.goto(origin);
       await page.waitForFunction(() => document.getElementById("active-count").textContent === "1");
       assert.equal(await page.locator("[title]").count(), 0, "no native title bubbles remain");
-      assert.equal(await page.locator("#workspace-traffic svg").count(), 2);
+      assert.equal(await page.locator("#workspace-traffic svg").count(), 3);
       assert.equal((await page.locator("#workspace-traffic").innerText()).includes("\u4e0b\u8f7d\u4e2d"), false);
       assert.equal(await page.locator("#workspace-speed").innerText(), "4.2 MiB/s");
       const tip = page.locator("#kd-tooltip");
@@ -79,7 +89,9 @@ if (process.argv.includes("--serve")) {
       await page.locator(".sidebar-toggle").click();
       await page.locator("#workspace-notice-action").hover();
       await tip.waitFor({ state: "visible" });
-      assert.equal(await page.locator("#workspace-notice-action > .icon").isVisible(), true);
+      assert.equal(await page.locator("#workspace-notice-action > .icon").isVisible(), false);
+      assert.equal(await page.locator("#workspace-speed").isVisible(), true);
+      assert.equal(await page.locator(".traffic-count").first().isVisible(), false);
       assert.equal(await tip.getAttribute("data-kind"), "card");
       await page.setViewportSize({ width: 390, height: 700 });
       await page.mouse.move(300, 100);
@@ -95,6 +107,60 @@ if (process.argv.includes("--serve")) {
       await page.waitForFunction(() => document.getElementById("workspace-notice-title").textContent === "\u53d1\u73b0\u65b0\u7248\u672c");
       assert.equal(await page.locator("#workspace-notice").isVisible(), true, "idle downloads cannot hide updates");
       assert.equal(await page.locator("#workspace-traffic").isVisible(), false);
+      // Check the same status surface across expanded, collapsed and narrow layouts.
+      for (const scenario of ["active", "stalled", "fast", "idle", ...Object.keys(updateScenarios)]) {
+        await page.setViewportSize({ width: 1080, height: 760 });
+        await page.goto(`${origin}/?scenario=${scenario}`);
+        await page.waitForFunction(() => systemUpdateState !== null && document.getElementById("task-count").textContent === "3");
+        for (const mode of ["expanded", "collapsed", "narrow"]) {
+          if (mode === "collapsed") await page.locator(".sidebar-toggle").click();
+          if (mode === "narrow") await page.setViewportSize({ width: 390, height: 700 });
+          assert.equal(await page.locator("#workspace-notice").isVisible(), scenario !== "idle", `${scenario}/${mode}: visibility`);
+          if (["active", "stalled", "fast"].includes(scenario)) {
+            const geometry = await page.locator("#workspace-traffic").evaluate(node => {
+              const speed = node.querySelector("#workspace-speed"), count = node.querySelector(".traffic-count");
+              return { overflow: node.scrollWidth > node.clientWidth, clipped: speed.scrollWidth > speed.clientWidth,
+                speedFirst: speed.getBoundingClientRect().right <= count.getBoundingClientRect().left,
+                countVisible: count.checkVisibility(), icons: [...node.querySelectorAll("svg")].filter(icon => icon.checkVisibility()).length };
+            });
+            assert.equal(geometry.overflow, false, `${scenario}/${mode}: traffic overflow`);
+            assert.equal(geometry.clipped, false, `${scenario}/${mode}: speed must fit`);
+            assert.equal(geometry.countVisible, mode === "expanded");
+            assert.equal(geometry.icons, mode === "expanded" ? 3 : 0);
+            if (mode === "expanded") assert.equal(geometry.speedFirst, true);
+          } else if (scenario !== "idle") {
+            assert.equal(await page.locator("#workspace-traffic").isVisible(), false);
+            const marker = page.locator("#workspace-notice-action > .icon, #workspace-notice-progress");
+            assert.equal((await Promise.all((await marker.all()).map(node => node.isVisible()))).filter(Boolean).length, 1, `${scenario}/${mode}: one visible update indicator`);
+            assert.ok((await page.locator("#workspace-notice-action").getAttribute("aria-label")).length > 0);
+          }
+        }
+      }
+      await page.setViewportSize({ width: 1080, height: 760 });
+      await page.goto(origin);
+      await page.waitForFunction(() => systemUpdateState !== null);
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      const widths = await page.evaluate(async () => {
+        const sidebar = document.querySelector(".sidebar"), toggle = document.querySelector(".sidebar-toggle");
+        const start = sidebar.getBoundingClientRect().width;
+        toggle.click();
+        const transition = sidebar.getAnimations().find(animation => animation.transitionProperty === "flex-basis");
+        if (!transition) return { start, missing: true };
+        transition.pause();
+        transition.currentTime = 110;
+        const middle = sidebar.getBoundingClientRect().width;
+        transition.finish();
+        const end = sidebar.getBoundingClientRect().width;
+        toggle.click();
+        await Promise.all(sidebar.getAnimations().map(animation => animation.finished.catch(() => {})));
+        return { start, middle, end, expanded: sidebar.getBoundingClientRect().width };
+      });
+      assert.ok(!widths.missing && widths.start > widths.middle && widths.middle > widths.end, JSON.stringify(widths));
+      assert.equal(widths.end, 88);
+      assert.equal(widths.expanded, widths.start);
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.locator(".sidebar-toggle").click();
+      assert.equal(await page.locator(".sidebar").evaluate(node => node.getAnimations().length), 0);
       assert.deepEqual(errors, []);
       await context.close();
     }

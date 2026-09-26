@@ -150,6 +150,10 @@ and material integration only. Page styles own layout, not alternate palettes.
   Sidebar notices prioritize updates, then show icon-based global downloading/error
   counts and speed only while downloads are active. Group badges count all tasks
   regardless of the current filters.
+- Sidebar width changes animate over 220 ms and respect reduced motion. Expanded
+  traffic places speed before the right-aligned counts; collapsed traffic shows
+  speed alone in an 88 px desktop rail (80 px at narrow widths). Update notices
+  retain their priority and compact icon/progress presentation.
 - TrueDown hover descriptions use the canonical `installTooltips` controller and
   `data-tooltip`, never browser `title` bubbles. Short labels use a compact dark
   surface; long details and errors use a theme-aware card. Keyboard focus,
