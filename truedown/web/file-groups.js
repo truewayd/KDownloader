@@ -67,10 +67,22 @@ function renderFileGroupNavigation() {
     label.className = "nav-label";
     label.textContent = group.name;
     link.append(label);
+    const count = document.createElement("span");
+    count.className = "nav-count";
+    count.textContent = safeCount(currentSummary.groupCounts?.[group.id]);
+    link.append(count);
     return link;
   }));
   if (focusedID) [...nav.children].find((link) => link.dataset.taskCategory === focusedID)?.focus({ preventScroll: true });
   updateTaskNavigation();
+}
+
+function updateFileGroupCounts() {
+  document.querySelectorAll("[data-task-category]").forEach(link => {
+    const value = String(safeCount(currentSummary.groupCounts?.[link.dataset.taskCategory]));
+    const count = link.querySelector(".nav-count");
+    if (count && count.textContent !== value) count.textContent = value;
+  });
 }
 
 function initFileGroups() {
@@ -111,7 +123,7 @@ function selectFileGroup(link) {
   const id = link.dataset.taskCategory;
   if (!fileGroupsState.groups.some(group => group.id === id)) return;
   currentCategory = id;
-  currentOffset = 0;
+  resetTaskViewport();
   lastTaskRenderSignature = "";
   if (currentPage !== "tasks") {
     history.pushState(null, "", "#tasks");

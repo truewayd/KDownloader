@@ -226,7 +226,7 @@ async fn open_auxiliary_locked(
         let (width, height) = match kind {
             Kind::Settings | Kind::Logs | Kind::About | Kind::Engine => (960.0, 760.0),
             Kind::NewTask => (660.0, 560.0),
-            Kind::TaskDetails => (780.0, 640.0),
+            Kind::TaskDetails => (640.0, 640.0),
         };
         let (min_width, min_height) = minimum_size(kind.label());
         let window = crate::frame::configure(
@@ -246,6 +246,8 @@ async fn open_auxiliary_locked(
         .map_err(|error| error.to_string())?
         .inner_size(width, height)
         .min_inner_size(min_width, min_height)
+        .resizable(false)
+        .maximizable(false)
         .visible(false)
         .transparent(cfg!(any(windows, target_os = "macos")))
         .center()

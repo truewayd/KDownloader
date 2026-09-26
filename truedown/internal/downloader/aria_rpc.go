@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -86,6 +87,10 @@ func newAriaClient(port int, secret string) *ariaClient {
 }
 
 func (c *ariaClient) call(method string, params []any, result any) error {
+	return c.callContext(context.Background(), method, params, result)
+}
+
+func (c *ariaClient) callContext(ctx context.Context, method string, params []any, result any) error {
 	requestParams := make([]any, 0, len(params)+1)
 	requestParams = append(requestParams, "token:"+c.secret)
 	requestParams = append(requestParams, params...)
@@ -98,7 +103,12 @@ func (c *ariaClient) call(method string, params []any, result any) error {
 	if err != nil {
 		return err
 	}
-	resp, err := c.http.Post(c.url, "application/json", bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(request)
 	if err != nil {
 		return err
 	}

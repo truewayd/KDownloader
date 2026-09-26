@@ -56,6 +56,7 @@
 
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif; font-size: var(--kd-font-body); }
 .kd-button, .kd-icon-button, .kd-input, .kd-select { border-radius: var(--kd-control-radius); }
+.kd-input[type="search"] { border-radius: 999px; }
 .kd-button, .kd-icon-button { font-weight: 500; box-shadow: none; }
 .panel-header h1 { font-size: var(--kd-font-title); font-weight: 600; }
 .kd-panel { box-shadow: none; }

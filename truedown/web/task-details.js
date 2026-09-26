@@ -74,6 +74,7 @@ function taskBytes(value) {
   const unit = Math.min(units.length - 1, Math.floor(Math.log(value) / Math.log(1024)));
   return `${(value / 1024 ** unit).toFixed(unit ? 1 : 0)} ${units[unit]}`;
 }
+function taskDownloadedBytes(value) { return value === 0 ? "0 B" : taskBytes(value); }
 function taskProgressPercent(task) {
   if (task.status === "done") return 100;
   const percent = task.totalLength > 0 && Number.isFinite(task.completedLength) ? 100 * task.completedLength / task.totalLength : parseFloat(task.progress);
@@ -137,6 +138,9 @@ function showTaskDetails(id, tab) {
   syncTaskSettingsBusy();
   document.getElementById("task-detail-title").textContent = "\u4efb\u52a1\u4fe1\u606f";
   document.getElementById("task-info-grid").replaceChildren();
+  document.getElementById("task-location-grid").replaceChildren();
+  renderTaskTransfer(null);
+  document.getElementById("task-detail-percent").textContent = "";
   document.getElementById("task-detail-actions").replaceChildren();
   delete document.getElementById("task-detail-actions").dataset.status;
   document.getElementById("task-detail-progress").removeAttribute("value");
@@ -177,6 +181,7 @@ async function loadTaskDetails() {
     document.getElementById("task-detail-status").textContent = error.status === 404 ? "\u6b64\u4efb\u52a1\u5df2\u88ab\u79fb\u9664\u3002" : `读取失败，正在自动重试：${error.message}`;
     document.getElementById("task-settings-save").disabled = true;
     document.getElementById("task-detail-actions").replaceChildren();
+    renderTaskTransfer(null);
     delete document.getElementById("task-detail-actions").dataset.status;
   } finally {
     if (current()) taskDetailTimer = setTimeout(loadTaskDetails, 2500);
@@ -187,15 +192,27 @@ function renderTaskDetails(task) {
   document.getElementById("task-detail-title").textContent = task.outputName || task.name || `\u4efb\u52a1 #${task.id}`;
   document.title = document.getElementById("task-detail-title").textContent;
   const facts = [
-    ["\u6587\u4ef6\u540d", task.outputName || task.name], ["\u5206\u7ec4", taskCategoryMeta(task.category).label],
+    ["\u6587\u4ef6\u540d", task.outputName || task.name],
     ["\u72b6\u6001", statusMeta[task.status]?.label], ["\u6587\u4ef6\u5927\u5c0f", taskBytes(task.totalLength)],
-    ["\u5df2\u4e0b\u8f7d", taskBytes(task.status === "done" ? task.totalLength : task.completedLength)],
+    ["\u5df2\u4e0b\u8f7d", taskDownloadedBytes(task.status === "done" ? task.totalLength : task.completedLength || 0)],
     ["\u4e0b\u8f7d\u901f\u5ea6", taskSpeed(task)], ["\u5269\u4f59\u65f6\u95f4", taskRemaining(task)],
-    ["\u4fdd\u5b58\u76ee\u5f55", task.folder], ["\u4e0b\u8f7d\u94fe\u63a5", task.link],
-    ["\u6dfb\u52a0\u65f6\u95f4", taskDate(task.createdAt)], ["\u8be6\u7ec6\u8fdb\u5ea6", task.progress],
+    ["续传支持", "未报告"],
     ...(task.error ? [["\u9519\u8bef\u4fe1\u606f", formatTaskError(task)]] : []),
   ];
-  const grid = document.getElementById("task-info-grid");
+  renderTaskFacts("task-info-grid", facts);
+  renderTaskFacts("task-location-grid", [
+    ["分组", taskCategoryMeta(task.category).label], ["保存目录", task.folder], ["下载链接", task.link],
+    ["添加时间", taskDate(task.createdAt)], ["引擎状态", task.progress],
+  ]);
+  renderTaskTransfer(task.transfer, task.status);
+  document.getElementById("task-detail-percent").textContent = taskProgressLabel(task);
+  document.getElementById("task-detail-progress").value = taskProgressPercent(task);
+  renderTaskDetailActions(task);
+  renderTaskSettings(task);
+}
+
+function renderTaskFacts(id, facts) {
+  const grid = document.getElementById(id);
   facts.forEach(([label, value], i) => {
     if (!grid.children[i * 2]) grid.append(document.createElement("dt"), document.createElement("dd"));
     if (grid.children[i * 2].textContent !== label) grid.children[i * 2].textContent = label;
@@ -203,7 +220,9 @@ function renderTaskDetails(task) {
     if (grid.children[i * 2 + 1].textContent !== text) grid.children[i * 2 + 1].textContent = text;
   });
   while (grid.children.length > facts.length * 2) grid.lastChild.remove();
-  document.getElementById("task-detail-progress").value = taskProgressPercent(task);
+}
+
+function renderTaskDetailActions(task) {
   const actions = document.getElementById("task-detail-actions");
   const shape = JSON.stringify([task.id, task.status, task.link]);
   if (actions.dataset.status !== shape) {
@@ -211,8 +230,16 @@ function renderTaskDetails(task) {
     actions.innerHTML = `<button class="text-button icon-only" type="button" data-action="copy-link" data-link="${esc(task.link)}" aria-label="\u590d\u5236\u94fe\u63a5" title="\u590d\u5236\u94fe\u63a5">${iconMarkup("copy")}</button>` + actionButton("open-folder", task.id, "\u6253\u5f00\u76ee\u5f55", false, "folder-open")
       + (task.status === "done" ? actionButton("open-file", task.id, "\u6253\u5f00\u6587\u4ef6") : task.status === "error" ? actionButton("requeue", task.id, "\u91cd\u8bd5", false, "retry") : task.status === "paused" ? actionButton("resume", task.id, "\u7ee7\u7eed", false, "play") : actionButton("pause", task.id, "\u6682\u505c", false, "pause"));
     actions.dataset.status = shape;
+    const primary = actions.lastElementChild;
+    primary.className = "kd-button secondary compact";
+    const label = document.createElement("span");
+    label.textContent = primary.getAttribute("aria-label");
+    primary.append(label);
     if (focused) (actions.querySelector(`[data-action="${focused}"]`) || actions.querySelector("button"))?.focus({ preventScroll: true });
   }
+}
+
+function renderTaskSettings(task) {
   let draft = taskDetailDrafts.get(task.id);
   const latest = Object.fromEntries(Object.entries(task.settings).map(([key, value]) => [key, String(value)]));
   if (!draft || !draft.dirty && !draft.saving && draft.revision !== task.settingsRevision) {

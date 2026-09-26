@@ -27,6 +27,7 @@ type TaskDetails struct {
 	Groups           FileGroupsSnapshot `json:"groups"`
 	Settings         TaskSettings       `json:"settings"`
 	SettingsRevision string             `json:"settingsRevision"`
+	Transfer         *TaskTransfer      `json:"transfer,omitempty"`
 }
 
 func taskSettings(task *Task) TaskSettings {
@@ -76,7 +77,7 @@ func removeTaskOptionOverrides(args []string, changes map[string]string) []strin
 }
 
 func (m *Manager) taskDetails(task *Task) TaskDetails {
-	return TaskDetails{m.snapshotTask(task), m.fileGroupsLocked(), taskSettings(task), task.Fingerprint}
+	return TaskDetails{TaskSnapshot: m.snapshotTask(task), Groups: m.fileGroupsLocked(), Settings: taskSettings(task), SettingsRevision: task.Fingerprint}
 }
 
 func (m *Manager) TaskDetails(id int64) (TaskDetails, error) {

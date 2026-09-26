@@ -90,6 +90,8 @@ type Task struct {
 
 	admissionFailureStatus   Status
 	admissionFailureRevision int64
+	overviewCategory         string
+	overviewSpeed            int64
 }
 
 // TaskSnapshot contains only fields needed by the web UI. Request headers and
@@ -112,12 +114,14 @@ type TaskSnapshot struct {
 }
 
 type TaskSummary struct {
-	Total       int `json:"total"`
-	Queued      int `json:"queued"`
-	Downloading int `json:"downloading"`
-	Paused      int `json:"paused"`
-	Done        int `json:"done"`
-	Error       int `json:"error"`
+	Total         int            `json:"total"`
+	Queued        int            `json:"queued"`
+	Downloading   int            `json:"downloading"`
+	Paused        int            `json:"paused"`
+	Done          int            `json:"done"`
+	Error         int            `json:"error"`
+	DownloadSpeed int64          `json:"downloadSpeed"`
+	GroupCounts   map[string]int `json:"groupCounts"`
 }
 
 type TaskPage struct {
@@ -234,6 +238,8 @@ type Manager struct {
 	outputNames                map[string]int64
 	orderedIDs                 []int64
 	statusCounts               map[Status]int
+	groupCounts                map[string]int
+	downloadSpeed              int64
 	revision                   int64
 	structureRev               int64
 	lastSuccessfulPollRevision int64
@@ -253,6 +259,7 @@ type Manager struct {
 	wg           sync.WaitGroup
 	stopOnce     sync.Once
 	engineExited atomic.Bool
+	detailReads  atomic.Int32
 	engineExit   func(*Manager, error)
 	lifecycleCtx context.Context
 	cancel       context.CancelFunc
@@ -362,6 +369,7 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 			task.Revision = task.ID
 		}
 		m.tasks[task.ID] = task
+		m.indexTaskOverviewLocked(task)
 		m.fingerprints[task.Fingerprint] = task.ID
 		m.gids[task.GID] = task.ID
 		if task.OutputName != "" {
@@ -636,6 +644,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		task.Name = torrentLinkName(task.Link)
 	}
 	m.tasks[task.ID] = task
+	m.indexTaskOverviewLocked(task)
 	m.fingerprints[fingerprint] = task.ID
 	m.gids[task.GID] = task.ID
 	if task.OutputName != "" {
@@ -759,13 +768,11 @@ func (m *Manager) PageTaskSnapshotsFilteredIfChanged(
 		}
 		version ^= uint64(':') + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
 	}
-	usesGlobalRevision := search != "" || sortField != "" || category != ""
-	if usesGlobalRevision {
-		version ^= uint64(m.revision) * 1099511628211
-		validator := fmt.Sprintf(`"td-%x"`, version)
-		if ifNoneMatch != "" && ifNoneMatch == validator {
-			return TaskPage{Version: validator}, true
-		}
+	// Global overview values can change even when every visible row is unchanged.
+	version ^= uint64(m.revision) * 1099511628211
+	validator := fmt.Sprintf(`"td-%x"`, version)
+	if ifNoneMatch != "" && ifNoneMatch == validator {
+		return TaskPage{Version: validator}, true
 	}
 	if category != "" {
 		return m.categoryPageLocked(offset, min(limit, 200), status, search, sortField, sortOrder, category, fmt.Sprintf(`"td-%x"`, version)), false
@@ -839,10 +846,6 @@ func (m *Manager) PageTaskSnapshotsFilteredIfChanged(
 			continue
 		}
 		page.Tasks = append(page.Tasks, m.snapshotTask(task))
-		if !usesGlobalRevision {
-			version ^= uint64(task.ID) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
-			version ^= uint64(task.Revision) * 1099511628211
-		}
 	}
 	page.Version = fmt.Sprintf(`"td-%x"`, version)
 	return page, ifNoneMatch != "" && ifNoneMatch == page.Version
@@ -1141,13 +1144,19 @@ func (m *Manager) HasActiveBitTorrent() bool {
 }
 
 func (m *Manager) summaryLocked() TaskSummary {
+	groups := make(map[string]int, len(m.groupCounts))
+	for id, count := range m.groupCounts {
+		groups[id] = count
+	}
 	return TaskSummary{
-		Total:       len(m.tasks),
-		Queued:      m.statusCounts[StatusQueued],
-		Downloading: m.statusCounts[StatusDownloading],
-		Paused:      m.statusCounts[StatusPaused],
-		Done:        m.statusCounts[StatusDone],
-		Error:       m.statusCounts[StatusError],
+		Total:         len(m.tasks),
+		Queued:        m.statusCounts[StatusQueued],
+		Downloading:   m.statusCounts[StatusDownloading],
+		Paused:        m.statusCounts[StatusPaused],
+		Done:          m.statusCounts[StatusDone],
+		Error:         m.statusCounts[StatusError],
+		DownloadSpeed: m.downloadSpeed,
+		GroupCounts:   groups,
 	}
 }
 
@@ -2273,6 +2282,9 @@ func (m *Manager) newGIDLocked() string {
 }
 
 func (m *Manager) touchTaskLocked(task *Task) {
+	if m.tasks[task.ID] == task {
+		m.indexTaskOverviewLocked(task)
+	}
 	m.revision++
 	task.Revision = m.revision
 	task.UpdatedAt = time.Now()
@@ -2282,6 +2294,7 @@ func (m *Manager) touchTaskLocked(task *Task) {
 // index in sync. The caller must hold m.mu and persist replacement first.
 func (m *Manager) replaceTaskLocked(task, replacement *Task) {
 	oldStatus := task.Status
+	category, speed := task.overviewCategory, task.overviewSpeed
 	if m.fingerprints[task.Fingerprint] == task.ID {
 		delete(m.fingerprints, task.Fingerprint)
 	}
@@ -2297,6 +2310,8 @@ func (m *Manager) replaceTaskLocked(task, replacement *Task) {
 
 	oldGID := task.GID
 	*task = *cloneTask(replacement)
+	task.overviewCategory, task.overviewSpeed = category, speed
+	m.indexTaskOverviewLocked(task)
 	if oldGID != task.GID {
 		task.admissionFailureStatus, task.admissionFailureRevision = "", 0
 	}
@@ -2318,6 +2333,13 @@ func (m *Manager) removeTaskLocked(id int64) bool {
 		return false
 	}
 	m.releaseAriaSlotLocked(id)
+	if task.overviewCategory != "" {
+		m.groupCounts[task.overviewCategory]--
+		if m.groupCounts[task.overviewCategory] == 0 {
+			delete(m.groupCounts, task.overviewCategory)
+		}
+	}
+	m.downloadSpeed -= task.overviewSpeed
 	delete(m.tasks, id)
 	delete(m.fingerprints, task.Fingerprint)
 	delete(m.gids, task.GID)

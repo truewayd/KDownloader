@@ -21,7 +21,7 @@ func registerTaskDetails(mux *http.ServeMux, dm *downloader.Manager) {
 		}
 		var detail downloader.TaskDetails
 		if r.Method == http.MethodGet {
-			detail, err = dm.TaskDetails(id)
+			detail, err = dm.LiveTaskDetails(r.Context(), id)
 		} else {
 			var req struct {
 				Revision string                   `json:"revision"`

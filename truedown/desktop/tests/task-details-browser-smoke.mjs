@@ -19,7 +19,7 @@ await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const browser = await chromium.launch({ headless: true });
 try {
   await fs.mkdir(screenshots, { recursive: true });
-  for (const colorScheme of ["light", "dark"]) for (const [width, height] of [[780, 640], [520, 420]]) {
+  for (const colorScheme of ["light", "dark"]) for (const [width, height] of [[640, 640], [520, 420]]) {
     const context = await browser.newContext({ viewport: { width, height }, colorScheme, deviceScaleFactor: 2 });
     await context.addInitScript(() => {
       const listeners = new Map();
@@ -35,6 +35,9 @@ try {
         totalLength: 102400, completedLength: 51200, downloadSpeed: 0, folder: "C:\\Downloads",
         link: `https://example.test/${"long-path/".repeat(12)}file-${id}.zip`, settingsRevision: "1",
         settings: { connections: 16, maxSpeedBps: 0, maxTries: 5, retryWait: 3 },
+        transfer: { available: true, connections: 2, pieceCount: 96, pieceLength: 1048576, completedPieces: 42, serversAvailable: true,
+          pieces: Array.from({ length: 32 }, (_, i) => ({ first: i * 3, count: 3, completed: i < 10 ? 3 : i < 22 ? 1 : 0 })),
+          servers: [{ fileIndex: 1, host: "cdn.example.test", downloadSpeed: 0 }, { fileIndex: 1, host: "mirror.example.test", downloadSpeed: 4096 }] },
       }));
       window.__TAURI__ = {
         event: { listen: async (name, callback) => {
@@ -78,7 +81,15 @@ try {
     assert.equal(await page.locator("#task-detail-back").isVisible(), false);
     assert.equal(await page.locator("#batch-task-btn").count(), 0);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    assert.equal(await page.locator('#task-piece-map > span').count(), 32);
+    assert.equal(await page.locator('#task-piece-map [data-piece-state="complete"]').count(), 10);
+    assert.equal(await page.locator('#task-connections-body tr').count(), 2);
+    assert.match(await page.locator('#task-piece-map').getAttribute('aria-label'), /42.*96/);
+    assert.ok((await page.locator('#task-info-grid').textContent()).includes('未报告'));
     await page.screenshot({ path: path.join(screenshots, `details-${width}-${colorScheme}.png`) });
+    await page.evaluate(() => { fixtureTasks[0].transfer = { available: false }; loadTaskDetails(); });
+    await page.waitForFunction(() => document.getElementById('task-piece-map').hidden);
+    assert.equal(await page.locator('#task-connections-body tr').count(), 0, 'unavailable reads clear stale connection speeds');
     await page.locator("#task-settings-tab").click();
     await page.waitForFunction(() => taskDetailTab === "settings" && taskDetailData?.id === 1);
     const scroll = page.locator(".task-detail-scroll");

@@ -1,5 +1,5 @@
 /* Workspace layout; controls and state visuals remain in styles.css. */
-:root { --sidebar-width: 216px; --settings-nav-width: 196px; }
+:root { --navigation-width: 216px; --sidebar-width: var(--navigation-width); --settings-nav-width: var(--navigation-width); }
 :root.sidebar-collapsed { --sidebar-width: 60px; }
 [hidden] { display: none !important; }
 #task-load-status { margin: 12px 24px 0; }
@@ -31,6 +31,14 @@
 .primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link { position: relative; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 8px 12px; }
 .sidebar .icon { flex: 0 0 18px; width: 18px; height: 18px; }
 .sidebar-footer { margin-top: auto; font-size: 11px; }
+.nav-count { margin-left: auto; color: var(--kd-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.primary-nav .nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-collapsed .nav-count { display: none; }
+#workspace-traffic { display: grid; gap: 4px; flex: 1; min-width: 0; font-size: 11px; color: var(--kd-muted); }
+#workspace-traffic > span { display: flex; gap: 4px; white-space: nowrap; }
+#workspace-traffic .traffic-errors { margin-left: auto; }
+#workspace-speed { color: var(--kd-text); font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.sidebar-collapsed #workspace-traffic { display: none; }
 .workspace-notice { min-width: 0; }
 .workspace-notice .sidebar-action { width: 100%; text-align: left; }
 .notice-copy { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; line-height: 1.4; white-space: nowrap; }
@@ -201,12 +209,8 @@
 .log-page .settings-section-heading { margin: 0; }
 .log-page .application-log-output { flex: 1; min-height: 120px; max-height: none; font-size: 12px; padding: 16px; }
 .log-page .application-log-toolbar { flex: 0 0 auto; }
-@media (max-width: 1180px) {
-  :root { --sidebar-width: 196px; --settings-nav-width: 150px; }
-
-}
 @media (max-width: 900px) {
-  :root { --sidebar-width: 180px; }
+  :root { --navigation-width: 180px; }
   .sidebar { padding-inline: 10px; }
   .task-toolbar { padding-inline: 14px; }
   .metric-strip, .task-controls { padding-inline: 18px; }
@@ -214,11 +218,12 @@
   .settings-nav-link { padding: 8px 10px; }
 }
 @media (max-width: 720px) {
+  .nav-count, #workspace-traffic { display: none; }
   .notice-copy { display: none; }
   body { overflow: hidden; }
   .app-shell { min-height: 0; }
   .workspace { flex-direction: row; }
-  :root, :root.sidebar-collapsed { --sidebar-width: 52px; --settings-nav-width: 48px; }
+  :root, :root.sidebar-collapsed { --navigation-width: 52px; --sidebar-width: var(--navigation-width); }
   .sidebar, .sidebar-collapsed .sidebar { padding: 10px 4px; gap: 20px; }
   .sidebar-brand { justify-content: center; }
   .sidebar-toggle, .brand-copy, .nav-section-label { display: none; }
@@ -251,6 +256,36 @@
 
   .log-page { padding: 16px; }
   .log-page .application-log-output { font-size: 11px; }
+}
+
+/* One responsive toolbar; list scrolling is independent of its controls. */
+.task-panel { container: task-workspace / inline-size; }
+.task-toolbar { align-items: center; gap: 8px; padding: 12px 16px; }
+.task-toolbar .task-query-controls { display: flex; flex: 0 1 360px; min-width: 0; gap: 8px; }
+.task-toolbar .search-control { width: auto; flex: 1; min-width: 80px; }
+.task-toolbar .filter-control { flex: 0 0 108px; }
+.task-toolbar .filter-control .kd-select { width: 100%; }
+.task-toolbar .task-queue-actions { flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; }
+.task-toolbar .kd-button { height: 36px; min-height: 36px; padding: 6px 8px; font-size: 12px; }
+.task-toolbar > #open-downloads-btn { margin-left: auto; width: 36px; height: 36px; }
+.task-panel #tasks-wrap { min-height: 0; flex: 1; overflow-anchor: none; }
+.task-rows > tr { height: 64px; }
+.tasks-table .task-rows td { height: 64px; padding-block: 8px; white-space: nowrap; }
+.task-rows .task-file-cell > div { min-width: 0; }
+.tasks-table .task-spacer td { padding: 0; border: 0; background: transparent; line-height: 0; }
+@container task-workspace (max-width: 820px) {
+  .task-toolbar #retry-all-btn, .task-toolbar #clear-done-btn { display: none; }
+  .task-toolbar .task-query-controls { flex: 1; }
+}
+@container task-workspace (max-width: 560px) {
+  .task-toolbar { padding: 10px 8px; gap: 4px; }
+  .task-toolbar .task-query-controls { gap: 4px; }
+  .task-toolbar .filter-control { flex-basis: 92px; }
+  .task-toolbar .search-control { min-width: 64px; }
+  .task-toolbar .task-queue-actions { gap: 2px; }
+  .task-toolbar .task-queue-actions .kd-button { width: 32px; padding: 6px; }
+  .task-toolbar .task-queue-actions .kd-button span { display: none; }
+  .task-toolbar > #open-downloads-btn { width: 32px; }
 }
 @media (max-width: 520px) {
   [data-settings-search="true"] .settings-nav { flex: 1; }

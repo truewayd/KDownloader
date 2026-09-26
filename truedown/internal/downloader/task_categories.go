@@ -6,6 +6,30 @@ import (
 	"strings"
 )
 
+// Update overview counters at mutation boundaries, not by scanning on each read.
+func (m *Manager) indexTaskOverviewLocked(task *Task) {
+	if m.groupCounts == nil {
+		m.groupCounts = make(map[string]int)
+	}
+	category := m.classifyTask(task)
+	if category != task.overviewCategory {
+		if task.overviewCategory != "" {
+			m.groupCounts[task.overviewCategory]--
+			if m.groupCounts[task.overviewCategory] == 0 {
+				delete(m.groupCounts, task.overviewCategory)
+			}
+		}
+		m.groupCounts[category]++
+		task.overviewCategory = category
+	}
+	speed := int64(0)
+	if task.Status == StatusDownloading {
+		speed = max(0, task.DownloadSpeed)
+	}
+	m.downloadSpeed += speed - task.overviewSpeed
+	task.overviewSpeed = speed
+}
+
 func (m *Manager) classifyTask(task *Task) string {
 	name := task.OutputName
 	if name == "" {

@@ -199,11 +199,8 @@ function cacheElements() {
 	"engine-version",
 	"install-next-engine-btn",
     "new-task-btn",
-    "next-page-btn",
     "open-downloads-btn",
     "overlay",
-    "page-info",
-    "prev-page-btn",
     "pause-queue-btn",
     "retry-all-btn",
     "resume-queue-btn",
@@ -302,12 +299,11 @@ function bindEvents() {
   els.taskSearch.addEventListener("search", applyTaskSearch);
   els.taskFilter.addEventListener("change", () => {
     currentFilter = els.taskFilter.value;
-    currentOffset = 0;
+    resetTaskViewport();
     lastTaskRenderSignature = "";
     refreshAndSchedule(true);
   });
-  els.prevPageBtn.addEventListener("click", () => changePage(-1));
-  els.nextPageBtn.addEventListener("click", () => changePage(1));
+  initTaskViewport();
   els.batchPauseBtn.addEventListener("click", () => runSelectedAction("pause", "暂停"));
   els.batchResumeBtn.addEventListener("click", () => runSelectedAction("resume", "继续"));
   els.batchRemoveBtn.addEventListener("click", () => runSelectedAction("remove", "移除", true));
@@ -336,7 +332,7 @@ function applyTaskSearch() {
   const next = els.taskSearch.value.trim();
   if (next === currentSearch) return;
   currentSearch = next;
-  currentOffset = 0;
+  resetTaskViewport();
   lastTaskRenderSignature = "";
   refreshAndSchedule(true);
 }
@@ -996,7 +992,7 @@ async function loadTasks({ force = false } = {}) {
           applyFileGroups(page.groups);
           if (currentCategory && !page.groups.groups.some((group) => group.id === currentCategory)) {
             currentCategory = "";
-            currentOffset = 0;
+            resetTaskViewport();
             updateTaskNavigation();
             force = true;
             continue;
@@ -1014,7 +1010,6 @@ async function loadTasks({ force = false } = {}) {
         restoreTaskReturnFocus();
         renderedTaskPageURL = url;
         updateMetrics(currentSummary);
-        updatePagination();
         if (taskRefreshRequested) { force = true; continue; }
         return true;
       }
@@ -1055,6 +1050,7 @@ function renderTasks(tasks) {
   currentTasks = [...tasks];
   const signature = JSON.stringify([
     currentOffset,
+    currentTotal,
     currentFilter,
     currentCategory,
     fileGroupsState.revision,
@@ -1086,11 +1082,11 @@ function renderTasks(tasks) {
         <col class="col-progress"><col class="col-size"><col class="col-speed"><col class="col-created"><col class="col-actions">
       </colgroup>
       <thead><tr>
-        <th scope="col" class="select-cell"><input type="checkbox" data-select-page aria-label="选择本页全部任务"></th>
+        <th scope="col" class="select-cell"><input type="checkbox" data-select-page aria-label="选择当前加载的任务"></th>
         ${sortableHeading("id", "#")}${sortableHeading("file", "文件")}${sortableHeading("status", "状态")}
         ${sortableHeading("progress", "进度")}<th scope="col">大小</th><th scope="col">速度 / 剩余</th><th scope="col">添加时间</th><th scope="col" class="align-right">操作</th>
       </tr></thead>
-      <tbody></tbody>
+      <tbody class="task-spacer" aria-hidden="true"><tr><td colspan="9"></td></tr></tbody><tbody class="task-rows"></tbody><tbody class="task-spacer" aria-hidden="true"><tr><td colspan="9"></td></tr></tbody>
     </table>`;
     table = els.tasksContainer.querySelector(".tasks-table");
   }
@@ -1111,7 +1107,8 @@ function renderTasks(tasks) {
     });
     table.dataset.sort = sortKey;
   }
-  reconcileTaskRows(table.querySelector("tbody"), currentTasks);
+  reconcileTaskRows(table.querySelector(".task-rows"), currentTasks);
+  updateTaskViewport(table);
   syncSelectionControls();
   if (focusKey && document.activeElement !== focused) {
     const controls = Array.from(els.tasksContainer.querySelectorAll("button, input"));
@@ -1157,7 +1154,7 @@ function onTaskSort(event) {
     currentSort = field;
     currentSortOrder = "asc";
   }
-  currentOffset = 0;
+  resetTaskViewport();
   lastTaskRenderSignature = "";
   refreshAndSchedule(true);
 }
@@ -1224,29 +1221,14 @@ function syncSelectionControls() {
 
 function updateMetrics(summary) {
   els.taskCount.textContent = summary.total;
-  els.activeCount.textContent = summary.queued + summary.downloading;
+  els.activeCount.textContent = summary.downloading;
   els.errorCount.textContent = summary.error;
   els.retryAllBtn.disabled = summary.error === 0 || els.retryAllBtn.getAttribute("aria-busy") === "true";
   els.clearDoneBtn.disabled = summary.done === 0;
   els.pauseQueueBtn.disabled = summary.queued + summary.downloading === 0 || els.pauseQueueBtn.getAttribute("aria-busy") === "true";
   els.resumeQueueBtn.disabled = summary.paused === 0 || els.resumeQueueBtn.getAttribute("aria-busy") === "true";
-}
-
-function updatePagination() {
-  const first = currentTotal ? currentOffset + 1 : 0;
-  const last = Math.min(currentOffset + PAGE_SIZE, currentTotal);
-  els.pageInfo.textContent = `${first}–${last} / ${currentTotal}`;
-  els.prevPageBtn.disabled = currentOffset === 0;
-  els.nextPageBtn.disabled = currentOffset + PAGE_SIZE >= currentTotal;
-}
-
-async function changePage(direction) {
-  const nextOffset = Math.max(0, currentOffset + direction * PAGE_SIZE);
-  if (nextOffset === currentOffset || nextOffset >= Math.max(currentTotal, 1)) return;
-  currentOffset = nextOffset;
-  lastTaskRenderSignature = "";
-  await refreshAndSchedule();
-  els.tasksWrap.scrollTo({ top: 0, behavior: reducedMotion() ? "auto" : "smooth" });
+  updateFileGroupCounts();
+  renderWorkspaceNotice();
 }
 
 function emptyMarkup() {
@@ -1473,11 +1455,12 @@ function normalizeSummary(value) {
   return {
     total: safeCount(value.total), queued: safeCount(value.queued), downloading: safeCount(value.downloading),
     paused: safeCount(value.paused), done: safeCount(value.done), error: safeCount(value.error),
+    downloadSpeed: safeCount(value.downloadSpeed), groupCounts: value.groupCounts || {},
   };
 }
 
 function emptySummary() {
-  return { total: 0, queued: 0, downloading: 0, paused: 0, done: 0, error: 0 };
+  return { total: 0, queued: 0, downloading: 0, paused: 0, done: 0, error: 0, downloadSpeed: 0, groupCounts: {} };
 }
 
 function safeCount(value) {

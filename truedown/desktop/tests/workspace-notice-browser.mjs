@@ -52,7 +52,9 @@ try {
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(origin);
     await page.waitForFunction(() => systemUpdateState !== null);
-    assert.equal(await page.locator("#workspace-notice").isVisible(), false);
+    assert.equal(await page.locator("#workspace-notice").isVisible(), true);
+    assert.equal(await page.locator("#workspace-traffic").isVisible(), true);
+    assert.equal(await page.locator("#workspace-speed").textContent(), "0 B/s");
     assert.equal(await page.locator("#exit-truedown-btn").count(), 0);
     // The real polling path must see progress even with an empty, filtered list.
     await page.locator("#task-search").fill("unrelated file");
@@ -127,7 +129,7 @@ try {
     await page.waitForFunction(() => document.getElementById("workspace-notice-action").title === "Checksum mismatch");
     state = idle;
     await page.evaluate(() => scheduleSystemUpdateRefresh(true));
-    await page.waitForFunction(() => document.getElementById("workspace-notice").hidden);
+    await page.waitForFunction(() => workspaceNoticeTarget === "tasks" && !document.getElementById("workspace-traffic").hidden);
     await page.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide")));
     const stopped = reads;
     await page.waitForTimeout(1700);

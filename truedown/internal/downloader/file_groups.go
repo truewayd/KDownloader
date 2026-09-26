@@ -205,6 +205,9 @@ func (m *Manager) saveFileGroupsLocked(revision uint64, normalized []FileGroup) 
 	}
 	m.fileGroups = next
 	m.fileGroupIndex = indexFileGroups(next.Groups)
+	for _, task := range m.tasks {
+		m.indexTaskOverviewLocked(task)
+	}
 	m.revision++
 	m.structureRev++
 	return cloneFileGroups(next), nil

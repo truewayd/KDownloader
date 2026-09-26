@@ -95,6 +95,9 @@ pub fn frame_action(window: WebviewWindow, action: Action) -> Result<(), String>
     match action {
         Action::Minimize => window.minimize(),
         Action::Maximize => {
+            if !window.is_maximizable().map_err(|error| error.to_string())? {
+                return Ok(());
+            }
             if window.is_maximized().map_err(|error| error.to_string())? {
                 window.unmaximize()
             } else {

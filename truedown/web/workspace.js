@@ -13,7 +13,7 @@ function initWorkspace() {
       if (currentPage === "tasks") event.preventDefault();
       if (link.dataset.taskFilter === "all") {
         currentCategory = "";
-        currentOffset = 0;
+        resetTaskViewport();
         updateTaskNavigation();
         if (currentPage === "tasks") refreshAndSchedule(true);
       }

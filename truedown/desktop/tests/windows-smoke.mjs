@@ -205,7 +205,13 @@ async function verifyAppearance(pages, scheme, forcedColors = "none", reducedTra
     assert.equal(state.clientTopInset, 0, `${kind} must extend the entire top edge for DWM caption painting`);
     assert.deepEqual(state.captionHits, [8, 9, 20], `${kind} must expose genuine minimize, maximize and close hit targets`);
     assert.equal(state.captionExcludedFromWebView, true, `${kind} WebView must not obscure native caption controls`);
-    assert.ok(state.resizable && state.minimizable && state.maximizable, `${kind} must retain OS window operations`);
+    assert.equal(state.resizable, kind === "main", `${kind} resize policy`);
+    assert.equal(state.maximizable, kind === "main", `${kind} maximize policy`);
+    assert.equal(state.minimizable, true, `${kind} keeps native minimize`);
+    if (kind !== "main") {
+      await invoke(page, "frame_action", { action: "maximize" });
+      assert.equal((await invoke(page, "frame_state")).maximized, false, `${kind} title double-click cannot bypass its fixed size`);
+    }
     assert.equal(state.iconWidth, 256, `${kind} must supply a full-resolution native icon`);
     assert.equal(state.iconHeight, 256);
     assert.equal(state.taskbarIconMatchesWindow, true, `${kind} must expose its own icon to the taskbar`);
@@ -500,7 +506,7 @@ try {
   });
   await main.locator(`[data-action="details"][data-id="${completed.id}"]`).click();
   const details = await waitUntil(() => context.pages().find(page => page.url().includes("window=task-details")));
-  await waitForNativeCondition(details, () => document.querySelector("#task-info-grid").textContent.includes("Documents review"));
+  await waitForNativeCondition(details, () => document.querySelector("#task-location-grid").textContent.includes("Documents review"));
   assert.equal(await main.evaluate(() => currentPage), "tasks");
   assert.equal(await main.locator("#batch-task-btn").count(), 0);
   await details.locator("#task-settings-tab").click();

@@ -260,10 +260,11 @@ test("a changed task page preserves keyboard focus on the same row control", () 
   const context = vm.createContext({
     document: { activeElement: original },
     els: { tasksContainer: { contains: (element) => element === original, querySelectorAll: () => [replacement], querySelector: () => ({ dataset: { sort: "status:asc" }, querySelector: () => ({}) }) } },
-    currentTasks: [], selectedTaskIDs: new Set(), taskStatusByID: new Map(),
+    currentTasks: [], currentTotal: 1, selectedTaskIDs: new Set(), taskStatusByID: new Map(),
     fileGroupsState: { revision: 0 }, taskDetailReturnID: 0, currentCategory: "", currentOffset: 0, currentFilter: "all", currentSearch: "", currentSort: "status", currentSortOrder: "asc",
     lastTaskRenderSignature: "", syncSelectionControls() {}, taskRow: () => "", sortableHeading: () => "",
     reconcileTaskRows() { context.document.activeElement = null; },
+    updateTaskViewport() {},
   });
   vm.runInContext(["renderTasks", "taskControlKey"].map(declaration).join("\n"), context);
   context.renderTasks([{ id: 7, status: "downloading", progress: "25%" }]);

@@ -124,6 +124,7 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 			task.Name = name
 		}
 		m.tasks[task.ID] = task
+		m.indexTaskOverviewLocked(task)
 		m.fingerprints[task.Fingerprint] = task.ID
 		m.gids[task.GID] = task.ID
 		if task.OutputName != "" {

@@ -51,7 +51,7 @@ impl Cache {
             .minimizable(false)
             .maximizable(false)
             .decorations(kind == Kind::Confirmation)
-            .resizable(kind == Kind::Confirmation)
+            .resizable(false)
             .on_navigation(crate::windows::local_navigation);
         let builder = if kind == Kind::Confirmation {
             builder

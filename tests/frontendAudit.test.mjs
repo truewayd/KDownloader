@@ -390,7 +390,7 @@ test("TrueDown polling preserves pending queue and retry controls", () => {
     "taskCount", "activeCount", "errorCount", "retryAllBtn", "clearDoneBtn", "pauseQueueBtn", "resumeQueueBtn",
   ].map((name) => [name, testButton()]));
   for (const name of ["retryAllBtn", "pauseQueueBtn", "resumeQueueBtn"]) els[name].setAttribute("aria-busy", "true");
-  const context = vm.createContext({ els });
+  const context = vm.createContext({ els, updateFileGroupCounts() {}, renderWorkspaceNotice() {} });
   vm.runInContext(declaration(trueDownSource, "updateMetrics"), context);
   vm.runInContext("updateMetrics({ total: 4, queued: 1, downloading: 1, paused: 1, error: 1, done: 1 })", context);
   for (const name of ["retryAllBtn", "pauseQueueBtn", "resumeQueueBtn"]) assert.equal(els[name].disabled, true);

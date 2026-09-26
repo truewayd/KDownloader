@@ -110,7 +110,8 @@ unsafe fn refresh(hwnd: HWND) {
     }
     // Windows owns the resize border above the WebView too. Keep the regular
     // left/right/bottom non-client frame, and restore the top resize hit area.
-    let edge = if IsZoomed(hwnd) == 0 {
+    let edge = if IsZoomed(hwnd) == 0 && GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_THICKFRAME != 0
+    {
         pixels(hwnd, 4.0)
     } else {
         0
@@ -190,7 +191,11 @@ unsafe extern "system" fn procedure(
             return hit;
         }
         ScreenToClient(hwnd, &mut point);
-        if IsZoomed(hwnd) == 0 && point.y >= 0 && point.y < pixels(hwnd, 4.0) {
+        if IsZoomed(hwnd) == 0
+            && GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_THICKFRAME != 0
+            && point.y >= 0
+            && point.y < pixels(hwnd, 4.0)
+        {
             let mut bounds = RECT::default();
             GetClientRect(hwnd, &mut bounds);
             if point.x < pixels(hwnd, 8.0) {

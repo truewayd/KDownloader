@@ -1,3 +1,47 @@
+const TASK_ROW_HEIGHT = 64;
+let taskViewportTimer = 0;
+let taskViewportOffset = 0;
+
+function resetTaskViewport() {
+  clearTimeout(taskViewportTimer);
+  currentOffset = taskViewportOffset = 0;
+  els.tasksWrap?.scrollTo({ top: 0 });
+}
+
+function initTaskViewport() {
+  const schedule = () => {
+    clearTimeout(taskViewportTimer);
+    taskViewportTimer = setTimeout(readTaskViewport, 80);
+  };
+  els.tasksWrap.addEventListener("scroll", schedule, { passive: true });
+  const observer = new ResizeObserver(schedule);
+  observer.observe(els.tasksWrap);
+  window.addEventListener("pagehide", () => { clearTimeout(taskViewportTimer); observer.disconnect(); }, { once: true });
+}
+
+function readTaskViewport() {
+  if (currentPage !== "tasks" || document.hidden || currentTotal <= PAGE_SIZE) return;
+  const header = els.tasksContainer.querySelector("thead")?.offsetHeight || 40;
+  const first = Math.max(0, Math.floor((els.tasksWrap.scrollTop - header) / TASK_ROW_HEIGHT));
+  const visible = Math.ceil(els.tasksWrap.clientHeight / TASK_ROW_HEIGHT);
+  // Keep generous overscan; ordinary small wheel movements need no network read.
+  if (first >= taskViewportOffset + (taskViewportOffset ? 10 : 0)
+      && first + visible <= Math.min(taskViewportOffset + PAGE_SIZE - 10, currentTotal)) return;
+  const next = Math.min(Math.max(0, currentTotal - PAGE_SIZE), Math.max(0, Math.floor((first - 20) / 40) * 40));
+  if (next === currentOffset) return;
+  currentOffset = next;
+  refreshAndSchedule(true);
+}
+
+function updateTaskViewport(table) {
+  taskViewportOffset = currentOffset;
+  const spacers = table.querySelectorAll(".task-spacer td");
+  spacers[0].style.height = `${currentOffset * TASK_ROW_HEIGHT}px`;
+  spacers[1].style.height = `${Math.max(0, currentTotal - currentOffset - currentTasks.length) * TASK_ROW_HEIGHT}px`;
+  table.setAttribute("aria-rowcount", String(currentTotal + 1));
+  table.querySelectorAll(".task-rows tr").forEach((row, index) => row.setAttribute("aria-rowindex", String(currentOffset + index + 2)));
+}
+
 function reconcileTaskRows(body, tasks) {
   const rows = new Map(Array.from(body.children, (row) => [Number(row.dataset.taskId), row]));
   const keep = new Set(tasks.map((task) => task.id));

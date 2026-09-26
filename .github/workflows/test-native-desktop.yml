@@ -90,6 +90,7 @@ jobs:
           node tests/context-menu-browser.mjs
           node tests/task-forms-browser-smoke.mjs
           node tests/task-details-browser-smoke.mjs
+          node tests/task-viewport-browser.mjs
           node tests/file-groups-browser-smoke.mjs
           node tests/auxiliary-ui-browser.mjs
           node tests/settings-browser-smoke.mjs

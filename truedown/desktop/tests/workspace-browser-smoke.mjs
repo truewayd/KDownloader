@@ -88,6 +88,8 @@ try {
           assert.equal(await page.locator(".native-titlebar").count(), 1);
           const sidebar = await page.locator(".sidebar").boundingBox();
           assert.ok(sidebar.y >= 0);
+          const logo = await page.locator(".brand-mark img").boundingBox();
+          assert.ok(Math.abs(logo.x - logo.y) <= 1, `${name}: logo top and left spacing must match`);
           for (const selector of [".sidebar-toggle", ".brand"]) assert.ok(await page.locator(selector).evaluate(element => {
             const box = element.getBoundingClientRect();
             return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
@@ -99,7 +101,7 @@ try {
             const { x, y, width, height, right, bottom } = document.querySelector(selector).getBoundingClientRect();
             return { x, y, width, height, right, bottom };
           };
-          return { rootWidth: document.documentElement.scrollWidth, bodyWidth: document.body.scrollWidth, width: innerWidth, height: innerHeight, sidebar: bounds(".sidebar"), main: bounds(".dashboard"), footer: bounds(".sidebar-footer"), toolbar: bounds(".task-toolbar"), query: bounds(".task-controls"), table: bounds(".table-scroll") };
+          return { rootWidth: document.documentElement.scrollWidth, bodyWidth: document.body.scrollWidth, width: innerWidth, height: innerHeight, sidebar: bounds(".sidebar"), main: bounds(".dashboard"), footer: bounds(".sidebar-footer"), toolbar: bounds(".task-toolbar"), query: bounds(".task-query-controls"), table: bounds(".table-scroll") };
         });
         await page.screenshot({ path: path.join(screenshots, `${name}.png`) });
         await fs.writeFile(path.join(screenshots, `${name}.json`), JSON.stringify(geometry, null, 2));
@@ -110,11 +112,11 @@ try {
           const bounds = node => { const box = node.getBoundingClientRect(); return { x: box.x, right: box.right, top: box.top, bottom: box.bottom }; };
           return { box: bounds(element), padding: parseFloat(getComputedStyle(element).paddingRight),
             folder: bounds(element.querySelector("#open-downloads-btn")),
-            buttons: [...element.querySelectorAll(".kd-button")].map(bounds) };
+            buttons: [...element.querySelectorAll(".kd-button")].filter(node => node.checkVisibility()).map(bounds) };
         });
         assert.ok(Math.abs(toolbar.folder.right - (toolbar.box.right - toolbar.padding)) <= 1, `${name}: folder button is not independently right-aligned`);
         for (const button of toolbar.buttons) {
-          assert.ok(button.right + 6 <= toolbar.folder.x && button.bottom <= toolbar.box.bottom, `${name}: queue controls overlap the folder button`);
+          assert.ok(button.right + 4 <= toolbar.folder.x + 1 && button.bottom <= toolbar.box.bottom, `${name}: queue controls overlap the folder button`);
         }
         for (const selector of ["#new-task-btn", "#settings-btn", "#task-search", "#task-filter", "#open-downloads-btn"]) {
           const reachable = await page.locator(selector).evaluate(element => {

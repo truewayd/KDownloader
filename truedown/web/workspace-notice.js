@@ -12,7 +12,7 @@ function renderWorkspaceNotice() {
     title = "\u8fde\u63a5\u91cd\u8bd5\u4e2d";
     tooltip = "\u66f4\u65b0\u72b6\u6001\u6682\u4e0d\u53ef\u7528\uff0c\u6b63\u5728\u81ea\u52a8\u91cd\u8bd5";
   } else if (state) {
-    const { trueDown, engine, busy, error, download } = state;
+    const { trueDown = {}, engine = {}, busy, error, download } = state;
     if (busy) {
       const next = busy === "next-engine";
       workspaceNoticeTarget = ["truedown", "program-update"].includes(busy) ? "about" : "engine";
@@ -53,7 +53,18 @@ function renderWorkspaceNotice() {
       tooltip = trueDown.availableVersion || "\u524d\u5f80\u8bbe\u7f6e\u66f4\u65b0";
     }
   }
-  host.hidden = !title;
+  const traffic = !title;
+  if (traffic) {
+    workspaceNoticeTarget = "tasks";
+    icon = "download";
+    title = "下载概览";
+    detail = "";
+    tooltip = `${currentSummary.downloading} 个下载中，${currentSummary.error} 个出错，${taskDownloadedBytes(currentSummary.downloadSpeed)}/s，查看全部任务`;
+  }
+  host.hidden = false;
+  document.getElementById("workspace-traffic").hidden = !traffic;
+  host.querySelector(".notice-copy").hidden = traffic;
+  document.getElementById("workspace-speed").textContent = `${taskDownloadedBytes(currentSummary.downloadSpeed)}/s`;
   const button = document.getElementById("workspace-notice-action");
   document.getElementById("workspace-notice-title").textContent = title;
   document.getElementById("workspace-notice-detail").textContent = detail;
@@ -77,6 +88,17 @@ function renderWorkspaceNotice() {
 
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("workspace-notice-action")?.addEventListener("click", () => {
+    if (workspaceNoticeTarget === "tasks") {
+      currentCategory = "";
+      currentFilter = "all";
+      currentSearch = "";
+      els.taskSearch.value = "";
+      document.getElementById("task-filter").value = "all";
+      resetTaskViewport();
+      if (currentPage !== "tasks") location.hash = "tasks";
+      else { updateTaskNavigation(); refreshAndSchedule(true); }
+      return;
+    }
     if (workspaceNoticeTarget === "restart") { restartForTrueDownUpdate(); return; }
     if (nativeWindowRole === "main") {
       invokeNative("open_auxiliary", { kind: workspaceNoticeTarget }).catch(error => showToast(error.message, "error"));

@@ -132,6 +132,26 @@ and material integration only. Page styles own layout, not alternate palettes.
   tones for grouping. No decorative panel outlines, button shadows or repeated
   separators. Editable fields and visible keyboard/high-contrast focus retain
   necessary boundaries; popup separation may use the OS-owned shadow.
+- Search fields use pill corners. Main and settings navigation share a 216px
+  expanded width and the same narrow-screen widths; collapsing the main sidebar
+  does not collapse settings navigation.
+- Native settings, new-task and task-details windows use fixed preferred client
+  sizes of 960x760, 660x560 and 640x640 logical pixels. Confirmations use a 440px
+  width and content-measured height. Auxiliary windows cannot be manually resized
+  or maximized; native placement may still shrink them to fit the monitor.
+- Task details use compact information/settings tabs, transfer facts, an overall
+  progress bar, an optional piece map and a connection table. File locations and
+  links remain selectable in an expandable section. aria2 `tellStatus` supplies
+  byte counters and an MSB-first completed-piece bitmap; `getServers` supplies
+  per-connection speed, not per-connection byte totals or confirmed resume support.
+  Show unavailable data explicitly rather than inventing connection ranges.
+- The task toolbar orders search, status, pause, resume, retry, completed cleanup
+  and a right-aligned directory button. Narrow content hides retry and cleanup.
+  Sidebar notices prioritize updates, then show global downloading/error counts
+  and speed. Group badges count all tasks regardless of the current filters.
+- The list has no visible pagination. A bounded 100-row window with overscan
+  follows scrolling, reuses task rows and refreshes through conditional reads.
+  Global overview counters are maintained at task mutation boundaries.
 - Use one generated Lucide icon system. Icon-only actions require accessible
   labels. The category reset is a small icon next to its heading. Settings
   headings scroll with content; saving is automatic, with no floating save bar.

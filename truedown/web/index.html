@@ -23,6 +23,7 @@
   <link rel="stylesheet" href="/file-controls.css">
   <script src="/file-controls.js" defer></script>
   <script src="/task-view.js" defer></script>
+  <script src="/task-transfer.js" defer></script>
   <script src="/task-details.js" defer></script>
   <script src="/file-groups.js" defer></script>
   <link rel="stylesheet" href="/task-details.css">
@@ -48,7 +49,7 @@
         </div>
         <nav class="primary-nav" aria-label="下载任务">
           <p class="nav-section-label">下载库</p>
-          <a href="#tasks" data-route="tasks" data-task-filter="all" title="全部下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg><span class="nav-label">全部下载</span></a>
+          <a href="#tasks" data-route="tasks" data-task-filter="all" title="全部下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg><span class="nav-label">全部下载</span><span class="nav-count" id="task-count">0</span></a>
           <div id="file-group-navigation" class="file-group-navigation"></div>
         </nav>
         <nav class="sidebar-footer" aria-label="应用工具">
@@ -57,6 +58,7 @@
               <svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-info"></use></svg>
               <span id="workspace-notice-progress" role="progressbar" aria-label="更新下载进度" aria-valuemin="0" aria-valuemax="100" hidden><svg class="notice-progress-ring" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle class="notice-progress-track" cx="12" cy="12" r="9"></circle><circle class="notice-progress-value" cx="12" cy="12" r="9" pathLength="100"></circle></svg></span>
               <span class="notice-copy"><span id="workspace-notice-title"></span><small id="workspace-notice-detail"></small></span>
+              <span id="workspace-traffic" hidden><span><span id="active-count">0</span> 下载中 <span class="traffic-errors"><span id="error-count">0</span> 出错</span></span><strong id="workspace-speed">0 B/s</strong></span>
             </button>
             <span class="visually-hidden" id="workspace-notice-announcement" role="status"></span>
           </div>
@@ -67,32 +69,6 @@
       <section class="kd-panel task-panel" id="tasks-page" data-page="tasks" aria-labelledby="tasks-title">
         <h1 class="visually-hidden" id="tasks-title">全部下载</h1>
           <div class="panel-actions task-toolbar" aria-label="队列操作">
-            <div class="task-queue-actions">
-              <button class="kd-button secondary" id="pause-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-pause"></use></svg>暂停队列</button>
-              <button class="kd-button secondary" id="resume-queue-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-play"></use></svg>恢复队列</button>
-              <button class="kd-button secondary" id="retry-all-btn" type="button" disabled><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-retry"></use></svg>全部重试</button>
-              <button class="kd-button secondary" id="clear-done-btn" type="button"><svg class="icon" aria-hidden="true"><use href="/icons.svg#icon-trash"></use></svg>清理已完成</button>
-            </div>
-            <button class="kd-icon-button" id="open-downloads-btn" type="button" title="打开下载目录" aria-label="打开下载目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button>
-          </div>
-
-        <p class="hint" id="task-load-status" role="status" hidden></p>
-        <div class="metric-strip" aria-label="任务概览">
-          <article class="metric-card">
-            <span id="task-count">0</span>
-            <p>全部任务</p>
-          </article>
-          <article class="metric-card">
-            <span id="active-count">0</span>
-            <p>进行中</p>
-          </article>
-          <article class="metric-card">
-            <span id="error-count">0</span>
-            <p>需要处理</p>
-          </article>
-        </div>
-
-        <div class="task-controls">
           <div class="task-query-controls">
             <label class="search-control" for="task-search">
               <span class="visually-hidden">搜索文件名或链接</span>
@@ -102,7 +78,7 @@
             <label class="filter-control" for="task-filter">
               <span>状态</span>
               <select class="kd-select" id="task-filter">
-                <option value="all">全部</option>
+                <option value="all">全部下载</option>
                 <option value="downloading">下载中</option>
                 <option value="queued">排队中</option>
                 <option value="paused">已暂停</option>
@@ -111,12 +87,15 @@
               </select>
             </label>
           </div>
-          <nav class="pagination" aria-label="任务分页">
-            <button class="kd-icon-button" id="prev-page-btn" type="button" disabled title="上一页" aria-label="上一页"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-chevron-left"></use></svg></button>
-            <span id="page-info" aria-live="polite">0–0 / 0</span>
-            <button class="kd-icon-button" id="next-page-btn" type="button" disabled title="下一页" aria-label="下一页"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-chevron-right"></use></svg></button>
-          </nav>
+            <div class="task-queue-actions">
+              <button class="kd-button secondary" id="pause-queue-btn" type="button" title="暂停全部下载" aria-label="暂停全部下载" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-pause"></use></svg><span>暂停</span></button>
+              <button class="kd-button secondary" id="resume-queue-btn" type="button" title="恢复全部下载" aria-label="恢复全部下载" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-play"></use></svg><span>恢复</span></button>
+              <button class="kd-button secondary" id="retry-all-btn" type="button" title="重试全部失败任务" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-retry"></use></svg><span>重试</span></button>
+              <button class="kd-button secondary" id="clear-done-btn" type="button"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-trash"></use></svg><span>清理已完成</span></button>
+            </div>
+            <button class="kd-icon-button" id="open-downloads-btn" type="button" title="打开下载目录" aria-label="打开下载目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button>
         </div>
+        <p class="hint" id="task-load-status" role="status" hidden></p>
 
         <div class="batch-toolbar" id="batch-toolbar" hidden>
           <strong id="batch-selection-count">已选择 0 项</strong>
@@ -127,7 +106,7 @@
           </div>
         </div>
 
-        <div class="table-scroll" id="tasks-wrap">
+        <div class="table-scroll" id="tasks-wrap" tabindex="0" aria-label="任务列表，滚动查看全部任务">
           <div id="tasks-container" class="tasks-container">
             <div class="empty-state">
               <div class="empty-icon" aria-hidden="true"><svg class="icon" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg></div>
@@ -525,17 +504,27 @@
   <header class="task-detail-header">
     <button class="kd-button secondary compact" type="button" id="task-detail-back">返回下载</button>
     <h1 id="task-detail-title" tabindex="-1">任务详情</h1>
-    <div id="task-detail-actions" class="row-actions"></div>
   </header>
   <nav class="task-detail-tabs" aria-label="任务详情">
-    <a href="#task/0/info" id="task-info-tab">信息</a>
-    <a href="#task/0/settings" id="task-settings-tab">设置</a>
+    <a href="#task/0/info" id="task-info-tab"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-info"></use></svg>信息</a>
+    <a href="#task/0/settings" id="task-settings-tab"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-settings"></use></svg>设置</a>
   </nav>
   <p class="hint" id="task-detail-status" role="status"></p>
   <div class="task-detail-scroll">
     <section id="task-info-panel" aria-labelledby="task-info-tab">
-      <progress id="task-detail-progress" max="100" aria-label="下载进度"></progress>
       <dl class="task-info-grid" id="task-info-grid"></dl>
+      <div class="task-detail-progress-row"><progress id="task-detail-progress" max="100" aria-label="下载进度"></progress><span id="task-detail-percent" class="kd-selectable"></span></div>
+      <details class="task-transfer-section" id="task-transfer-section" open>
+        <summary>分块与连接 <span id="task-transfer-summary" class="hint"></span></summary>
+        <p id="task-pieces-status" class="hint"></p>
+        <div id="task-piece-map" role="img" aria-label="分块完成情况" hidden></div>
+        <div id="task-piece-legend" class="task-piece-legend" hidden><span data-piece-state="complete">已完成</span><span data-piece-state="mixed">部分完成</span><span data-piece-state="pending">未完成</span></div>
+        <div class="task-connections-scroll" id="task-connections" hidden>
+          <table class="task-connections-table"><thead><tr><th scope="col">连接</th><th scope="col">来源</th><th scope="col">状态</th><th scope="col">速度</th></tr></thead><tbody id="task-connections-body"></tbody></table>
+        </div>
+        <p id="task-connections-status" class="hint"></p>
+      </details>
+      <details class="task-transfer-section"><summary>文件位置与链接</summary><dl class="task-info-grid" id="task-location-grid"></dl></details>
     </section>
     <form id="task-settings-form" hidden>
       <p class="hint">限速即时生效。修改连接数和重试参数前请先暂停任务；已完成的任务仅供查看。</p>
@@ -553,6 +542,7 @@
       </div>
     </form>
   </div>
+  <footer class="task-detail-footer"><div id="task-detail-actions" class="row-actions"></div></footer>
 </section>
       </main>
     </div>
