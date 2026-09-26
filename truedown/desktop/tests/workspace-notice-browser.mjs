@@ -52,8 +52,8 @@ try {
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(origin);
     await page.waitForFunction(() => systemUpdateState !== null);
-    assert.equal(await page.locator("#workspace-notice").isVisible(), true);
-    assert.equal(await page.locator("#workspace-traffic").isVisible(), true);
+    assert.equal(await page.locator("#workspace-notice").isVisible(), false);
+    assert.equal(await page.locator("#workspace-traffic").isVisible(), false);
     assert.equal(await page.locator("#workspace-speed").textContent(), "0 B/s");
     assert.equal(await page.locator("#exit-truedown-btn").count(), 0);
     // The real polling path must see progress even with an empty, filtered list.
@@ -61,7 +61,7 @@ try {
     state = { ...idle, busy: "truedown", download: { taskId: 91, status: "downloading", totalLength: 10485760, completedLength: 4194304, downloadSpeed: 1048576 } };
     await page.waitForFunction(() => document.getElementById("workspace-notice-progress").getAttribute("aria-valuenow") === "40", null, { timeout: 10000 });
     assert.equal(await page.locator("#workspace-notice-detail").textContent(), "40%");
-    assert.match(await page.locator("#workspace-notice-action").getAttribute("title"), /40%.*4.0 MiB.*10.0 MiB.*1.0 MiB\/s/);
+    assert.match(await page.locator("#workspace-notice-action").getAttribute("data-tooltip"), /40%.*4.0 MiB.*10.0 MiB.*1.0 MiB\/s/);
     assert.equal(await page.locator(".notice-progress-value").getAttribute("stroke-dasharray"), "40 100");
     assert.equal(await page.locator("#workspace-notice-action > .icon").isVisible(), false);
     assert.ok(await page.locator(".notice-copy").evaluate(node => {
@@ -126,10 +126,10 @@ try {
     assert.equal(await page.evaluate(() => calls.filter(call => call.command === "open_auxiliary").at(-1).args.kind), "engine");
     state = { ...idle, error: "Checksum mismatch" };
     await page.evaluate(() => scheduleSystemUpdateRefresh(true));
-    await page.waitForFunction(() => document.getElementById("workspace-notice-action").title === "Checksum mismatch");
+    await page.waitForFunction(() => document.getElementById("workspace-notice-action").dataset.tooltip === "Checksum mismatch");
     state = idle;
     await page.evaluate(() => scheduleSystemUpdateRefresh(true));
-    await page.waitForFunction(() => workspaceNoticeTarget === "tasks" && !document.getElementById("workspace-traffic").hidden);
+    await page.waitForFunction(() => workspaceNoticeTarget === "tasks" && document.getElementById("workspace-notice").hidden);
     await page.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide")));
     const stopped = reads;
     await page.waitForTimeout(1700);

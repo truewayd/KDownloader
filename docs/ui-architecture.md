@@ -147,8 +147,13 @@ and material integration only. Page styles own layout, not alternate palettes.
   Show unavailable data explicitly rather than inventing connection ranges.
 - The task toolbar orders search, status, pause, resume, retry, completed cleanup
   and a right-aligned directory button. Narrow content hides retry and cleanup.
-  Sidebar notices prioritize updates, then show global downloading/error counts
-  and speed. Group badges count all tasks regardless of the current filters.
+  Sidebar notices prioritize updates, then show icon-based global downloading/error
+  counts and speed only while downloads are active. Group badges count all tasks
+  regardless of the current filters.
+- TrueDown hover descriptions use the canonical `installTooltips` controller and
+  `data-tooltip`, never browser `title` bubbles. Short labels use a compact dark
+  surface; long details and errors use a theme-aware card. Keyboard focus,
+  Escape, hoverable content, viewport fitting and stale-anchor cleanup are shared.
 - The list has no visible pagination. A bounded 100-row window with overscan
   follows scrolling, reuses task rows and refreshes through conditional reads.
   Global overview counters are maintained at task mutation boundaries.

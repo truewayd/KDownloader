@@ -61,6 +61,42 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Seg
 .panel-header h1 { font-size: var(--kd-font-title); font-weight: 600; }
 .kd-panel { box-shadow: none; }
 .icon { flex-shrink: 0; }
+.kd-tooltip {
+  position: fixed;
+  inset: auto;
+  z-index: 10000;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 12px;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 8px;
+  background: #242424;
+  color: #fafafa;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 14%);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: none;
+}
+.kd-tooltip[hidden] { display: none; }
+.kd-tooltip[data-kind="card"] {
+  padding: 12px;
+  background: var(--kd-surface);
+  color: var(--kd-text);
+  border-color: var(--kd-border);
+  box-shadow: var(--kd-shadow);
+  font-size: var(--kd-font-body);
+  user-select: text;
+}
+@media (forced-colors: active) {
+  .kd-tooltip, .kd-tooltip[data-kind="card"] { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
+}
 /* Editable fields and keyboard focus retain boundaries; ordinary surfaces do not. */
 @media (forced-colors: active) {
   .kd-button, .kd-icon-button { border: 1px solid ButtonText; }

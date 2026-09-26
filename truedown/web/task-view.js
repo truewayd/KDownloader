@@ -64,7 +64,9 @@ function reconcileTaskRows(body, tasks) {
     if (label.textContent !== progress) {
       label.textContent = progress;
     }
-    label.title = task.error ? formatTaskError(task) : task.progress || progress;
+    label.dataset.tooltip = task.error ? formatTaskError(task) : task.progress || progress;
+    if (task.error) label.dataset.tooltipKind = "card";
+    else delete label.dataset.tooltipKind;
     row.querySelector(".task-progress").value = taskProgressPercent(task);
     for (const [selector, value] of [[".task-size", taskBytes(task.totalLength)], [".task-speed", taskSpeed(task)], [".task-remaining", taskRemaining(task)], [".task-created", taskDate(task.createdAt)]]) {
       const node = row.querySelector(selector);

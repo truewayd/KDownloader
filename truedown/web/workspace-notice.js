@@ -61,14 +61,16 @@ function renderWorkspaceNotice() {
     detail = "";
     tooltip = `${currentSummary.downloading} 个下载中，${currentSummary.error} 个出错，${taskDownloadedBytes(currentSummary.downloadSpeed)}/s，查看全部任务`;
   }
-  host.hidden = false;
-  document.getElementById("workspace-traffic").hidden = !traffic;
+  host.hidden = traffic && currentSummary.downloading <= 0;
+  host.dataset.traffic = String(traffic);
+  document.getElementById("workspace-traffic").hidden = !traffic || host.hidden;
   host.querySelector(".notice-copy").hidden = traffic;
   document.getElementById("workspace-speed").textContent = `${taskDownloadedBytes(currentSummary.downloadSpeed)}/s`;
   const button = document.getElementById("workspace-notice-action");
   document.getElementById("workspace-notice-title").textContent = title;
   document.getElementById("workspace-notice-detail").textContent = detail;
-  button.title = tooltip || title;
+  button.dataset.tooltip = tooltip || title;
+  button.dataset.tooltipKind = traffic || progress !== null || Boolean(state?.error) ? "card" : "label";
   KDComponents.setBusyState(button, restartingForUpdate);
   button.setAttribute("aria-label", restartingForUpdate ? "\u6b63\u5728\u91cd\u542f\u66f4\u65b0" : title + (tooltip ? "\uff0c" + tooltip : ""));
   const statusIcon = button.querySelector(".icon");

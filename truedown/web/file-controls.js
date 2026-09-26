@@ -7,7 +7,7 @@ function updateTorrentSelection() {
   if (!input || !name || !clear || !choose) return;
   const file = input.files?.[0];
   name.textContent = file?.name || "未选择文件";
-  name.title = file?.name || "";
+  name.dataset.tooltip = file?.name || "";
   clear.hidden = !file;
   choose.disabled = input.disabled;
 }

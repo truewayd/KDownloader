@@ -227,7 +227,7 @@ function renderTaskDetailActions(task) {
   const shape = JSON.stringify([task.id, task.status, task.link]);
   if (actions.dataset.status !== shape) {
     const focused = actions.contains(document.activeElement) ? document.activeElement.dataset.action : null;
-    actions.innerHTML = `<button class="text-button icon-only" type="button" data-action="copy-link" data-link="${esc(task.link)}" aria-label="\u590d\u5236\u94fe\u63a5" title="\u590d\u5236\u94fe\u63a5">${iconMarkup("copy")}</button>` + actionButton("open-folder", task.id, "\u6253\u5f00\u76ee\u5f55", false, "folder-open")
+    actions.innerHTML = `<button class="text-button icon-only" type="button" data-action="copy-link" data-link="${esc(task.link)}" aria-label="\u590d\u5236\u94fe\u63a5" data-tooltip="\u590d\u5236\u94fe\u63a5">${iconMarkup("copy")}</button>` + actionButton("open-folder", task.id, "\u6253\u5f00\u76ee\u5f55", false, "folder-open")
       + (task.status === "done" ? actionButton("open-file", task.id, "\u6253\u5f00\u6587\u4ef6") : task.status === "error" ? actionButton("requeue", task.id, "\u91cd\u8bd5", false, "retry") : task.status === "paused" ? actionButton("resume", task.id, "\u7ee7\u7eed", false, "play") : actionButton("pause", task.id, "\u6682\u505c", false, "pause"));
     actions.dataset.status = shape;
     const primary = actions.lastElementChild;

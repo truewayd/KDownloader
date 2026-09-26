@@ -39,17 +39,17 @@
 <body>
   <div class="app-shell">
     <div class="workspace">
-      <aside class="sidebar" id="workspace-sidebar" aria-label="下载与应用导航">
+      <aside class="sidebar" id="workspace-sidebar" aria-label="下载与应用导航" data-tooltip-placement="right">
         <div class="sidebar-top">
           <div class="sidebar-brand">
             <a class="brand" href="#tasks" aria-label="TrueDown 下载任务"><span class="brand-mark" aria-hidden="true"><img src="/truedown-logo.svg" alt=""></span><span class="brand-copy"><strong>TrueDown</strong></span></a>
-            <button class="kd-icon-button sidebar-toggle" type="button" aria-label="收起侧栏" title="收起侧栏" aria-controls="workspace-sidebar" aria-expanded="true"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-panel-left"></use></svg></button>
+            <button class="kd-icon-button sidebar-toggle" type="button" aria-label="收起侧栏" data-tooltip="收起侧栏" aria-controls="workspace-sidebar" aria-expanded="true"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-panel-left"></use></svg></button>
           </div>
-          <button class="kd-button primary" id="new-task-btn" type="button" title="新建下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-plus"></use></svg><span class="nav-label">新建下载</span></button>
+          <button class="kd-button primary" id="new-task-btn" type="button" data-tooltip="新建下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-plus"></use></svg><span class="nav-label">新建下载</span></button>
         </div>
         <nav class="primary-nav" aria-label="下载任务">
           <p class="nav-section-label">下载库</p>
-          <a href="#tasks" data-route="tasks" data-task-filter="all" title="全部下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg><span class="nav-label">全部下载</span><span class="nav-count" id="task-count">0</span></a>
+          <a href="#tasks" data-route="tasks" data-task-filter="all" data-tooltip="全部下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg><span class="nav-label">全部下载</span><span class="nav-count" id="task-count">0</span></a>
           <div id="file-group-navigation" class="file-group-navigation"></div>
         </nav>
         <nav class="sidebar-footer" aria-label="应用工具">
@@ -58,11 +58,11 @@
               <svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-info"></use></svg>
               <span id="workspace-notice-progress" role="progressbar" aria-label="更新下载进度" aria-valuemin="0" aria-valuemax="100" hidden><svg class="notice-progress-ring" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle class="notice-progress-track" cx="12" cy="12" r="9"></circle><circle class="notice-progress-value" cx="12" cy="12" r="9" pathLength="100"></circle></svg></span>
               <span class="notice-copy"><span id="workspace-notice-title"></span><small id="workspace-notice-detail"></small></span>
-              <span id="workspace-traffic" hidden><span><span id="active-count">0</span> 下载中 <span class="traffic-errors"><span id="error-count">0</span> 出错</span></span><strong id="workspace-speed">0 B/s</strong></span>
+              <span id="workspace-traffic" hidden><span><span class="traffic-count" data-tooltip="下载中"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-download"></use></svg><span id="active-count">0</span></span><span class="traffic-count" data-tooltip="出错"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-circle-alert"></use></svg><span id="error-count">0</span></span></span><strong id="workspace-speed">0 B/s</strong></span>
             </button>
             <span class="visually-hidden" id="workspace-notice-announcement" role="status"></span>
           </div>
-          <a href="#settings/general" data-route="settings" id="settings-btn" title="设置"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-settings"></use></svg><span class="nav-label">设置</span></a>
+          <a href="#settings/general" data-route="settings" id="settings-btn" data-tooltip="设置"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-settings"></use></svg><span class="nav-label">设置</span></a>
         </nav>
       </aside>
       <main class="dashboard">
@@ -88,12 +88,12 @@
             </label>
           </div>
             <div class="task-queue-actions">
-              <button class="kd-button secondary" id="pause-queue-btn" type="button" title="暂停全部下载" aria-label="暂停全部下载" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-pause"></use></svg><span>暂停</span></button>
-              <button class="kd-button secondary" id="resume-queue-btn" type="button" title="恢复全部下载" aria-label="恢复全部下载" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-play"></use></svg><span>恢复</span></button>
-              <button class="kd-button secondary" id="retry-all-btn" type="button" title="重试全部失败任务" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-retry"></use></svg><span>重试</span></button>
+              <button class="kd-button secondary" id="pause-queue-btn" type="button" data-tooltip="暂停全部下载" aria-label="暂停全部下载" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-pause"></use></svg><span>暂停</span></button>
+              <button class="kd-button secondary" id="resume-queue-btn" type="button" data-tooltip="恢复全部下载" aria-label="恢复全部下载" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-play"></use></svg><span>恢复</span></button>
+              <button class="kd-button secondary" id="retry-all-btn" type="button" data-tooltip="重试全部失败任务" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-retry"></use></svg><span>重试</span></button>
               <button class="kd-button secondary" id="clear-done-btn" type="button"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-trash"></use></svg><span>清理已完成</span></button>
             </div>
-            <button class="kd-icon-button" id="open-downloads-btn" type="button" title="打开下载目录" aria-label="打开下载目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button>
+            <button class="kd-icon-button" id="open-downloads-btn" type="button" data-tooltip="打开下载目录" aria-label="打开下载目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button>
         </div>
         <p class="hint" id="task-load-status" role="status" hidden></p>
 
@@ -123,17 +123,17 @@
       <div class="settings-search-field"><svg class="icon search-icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-search"></use></svg><input class="kd-input" id="settings-search" type="search" placeholder="搜索设置" aria-label="搜索设置" maxlength="100" autocomplete="off"><button class="kd-icon-button" id="settings-search-clear" type="button" aria-label="清空搜索" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-close"></use></svg></button></div>
       <p class="visually-hidden" id="settings-search-status" role="status"></p>
       <div id="settings-search-results" aria-label="设置搜索结果" hidden></div>
-      <div class="settings-navigation-links"><a class="settings-nav-link" href="#settings/general" data-settings-link="general" title="下载与速度"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-settings"></use></svg><span>下载与速度</span></a>
-<a class="settings-nav-link" href="#settings/files" data-settings-link="files" title="文件管理"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder"></use></svg><span>文件管理</span></a>
-<a class="settings-nav-link" href="#settings/application" data-settings-link="application" title="应用与连接"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-power"></use></svg><span>应用与连接</span></a>
-<a class="settings-nav-link" href="#settings/engine" data-settings-link="engine" title="内核与模块"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-refresh"></use></svg><span>内核与模块</span></a>
-<a class="settings-nav-link" href="#settings/advanced" data-settings-link="advanced" title="高级参数"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-more-horizontal"></use></svg><span>高级参数</span></a>
-<a class="settings-nav-link" href="#settings/experimental" data-settings-link="experimental" title="实验功能"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-filter"></use></svg><span>实验功能</span></a>
-<a class="settings-nav-link" href="#settings/logs" data-settings-link="logs" title="应用日志"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-logs"></use></svg><span>应用日志</span></a>
-<a class="settings-nav-link" href="#settings/about" data-settings-link="about" title="关于 TrueDown"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-info"></use></svg><span>关于</span></a></div></nav>
+      <div class="settings-navigation-links"><a class="settings-nav-link" href="#settings/general" data-settings-link="general" data-tooltip="下载与速度"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-settings"></use></svg><span>下载与速度</span></a>
+<a class="settings-nav-link" href="#settings/files" data-settings-link="files" data-tooltip="文件管理"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder"></use></svg><span>文件管理</span></a>
+<a class="settings-nav-link" href="#settings/application" data-settings-link="application" data-tooltip="应用与连接"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-power"></use></svg><span>应用与连接</span></a>
+<a class="settings-nav-link" href="#settings/engine" data-settings-link="engine" data-tooltip="内核与模块"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-refresh"></use></svg><span>内核与模块</span></a>
+<a class="settings-nav-link" href="#settings/advanced" data-settings-link="advanced" data-tooltip="高级参数"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-more-horizontal"></use></svg><span>高级参数</span></a>
+<a class="settings-nav-link" href="#settings/experimental" data-settings-link="experimental" data-tooltip="实验功能"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-filter"></use></svg><span>实验功能</span></a>
+<a class="settings-nav-link" href="#settings/logs" data-settings-link="logs" data-tooltip="应用日志"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-logs"></use></svg><span>应用日志</span></a>
+<a class="settings-nav-link" href="#settings/about" data-settings-link="about" data-tooltip="关于 TrueDown"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-info"></use></svg><span>关于</span></a></div></nav>
     <form id="settings-form" novalidate>
       <div class="settings-content">
-      <header class="settings-category-header"><h2 id="settings-category-title">下载与速度</h2><button class="kd-icon-button" id="settings-reset-btn" type="button" title="恢复当前分类默认设置" aria-label="恢复当前分类默认设置"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-refresh"></use></svg></button></header>
+      <header class="settings-category-header"><h2 id="settings-category-title">下载与速度</h2><button class="kd-icon-button" id="settings-reset-btn" type="button" data-tooltip="恢复当前分类默认设置" aria-label="恢复当前分类默认设置"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-refresh"></use></svg></button></header>
       <p class="hint settings-save-error" id="settings-save-status" role="status"></p>
         <p class="hint" id="settings-load-status" role="status"></p>
         <section class="settings-section log-page" id="logs-page" data-settings-page="logs" hidden aria-labelledby="settings-application-log-title">
@@ -196,7 +196,7 @@
               <div class="form-grid">
               <div class="field field-span-2">
                 <label for="cfg-folder">保存位置</label>
-                <div class="directory-field"><input class="kd-input" id="cfg-folder" type="text" placeholder="留空使用默认下载目录"><button class="kd-icon-button native-folder-picker" type="button" data-directory-input="cfg-folder" title="选择默认保存目录" aria-label="选择默认保存目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button></div>
+                <div class="directory-field"><input class="kd-input" id="cfg-folder" type="text" placeholder="留空使用默认下载目录"><button class="kd-icon-button native-folder-picker" type="button" data-directory-input="cfg-folder" data-tooltip="选择默认保存目录" aria-label="选择默认保存目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button></div>
                 <p class="hint" id="cfg-folder-help">留空使用默认下载目录，文件按<a href="#settings/files">分组</a>存入子目录。修改保存根目录不会移动已有文件。</p>
               </div>
               <div class="field settings-row">
@@ -570,14 +570,14 @@
               <input class="visually-hidden" id="m-torrent-file" type="file" tabindex="-1" aria-label="选择 .torrent 文件" accept=".torrent,application/x-bittorrent">
               <button class="kd-button secondary" id="choose-torrent-btn" type="button" aria-controls="m-torrent-file"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-file"></use></svg>选择文件</button>
               <span class="file-picker-name" id="torrent-file-name" role="status">未选择文件</span>
-              <button class="kd-icon-button" id="clear-torrent-btn" type="button" aria-label="移除已选种子文件" title="移除已选种子文件" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-close"></use></svg></button>
+              <button class="kd-icon-button" id="clear-torrent-btn" type="button" aria-label="移除已选种子文件" data-tooltip="移除已选种子文件" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-close"></use></svg></button>
             </div>
             <p class="hint">支持 .torrent，最大 4 MiB；文件和链接选择一种即可。</p>
           </div>
           <div class="form-grid">
             <div class="field">
               <label for="m-folder">保存目录</label>
-              <div class="directory-field"><input class="kd-input" id="m-folder" type="text" placeholder="留空使用默认下载目录"><button class="kd-icon-button native-folder-picker" type="button" data-directory-input="m-folder" title="选择保存目录" aria-label="选择保存目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button></div>
+              <div class="directory-field"><input class="kd-input" id="m-folder" type="text" placeholder="留空使用默认下载目录"><button class="kd-icon-button native-folder-picker" type="button" data-directory-input="m-folder" data-tooltip="选择保存目录" aria-label="选择保存目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button></div>
             </div>
             <div class="field">
               <label for="m-name">文件名</label>

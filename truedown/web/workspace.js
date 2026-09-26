@@ -29,7 +29,7 @@ function initWorkspace() {
       button.setAttribute("aria-expanded", String(!collapsed));
       const label = collapsed ? "展开侧栏" : "收起侧栏";
       button.setAttribute("aria-label", label);
-      button.title = label;
+      button.dataset.tooltip = label;
     });
   });
   applyWorkspaceRoute(false);

@@ -290,7 +290,7 @@ test("returning from task details never steals focus moved during the page reque
 
 test("progress polling retains every row control and changes only its progress label", () => {
   const task = { id: 7, status: "downloading", name: "file.zip", progress: "25%" };
-  const progress = { textContent: "20%", title: "20%" };
+  const progress = { textContent: "20%", dataset: { tooltip: "20%" } };
   const ordinal = { textContent: "1" };
   const checkbox = { checked: true };
   const row = {
@@ -309,7 +309,7 @@ test("progress polling retains every row control and changes only its progress l
   context.reconcileTaskRows(body, [task]);
   assert.equal(body.children[0], row);
   assert.equal(progress.textContent, "25%");
-  assert.equal(progress.title, "25%");
+  assert.equal(progress.dataset.tooltip, "25%");
   assert.equal(checkbox.checked, true);
 });
 

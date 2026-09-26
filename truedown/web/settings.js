@@ -592,7 +592,7 @@ function renderTrackerResearchSettings(settings = trackerResearchSettings) {
   }
   const enableBlocked = !settings.enabled && settings.supportKnown && !settings.supported;
   els.trackerResearchEnabled.disabled = enableBlocked;
-  els.trackerResearchEnabled.title = enableBlocked ? support : "";
+  els.trackerResearchEnabled.dataset.tooltip = enableBlocked ? support : "";
   const activity = settings.active
     ? `relay 已运行；已配置 ${settings.configuredTorrents} 个任务、改写 ${settings.rewrittenTrackers} 个 HTTP(S) tracker、转发 ${settings.forwardedAnnounces} 次请求`
     : (settings.enabled ? "已保存启用状态，但 relay 尚未运行" : "模块已关闭");

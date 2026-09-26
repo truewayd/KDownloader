@@ -9,6 +9,7 @@
   const componentStyleSheets = new Map();
   const manualActionControls = new WeakMap();
   const linksDialogControllers = new WeakMap();
+  const tooltipControllers = new WeakMap();
   let confirmDialogSequence = 0;
   const HTMLElementBase = globalThis.HTMLElement || class {};
 
@@ -981,6 +982,98 @@
     }
   }
 
+  function installTooltips(ownerDocument = document) {
+    if (tooltipControllers.has(ownerDocument)) return tooltipControllers.get(ownerDocument);
+    const view = ownerDocument.defaultView;
+    const tip = ownerDocument.createElement("div");
+    tip.id = "kd-tooltip";
+    tip.className = "kd-tooltip";
+    tip.setAttribute("role", "tooltip");
+    tip.setAttribute("popover", "manual");
+    tip.hidden = true;
+    ownerDocument.body.append(tip);
+    let anchor = null, timer = 0, leaveTimer = 0;
+    const selector = "[data-tooltip]";
+    const find = node => node?.closest?.(selector);
+    const hide = () => {
+      view.clearTimeout(timer);
+      view.clearTimeout(leaveTimer);
+      if (anchor) {
+        const ids = (anchor.getAttribute("aria-describedby") || "").split(/\s+/).filter(id => id && id !== tip.id);
+        if (ids.length) anchor.setAttribute("aria-describedby", ids.join(" "));
+        else anchor.removeAttribute("aria-describedby");
+      }
+      if (tip.hidePopover && tip.matches(":popover-open")) tip.hidePopover();
+      tip.hidden = true;
+      anchor = null;
+    };
+    const render = () => {
+      if (!anchor?.isConnected || !anchor.getClientRects().length || !anchor.dataset.tooltip?.trim()) { hide(); return; }
+      const text = anchor.dataset.tooltip.trim();
+      if (tip.textContent !== text) tip.textContent = text;
+      tip.dataset.kind = anchor.dataset.tooltipKind || (text.length > 48 || text.includes("\n") ? "card" : "label");
+      tip.hidden = false;
+      if (tip.showPopover && !tip.matches(":popover-open")) tip.showPopover();
+      const ids = new Set((anchor.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
+      ids.add(tip.id);
+      anchor.setAttribute("aria-describedby", [...ids].join(" "));
+      const box = anchor.getBoundingClientRect(), bounds = tip.getBoundingClientRect();
+      const width = ownerDocument.documentElement.clientWidth, height = ownerDocument.documentElement.clientHeight;
+      const gap = 8, edge = 8;
+      let left = box.left + (box.width - bounds.width) / 2;
+      let top = box.top - bounds.height - gap;
+      if (anchor.closest('[data-tooltip-placement="right"]')) {
+        left = box.right + gap;
+        top = box.top + (box.height - bounds.height) / 2;
+        if (left + bounds.width > width - edge) left = box.left - bounds.width - gap;
+      } else if (top < edge) top = box.bottom + gap;
+      tip.style.left = `${Math.max(edge, Math.min(left, width - bounds.width - edge))}px`;
+      tip.style.top = `${Math.max(edge, Math.min(top, height - bounds.height - edge))}px`;
+    };
+    const show = target => {
+      view.clearTimeout(leaveTimer);
+      if (target === anchor) return;
+      hide();
+      if (!target?.dataset.tooltip?.trim()) return;
+      anchor = target;
+      timer = view.setTimeout(render, 350);
+    };
+    const over = event => {
+      if (event.pointerType === "touch") return;
+      if (tip.contains(event.target)) { view.clearTimeout(leaveTimer); return; }
+      show(find(event.target));
+    };
+    const out = event => {
+      if (anchor?.contains(event.relatedTarget) || tip.contains(event.relatedTarget)) return;
+      view.clearTimeout(leaveTimer);
+      leaveTimer = view.setTimeout(hide, 120);
+    };
+    const focus = event => show(find(event.target));
+    const press = event => { if (!tip.contains(event.target)) hide(); };
+    const key = event => { if (event.key === "Escape") hide(); };
+    const scroll = event => { if (!tip.contains(event.target)) hide(); };
+    const visibility = () => { if (ownerDocument.hidden) hide(); };
+    // Only inspect the active anchor, including keyed-row updates and removal.
+    const observer = new view.MutationObserver(() => { if (anchor && !tip.hidden) render(); });
+    observer.observe(ownerDocument.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-tooltip", "data-tooltip-kind", "hidden"] });
+    const listeners = [["pointerover", over], ["pointerout", out], ["focusin", focus], ["focusout", out], ["pointerdown", press], ["keydown", key], ["scroll", scroll], ["visibilitychange", visibility]];
+    for (const [name, callback] of listeners) ownerDocument.addEventListener(name, callback, true);
+    for (const name of ["blur", "resize", "hashchange", "pagehide"]) view.addEventListener(name, hide);
+    const controller = Object.freeze({
+      hide,
+      destroy() {
+        hide();
+        observer.disconnect();
+        for (const [name, callback] of listeners) ownerDocument.removeEventListener(name, callback, true);
+        for (const name of ["blur", "resize", "hashchange", "pagehide"]) view.removeEventListener(name, hide);
+        tip.remove();
+        tooltipControllers.delete(ownerDocument);
+      },
+    });
+    tooltipControllers.set(ownerDocument, controller);
+    return controller;
+  }
+
   function createProgress({ root, fill, track, label } = {}) {
     const hide = () => {
       root?.classList.add("kd-hidden");
@@ -1005,6 +1098,7 @@
     createProgress,
     createToast,
     confirmAction,
+    installTooltips,
     prepareDecorativeIcons,
     ensureActionElement,
     ensureLinksDialogElement,

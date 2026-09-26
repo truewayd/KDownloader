@@ -13,7 +13,7 @@ function renderTaskTransfer(transfer, status) {
       let cell = map.children[index];
       if (!cell) { cell = document.createElement("span"); cell.setAttribute("aria-hidden", "true"); map.append(cell); }
       cell.dataset.pieceState = part.completed === part.count ? "complete" : part.completed > 0 ? "mixed" : "pending";
-      cell.title = `\u7b2c ${part.first + 1}\u2013${part.first + part.count} \u5757\uff1a\u5df2\u5b8c\u6210 ${part.completed} / ${part.count}`;
+      cell.dataset.tooltip = `\u7b2c ${part.first + 1}\u2013${part.first + part.count} \u5757\uff1a\u5df2\u5b8c\u6210 ${part.completed} / ${part.count}`;
     });
   } else {
     pieceStatus.textContent = status === "done" ? "\u4e0b\u8f7d\u5df2\u5b8c\u6210\u3002" : status === "error" ? "\u4e0b\u8f7d\u5df2\u505c\u6b62\u3002" : available ? "\u7b49\u5f85\u5f15\u64ce\u63d0\u4f9b\u5206\u5757\u4fe1\u606f\u2026" : "\u5206\u5757\u4fe1\u606f\u6682\u4e0d\u53ef\u7528\u3002";

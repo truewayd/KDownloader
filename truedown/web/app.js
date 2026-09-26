@@ -115,6 +115,7 @@ let dialogInertRoots = [];
 document.addEventListener("DOMContentLoaded", async () => {
   cacheElements();
   KDComponents.prepareDecorativeIcons();
+  KDComponents.installTooltips();
   trueDownToast = KDComponents.createToast(els.toast, { duration: 3200 });
   initTheme();
   renderDownloadSettings();
@@ -1175,9 +1176,9 @@ function taskRow(task, index) {
     <tr data-task-id="${task.id}">
       <td class="select-cell"><input type="checkbox" data-select-task value="${task.id}" aria-label="选择任务 ${esc(fileName)}"${selectedTaskIDs.has(task.id) ? " checked" : ""}></td>
       <td class="task-index">${currentOffset + index + 1}</td>
-      <td><div class="task-file-cell">${iconMarkup(taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="details" data-id="${task.id}" title="${esc(fileName)}">${esc(fileName)}</button><div class="task-folder">${esc(taskCategoryMeta(task.category).label)}</div></div></div></td>
+      <td><div class="task-file-cell">${iconMarkup(taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="details" data-id="${task.id}" data-tooltip="${esc(fileName)}">${esc(fileName)}</button><div class="task-folder">${esc(taskCategoryMeta(task.category).label)}</div></div></div></td>
       <td><span class="status-badge status-${status}">${statusLabel}</span></td>
-      <td><div class="progress-line" title="${esc(progress)}">${esc(taskProgressLabel(task))}</div><progress class="task-progress" max="100" value="${taskProgressPercent(task)}" aria-label="下载进度"></progress></td>
+      <td><div class="progress-line" data-tooltip="${esc(progress)}">${esc(taskProgressLabel(task))}</div><progress class="task-progress" max="100" value="${taskProgressPercent(task)}" aria-label="下载进度"></progress></td>
       <td class="task-size">${taskBytes(task.totalLength)}</td>
       <td><div class="task-speed">${taskSpeed(task)}</div><div class="task-remaining task-folder">${taskRemaining(task)}</div></td>
       <td class="task-created">${esc(taskDate(task.createdAt))}</td>
@@ -1200,7 +1201,7 @@ function formatTaskError(task) {
 
 function actionButton(action, id, label, danger = false, icon = "file") {
   const busy = activeTaskActions.has(id) ? ' disabled aria-busy="true" aria-disabled="true"' : "";
-  return `<button class="text-button icon-only${danger ? " text-button-danger" : ""}" type="button" data-action="${action}" data-id="${id}" aria-label="${label}" title="${label}"${busy}>${iconMarkup(icon)}</button>`;
+  return `<button class="text-button icon-only${danger ? " text-button-danger" : ""}" type="button" data-action="${action}" data-id="${id}" aria-label="${label}" data-tooltip="${label}"${busy}>${iconMarkup(icon)}</button>`;
 }
 
 function iconMarkup(name) {

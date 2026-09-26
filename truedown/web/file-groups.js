@@ -60,7 +60,7 @@ function renderFileGroupNavigation() {
     link.href = "#tasks";
     link.draggable = false;
     link.dataset.taskCategory = group.id;
-    link.title = group.name;
+    link.dataset.tooltip = group.name;
     link.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
     link.innerHTML = iconMarkup(taskCategoryMeta(group.id).icon);
     const label = document.createElement("span");
@@ -253,7 +253,7 @@ function renderFileGroupsEditor() {
     const row = document.createElement("div");
     row.className = "file-group-editor-row";
     row.dataset.groupId = group.id;
-    row.innerHTML = `<div class="field"><label for="group-name-${i}">\u5206\u7ec4\u540d\u79f0</label><input class="kd-input" id="group-name-${i}" maxlength="40" required></div><div class="field"><label for="group-ext-${i}">\u6587\u4ef6\u540e\u7f00</label><textarea class="kd-input" id="group-ext-${i}" rows="2" placeholder=".zip .7z .tar.gz"></textarea></div><button class="kd-icon-button" type="button" aria-label="\u5220\u9664\u5206\u7ec4" title="\u5220\u9664\u5206\u7ec4">${iconMarkup("trash")}</button>`;
+    row.innerHTML = `<div class="field"><label for="group-name-${i}">\u5206\u7ec4\u540d\u79f0</label><input class="kd-input" id="group-name-${i}" maxlength="40" required></div><div class="field"><label for="group-ext-${i}">\u6587\u4ef6\u540e\u7f00</label><textarea class="kd-input" id="group-ext-${i}" rows="2" placeholder=".zip .7z .tar.gz"></textarea></div><button class="kd-icon-button" type="button" aria-label="\u5220\u9664\u5206\u7ec4" data-tooltip="\u5220\u9664\u5206\u7ec4">${iconMarkup("trash")}</button>`;
     row.querySelector("input").value = group.name;
     row.querySelector("input").closest(".field").classList.add("group-name-field");
     row.querySelector("textarea").closest(".field").classList.add("group-suffix-field");
@@ -273,8 +273,8 @@ function renderFileGroupsEditor() {
     iconButton.type = "button";
     iconButton.className = "kd-icon-button group-icon-trigger";
     iconButton.dataset.groupIcon = group.id;
-    iconButton.title = "\u9009\u62e9\u5206\u7ec4\u56fe\u6807";
-    iconButton.setAttribute("aria-label", iconButton.title);
+    iconButton.dataset.tooltip = "\u9009\u62e9\u5206\u7ec4\u56fe\u6807";
+    iconButton.setAttribute("aria-label", iconButton.dataset.tooltip);
     iconButton.setAttribute("aria-haspopup", "dialog");
     iconButton.innerHTML = iconMarkup(group.icon || taskCategoryMeta(group.id).icon);
     row.prepend(iconButton);
@@ -315,7 +315,7 @@ function openGroupIconPicker(button) {
     choice.type = "button";
     choice.className = "kd-icon-button";
     choice.dataset.iconChoice = icon.id;
-    choice.title = icon.name;
+    choice.dataset.tooltip = icon.name;
     choice.setAttribute("aria-label", icon.name);
     choice.setAttribute("aria-pressed", String(selected === icon.id));
     choice.innerHTML = iconMarkup(icon.id);
