@@ -10,6 +10,8 @@
 - Add the settings search icon and keep search icons above input surfaces.
 - Preserve Windows scheduled checks, verified downloads and idle update behavior;
   reuse native confirmation for manual restart and suspend UI polling while hidden.
+- Wait for settings scripts to initialize before checking native group-editor
+  focus during Windows acceptance, retaining the original bounded deadline.
 
 ## Verification
 

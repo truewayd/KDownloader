@@ -318,7 +318,7 @@ try {
   await assert.rejects(invoke(main, "core_request", { request: { method: "POST", path: "/settings/file-groups", body: JSON.stringify(originalGroups) } }));
   await invoke(main, "open_group_settings", { groupId: "project", add: false });
   const settings = await waitUntil(() => context.pages().find(page => page.url().includes("window=settings")));
-  await waitForNativeCondition(settings, () => currentSettingsPage === "files" && document.activeElement?.closest("[data-group-id]")?.dataset.groupId === "project");
+  await waitForNativeCondition(settings, () => typeof currentSettingsPage !== "undefined" && currentSettingsPage === "files" && document.activeElement?.closest("[data-group-id]")?.dataset.groupId === "project");
   await assert.rejects(invoke(settings, "open_group_settings", { groupId: "image", add: false }), /main window/);
   await assert.rejects(invoke(main, "open_group_settings", { groupId: "../image", add: false }), /Invalid file group ID/);
   await invoke(main, "open_group_settings", { groupId: null, add: true });
