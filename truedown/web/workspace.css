@@ -31,14 +31,19 @@
 .primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link { position: relative; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 8px 12px; }
 .sidebar .icon { flex: 0 0 18px; width: 18px; height: 18px; }
 .sidebar-footer { margin-top: auto; font-size: 11px; }
-.workspace-notice { min-width: 0; padding-bottom: 4px; }
+.workspace-notice { min-width: 0; }
 .workspace-notice .sidebar-action { width: 100%; text-align: left; }
-.notice-copy { display: grid; gap: 4px; min-width: 0; line-height: 1.4; }
-.notice-copy small { color: var(--kd-muted); font-size: 11px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
-#workspace-notice-progress { display: block; width: calc(100% - 24px); height: 3px; margin: 0 12px 4px; border: 0; border-radius: 6px; overflow: hidden; appearance: none; background: var(--kd-surface-raised); accent-color: var(--kd-accent); }
-#workspace-notice-progress::-webkit-progress-bar { background: var(--kd-surface-raised); }
-#workspace-notice-progress::-webkit-progress-value { background: var(--kd-accent); }
-#workspace-notice-progress::-moz-progress-bar { background: var(--kd-accent); }
+.notice-copy { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; line-height: 1.4; white-space: nowrap; }
+#workspace-notice-title { overflow: hidden; text-overflow: ellipsis; }
+.notice-copy small { margin-left: auto; flex-shrink: 0; color: var(--kd-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+#workspace-notice-progress { display: flex; flex: 0 0 20px; width: 20px; height: 20px; }
+.notice-progress-ring { width: 100%; height: 100%; fill: none; stroke-width: 2; transform: rotate(-90deg); }
+.notice-progress-track { stroke: var(--kd-border); }
+.notice-progress-value { stroke: var(--kd-accent); stroke-linecap: round; }
+#workspace-notice-progress[data-indeterminate="true"][data-running="true"] .notice-progress-ring { animation: kd-notice-progress 1.2s linear infinite; }
+@keyframes kd-notice-progress { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
+@media (prefers-reduced-motion: reduce) { #workspace-notice-progress[data-indeterminate="true"][data-running="true"] .notice-progress-ring { animation: none; } }
+@media (forced-colors: active) { .notice-progress-track { stroke: GrayText; } .notice-progress-value { stroke: Highlight; } }
 .sidebar-collapsed .notice-copy { display: none; }
 .dashboard { width: auto; margin: 0; min-width: 0; padding: 8px 12px 12px 0; }
 .dashboard > .kd-panel { box-shadow: none; }

@@ -57,9 +57,22 @@ try {
     // The real polling path must see progress even with an empty, filtered list.
     await page.locator("#task-search").fill("unrelated file");
     state = { ...idle, busy: "truedown", download: { taskId: 91, status: "downloading", totalLength: 10485760, completedLength: 4194304, downloadSpeed: 1048576 } };
-    await page.waitForFunction(() => document.getElementById("workspace-notice-progress").value === 40, null, { timeout: 10000 });
-    assert.match(await page.locator("#workspace-notice-detail").textContent(), /40%.*4.0 MiB.*10.0 MiB.*1.0 MiB\/s/);
+    await page.waitForFunction(() => document.getElementById("workspace-notice-progress").getAttribute("aria-valuenow") === "40", null, { timeout: 10000 });
+    assert.equal(await page.locator("#workspace-notice-detail").textContent(), "40%");
+    assert.match(await page.locator("#workspace-notice-action").getAttribute("title"), /40%.*4.0 MiB.*10.0 MiB.*1.0 MiB\/s/);
+    assert.equal(await page.locator(".notice-progress-value").getAttribute("stroke-dasharray"), "40 100");
+    assert.equal(await page.locator("#workspace-notice-action > .icon").isVisible(), false);
+    assert.ok(await page.locator(".notice-copy").evaluate(node => {
+      const title = node.firstElementChild.getBoundingClientRect(), detail = node.lastElementChild.getBoundingClientRect();
+      return Math.abs(title.y - detail.y) < 2 && node.scrollWidth <= node.clientWidth;
+    }), "notice fits on one line");
     await page.screenshot({ path: path.join(screenshots, `${colorScheme}-download.png`) });
+    await page.locator(".sidebar-toggle").click();
+    assert.equal(await page.locator(".notice-copy").isVisible(), false);
+    assert.equal(await page.locator("#workspace-notice-progress").isVisible(), true);
+    assert.equal(await page.locator("#workspace-notice-action > .icon").isVisible(), false);
+    await page.screenshot({ path: path.join(screenshots, `${colorScheme}-download-collapsed.png`) });
+    await page.locator(".sidebar-toggle").click();
     await page.locator("#workspace-notice-action").click();
     assert.equal(await page.evaluate(() => calls.filter(call => call.command === "open_auxiliary").at(-1).args.kind), "about");
     for (const status of ["paused", "queued", "done"]) {
@@ -72,7 +85,7 @@ try {
     state = { ...idle, busy: "next-engine", download: { status: "queued", totalLength: 0 } };
     await page.evaluate(() => scheduleSystemUpdateRefresh(true));
     await page.waitForFunction(() => workspaceNoticeTarget === "engine");
-    assert.equal(await page.locator("#workspace-notice-progress").getAttribute("value"), null, "unknown totals use indeterminate progress");
+    assert.equal(await page.locator("#workspace-notice-progress").getAttribute("aria-valuenow"), null, "unknown totals use indeterminate progress");
     state = { ...idle, trueDown: { ...idle.trueDown, restartRequired: true, pendingVersion: "1.2.3" } };
     await page.evaluate(() => scheduleSystemUpdateRefresh(true));
     await page.waitForFunction(() => workspaceNoticeTarget === "restart");
@@ -111,7 +124,7 @@ try {
     assert.equal(await page.evaluate(() => calls.filter(call => call.command === "open_auxiliary").at(-1).args.kind), "engine");
     state = { ...idle, error: "Checksum mismatch" };
     await page.evaluate(() => scheduleSystemUpdateRefresh(true));
-    await page.waitForFunction(() => document.getElementById("workspace-notice-detail").textContent === "Checksum mismatch");
+    await page.waitForFunction(() => document.getElementById("workspace-notice-action").title === "Checksum mismatch");
     state = idle;
     await page.evaluate(() => scheduleSystemUpdateRefresh(true));
     await page.waitForFunction(() => document.getElementById("workspace-notice").hidden);
