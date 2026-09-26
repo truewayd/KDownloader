@@ -260,7 +260,7 @@ code {
   width: 3px;
   height: 18px;
   border-radius: 3px;
-  background: var(--kd-text);
+  background: var(--kd-accent);
 }
 :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current] .icon { color: inherit; }
 :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current]:hover { background: var(--kd-surface-raised); }
