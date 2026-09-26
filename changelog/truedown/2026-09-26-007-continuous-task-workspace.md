@@ -12,6 +12,8 @@
   into one responsive toolbar; hide retry/cleanup when space is limited.
 - Replace visible pagination with continuous virtual scrolling, bounded viewport
   reads, overscan, conditional refreshes and keyed row updates.
+- Keep CLI status/list parsing compatible with the extended task overview and
+  preserve group counts and 64-bit aggregate speed in JSON output.
 
 ## Verification
 
@@ -19,3 +21,4 @@
 - 2400-task browser acceptance at 1200px, 960px and 390px, including last-row
   navigation, bounded DOM, node reuse, search reset and global statistics.
 - Workspace, sidebar notice and group browser regression checks.
+- CLI plain/JSON regression checks with nested group counts and large speeds.

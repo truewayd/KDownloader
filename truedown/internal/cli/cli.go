@@ -46,9 +46,19 @@ type task struct {
 	Progress string `json:"progress"`
 }
 type page struct {
-	Tasks   []task         `json:"tasks"`
-	Summary map[string]int `json:"summary"`
-	Total   int            `json:"total"`
+	Tasks   []task      `json:"tasks"`
+	Summary taskSummary `json:"summary"`
+	Total   int         `json:"total"`
+}
+type taskSummary struct {
+	Total         int            `json:"total"`
+	Queued        int            `json:"queued"`
+	Downloading   int            `json:"downloading"`
+	Paused        int            `json:"paused"`
+	Done          int            `json:"done"`
+	Error         int            `json:"error"`
+	DownloadSpeed int64          `json:"downloadSpeed"`
+	GroupCounts   map[string]int `json:"groupCounts"`
 }
 type operation struct {
 	Succeeded []int64 `json:"succeeded"`
@@ -247,8 +257,11 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			result, _ = json.Marshal(map[string]any{"core": info, "summary": tasks.Summary})
 			if !jsonOutput {
 				fmt.Fprintf(stdout, "TrueDown %s (protocol %d, %s)\n", clean(info.Version), info.ProtocolVersion, clean(info.Mode))
+				counts := map[string]int{"total": tasks.Summary.Total, "queued": tasks.Summary.Queued,
+					"downloading": tasks.Summary.Downloading, "paused": tasks.Summary.Paused,
+					"done": tasks.Summary.Done, "error": tasks.Summary.Error}
 				for _, key := range []string{"total", "queued", "downloading", "paused", "done", "error"} {
-					fmt.Fprintf(stdout, "%s: %d\n", key, tasks.Summary[key])
+					fmt.Fprintf(stdout, "%s: %d\n", key, counts[key])
 				}
 			}
 		} else if !jsonOutput {

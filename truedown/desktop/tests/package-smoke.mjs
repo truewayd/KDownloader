@@ -37,6 +37,7 @@ async function command(...args) {
   return run(cli, ["--data-dir", profile, ...args], { env, windowsHide: true, timeout: 15000 });
 }
 let diagnostic = "";
+let readinessFailure = "";
 function request(route, options = {}) {
   return fetch(`http://127.0.0.1:${port}${route}`, { ...options, signal: AbortSignal.timeout(5000) });
 }
@@ -69,7 +70,10 @@ let standaloneInfo;
 try {
   await until(() => {
     assertRunning(core);
-    return command("--json", "status").then(result => { standaloneInfo = JSON.parse(result.stdout).core; return true; }, () => false);
+    return command("--json", "status").then(result => { standaloneInfo = JSON.parse(result.stdout).core; readinessFailure = ""; return true; }, error => {
+      readinessFailure = String(error.stderr || error.message).slice(-2048);
+      return false;
+    });
   });
   const startup = await request("/settings/startup");
   assert.equal(startup.status, 200);
@@ -107,7 +111,7 @@ async function until(check, timeout = 60000) {
     if (await check()) return;
     await new Promise(resolve => setTimeout(resolve, 150));
   }
-  throw new Error(`Native package acceptance timed out: ${diagnostic}`);
+  throw new Error(`Native package acceptance timed out: ${readinessFailure}\n${diagnostic}`);
 }
 try {
   // The native health acknowledgment comes from the initialized frontend.

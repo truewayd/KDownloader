@@ -63,7 +63,7 @@ func TestCLICommandsAndPartialFailure(t *testing.T) {
 		case "/system/info":
 			json.NewEncoder(w).Encode(protocol.Info{Product: protocol.Product, ProtocolVersion: 1, Version: "dev", Mode: "serve"})
 		case "/tasks":
-			w.Write([]byte(`{"tasks":[{"id":1,"status":"paused","progress":"50%","name":"evil\u001b[31m\nfile"}],"summary":{"total":1,"paused":1},"total":1}`))
+			w.Write([]byte(`{"tasks":[{"id":1,"status":"paused","progress":"50%","name":"evil\u001b[31m\nfile"}],"summary":{"total":1,"paused":1,"downloadSpeed":4294967296,"groupCounts":{"video":1}},"total":1}`))
 		case "/start-headless-download":
 			json.NewDecoder(r.Body).Decode(&added)
 			w.Write([]byte("OK 2"))
@@ -84,6 +84,7 @@ func TestCLICommandsAndPartialFailure(t *testing.T) {
 		json bool
 	}{
 		{[]string{"list"}, 0, false},
+		{[]string{"status"}, 0, false},
 		{[]string{"--json", "status"}, 0, true},
 		{[]string{"--json", "add", "https://example.com/test"}, 0, true},
 		{[]string{"--json", "pause", "1", "2"}, 3, true},
@@ -99,6 +100,17 @@ func TestCLICommandsAndPartialFailure(t *testing.T) {
 		}
 		if test.json && !json.Valid(out.Bytes()) {
 			t.Errorf("invalid JSON: %q", out.String())
+		}
+		if strings.Join(test.args, " ") == "--json status" {
+			var result struct {
+				Summary taskSummary `json:"summary"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil || result.Summary.GroupCounts["video"] != 1 || result.Summary.DownloadSpeed != 4294967296 {
+				t.Fatalf("status lost extended overview: %s (%v)", out.String(), err)
+			}
+		}
+		if strings.Join(test.args, " ") == "status" && !strings.Contains(out.String(), "paused: 1") {
+			t.Fatal("plain status lost queue counts", out.String())
 		}
 		if !test.json && strings.ContainsRune(out.String(), 27) {
 			t.Fatal("terminal escape reached console")
