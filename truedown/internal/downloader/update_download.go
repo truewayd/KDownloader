@@ -12,7 +12,7 @@ import (
 // DownloadUpdate uses ordinary durable tasks, including queue limits and user
 // pause/resume/removal. Only the staging copy is consumed before installation;
 // verified successful updates reclaim the original output and task together.
-func (m *Manager) DownloadUpdate(ctx context.Context, url, name, directory string, maximum int64, opts Aria2Opts) (string, error) {
+func (m *Manager) DownloadUpdate(ctx context.Context, url, name, directory string, maximum int64, opts Aria2Opts, observers ...func(TaskSnapshot)) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -64,6 +64,12 @@ func (m *Manager) DownloadUpdate(ctx context.Context, url, name, directory strin
 		current, exists := m.GetTask(task.ID)
 		if !exists {
 			return "", fmt.Errorf("update download was removed")
+		}
+		for _, observe := range observers {
+			if observe != nil {
+				observe(TaskSnapshot{ID: current.ID, Status: current.Status, CompletedLength: current.CompletedLength,
+					TotalLength: current.TotalLength, DownloadSpeed: current.DownloadSpeed})
+			}
 		}
 		if current.TotalLength > maximum || current.CompletedLength > maximum {
 			return interrupt(fmt.Errorf("update download exceeds the allowed size"))

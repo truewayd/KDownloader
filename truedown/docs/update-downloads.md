@@ -13,6 +13,17 @@ mean the update has been installed. Settings shows verification, installation
 and restart status. Program updates still require a numbered Windows desktop
 package; NEXT remains an optional Windows engine.
 
+With automatic updates enabled, Windows checks about eight seconds after startup
+and every twelve hours thereafter, then downloads and verifies eligible updates.
+Pending updates are considered for application every thirty seconds while waiting
+for an idle queue.
+The main sidebar reports the updater-owned task's progress, speed, queued/paused
+state and verification, even when task filters hide that download. A verified
+program update exposes a confirmed restart action; automatic idle restarts retain
+their existing behavior. Update failures and engine recovery use the same compact
+notice. No notice is shown when there is nothing to report. Status reads suspend
+while the window is hidden and retry with bounded backoff after a disconnect.
+
 Program packages are cleaned only after the new desktop and core pass startup
 health verification and the update helper clears its transaction marker.
 Staging, an interrupted update or a rollback never authorizes cleanup. NEXT's

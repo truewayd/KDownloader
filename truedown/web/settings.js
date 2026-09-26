@@ -7,20 +7,28 @@ const settingsRendered = new Set();
 const settingsMessages = new Map();
 const settingsDirtyControls = new Map();
 const settingReadVersions = new Map();
-let systemUpdateTimer = 0, updatePreferenceSaving = false;
+let systemUpdateTimer = 0, updatePreferenceSaving = false, restartingForUpdate = false;
+let restartConfirmationPending = false;
+let systemUpdateDisposed = false, systemUpdateFailures = 0;
 function stopSystemUpdateRefresh() { clearTimeout(systemUpdateTimer); }
-function scheduleSystemUpdateRefresh() {
+function scheduleSystemUpdateRefresh(immediate = false) {
   stopSystemUpdateRefresh();
-  if (document.hidden || currentPage !== "settings" || !["engine", "about"].includes(currentSettingsPage)) return;
+  const sidebar = ["main", "browser"].includes(nativeWindowRole);
+  if (systemUpdateDisposed || document.hidden || (!sidebar && (currentPage !== "settings" || !["engine", "about"].includes(currentSettingsPage)))) return;
   const epoch = routeEpoch;
   systemUpdateTimer = setTimeout(async () => {
     try { if (!updatePreferenceSaving && epoch === routeEpoch) await loadSystemUpdateState(); }
-    catch { /* Keep the last verified status during a transient disconnect. */ }
+    catch {
+      if (!systemUpdateDisposed && !document.hidden && epoch === routeEpoch) {
+        systemUpdateFailures++; workspaceUpdateReadFailed = true; renderWorkspaceNotice();
+      }
+    }
     finally { if (epoch === routeEpoch) scheduleSystemUpdateRefresh(); }
-  }, 3000);
+  }, immediate === true ? 0 : systemUpdateFailures ? Math.min(30000, 3000 * 2 ** Math.min(systemUpdateFailures, 4)) : systemUpdateState?.busy ? 1500 : 5000);
 }
-document.addEventListener("visibilitychange", scheduleSystemUpdateRefresh);
-window.addEventListener("pagehide", stopSystemUpdateRefresh, { once: true });
+document.addEventListener("visibilitychange", () => scheduleSystemUpdateRefresh(true));
+window.addEventListener("pagehide", () => { systemUpdateDisposed = true; stopSystemUpdateRefresh(); invalidateSettingRead("engine"); });
+window.addEventListener("pageshow", () => { systemUpdateDisposed = false; scheduleSystemUpdateRefresh(true); });
 const settingReadRequests = new Map();
 const settingSnapshotsKnown = new Set();
 const pendingResolverModuleActions = new Set();
@@ -973,7 +981,11 @@ function replaceResolverModule(value) {
 }
 
 async function loadSystemUpdateState() {
+  const epoch = routeEpoch;
   await readSettingSnapshot("engine", "/system/update", (value) => {
+    if (systemUpdateDisposed || document.hidden || epoch !== routeEpoch) return;
+    systemUpdateFailures = 0;
+    workspaceUpdateReadFailed = false;
     systemUpdateState = normalizeSystemUpdateState(value);
     renderSystemUpdateState();
   });
@@ -986,6 +998,12 @@ function normalizeSystemUpdateState(value) {
   return {
     busy: stringValue(source.busy),
     error: stringValue(source.error),
+    download: source.download && typeof source.download === "object" ? {
+      status: stringValue(source.download.status),
+      completedLength: boundedInt(source.download.completedLength, 0, Number.MAX_SAFE_INTEGER, 0),
+      totalLength: boundedInt(source.download.totalLength, 0, Number.MAX_SAFE_INTEGER, 0),
+      downloadSpeed: boundedInt(source.download.downloadSpeed, 0, Number.MAX_SAFE_INTEGER, 0),
+    } : null,
     trueDown: {
       version: stringValue(trueDown.version) || "unknown",
       productVersion: stringValue(trueDown.productVersion),
@@ -1016,6 +1034,7 @@ function normalizeSystemUpdateState(value) {
 
 function renderSystemUpdateState() {
   if (!systemUpdateState) return;
+  renderWorkspaceNotice();
   const { trueDown, engine, busy, error } = systemUpdateState;
   els.truedownUpdateVersion.textContent = trueDown.build > 0
     ? `${trueDown.productVersion || trueDown.version} · build ${trueDown.build}` : `${trueDown.productVersion || trueDown.version} · 开发构建`;
@@ -1037,7 +1056,8 @@ function renderSystemUpdateState() {
   els.checkTruedownUpdateBtn.disabled = !trueDown.supported || Boolean(busy);
   KDComponents.setBusyState(els.checkTruedownUpdateBtn, busy === "truedown", { manageDisabled: false });
   els.restartTruedownUpdateBtn.hidden = !trueDown.restartRequired;
-  els.restartTruedownUpdateBtn.disabled = Boolean(busy);
+  els.restartTruedownUpdateBtn.disabled = Boolean(busy) || restartingForUpdate;
+  KDComponents.setBusyState(els.restartTruedownUpdateBtn, restartingForUpdate, { manageDisabled: false });
 
   const activeLabel = engine.active === "next" ? "Aria2 Next" : "内置稳定版 aria2";
   els.engineVersion.textContent = `${activeLabel}${engine.activeVersion ? ` v${engine.activeVersion}` : ""}`;
@@ -1127,19 +1147,25 @@ async function checkTrueDownUpdate() {
 }
 
 async function restartForTrueDownUpdate() {
-  const confirmed = await confirmAction({
-    title: "重启并更新 TrueDown",
-    message: "TrueDown 将停止内置 aria2、替换并启动新版本。存在排队、下载中或暂停任务时会拒绝本次重启；新版本启动失败会自动回滚。",
-    confirmLabel: "重启并更新",
-  });
-  if (!confirmed) return;
-  setUpdateButtonBusy(els.restartTruedownUpdateBtn, true);
+  if (restartConfirmationPending || restartingForUpdate || !systemUpdateState?.trueDown.restartRequired || systemUpdateState.busy) return;
+  restartConfirmationPending = true;
   try {
+    const confirmed = await confirmAction({
+      title: "重启并更新 TrueDown",
+      message: "TrueDown 将停止内置 aria2、替换并启动新版本。存在排队、下载中或暂停任务时会拒绝本次重启；新版本启动失败会自动回滚。",
+      confirmLabel: "重启并更新",
+    });
+    if (!confirmed) return;
+    restartingForUpdate = true;
+    renderSystemUpdateState();
     await requestJSON("/system/update/restart", { method: "POST" });
     showToast("TrueDown 正在重启并应用更新。");
   } catch (error) {
     showToast(`无法重启更新：${error.message}`, "error");
-    setUpdateButtonBusy(els.restartTruedownUpdateBtn, false);
+  } finally {
+    restartConfirmationPending = false;
+    restartingForUpdate = false;
+    renderSystemUpdateState();
   }
 }
 

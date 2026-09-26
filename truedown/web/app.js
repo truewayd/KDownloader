@@ -211,7 +211,6 @@ function cacheElements() {
 	"select-next-engine-btn",
 	"select-stable-engine-btn",
     "settings-btn",
-    "exit-truedown-btn",
     "settings-form",
     "settings-load-status",
     "settings-save-status",
@@ -321,7 +320,6 @@ function bindEvents() {
   els.checkTruedownUpdateBtn.addEventListener("click", checkTrueDownUpdate);
 	els.copyApplicationLogBtn.addEventListener("click", copyApplicationLog);
   els.restartTruedownUpdateBtn.addEventListener("click", restartForTrueDownUpdate);
-  els.exitTruedownBtn.addEventListener("click", exitTrueDown);
   els.installNextEngineBtn.addEventListener("click", installNextEngine);
   els.selectStableEngineBtn.addEventListener("click", () => selectDownloadEngine("stable"));
   els.selectNextEngineBtn.addEventListener("click", () => selectDownloadEngine("next"));
@@ -1403,28 +1401,6 @@ function showModalMsg(text, isError = false) {
 
 function showToast(text, type = "success") {
   trueDownToast?.show(text, type);
-}
-
-async function exitTrueDown(event) {
-	const button = event?.currentTarget || els.exitTruedownBtn;
-	const confirmed = await confirmAction({
-		title: "退出 TrueDown？",
-		eyebrow: "Application lifecycle",
-		message: typeof nativeDesktopState !== "undefined" && nativeDesktopState?.owned === false
-      ? "将关闭桌面界面，已连接的独立下载服务会继续运行。"
-      : "TrueDown 将停止当前服务和下载内核。未完成任务会保留，并在下次启动时恢复。",
-		confirmLabel: "退出 TrueDown",
-		danger: true,
-	});
-	if (!confirmed) return;
-	KDComponents.setBusyState(button, true, { busyLabel: "正在退出…" });
-	try {
-		await requestJSON("/system/exit", { method: "POST", body: "{}" });
-		showToast("TrueDown 正在安全退出。");
-	} catch (error) {
-		KDComponents.setBusyState(button, false);
-		showToast(`退出 TrueDown 失败：${error.message}`, "error");
-	}
 }
 
 async function waitForEngineTransition() {

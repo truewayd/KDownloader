@@ -13,7 +13,9 @@ func TestUpdateCleanupSurvivesRestartAndWaitsForHealthyInstallation(t *testing.T
 	var calls int
 	locked := false
 	options := Options{
-		DownloadAsset: func(context.Context, string, string, string, int64) (string, error) { return "", nil },
+		DownloadAsset: func(context.Context, string, string, string, int64, func(DownloadProgress)) (string, error) {
+			return "", nil
+		},
 		CleanupAsset: func(directory, name, digest string, size int64) error {
 			calls++
 			if directory != filepath.Join(root, "updates") || name != "TrueDown-build-42.zip" {
@@ -68,8 +70,10 @@ func TestNextCleanupRequiresPersistedVerifiedEngine(t *testing.T) {
 	root := t.TempDir()
 	var calls int
 	m := newTestManager(t, root, filepath.Join(root, "aria2.exe"), Options{
-		DownloadAsset: func(context.Context, string, string, string, int64) (string, error) { return "", nil },
-		CleanupAsset:  func(string, string, string, int64) error { calls++; return nil },
+		DownloadAsset: func(context.Context, string, string, string, int64, func(DownloadProgress)) (string, error) {
+			return "", nil
+		},
+		CleanupAsset: func(string, string, string, int64) error { calls++; return nil },
 	})
 	data := []byte("verified NEXT")
 	receipt := updateDownload{Name: "aria2-next-2.7.2-windows-x86_64.exe", SHA256: sha256Hex(data), Size: int64(len(data))}

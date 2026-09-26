@@ -12,6 +12,7 @@
     "test:windows": "node tests/windows-smoke.mjs",
     "test:macos": "node tests/macos-smoke.mjs",
     "test:workspace": "node tests/workspace-browser-smoke.mjs",
+    "test:notice": "node tests/workspace-notice-browser.mjs",
     "test:context-menu": "node tests/context-menu-browser.mjs",
     "test:settings": "node tests/settings-browser-smoke.mjs",
     "test:auxiliary": "node tests/auxiliary-ui-browser.mjs",

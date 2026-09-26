@@ -26,7 +26,7 @@ if (nativeWindowRole !== "browser") {
   document.documentElement.dataset.nativeWindow = nativeWindowRole;
   if (nativeWindowRole === "settings" && window.__TAURI__.event?.listen) {
     listenNativeEvent("truedown:settings-page", ({ payload }) => {
-      if (["general", "logs", "about"].includes(payload)) location.hash = `settings/${payload}`;
+      if (["general", "logs", "about", "engine"].includes(payload)) location.hash = `settings/${payload}`;
     }).catch(console.error);
   }
   document.addEventListener("click", (event) => {

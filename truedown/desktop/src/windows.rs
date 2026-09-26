@@ -7,6 +7,7 @@ pub enum Kind {
     Settings,
     Logs,
     About,
+    Engine,
     NewTask,
     #[serde(skip)]
     TaskDetails,
@@ -29,7 +30,7 @@ pub struct TaskDetails {
 impl Kind {
     fn icon(self) -> tauri::Result<tauri::image::Image<'static>> {
         let bytes: &[u8] = match self {
-            Self::Settings | Self::Logs | Self::About => {
+            Self::Settings | Self::Logs | Self::About | Self::Engine => {
                 include_bytes!("../icons/window/settings.png")
             }
             Self::NewTask => include_bytes!("../icons/window/download.png"),
@@ -41,7 +42,7 @@ impl Kind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Settings => "settings",
-            Self::Logs | Self::About => "settings",
+            Self::Logs | Self::About | Self::Engine => "settings",
             Self::NewTask => "new-task",
             Self::TaskDetails => "task-details",
         }
@@ -51,6 +52,7 @@ impl Kind {
             Self::Settings => "设置",
             Self::Logs => "应用日志",
             Self::About => "关于 TrueDown",
+            Self::Engine => "设置",
             Self::NewTask => "新建下载",
             Self::TaskDetails => "任务详情",
         }
@@ -60,6 +62,7 @@ impl Kind {
             Self::Settings => "index.html?window=settings#settings/general",
             Self::Logs => "index.html?window=settings#settings/logs",
             Self::About => "index.html?window=settings#settings/about",
+            Self::Engine => "index.html?window=settings#settings/engine",
             Self::NewTask => "index.html?window=new-task",
             Self::TaskDetails => "index.html?window=task-details",
         }
@@ -73,6 +76,7 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
                 "/tasks",
                 "/settings/file-groups",
                 "/system/info",
+                "/system/update",
                 "/system/storage",
                 "/settings/task-defaults",
             ]
@@ -87,6 +91,7 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
                 "/queue/resume",
                 "/system/open-downloads",
                 "/system/exit",
+                "/system/update/restart",
             ]
             .contains(&path),
             _ => false,
@@ -219,7 +224,7 @@ async fn open_auxiliary_locked(
         window
     } else {
         let (width, height) = match kind {
-            Kind::Settings | Kind::Logs | Kind::About => (960.0, 760.0),
+            Kind::Settings | Kind::Logs | Kind::About | Kind::Engine => (960.0, 760.0),
             Kind::NewTask => (660.0, 560.0),
             Kind::TaskDetails => (780.0, 640.0),
         };
@@ -259,10 +264,14 @@ async fn open_auxiliary_locked(
             window.eval(format!("if (location.hash === {hash}) {{ window.focusFileGroupRoute?.(); }} else {{ location.hash = {hash}; }}"))
                 .map_err(|error| error.to_string())?;
         }
-    } else if matches!(kind, Kind::Settings | Kind::Logs | Kind::About) {
+    } else if matches!(
+        kind,
+        Kind::Settings | Kind::Logs | Kind::About | Kind::Engine
+    ) {
         let page = match kind {
             Kind::Logs => "logs",
             Kind::About => "about",
+            Kind::Engine => "engine",
             _ => "general",
         };
         window
@@ -398,6 +407,18 @@ mod tests {
             ));
         }
         assert!(!allowed("main", "POST", "/auth/settings"));
+        assert!(allowed("main", "GET", "/system/update"));
+        assert!(allowed("main", "POST", "/system/update/restart"));
+        assert!(!allowed("main", "POST", "/system/update/check"));
+        for role in ["new-task", "task-details"] {
+            assert!(!allowed(role, "GET", "/system/update"));
+            assert!(!allowed(role, "POST", "/system/update/restart"));
+        }
+        assert_eq!(Kind::Engine.label(), "settings");
+        assert_eq!(
+            Kind::Engine.url(),
+            "index.html?window=settings#settings/engine"
+        );
         assert!(allowed("main", "POST", "/settings/file-groups/order"));
         assert!(!allowed("main", "POST", "/settings/file-groups"));
         for role in ["settings", "new-task", "task-details"] {

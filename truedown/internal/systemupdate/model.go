@@ -56,7 +56,7 @@ type Options struct {
 	NativeExecutable      string
 
 	HTTPClient            *http.Client
-	DownloadAsset         func(context.Context, string, string, string, int64) (string, error)
+	DownloadAsset         func(context.Context, string, string, string, int64, func(DownloadProgress)) (string, error)
 	CleanupAsset          func(directory, name, sha256 string, size int64) error
 	TrueDownReleasesURL   string
 	NextReleaseURL        string
@@ -102,10 +102,20 @@ type EngineStatus struct {
 }
 
 type Snapshot struct {
-	TrueDown TrueDownStatus `json:"trueDown"`
-	Engine   EngineStatus   `json:"engine"`
-	Busy     string         `json:"busy,omitempty"`
-	Error    string         `json:"error,omitempty"`
+	TrueDown TrueDownStatus    `json:"trueDown"`
+	Engine   EngineStatus      `json:"engine"`
+	Busy     string            `json:"busy,omitempty"`
+	Error    string            `json:"error,omitempty"`
+	Download *DownloadProgress `json:"download,omitempty"`
+}
+
+// DownloadProgress is the current updater-owned task, independent of list filters.
+type DownloadProgress struct {
+	TaskID          int64  `json:"taskId"`
+	Status          string `json:"status"`
+	CompletedLength int64  `json:"completedLength"`
+	TotalLength     int64  `json:"totalLength"`
+	DownloadSpeed   int64  `json:"downloadSpeed"`
 }
 
 type installedEngine struct {
@@ -193,7 +203,8 @@ type Manager struct {
 	currentCommit          string
 
 	client                *http.Client
-	downloadAsset         func(context.Context, string, string, string, int64) (string, error)
+	downloadAsset         func(context.Context, string, string, string, int64, func(DownloadProgress)) (string, error)
+	downloadProgress      *DownloadProgress
 	cleanupAsset          func(string, string, string, int64) error
 	trueDownReleasesURL   string
 	nextReleaseURL        string
@@ -438,6 +449,10 @@ func (m *Manager) snapshotLocked() Snapshot {
 		Busy:  m.busy,
 		Error: firstNonEmpty(m.lastError, m.state.LastUpdateError),
 	}
+	if m.downloadProgress != nil {
+		progress := *m.downloadProgress
+		status.Download = &progress
+	}
 	if !m.state.LastCheckedAt.IsZero() {
 		lastChecked := m.state.LastCheckedAt
 		status.TrueDown.LastCheckedAt = &lastChecked
@@ -588,6 +603,7 @@ func (m *Manager) finish(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.busy = ""
+	m.downloadProgress = nil
 	if err != nil {
 		m.lastError = truncate(err.Error(), 1024)
 		m.state.LastUpdateError = m.lastError

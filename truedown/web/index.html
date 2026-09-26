@@ -27,6 +27,7 @@
   <script src="/file-groups.js" defer></script>
   <link rel="stylesheet" href="/task-details.css">
   <script src="/settings.js" defer></script>
+  <script src="/workspace-notice.js" defer></script>
   <script src="/settings-search.js" defer></script>
   <script src="/workspace.js" defer></script>
   <script src="/app.js" defer></script>
@@ -51,7 +52,14 @@
           <div id="file-group-navigation" class="file-group-navigation"></div>
         </nav>
         <nav class="sidebar-footer" aria-label="应用工具">
-          <button class="sidebar-action" id="exit-truedown-btn" type="button" title="退出 TrueDown"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-power"></use></svg><span class="nav-label">退出</span></button>
+          <div class="workspace-notice" id="workspace-notice" hidden>
+            <button class="sidebar-action" id="workspace-notice-action" type="button">
+              <svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-info"></use></svg>
+              <span class="notice-copy"><span id="workspace-notice-title"></span><small id="workspace-notice-detail"></small></span>
+            </button>
+            <progress id="workspace-notice-progress" max="100" aria-label="更新下载进度" hidden></progress>
+            <span class="visually-hidden" id="workspace-notice-announcement" role="status"></span>
+          </div>
           <a href="#settings/general" data-route="settings" id="settings-btn" title="设置"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-settings"></use></svg><span class="nav-label">设置</span></a>
         </nav>
       </aside>
@@ -133,7 +141,7 @@
   <h1 class="visually-hidden" id="settings-title" tabindex="-1">设置</h1>
   <div class="settings-layout">
     <nav class="settings-nav" aria-label="设置分类">
-      <div class="settings-search-field"><input class="kd-input" id="settings-search" type="search" placeholder="搜索设置" aria-label="搜索设置" maxlength="100" autocomplete="off"><button class="kd-icon-button" id="settings-search-clear" type="button" aria-label="清空搜索" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-close"></use></svg></button></div>
+      <div class="settings-search-field"><svg class="icon search-icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-search"></use></svg><input class="kd-input" id="settings-search" type="search" placeholder="搜索设置" aria-label="搜索设置" maxlength="100" autocomplete="off"><button class="kd-icon-button" id="settings-search-clear" type="button" aria-label="清空搜索" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-close"></use></svg></button></div>
       <p class="visually-hidden" id="settings-search-status" role="status"></p>
       <div id="settings-search-results" aria-label="设置搜索结果" hidden></div>
       <div class="settings-navigation-links"><a class="settings-nav-link" href="#settings/general" data-settings-link="general" title="下载与速度"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-settings"></use></svg><span>下载与速度</span></a>

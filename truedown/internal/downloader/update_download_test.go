@@ -61,3 +61,65 @@ func TestUpdateWaitEndsOnRemovalCancellationOrEngineExit(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateObserverTracksOwnedTaskAndPause(t *testing.T) {
+	root := t.TempDir()
+	m, err := NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	m.rpc = &fakeAriaRPC{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	observed := make(chan TaskSnapshot, 16)
+	finished := make(chan error, 1)
+	go func() {
+		_, err := m.DownloadUpdate(ctx, "http://127.0.0.1/update/fixture", "update.zip", root, 1024, Aria2Opts{}, func(task TaskSnapshot) {
+			select {
+			case observed <- task:
+			default:
+			}
+		})
+		finished <- err
+	}()
+	var id int64
+	select {
+	case task := <-observed:
+		id = task.ID
+	case <-time.After(2 * time.Second):
+		t.Fatal("no initial update progress")
+	}
+	for _, status := range []Status{StatusDownloading, StatusPaused} {
+		if err := m.setTask(id, func(task *Task) {
+			task.Status, task.CompletedLength, task.TotalLength, task.DownloadSpeed = status, 256, 1024, 64
+		}); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.After(2 * time.Second)
+	waitStatus:
+		for {
+			select {
+			case task := <-observed:
+				if task.Status != status {
+					continue
+				}
+				if task.ID != id || task.CompletedLength != 256 || task.TotalLength != 1024 || task.DownloadSpeed != 64 {
+					t.Fatalf("wrong progress: %+v", task)
+				}
+				break waitStatus
+			case <-deadline:
+				t.Fatalf("missing %s progress", status)
+			}
+		}
+	}
+	cancel()
+	select {
+	case err := <-finished:
+		if err == nil {
+			t.Fatal("cancellation reported success")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("observer prevented cancellation")
+	}
+}

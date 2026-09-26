@@ -39,8 +39,9 @@ func TestQueuedAssetKeepsUpstreamPolicyAndBounds(t *testing.T) {
 	root := t.TempDir()
 	var endpoint string
 	m := newTestManager(t, root, filepath.Join(root, "aria2c.exe"), Options{AllowInsecureLoopback: true,
-		DownloadAsset: func(ctx context.Context, url, name, directory string, maximum int64) (string, error) {
+		DownloadAsset: func(ctx context.Context, url, name, directory string, maximum int64, progress func(DownloadProgress)) (string, error) {
 			endpoint = url
+			progress(DownloadProgress{TaskID: 91, Status: "paused", CompletedLength: 8, TotalLength: 20, DownloadSpeed: 0})
 			for _, suffix := range []string{"?url=https://untrusted.invalid", "/other"} {
 				response, err := http.Get(url + suffix)
 				if err != nil {
@@ -75,6 +76,18 @@ func TestQueuedAssetKeepsUpstreamPolicyAndBounds(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Remove(path)
+	snapshot := m.Snapshot()
+	if snapshot.Download == nil || snapshot.Download.TaskID != 91 || snapshot.Download.Status != "paused" || snapshot.Download.CompletedLength != 8 {
+		t.Fatalf("missing updater-owned task progress: %+v", snapshot.Download)
+	}
+	snapshot.Download.CompletedLength = 999
+	if m.Snapshot().Download.CompletedLength != 8 {
+		t.Fatal("snapshot aliases mutable progress")
+	}
+	m.finish(nil)
+	if m.Snapshot().Download != nil {
+		t.Fatal("completed update retained stale progress")
+	}
 	if digest != sha256Hex(payload) || size != int64(len(payload)) {
 		t.Fatal("queued output was not hashed correctly")
 	}
@@ -121,7 +134,7 @@ func TestQueuedAssetRealEngineProgressAndPause(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := newTestManager(t, root, engine, Options{AllowInsecureLoopback: true,
-		DownloadAsset: func(ctx context.Context, url, name, directory string, maximum int64) (string, error) {
+		DownloadAsset: func(ctx context.Context, url, name, directory string, maximum int64, progress func(DownloadProgress)) (string, error) {
 			return dm.DownloadUpdate(ctx, url, name, directory, maximum, downloader.Aria2Opts{Connections: 1, MaxSpeedBps: 256 * 1024, ProxyMode: "none"})
 		},
 	})

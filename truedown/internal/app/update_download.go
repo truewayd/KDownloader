@@ -8,7 +8,7 @@ import (
 	"truedown/internal/systemupdate"
 )
 
-func (host *managerHost) downloadUpdate(ctx context.Context, url, name, directory string, maximum int64) (string, error) {
+func (host *managerHost) downloadUpdate(ctx context.Context, url, name, directory string, maximum int64, progress func(systemupdate.DownloadProgress)) (string, error) {
 	// Keep this manager's store alive until completion/cancellation is persisted.
 	// Engine exit is observed by DownloadUpdate before recovery acquires this gate.
 	host.switchMu.Lock()
@@ -24,6 +24,9 @@ func (host *managerHost) downloadUpdate(ctx context.Context, url, name, director
 	}
 	return current.manager.DownloadUpdate(ctx, url, name, directory, maximum, downloader.Aria2Opts{
 		Connections: 4, MaxTries: 3, RetryWait: 3, ProxyMode: "none",
+	}, func(task downloader.TaskSnapshot) {
+		progress(systemupdate.DownloadProgress{TaskID: task.ID, Status: string(task.Status),
+			CompletedLength: task.CompletedLength, TotalLength: task.TotalLength, DownloadSpeed: task.DownloadSpeed})
 	})
 }
 

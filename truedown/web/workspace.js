@@ -89,4 +89,5 @@ function applyWorkspaceRoute(focus = true) {
     heading?.focus({ preventScroll: true });
   }
   if (currentPage === "settings") loadSettingsPage();
+  scheduleSystemUpdateRefresh(true);
 }

@@ -607,13 +607,12 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownHtml, /id="select-stable-engine-btn"/);
   assert.match(trueDownHtml, /id="select-next-engine-btn"/);
   assert.match(trueDownHtml, /id="application-log-output"[^>]+tabindex="0"/);
-  assert.match(trueDownHtml, /id="exit-truedown-btn"/);
+  assert.doesNotMatch(trueDownHtml, /id="exit-truedown-btn"/);
   assert.doesNotMatch(trueDownHtml, /id="exit-from-settings-btn"/);
   assert.match(trueDownApp, /requestJSON\("\/system\/update\/check\?background=true"/);
   assert.match(trueDownApp, /requestJSON\("\/system\/engine\/next\?background=true"/);
   assert.match(trueDownApp, /requestJSON\("\/system\/engine\/select"/);
   assert.match(trueDownApp, /requestJSON\("\/system\/logs"/);
-  assert.match(trueDownApp, /requestJSON\("\/system\/exit", \{ method: "POST", body: "\{\}" \}\)/);
   assert.match(trueDownHtml, /href="\/icons\.svg#icon-/);
   assert.match(trueDownHtml, /id="token-auth-enabled"/);
   assert.match(trueDownApp, /const PAGE_SIZE = 100/);

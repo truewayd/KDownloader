@@ -102,7 +102,11 @@ func (m *Manager) downloadQueuedAsset(ctx context.Context, rawURL, name, directo
 	defer server.Close()
 	stop := context.AfterFunc(ctx, func() { _ = server.Close() })
 	defer stop()
-	filePath, err := m.downloadAsset(ctx, "http://"+listener.Addr().String()+path, name, directory, maximum)
+	filePath, err := m.downloadAsset(ctx, "http://"+listener.Addr().String()+path, name, directory, maximum, func(progress DownloadProgress) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.downloadProgress = &progress
+	})
 	if err != nil {
 		return "", "", 0, err
 	}
