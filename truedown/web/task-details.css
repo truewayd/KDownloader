@@ -48,7 +48,7 @@ tr:has(.status-paused) progress::-webkit-progress-value { background: var(--kd-w
 .group-icon-dialog h2 { font-size: 15px; margin: 0; }
 .group-icon-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
 .group-icon-grid button { width: 100%; }
-.group-icon-grid [aria-pressed="true"] { border-color: var(--kd-accent); color: var(--kd-accent); }
+.group-icon-grid [aria-pressed="true"] { border-color: var(--kd-border-strong); background: var(--kd-secondary-hover); color: var(--kd-text); }
 #download-form .modal-body { gap: 16px; }
 #download-form .link-list-field { min-height: 66px; }
 #download-form .torrent-import-field { gap: 6px; }

@@ -260,9 +260,9 @@ code {
   width: 3px;
   height: 18px;
   border-radius: 3px;
-  background: var(--kd-icon);
+  background: var(--kd-text);
 }
-:is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current] .icon { color: var(--kd-icon); }
+:is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current] .icon { color: inherit; }
 :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current]:hover { background: var(--kd-surface-raised); }
 :is(.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link):active { background: var(--kd-secondary-hover); }
 :is(.sidebar a, .sidebar-action, .settings-nav-link):focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -2px; }
@@ -816,7 +816,7 @@ h2 {
 
 .sort-button[data-sort-order="asc"] .sort-indicator,
 .sort-button[data-sort-order="desc"] .sort-indicator {
-  color: var(--kd-icon);
+  color: var(--kd-text);
 }
 
 .select-cell {
