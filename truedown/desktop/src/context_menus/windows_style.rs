@@ -61,8 +61,10 @@ struct Item {
     danger: bool,
 }
 struct Style {
+    #[cfg(debug_assertions)]
     geometry: Cell<Option<(usize, RECT, RECT, POINT)>>,
     frame_geometry: Cell<Option<(RECT, RECT)>>,
+    #[cfg(debug_assertions)]
     pointer_geometry: Cell<Option<(RECT, RECT, POINT, u32)>>,
     owner: HWND,
     frame_message: u32,
@@ -236,8 +238,10 @@ pub unsafe fn attach(
         &["Segoe UI Variable Text", "Segoe UI"],
     );
     let mut style = Box::new(Style {
+        #[cfg(debug_assertions)]
         geometry: Cell::new(None),
         frame_geometry: Cell::new(None),
+        #[cfg(debug_assertions)]
         pointer_geometry: Cell::new(None),
         owner: hwnd,
         frame_message: RegisterWindowMessageW(
@@ -1005,8 +1009,10 @@ mod tests {
                     for selected in [false, true] {
                         let palette = Palette::new(dark);
                         let style = Style {
+                            #[cfg(debug_assertions)]
                             geometry: Cell::new(None),
                             frame_geometry: Cell::new(None),
+                            #[cfg(debug_assertions)]
                             pointer_geometry: Cell::new(None),
                             owner: std::ptr::null_mut(),
                             frame_message: 0,

@@ -5,6 +5,7 @@
 - Give the tray Open action an application-window icon on Windows, macOS and Linux, separate from New download.
 - Use purpose-specific settings navigation icons for speed, application, engine, advanced parameters and experiments, and a separate reset icon for restoring defaults.
 - Verify that Windows menu rasters and other desktop menu SVGs use the same source shapes and that adjacent operations remain visually distinct.
+- Keep debug-only native menu geometry fields out of release builds to eliminate unused-field warnings.
 
 ## Verification
 
