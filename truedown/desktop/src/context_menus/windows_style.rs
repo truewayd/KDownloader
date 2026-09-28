@@ -847,7 +847,7 @@ unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
     if selected {
         let inset = px(style.dpi, 4);
         let vertical = px(style.dpi, 2);
-        let radius = px(style.dpi, 6);
+        let radius = px(style.dpi, 10);
         SelectObject(dc, style.hover);
         SelectObject(dc, GetStockObject(NULL_PEN));
         RoundRect(

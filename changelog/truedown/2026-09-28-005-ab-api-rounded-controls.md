@@ -8,6 +8,7 @@
   named-queue requests instead of silently applying different behavior.
 - Align buttons, inputs, selectors, navigation, tabs, menus and panels around
   shared larger corner radii while retaining pill searches and joined controls.
+- Match Windows native menu hover corners to the shared 10px menu-item radius.
 - Apply the same subtle workspace shadow to new-download, task-detail and log
   panels; leave room around the log surface so its shadow remains visible.
 - Keep tooltips below native caption controls to prevent the Windows titlebar
