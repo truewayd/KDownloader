@@ -312,7 +312,13 @@ test("TrueDown publishes all native packages only after every build succeeds", a
   const unix = workflow.split("  build-unix:")[1].split("  publish-release:")[0];
   const publish = workflow.split("  publish-release:")[1];
   assert.match(windows, /runs-on: windows-latest/);
-  assert.match(workflow, /ARTIFACT_NAME: TrueDown-build-\$\{\{ github\.run_number \}\}\.zip/);
+  assert.match(workflow, /ARTIFACT_NAME: TrueDown-build-\$\{\{ needs\.release-number\.outputs\.build_number \}\}\.zip/);
+  assert.doesNotMatch(workflow, /github\.run_number/);
+  assert.match(workflow, /group: publish-truedown\r?\n/);
+  assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /run: node truedown\/tools\/release-number\.mjs resolve/);
+  assert.match(windows, /needs: \[release-number\]/);
+  assert.match(unix, /needs: \[release-number\]/);
   assert.match(windows, /name = \$archive\.Name/);
   assert.match(windows, /size = \$archive\.Length/);
   assert.match(windows, /Get-FileHash -Algorithm SHA256 -LiteralPath \$archive\.FullName/);
@@ -326,8 +332,8 @@ test("TrueDown publishes all native packages only after every build succeeds", a
     assert.ok(unix.includes(`os: ${os}, arch: ${arch}, runner: ${runner},`));
   }
   assert.match(unix, /runs-on: \$\{\{ matrix\.runner \}\}/);
-  assert.match(unix, /TRUEDOWN_VERSION: truedown-build-\$\{\{ github\.run_number \}\}/);
-  assert.match(unix, /TRUEDOWN_BUILD_NUMBER: \$\{\{ github\.run_number \}\}/);
+  assert.match(unix, /TRUEDOWN_VERSION: truedown-build-\$\{\{ needs\.release-number\.outputs\.build_number \}\}/);
+  assert.match(unix, /TRUEDOWN_BUILD_NUMBER: \$\{\{ needs\.release-number\.outputs\.build_number \}\}/);
   assert.match(unix, /TRUEDOWN_COMMIT: \$\{\{ github\.sha \}\}/);
   assert.match(unix, /TRUEDOWN_INTEGRATION: "1"/);
   assert.match(unix, /bash truedown\/build-unix\.sh/);
@@ -341,7 +347,8 @@ test("TrueDown publishes all native packages only after every build succeeds", a
   assert.match(windows, /package-smoke\.mjs/);
   assert.match(unix, /package-smoke\.mjs/);
   assert.match(unix, /codesign --verify --deep --strict/);
-  assert.match(publish, /needs: \[build-windows, build-unix, native-acceptance\]/);
+  assert.match(publish, /needs: \[release-number, build-windows, build-unix, native-acceptance\]/);
+  assert.ok(publish.indexOf('release-number.mjs prepare') < publish.indexOf('action-gh-release'));
   assert.doesNotMatch(publish, /always\(\)|continue-on-error/);
   assert.match(publish, /pattern: TrueDown-\$\{\{ env\.RELEASE_TAG \}\}-\*/);
   assert.match(publish, /merge-multiple: true/);
@@ -362,7 +369,7 @@ test("TrueDown publishes all native packages only after every build succeeds", a
   assert.match(publicCheck, /releases\/\$RELEASE_ID\/assets\?per_page=100/);
   assert.doesNotMatch(workflow, /macos-15-intel|macos-amd64|os: darwin, arch: amd64/);
   for (const suffix of ["linux-amd64.tar.gz", "linux-arm64.tar.gz", "macos-arm64.zip"]) {
-    assert.ok(publish.includes(`release-assets/TrueDown-build-\${{ github.run_number }}-${suffix}`));
+    assert.ok(publish.includes(`release-assets/TrueDown-build-\${{ needs.release-number.outputs.build_number }}-${suffix}`));
   }
   assert.match(publish, /release-assets\/\$\{\{ env\.ARTIFACT_NAME \}\}/);
   assert.match(publish, /release-assets\/\$\{\{ env\.UPDATE_MANIFEST \}\}/);

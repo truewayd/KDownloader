@@ -9,6 +9,7 @@ on:
       - "changelog/truedown/**"
       - "tools/read-latest-changelog.ps1"
       - "tests/releaseWorkflow.test.mjs"
+      - "tests/releaseNumber.test.mjs"
       - "tests/native*.test.mjs"
       - "tests/iconAssets.test.mjs"
       - "truedown/**"
@@ -22,19 +23,45 @@ permissions:
   contents: read
 
 env:
-  RELEASE_TAG: truedown-build-${{ github.run_number }}
-  ARTIFACT_NAME: TrueDown-build-${{ github.run_number }}.zip
-  UPDATE_MANIFEST: truedown-update-${{ github.run_number }}.json
   RUSTUP_TOOLCHAIN: 1.98.1
 
 concurrency:
-  group: publish-truedown-${{ github.ref }}
+  group: publish-truedown
   cancel-in-progress: false
 
 jobs:
+  release-number:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build_number: ${{ steps.number.outputs.build_number }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Test release numbering
+        run: node --test tests/releaseNumber.test.mjs
+      - name: Select next unpublished build number
+        id: number
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node truedown/tools/release-number.mjs resolve
+
   build-windows:
+    needs: [release-number]
     runs-on: windows-latest
     timeout-minutes: 90
+    env:
+      BUILD_NUMBER: ${{ needs.release-number.outputs.build_number }}
+      RELEASE_TAG: truedown-build-${{ needs.release-number.outputs.build_number }}
+      ARTIFACT_NAME: TrueDown-build-${{ needs.release-number.outputs.build_number }}.zip
+      UPDATE_MANIFEST: truedown-update-${{ needs.release-number.outputs.build_number }}.json
     defaults:
       run:
         shell: pwsh
@@ -77,11 +104,11 @@ jobs:
         run: go vet ./...
 
       - name: Build TrueDown
-        run: ./truedown/build.ps1 -OutputDirectory dist/TrueDown -Version $env:RELEASE_TAG -BuildNumber ${{ github.run_number }} -Commit ${{ github.sha }}
+        run: ./truedown/build.ps1 -OutputDirectory dist/TrueDown -Version $env:RELEASE_TAG -BuildNumber $env:BUILD_NUMBER -Commit ${{ github.sha }}
 
       - name: Accept packaged native startup and CLI
         env:
-          TRUEDOWN_BUILD_NUMBER: ${{ github.run_number }}
+          TRUEDOWN_BUILD_NUMBER: ${{ needs.release-number.outputs.build_number }}
           TRUEDOWN_COMMIT: ${{ github.sha }}
         run: node truedown/desktop/tests/package-smoke.mjs truedown/dist/TrueDown/TrueDown.exe
 
@@ -96,7 +123,7 @@ jobs:
             product = "TrueDown"
             repository = "truewayd/KDownloader"
             version = $env:RELEASE_TAG
-            build = [long]${{ github.run_number }}
+            build = [long]$env:BUILD_NUMBER
             protocolVersion = 1
             platform = "windows-amd64"
             files = @("truedown-core.exe", "truedown-cli.exe", "THIRD_PARTY_NOTICES.md", "NATIVE_LICENSES.txt", "TrueDown.exe") | ForEach-Object {
@@ -121,6 +148,7 @@ jobs:
           if-no-files-found: error
 
   build-unix:
+    needs: [release-number]
     strategy:
       fail-fast: false
       matrix:
@@ -134,10 +162,11 @@ jobs:
       run:
         shell: bash
     env:
-      TRUEDOWN_VERSION: truedown-build-${{ github.run_number }}
-      TRUEDOWN_BUILD_NUMBER: ${{ github.run_number }}
+      RELEASE_TAG: truedown-build-${{ needs.release-number.outputs.build_number }}
+      TRUEDOWN_VERSION: truedown-build-${{ needs.release-number.outputs.build_number }}
+      TRUEDOWN_BUILD_NUMBER: ${{ needs.release-number.outputs.build_number }}
       TRUEDOWN_COMMIT: ${{ github.sha }}
-      UNIX_ARTIFACT: TrueDown-build-${{ github.run_number }}-${{ matrix.asset_os }}-${{ matrix.arch }}.${{ matrix.archive }}
+      UNIX_ARTIFACT: TrueDown-build-${{ needs.release-number.outputs.build_number }}-${{ matrix.asset_os }}-${{ matrix.arch }}.${{ matrix.archive }}
       PACKAGE_DIRECTORY: truedown/dist/TrueDown-${{ matrix.os }}-${{ matrix.arch }}
 
     steps:
@@ -237,11 +266,16 @@ jobs:
     uses: ./.github/workflows/test-native-desktop.yml
 
   publish-release:
-    needs: [build-windows, build-unix, native-acceptance]
+    needs: [release-number, build-windows, build-unix, native-acceptance]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
+    env:
+      BUILD_NUMBER: ${{ needs.release-number.outputs.build_number }}
+      RELEASE_TAG: truedown-build-${{ needs.release-number.outputs.build_number }}
+      ARTIFACT_NAME: TrueDown-build-${{ needs.release-number.outputs.build_number }}.zip
+      UPDATE_MANIFEST: truedown-update-${{ needs.release-number.outputs.build_number }}.json
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -256,11 +290,22 @@ jobs:
           merge-multiple: true
 
       - name: Validate complete release asset set
-        run: python3 truedown/tools/validate_release.py release-assets --build "${{ github.run_number }}"
+        run: python3 truedown/tools/validate_release.py release-assets --build "$BUILD_NUMBER"
 
       - name: Select release notes
         shell: pwsh
         run: ./tools/read-latest-changelog.ps1 -Product TrueDown -OutputFile release-notes.md
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Guard release identity and discard incomplete draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node truedown/tools/release-number.mjs prepare "$BUILD_NUMBER" "$GITHUB_SHA"
 
       - name: Upload draft GitHub Release
         id: draft-release
@@ -276,9 +321,9 @@ jobs:
           files: |
             release-assets/${{ env.ARTIFACT_NAME }}
             release-assets/${{ env.UPDATE_MANIFEST }}
-            release-assets/TrueDown-build-${{ github.run_number }}-linux-amd64.tar.gz
-            release-assets/TrueDown-build-${{ github.run_number }}-linux-arm64.tar.gz
-            release-assets/TrueDown-build-${{ github.run_number }}-macos-arm64.zip
+            release-assets/TrueDown-build-${{ needs.release-number.outputs.build_number }}-linux-amd64.tar.gz
+            release-assets/TrueDown-build-${{ needs.release-number.outputs.build_number }}-linux-arm64.tar.gz
+            release-assets/TrueDown-build-${{ needs.release-number.outputs.build_number }}-macos-arm64.zip
 
       - name: Publish only after uploaded assets are complete
         env:
