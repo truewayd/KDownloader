@@ -70,8 +70,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Seg
 }
 .kd-select-option { display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 8px 12px; border-radius: 10px; cursor: pointer; }
 .kd-select-option > span { flex: 1; overflow-wrap: anywhere; }
-.kd-select-option::after { content: ""; width: 16px; flex: 0 0 16px; }
-.kd-select-option[aria-selected="true"]::after { content: "\2713"; }
+.kd-select-option > .icon { width: 16px; height: 16px; flex: 0 0 16px; visibility: hidden; }
+.kd-select-option[aria-selected="true"] > .icon { visibility: visible; }
 .kd-select-option[data-active="true"] { background: var(--kd-secondary-hover); }
 .kd-select-option[aria-disabled="true"] { color: var(--kd-muted); opacity: .55; cursor: default; }
 @media (forced-colors: active) {

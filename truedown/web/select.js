@@ -65,7 +65,14 @@
       item.setAttribute("aria-disabled", String(!enabled(option)));
       const label = document.createElement("span");
       label.textContent = option.label;
-      item.append(label);
+      const check = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      check.classList.add("icon");
+      check.setAttribute("aria-hidden", "true");
+      check.setAttribute("focusable", "false");
+      const use = document.createElementNS(check.namespaceURI, "use");
+      use.setAttribute("href", "/icons.svg#icon-check");
+      check.append(use);
+      item.append(label, check);
       list.append(item);
     }
     if (!list.childElementCount) return;

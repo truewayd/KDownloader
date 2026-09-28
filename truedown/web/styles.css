@@ -1589,15 +1589,15 @@ label {
   display: none;
 }
 
-.advanced-options summary::before {
+.advanced-options summary > .icon {
   display: inline-block;
   margin-right: 8px;
   color: var(--kd-icon);
-  content: "+";
+  vertical-align: middle;
 }
 
-.advanced-options[open] summary::before {
-  content: "−";
+.advanced-options[open] summary > .icon {
+  transform: rotate(90deg);
 }
 
 .advanced-body {
