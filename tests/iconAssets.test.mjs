@@ -46,3 +46,29 @@ test("icon generation dependencies and notices identify the exact pinned source"
   assert.ok(notices.includes(`${manifest.package}@${manifest.version}`));
   assert.match(notices, /Copyright \(c\) 2013-present Cole Bemis/);
 });
+
+test("native menu actions share web icon shapes and distinguish adjacent operations", async () => {
+  const desktop = symbols(await read("truedown/web/icons.svg"));
+  const popup = await read("truedown/web/context-menu-window.js");
+  const windows = await read("truedown/desktop/src/context_menus/windows_style.rs");
+  const native = new Map();
+  for (const match of windows.matchAll(/((?:"[\w-]+"\s*\|\s*)*"[\w-]+")\s*=> bytes!\("([\w-]+)"\)/g)) {
+    for (const action of match[1].matchAll(/"([\w-]+)"/g)) native.set(action[1], match[2]);
+  }
+  const actions = new Map([...popup.matchAll(/(?:"([\w-]+)"|(\w+)):\s*\["[^"]+",\s*"([\w-]+)"/g)]
+    .map(match => [match[1] || match[2], match[3]]));
+  assert.ok(actions.size >= 20, "all popup actions must be checked");
+  for (const [action, icon] of actions) {
+    assert.ok(desktop.has(icon), `${action} must resolve a generated SVG`);
+    assert.equal(native.get(action), icon, `${action} must agree across desktop platforms`);
+    for (const size of [16, 32]) {
+      const png = await readFile(path.join(repository, `truedown/desktop/icons/menu/${icon}-${size}.png`));
+      assert.equal(png.readUInt32BE(16), size, `${action} must have a native raster at ${size}px`);
+    }
+  }
+  for (const menu of [["new-task", "group-add", "group-manage"], ["group-edit", "group-add", "group-manage"], ["tray-new", "tray-open", "settings", "tray-exit"]]) {
+    const shapes = menu.map(action => desktop.get(native.get(action)));
+    assert.ok(shapes.every(Boolean));
+    assert.equal(new Set(shapes).size, menu.length, `${menu.join(", ")} must use distinct shapes`);
+  }
+});
