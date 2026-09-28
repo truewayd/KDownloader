@@ -6,6 +6,7 @@
 - Use purpose-specific settings navigation icons for speed, application, engine, advanced parameters and experiments, and a separate reset icon for restoring defaults.
 - Verify that Windows menu rasters and other desktop menu SVGs use the same source shapes and that adjacent operations remain visually distinct.
 - Keep debug-only native menu geometry fields out of release builds to eliminate unused-field warnings.
+- Stabilize group autosave acceptance by verifying each committed field before the next edit; legitimate write coalescing no longer changes the expected request count.
 
 ## Verification
 

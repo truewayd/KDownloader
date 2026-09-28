@@ -42,6 +42,8 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === "/settings/file-groups") {
     if (request.method === "POST") {
       const next = await body(request);
+      // Keep autosave asynchronous even on fast local loopback connections.
+      await new Promise(resolve => setTimeout(resolve, 50));
       if (next.revision !== groups.revision) return json("conflict", 409);
       groupWrites++;
       groups = { icons: groups.icons, revision: groups.revision + 1, groups: next.groups.map(group => ({ ...group, name: group.name.trim(), extensions: group.extensions.map(ext => ext.toLowerCase()) })) };
@@ -74,6 +76,16 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 780 }, colorScheme, reducedMotion: "reduce" });
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
+    // Save requests can coalesce while the previous write is in flight. Verify
+    // each committed field before starting the next edit when counting writes.
+    const commitGroupField = async (field, value) => {
+      const previousWrites = groupWrites;
+      await field.fill(value);
+      await field.press("Tab");
+      await page.waitForFunction(() => !fileGroupsSaving && !fileGroupsSaveQueued
+        && document.querySelector("#file-groups-status").textContent.includes("已保存"));
+      assert.equal(groupWrites, previousWrites + 1, "committing a group field saves once");
+    };
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.waitForFunction(() => document.querySelectorAll("[data-task-category]").length === 8);
     const writesBeforeMenu = groupWrites;
@@ -161,12 +173,15 @@ try {
     assert.equal(await page.locator("#task-setting-tries").inputValue(), "9");
     await page.evaluate(() => { location.hash = "settings/groups"; });
     await page.waitForFunction(() => document.querySelectorAll("[data-group-id]").length === 8 && fileGroupsEditorRevision === fileGroupsState.revision && !fileGroupsNeedsSync);
-    await page.locator('[data-group-id="project"] textarea').fill(".blend");
+    await commitGroupField(page.locator('[data-group-id="project"] textarea'), ".blend");
     await page.locator("#file-group-add").click();
     const custom = page.locator('[data-group-id^="group-"]');
-    await custom.locator(".group-name-field input").fill("Design source");
-    await custom.locator("[data-group-directory]").fill("Design Files");
-    await custom.locator("textarea").fill(".PSD");
+    await commitGroupField(custom.locator(".group-name-field input"), "Design source");
+    assert.equal(groups.groups.find(group => group.id.startsWith("group-")).name, "Design source");
+    await commitGroupField(custom.locator("[data-group-directory]"), "Design Files");
+    assert.equal(groups.groups.find(group => group.name === "Design source").directory, "Design Files");
+    await commitGroupField(custom.locator("textarea"), ".PSD");
+    assert.deepEqual(groups.groups.find(group => group.name === "Design source").extensions, [".psd"]);
     await custom.locator(".group-icon-trigger").click();
     await page.locator('[data-icon-choice="star"]').click();
     await page.evaluate(() => document.activeElement.blur());
