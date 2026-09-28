@@ -205,7 +205,14 @@ func TestRemovedWebResourcesDoNotIssueSessions(t *testing.T) {
 				request.Header.Set("Sec-Fetch-Mode", "navigate")
 				response := httptest.NewRecorder()
 				handler.ServeHTTP(response, request)
-				if response.Code != http.StatusNotFound || len(response.Result().Cookies()) != 0 {
+				want := http.StatusNotFound
+				if path == "/" {
+					want = http.StatusMethodNotAllowed
+					if response.Body.String() != "Method Not Allowed\n" {
+						t.Fatalf("root body=%q", response.Body.String())
+					}
+				}
+				if response.Code != want || len(response.Result().Cookies()) != 0 {
 					t.Fatalf("%s%s: status=%d cookies=%v", address, path, response.Code, response.Result().Cookies())
 				}
 			}
@@ -308,6 +315,19 @@ func TestSecureHandlerAcceptsABBrowserIntegrationAPIKey(t *testing.T) {
 	handler.ServeHTTP(authorizedResponse, authorized)
 	if authorizedResponse.Code != http.StatusNoContent {
 		t.Fatalf("AB API-key status=%d", authorizedResponse.Code)
+	}
+	for _, key := range []string{"", token} {
+		request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:15151/queues", nil)
+		request.Header.Set("X-Api-Key", key)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		want := http.StatusUnauthorized
+		if key != "" {
+			want = http.StatusNoContent
+		}
+		if response.Code != want {
+			t.Fatalf("queues status=%d want=%d", response.Code, want)
+		}
 	}
 }
 

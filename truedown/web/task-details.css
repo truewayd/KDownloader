@@ -30,7 +30,7 @@ tr:has(.status-paused) progress::-webkit-progress-value { background: var(--kd-w
 .task-detail-header { display: flex; align-items: center; gap: 16px; padding: 20px 24px; flex-shrink: 0; }
 .task-detail-header h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-detail-tabs { display: flex; gap: 4px; padding: 8px 16px 0; flex-shrink: 0; background: var(--kd-bg); }
-.task-detail-tabs a { display: flex; gap: 8px; align-items: center; min-height: 36px; color: var(--kd-muted); text-decoration: none; padding: 8px 16px; border-radius: 6px 6px 0 0; }
+.task-detail-tabs a { display: flex; gap: 8px; align-items: center; min-height: 36px; color: var(--kd-muted); text-decoration: none; padding: 8px 16px; border-radius: var(--kd-control-radius) var(--kd-control-radius) 0 0; }
 .task-detail-tabs a .icon { width: 16px; height: 16px; }
 .task-detail-tabs a[aria-current] { color: var(--kd-text); background: var(--kd-surface); }
 .task-detail-tabs a:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -2px; }

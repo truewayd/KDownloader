@@ -1,5 +1,6 @@
 :root[data-native-frame="custom"], :root[data-native-frame="overlay"] { --native-titlebar-height: 40px; }
 :root[data-native-frame="native"] { --native-titlebar-height: 0px; }
+:root[data-native-frame] { --kd-tooltip-safe-top: var(--native-titlebar-height); }
 [data-native-frame] body { padding-top: var(--native-titlebar-height); }
 .native-titlebar {
   position: fixed;

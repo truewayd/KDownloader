@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { chromium } from "playwright";
 import { readUIFixtureAsset } from "./ui-fixture-assets.mjs";
+import { mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const assets = new URL("../../web/", import.meta.url);
 const updateScenarios = {
@@ -34,7 +37,11 @@ const server = http.createServer(async (request, response) => {
   if (!/^[a-z0-9-]+\.(html|js|css|svg)$/.test(file)) { response.writeHead(404).end(); return; }
   try {
     response.setHeader("Content-Type", { html: "text/html", js: "text/javascript", css: "text/css", svg: "image/svg+xml" }[file.split(".").at(-1)] + "; charset=utf-8");
-    response.end(await readUIFixtureAsset(file, assets));
+    let source = await readUIFixtureAsset(file, assets);
+    if (file === "index.html" && scenario === "native") {
+      source = source.toString().replace('<html lang="zh-CN">', '<html lang="zh-CN" data-native-frame="custom" data-native-window="main">');
+    }
+    response.end(source);
   } catch { response.writeHead(404).end(); }
 });
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -73,6 +80,23 @@ if (process.argv.includes("--serve")) {
       assert.equal(await settings.getAttribute("aria-describedby"), "existing-help kd-tooltip");
       await page.keyboard.press("Escape");
       assert.equal(await settings.getAttribute("aria-describedby"), "existing-help");
+      // OS caption controls clip the WebView independently of CSS z-index.
+      for (const zoom of [1, 1.25, 1.5, 2]) {
+        const scaled = await browser.newPage({ viewport: { width: Math.round(1080 / zoom), height: Math.round(760 / zoom) }, deviceScaleFactor: zoom, colorScheme, reducedMotion: "reduce" });
+        await scaled.goto(`${origin}/?scenario=native`);
+        const pause = scaled.getByRole("button", { name: "\u6682\u505c\u5168\u90e8\u4e0b\u8f7d", exact: true });
+        await pause.hover();
+        const scaledTip = scaled.locator("#kd-tooltip");
+        await scaledTip.waitFor({ state: "visible" });
+        const geometry = await scaledTip.evaluate(node => ({ top: node.getBoundingClientRect().top, bottom: node.getBoundingClientRect().bottom, height: innerHeight }));
+        assert.ok(geometry.top >= 48 && geometry.bottom <= geometry.height - 8, JSON.stringify({zoom, ...geometry}));
+        if (zoom === 1) {
+          const directory = join(tmpdir(), "truedown-ui-review");
+          await mkdir(directory, { recursive: true });
+          await scaled.screenshot({ path: join(directory, `caption-tooltip-${colorScheme}.png`) });
+        }
+        await scaled.close();
+      }
       const error = page.locator('tr[data-task-id="2"] .progress-line');
       await error.hover();
       await tip.waitFor({ state: "visible" });

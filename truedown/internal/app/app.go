@@ -435,6 +435,12 @@ func secureHandler(next http.Handler, auth authState, listenAddresses ...string)
 			http.Error(w, "unrecognized request host", http.StatusForbidden)
 			return
 		}
+		if r.URL.Path == "/" {
+			// The backend root deliberately supports no methods or web frontend.
+			w.Header().Set("Allow", "")
+			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
 		if !isAPIPath(r.URL.Path) {
 			http.NotFound(w, r)
 			return
@@ -477,7 +483,7 @@ func loopbackListener(listenAddresses []string) bool {
 }
 
 func isAPIPath(path string) bool {
-	return path == "/ping" || path == "/add" || path == "/start-headless-download" || path == "/start-bt-download" ||
+	return path == "/ping" || path == "/add" || path == "/queues" || path == "/start-headless-download" || path == "/start-bt-download" ||
 		path == "/tasks" || path == "/modules" || strings.HasPrefix(path, "/modules/") || strings.HasPrefix(path, "/settings/") ||
 		strings.HasPrefix(path, "/auth/") || strings.HasPrefix(path, "/tasks/") ||
 		strings.HasPrefix(path, "/queue/") || strings.HasPrefix(path, "/system/")

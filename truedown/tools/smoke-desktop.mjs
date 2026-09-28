@@ -67,7 +67,8 @@ try{
  }
  for(const resource of ["/","/index.html","/app.js","/api.js","/styles.css","/icons.svg"]){
   const response=await fetch(endpoint+resource,{signal:AbortSignal.timeout(5000)});
-  assert.equal(response.status,404,resource);
+  assert.equal(response.status,resource === "/" ? 405 : 404,resource);
+  if(resource === "/")assert.equal((await response.text()).trim(),"Method Not Allowed");
   assert.equal(response.headers.get("set-cookie"),null,resource);
  }
  await checkCLI();
@@ -94,7 +95,7 @@ try{
  const token=JSON.parse(enabled.body).token;
  assert.ok(token);
  const rootResponse=await fetch(endpoint+"/",{signal:AbortSignal.timeout(5000)});
- assert.equal(rootResponse.status,404);
+ assert.equal(rootResponse.status,405);
  assert.equal(rootResponse.headers.get("set-cookie"),null);
  assert.equal((await fetch(endpoint+"/tasks?limit=1",{headers:{"Cookie":"truedown_session="+Buffer.from(token).toString("base64url")}})).status,401);
  assert.equal((await fetch(endpoint+"/tasks?limit=1",{headers:{"X-Api-Key":token}})).status,200);

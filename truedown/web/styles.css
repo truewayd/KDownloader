@@ -234,7 +234,7 @@ code {
 
 :is(.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link) {
   border: 1px solid transparent;
-  border-radius: var(--kd-radius);
+  border-radius: var(--kd-control-radius);
   background: transparent;
   color: var(--kd-muted);
   font-size: 13px;
@@ -1053,12 +1053,12 @@ h2 {
 }
 
 .input-group .kd-input {
-  border-radius: var(--kd-radius) 0 0 var(--kd-radius);
+  border-radius: var(--kd-control-radius) 0 0 var(--kd-control-radius);
 }
 
 .input-group .kd-select {
   border-left: 0;
-  border-radius: 0 var(--kd-radius) var(--kd-radius) 0;
+  border-radius: 0 var(--kd-control-radius) var(--kd-control-radius) 0;
 }
 
 .toggle-grid {
@@ -1218,7 +1218,7 @@ h2 {
 
 .ratio-input-group .kd-input {
   border: 1px solid var(--kd-border);
-  border-radius: var(--kd-radius);
+  border-radius: var(--kd-control-radius);
 }
 
 .tracker-research-status[data-error="true"] {
@@ -1298,7 +1298,7 @@ h2 {
   align-items: flex-start;
   gap: 9px;
   border: 0;
-  border-radius: var(--kd-radius);
+  border-radius: var(--kd-control-radius);
   padding: 10px;
   background: var(--kd-input);
   cursor: pointer;
@@ -1353,7 +1353,7 @@ h2 {
   gap: 6px;
   min-width: 0;
   border: 0;
-  border-radius: var(--kd-radius);
+  border-radius: var(--kd-control-radius);
   padding: 8px;
   background: var(--kd-input);
   color: var(--kd-text);
@@ -1449,7 +1449,7 @@ label {
   width: 100%;
   min-height: 32px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--kd-item-radius);
   padding: 6px 10px;
   background: transparent;
   color: inherit;
@@ -1484,7 +1484,7 @@ label {
   width: min(720px, 100%);
   max-height: calc(100dvh - 40px);
   overflow: hidden;
-  box-shadow: var(--kd-shadow);
+  box-shadow: var(--kd-workspace-shadow);
   opacity: 0;
   transform: translateY(8px);
   transition: opacity var(--kd-motion-base) ease, transform var(--kd-motion-base) ease;

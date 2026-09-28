@@ -128,7 +128,9 @@ and material integration only. Page styles own layout, not alternate palettes.
   category headings 24px. Ordinary controls use weight 500, headings 600.
 - Spacing follows 4/8/12/16/24/32px. Controls are normally 36px tall; menus use
   34px rows and 16px icons. Compact toolbars may use 32px controls.
-- Controls have 6px corners; panels have at most 8px. Use whitespace and surface
+- TrueDown controls have 12px corners, panels 16px and menu items 10px, all
+  supplied by `ui-baseline.css`; extension surfaces retain their existing tokens.
+  Joined input/select controls round only their outside corners. Use whitespace and surface
   tones for grouping. No decorative panel outlines, button shadows or repeated
   separators. Editable fields and visible keyboard/high-contrast focus retain
   necessary boundaries; popup separation may use the OS-owned shadow.

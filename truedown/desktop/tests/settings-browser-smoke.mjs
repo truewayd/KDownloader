@@ -142,7 +142,7 @@ try {
         const panel = document.querySelector(".settings-page"), form = document.querySelector("#settings-form");
         return { outerBorder: getComputedStyle(panel).borderTopWidth, radius: parseFloat(getComputedStyle(form).borderTopLeftRadius), rightInset: innerWidth - form.getBoundingClientRect().right, root: document.documentElement.scrollWidth, width: innerWidth, content: content.scrollWidth, client: content.clientWidth, bottom: bounds.bottom, footerTop: innerHeight, footerBottom: 0, height: innerHeight };
       });
-      if (native) { assert.equal(geometry.outerBorder, "0px"); assert.equal(geometry.radius, 8); assert.equal(geometry.rightInset, 8); }
+      if (native) { assert.equal(geometry.outerBorder, "0px"); assert.equal(geometry.radius, 16); assert.equal(geometry.rightInset, 8); }
       assert.ok(geometry.root <= width && geometry.content <= geometry.client + 1, `${name}/${category}: horizontal overflow ${JSON.stringify(geometry)}`);
       assert.ok(geometry.bottom <= geometry.footerTop + 1 && geometry.footerBottom <= geometry.height, `${name}/${category}: footer overlap`);
       if (category === "files") {

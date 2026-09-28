@@ -1020,15 +1020,18 @@
       const box = anchor.getBoundingClientRect(), bounds = tip.getBoundingClientRect();
       const width = ownerDocument.documentElement.clientWidth, height = ownerDocument.documentElement.clientHeight;
       const gap = 8, edge = 8;
+      // Native caption controls can clip the WebView even above its top layer.
+      const inset = parseFloat(view.getComputedStyle(ownerDocument.documentElement).getPropertyValue("--kd-tooltip-safe-top")) || 0;
+      const topEdge = Math.min(height - edge, Math.max(0, inset) + edge);
       let left = box.left + (box.width - bounds.width) / 2;
       let top = box.top - bounds.height - gap;
       if (anchor.closest('[data-tooltip-placement="right"]')) {
         left = box.right + gap;
         top = box.top + (box.height - bounds.height) / 2;
         if (left + bounds.width > width - edge) left = box.left - bounds.width - gap;
-      } else if (top < edge) top = box.bottom + gap;
+      } else if (top < topEdge) top = box.bottom + gap;
       tip.style.left = `${Math.max(edge, Math.min(left, width - bounds.width - edge))}px`;
-      tip.style.top = `${Math.max(edge, Math.min(top, height - bounds.height - edge))}px`;
+      tip.style.top = `${Math.max(topEdge, Math.min(top, height - bounds.height - edge))}px`;
     };
     const show = target => {
       view.clearTimeout(leaveTimer);

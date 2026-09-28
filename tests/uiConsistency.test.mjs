@@ -8,6 +8,8 @@ const read = async (relativePath) => (
   await readFile(new URL(`../${relativePath}`, import.meta.url), "utf8")
 ).replace(/\r\n?/g, "\n");
 
+const trueDownBaseline = await read("truedown/web/ui-baseline.css");
+
 const [
   popupHtml,
   settingsHtml,
@@ -520,7 +522,7 @@ test("TrueDown keeps its light and dark design tokens", () => {
 });
 
 test("every light-DOM design token referenced by shared controls is defined", () => {
-  for (const css of [sharedCss, trueDownCss]) {
+  for (const css of [sharedCss, trueDownCss + "\n" + trueDownBaseline]) {
     const defined = new Set(kdTokens(css).map(([name]) => name));
     for (const [, name] of css.matchAll(/var\((--kd-[\w-]+)/g)) {
       assert.ok(defined.has(name), `missing token ${name}`);

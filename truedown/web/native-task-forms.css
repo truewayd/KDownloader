@@ -22,7 +22,7 @@
   width: 100%;
   height: 100%;
   max-height: none;
-  box-shadow: none;
+  box-shadow: var(--kd-workspace-shadow);
   transform: none;
   transition: none;
 }

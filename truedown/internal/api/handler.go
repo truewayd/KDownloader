@@ -42,12 +42,17 @@ type ApplicationLogService interface {
 }
 
 type downloadSourceReq struct {
-	Link         string            `json:"link"`
-	Headers      map[string]string `json:"headers"`
-	DownloadPage string            `json:"downloadPage"`
+	Type          string            `json:"type"`
+	SuggestedName string            `json:"suggestedName"`
+	Link          string            `json:"link"`
+	Headers       map[string]string `json:"headers"`
+	DownloadPage  string            `json:"downloadPage"`
 }
 
 type startReq struct {
+	StartDownload  *bool                      `json:"startDownload"`
+	StartQueue     bool                       `json:"startQueue"`
+	CategoryID     *int64                     `json:"categoryId"`
 	DownloadSource downloadSourceReq          `json:"downloadSource"`
 	Folder         string                     `json:"folder"`
 	Name           string                     `json:"name"`
@@ -89,6 +94,26 @@ type browserIntegrationOptions struct {
 type browserIntegrationAddReq struct {
 	Items   []browserIntegrationItem  `json:"items"`
 	Options browserIntegrationOptions `json:"options"`
+}
+
+func (req *browserIntegrationAddReq) UnmarshalJSON(data []byte) error {
+	type request browserIntegrationAddReq
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if len(data) > 0 && data[0] == '[' {
+		var items []browserIntegrationItem
+		if err := decoder.Decode(&items); err != nil {
+			return err
+		}
+		for index := range items {
+			if items[index].Type == "" {
+				items[index].Type = "http"
+			}
+		}
+		*req = browserIntegrationAddReq{Items: items}
+		return nil
+	}
+	return decoder.Decode((*request)(req))
 }
 
 type batchReq struct {
@@ -145,16 +170,17 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 				return
 			}
 		}
+		opts := downloader.Aria2Opts{}.WithStartPaused(req.Options.SilentAdd && !req.Options.SilentStart)
 		for index, item := range req.Items {
 			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(6 * time.Minute))
 			_, handled, err := dm.AddWithModules(
 				r.Context(), item.Link, item.SuggestedName, "", item.Headers,
-				item.DownloadPage, 0, downloader.Aria2Opts{}, nil,
+				item.DownloadPage, 0, opts, nil,
 			)
 			if err == nil && !handled {
 				_, _, err = dm.AddTask(
 					item.Link, item.SuggestedName, "", item.Headers,
-					item.DownloadPage, 0, downloader.Aria2Opts{},
+					item.DownloadPage, 0, opts,
 				)
 			}
 			if err != nil {
@@ -168,6 +194,16 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Write([]byte("OK"))
+	})
+
+	// TrueDown has a global admission queue, but no ABDM named queues.
+	mux.HandleFunc("/queues", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeJSON(w, http.StatusOK, []struct{}{})
 	})
 
 	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, r *http.Request) {
@@ -382,6 +418,17 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			http.Error(w, "downloadSource.link is required", http.StatusBadRequest)
 			return
 		}
+		if req.DownloadSource.Type != "" && req.DownloadSource.Type != "http" {
+			http.Error(w, "unsupported downloadSource.type", http.StatusBadRequest)
+			return
+		}
+		if req.CategoryID != nil || req.StartQueue || (req.DownloadSource.Type != "" && req.QueueID != 0) {
+			http.Error(w, "ABDM named queues and categories are not supported", http.StatusBadRequest)
+			return
+		}
+		if req.Name == "" {
+			req.Name = req.DownloadSource.SuggestedName
+		}
 		var opts downloader.Aria2Opts
 		if req.Opts != nil {
 			opts = *req.Opts
@@ -390,6 +437,12 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			req.Folder, req.DownloadSource.DownloadPage, req.DownloadSource.Headers, opts = dm.ApplyTaskDefaults(
 				req.Folder, req.DownloadSource.DownloadPage, req.DownloadSource.Headers, req.Opts)
 		}
+		// Typed ABDM requests default to paused. Legacy TrueDown clients retain auto-start.
+		paused := req.DownloadSource.Type != ""
+		if req.StartDownload != nil {
+			paused = !*req.StartDownload
+		}
+		opts = opts.WithStartPaused(paused)
 		moduleOptions := req.ModuleOptions
 		if moduleOptions == nil {
 			moduleOptions = make(map[string]json.RawMessage)
@@ -947,7 +1000,7 @@ func decodeBrowserIntegrationRequest(w http.ResponseWriter, r *http.Request, tar
 	}
 	return decodeBoundedJSONObject(
 		w, r, maxStartRequestBytes, target,
-		"invalid browser integration request", "request must contain one JSON object",
+		"invalid browser integration request", "request must contain one JSON object or legacy array",
 	)
 }
 
@@ -966,7 +1019,8 @@ func decodeBoundedJSONObject(
 		return false
 	}
 	data = bytes.TrimSpace(data)
-	if len(data) == 0 || data[0] != '{' {
+	_, browserRequest := target.(*browserIntegrationAddReq)
+	if len(data) == 0 || (data[0] != '{' && !(browserRequest && data[0] == '[')) {
 		http.Error(w, objectMessage, http.StatusBadRequest)
 		return false
 	}

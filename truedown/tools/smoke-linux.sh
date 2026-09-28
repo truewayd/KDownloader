@@ -73,7 +73,9 @@ curl -fsS "http://127.0.0.1:$port/tasks?limit=1" >"$probe_root/tasks.json"
 curl -fsS "http://127.0.0.1:$port/system/info" >"$probe_root/info.json"
 grep -q '"product":"TrueDown"' "$probe_root/info.json"
 grep -q '"protocolVersion":1' "$probe_root/info.json"
-for resource in / /index.html /app.js /api.js /styles.css /icons.svg; do
+[[ $(curl -sS -o "$probe_root/root.txt" -w "%{http_code}" "http://127.0.0.1:$port/") == 405 ]]
+[[ $(cat "$probe_root/root.txt") == "Method Not Allowed" ]]
+for resource in /index.html /app.js /api.js /styles.css /icons.svg; do
   [[ $(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:$port$resource") == 404 ]]
 done
 

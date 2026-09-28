@@ -17,6 +17,7 @@
   border: 0;
   border-radius: var(--kd-radius);
   background: var(--kd-surface);
+  box-shadow: var(--kd-workspace-shadow);
 }
 [data-platform] .kd-eyebrow { display: none; }
 [data-native-window="main"] .native-window-title { display: none; }

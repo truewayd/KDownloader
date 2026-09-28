@@ -113,6 +113,7 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 			UpdatedAt:     now,
 			TransferState: transferPending,
 		}
+		task.Status, task.Progress = initialTaskState(item.identity.Opts)
 		m.touchTaskLocked(task)
 		if task.Name != "" {
 			task.OutputName = m.resolveOutputNameLocked(task.Folder, task.Name, task.ID)

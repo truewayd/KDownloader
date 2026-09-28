@@ -42,12 +42,26 @@ const (
 
 // Aria2Opts holds user-tunable aria2 download parameters.
 type Aria2Opts struct {
+	// Admission intent is not part of persisted options or duplicate identity.
+	startPaused bool
 	ProxyMode   string   `json:"proxyMode,omitempty"`
 	Connections int      `json:"connections"`
 	MaxSpeedBps int      `json:"maxSpeedBps"`
 	MaxTries    int      `json:"maxTries"`
 	RetryWait   int      `json:"retryWait"`
 	ExtraArgs   []string `json:"extraArgs"`
+}
+
+func (opts Aria2Opts) WithStartPaused(paused bool) Aria2Opts {
+	opts.startPaused = paused
+	return opts
+}
+
+func initialTaskState(opts Aria2Opts) (Status, string) {
+	if opts.startPaused {
+		return StatusPaused, "Paused before download"
+	}
+	return StatusQueued, "Waiting for aria2"
 }
 
 // ManagerConfig describes capabilities of the engine selected by TrueDown.
@@ -549,6 +563,9 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		proposed.ModuleID = moduleID
 		proposed.DropboxDirect = moduleID == DropboxModuleID
 		proposed.Status = StatusQueued
+		if identity.Opts.startPaused {
+			proposed.Status = StatusPaused
+		}
 		proposed.TransferState = retryTransferState(task)
 		proposed.Error = ""
 		proposed.Progress = "Waiting for aria2 to verify and resume partial data"
@@ -580,6 +597,9 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		proposed.PreviousGID = removeGID
 		proposed.GID = m.newGIDLocked()
 		proposed.Status = StatusQueued
+		if identity.Opts.startPaused {
+			proposed.Status = StatusPaused
+		}
 		proposed.TransferState = retryTransferState(task)
 		if task.Status == StatusDone {
 			proposed.TransferState = transferRecheck
@@ -629,6 +649,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		UpdatedAt:     now,
 		TransferState: transferPending,
 	}
+	task.Status, task.Progress = initialTaskState(identity.Opts)
 	m.touchTaskLocked(task)
 	if identity.BitTorrent == nil {
 		if task.Name != "" {
