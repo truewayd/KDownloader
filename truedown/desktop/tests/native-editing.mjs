@@ -43,7 +43,7 @@ export async function chooseWebDriverEditingMenu(command, evaluate, until, calle
       // WebKit may destroy the selected popup before execute/async replies.
       // Never replay the click. Require its disappearance below; the caller
       // separately verifies actual editor delivery, not just menu dismissal.
-      if (!/\bno such window\b/.test(error?.message || '')) throw error;
+      if (!/\bno such window\b|^Could not parse script result$/.test(error?.message || '')) throw error;
     }
     await until(async () => !(await command('GET', '/window/handles')).includes(popup));
   } finally {

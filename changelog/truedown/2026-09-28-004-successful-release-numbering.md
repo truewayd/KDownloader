@@ -4,6 +4,7 @@
 - Serialize release workflows across refs and share one candidate across all packages, embedded identities, manifests and assets. Recheck before upload; reject stale reruns and conflicting tags, and replace only the unpublished candidate draft.
 - Preserve every public release and its number, including when a post-publication visibility check fails.
 - Unify settings panel spacing, remove nested padding from updates/modules, and collapse empty status rows above the program update panel.
+- Handle WebKit's lost script response when an editing menu closes during acceptance, without replaying the action or bypassing dismissal and editor-delivery checks.
 
 ## Verification
 

@@ -9,6 +9,7 @@ import { stopProcessGroup } from "../truedown/desktop/tests/process-group.mjs";
 import { nativeEditingDocumentReady, acceptNativeEditing, chooseWebDriverEditingMenu } from "../truedown/desktop/tests/native-editing.mjs";
 
 test("WebDriver menu destruction restores its caller without repeating an editor action", async () => {
+  for (const closingError of ["no such window", "Could not parse script result"]) {
   for (const scenario of ["closed", "still-open", "other-error", "readiness-error"]) {
     let selected = "caller", clicks = 0, visible = true;
     const command = async (method, route, body) => {
@@ -18,12 +19,12 @@ test("WebDriver menu destruction restores its caller without repeating an editor
     const evaluate = async script => {
       assert.equal(selected, "popup");
       if (!script.includes("node.click()")) {
-        if (scenario === "readiness-error") throw new Error("no such window");
+        if (scenario === "readiness-error") throw new Error(closingError);
         return true;
       }
       clicks++;
       visible = scenario === "still-open";
-      throw new Error(scenario === "other-error" ? "script failed" : "no such window");
+      throw new Error(scenario === "other-error" ? "script failed" : closingError);
     };
     const until = async check => {
       const value = await check();
@@ -32,9 +33,10 @@ test("WebDriver menu destruction restores its caller without repeating an editor
     };
     const attempt = chooseWebDriverEditingMenu(command, evaluate, until, "caller", "paste");
     if (scenario === "closed") await attempt;
-    else await assert.rejects(attempt, scenario === "still-open" ? /deadline/ : scenario === "other-error" ? /script failed/ : /no such window/);
+    else await assert.rejects(attempt, scenario === "still-open" ? /deadline/ : scenario === "other-error" ? /script failed/ : new RegExp(closingError));
     assert.equal(selected, "caller");
     assert.equal(clicks, scenario === "readiness-error" ? 0 : 1);
+  }
   }
 });
 
