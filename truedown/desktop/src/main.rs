@@ -259,7 +259,7 @@ fn main() {
                 )
             };
             let new = item("tray-new", "新建", menu_icons::Icon::Download)?;
-            let open = item("tray-open", "打开", menu_icons::Icon::Download)?;
+            let open = item("tray-open", "打开", menu_icons::Icon::AppWindow)?;
             let settings = item("settings", "设置", menu_icons::Icon::Settings)?;
             let exit = item("tray-exit", "退出", menu_icons::Icon::Power)?;
             let menu = Menu::with_items(app, &[&new, &open, &settings, &exit])?;

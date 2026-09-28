@@ -3,9 +3,9 @@
   const definitions = {
     details: ["任务详情", "info"], pause: ["暂停", "pause"], resume: ["继续", "play"], requeue: ["重试", "retry"],
     "open-file": ["打开文件", "file"], "open-folder": ["打开下载目录", "folder-open"], remove: ["移除任务", "trash"],
-    "new-task": ["新建下载", "plus"], settings: ["设置", "settings"],
-    "group-edit": ["调整此分组", "settings"],
-    "group-add": ["新增分组", "plus"], "group-manage": ["管理分组", "folder"],
+    "new-task": ["新建下载", "download"], settings: ["设置", "settings"],
+    "group-edit": ["调整此分组", "folder-pen"],
+    "group-add": ["新增分组", "folder-plus"], "group-manage": ["管理分组", "folders"],
     "pause-queue": ["暂停整个队列", "pause"], "resume-queue": ["恢复整个队列", "play"],
     "retry-all": ["重试所有失败任务", "retry"], "clear-done": ["清理所有已完成记录", "trash"],
     "open-downloads": ["打开默认下载目录", "folder-open"],
