@@ -17,6 +17,26 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// Match the production core's process scope, including under a CI runner's
+// outer job. Keep the noninheritable handle until exit: closing it kills us.
+// Helper dispatch in TestMain must remain before this initialization.
+func prepareDownloaderTestProcess() error {
+	job, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		return err
+	}
+	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
+	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK
+	_, err = windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits)))
+	if err == nil {
+		err = windows.AssignProcessToJobObject(job, windows.CurrentProcess())
+	}
+	if err != nil {
+		windows.CloseHandle(job)
+	}
+	return err
+}
+
 func TestPathOpenHelperRejectsInvalidArguments(t *testing.T) {
 	for _, args := range [][]string{
 		{openPathHelperFlag}, {openPathHelperFlag, "relative.txt"},
@@ -101,19 +121,7 @@ func TestPathOpenConcurrencyAndOutputAreBounded(t *testing.T) {
 func TestPathOpenSurvivesCoreExit(t *testing.T) {
 	const key = "TRUEDOWN_TEST_PATH_OPEN_DIR"
 	if directory := os.Getenv(key); directory != "" {
-		job, err := windows.CreateJobObject(nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
-		limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK
-		if _, err = windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
-			t.Fatal(err)
-		}
-		if err = windows.AssignProcessToJobObject(job, windows.CurrentProcess()); err != nil {
-			t.Fatal(err)
-		}
-		// Leave this non-inheritable handle alive until the fixture core exits.
+		// TestMain established the same kill-on-close scope as the core.
 		started := time.Now()
 		// Exercise the same breakaway flags with a hidden fixture, never ask the
 		// production path opener to execute a program (which it must reject).

@@ -23,5 +23,9 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
+	if err := prepareDownloaderTestProcess(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	os.Exit(m.Run())
 }
