@@ -96,6 +96,14 @@ try {
           }));
         }
         assert.equal(await page.locator('[data-native-window="about"]').count(), 0);
+        if (!native) {
+          assert.equal(await page.locator(".brand").isVisible(), false);
+          assert.equal((await page.locator(".sidebar").boundingBox()).width, 56);
+          await page.locator(".sidebar-toggle").click();
+          assert.equal(await page.locator(".sidebar-toggle").getAttribute("aria-expanded"), "true");
+          await page.locator(".sidebar-toggle").click();
+          assert.equal(await page.locator(".brand").isVisible(), false);
+        }
         const geometry = await page.evaluate(() => {
           const bounds = selector => {
             const { x, y, width, height, right, bottom } = document.querySelector(selector).getBoundingClientRect();
@@ -126,10 +134,14 @@ try {
           assert.ok(reachable, `${name}: ${selector} cannot be reached without scrolling`);
         }
         assert.equal(await page.locator('[data-task-filter]:not([data-task-filter="all"])').count(), 0, "status navigation is owned by the dropdown");
-        await page.locator("#task-filter").selectOption("done");
+        await page.locator("#task-filter").click();
+        await page.locator('.kd-select-list [role="option"]').filter({ hasText: "已完成" }).click();
         await page.waitForFunction(() => document.querySelectorAll("tr[data-task-id]").length === 1 && document.querySelector("#task-filter").value === "done");
         assert.equal(await page.locator("#tasks-title").textContent(), "已完成");
-        await page.locator("#task-filter").selectOption("paused");
+        await page.locator("#task-filter").press("ArrowDown");
+        await page.locator("#task-filter").press("ArrowUp");
+        await page.locator("#task-filter").press("ArrowUp");
+        await page.locator("#task-filter").press("Enter");
         await page.waitForFunction(() => document.querySelector("#tasks-title").textContent === "已暂停");
         await page.locator('[data-task-filter="all"]').click();
         await page.waitForFunction(count => document.querySelectorAll("tr[data-task-id]").length === count, tasks.length);

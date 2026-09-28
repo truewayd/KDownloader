@@ -1,6 +1,6 @@
 /* Workspace layout; controls and state visuals remain in styles.css. */
 :root { --navigation-width: 216px; --sidebar-width: var(--navigation-width); --settings-nav-width: var(--navigation-width); }
-:root.sidebar-collapsed { --sidebar-width: 88px; }
+:root.sidebar-collapsed { --sidebar-width: 56px; }
 [hidden] { display: none !important; }
 #task-load-status { margin: 12px 24px 0; }
 .native-only, .sidebar .native-only { display: none; }
@@ -61,7 +61,7 @@
 @media (forced-colors: active) { .notice-progress-track { stroke: GrayText; } .notice-progress-value { stroke: Highlight; } }
 .sidebar-collapsed .notice-copy { display: none; }
 .dashboard { width: auto; margin: 0; min-width: 0; padding: 8px 12px 12px 0; }
-.dashboard > .kd-panel { box-shadow: none; }
+.dashboard > .task-panel, #settings-form { box-shadow: var(--kd-workspace-shadow); }
 .dashboard .kd-button { font-weight: 500; }
 .task-toolbar { flex-shrink: 0; flex-wrap: nowrap; align-items: flex-start; padding: var(--kd-space-4) var(--kd-space-6); justify-content: flex-start; gap: var(--kd-space-3); border: 0; }
 .task-queue-actions { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -126,7 +126,7 @@
 [data-native-window="settings"] .dashboard { padding: 0; }
 [data-native-window="settings"] .settings-page { border: 0; border-radius: 0; }
 #settings-form { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
-.settings-category-header { display: flex; flex-shrink: 0; align-items: center; gap: 12px; margin-bottom: 32px; }
+.settings-category-header { display: flex; flex-shrink: 0; align-items: center; gap: 12px; max-width: 880px; margin-bottom: 24px; }
 .settings-category-header h2 { margin: 0; font-size: var(--kd-font-title); font-weight: 600; line-height: 1.4; }
 #settings-reset-btn { flex-shrink: 0; min-height: 32px; width: 32px; padding: 6px; color: var(--kd-muted); background: transparent; }
 #settings-reset-btn:hover { background: var(--kd-secondary-hover); }
@@ -140,13 +140,14 @@
 #settings-general-title, #settings-file-title, #settings-application-title, #settings-update-title, #settings-advanced-title { display: none; }
 .settings-section-heading h3, .runtime-guide h3 { margin: 0; font-size: var(--kd-font-section); font-weight: 600; line-height: 1.5; }
 .settings-content .form-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-.settings-group { min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.settings-group { min-width: 0; width: 100%; margin: 0; padding: 16px; border: 1px solid var(--kd-border); border-radius: var(--kd-radius); background: transparent; }
 .settings-group legend { float: left; width: 100%; padding: 0; margin-bottom: 16px; font-size: 14px; font-weight: 600; }
 .settings-group legend + * { clear: both; }
 .settings-content .hint { margin: 0; line-height: 1.6; overflow-wrap: anywhere; }
 .settings-content .settings-section-heading .hint { margin-top: 8px; }
-.settings-section-heading:has(> h3:only-child:is(#settings-general-title, #settings-file-title)) { display: none; }
-.settings-content .runtime-guide { padding: 0; border-radius: 0; background: transparent; }
+.settings-section-heading:has(> h3:only-child:is(#settings-general-title, #settings-file-title, #settings-application-title, #settings-update-title)) { display: none; }
+.settings-content .runtime-guide,
+.settings-content > .settings-section:not(:has(.settings-group)):not(.log-page):not(.settings-about) { padding: 16px; border: 1px solid var(--kd-border); border-radius: var(--kd-radius); background: transparent; }
 .settings-group > * + * { margin-top: 16px; }
 .settings-group > .hint { margin-top: 0; margin-bottom: 16px; }
 .settings-steps { margin: 0; padding-left: 22px; color: var(--kd-muted); font-size: 13px; line-height: 1.7; }
@@ -234,14 +235,11 @@
   body { overflow: hidden; }
   .app-shell { min-height: 0; }
   .workspace { flex-direction: row; }
-  :root, :root.sidebar-collapsed { --navigation-width: 80px; --sidebar-width: var(--navigation-width); }
-  .sidebar, .sidebar-collapsed .sidebar { padding: 10px 4px; gap: 20px; }
-  .sidebar-brand { justify-content: center; }
-  .sidebar-toggle, .brand-copy, .nav-section-label { display: none; }
-  .sidebar-collapsed .sidebar-brand .brand { display: flex; }
-  .sidebar .nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  :root { --settings-nav-width: 80px; }
+  :root:not(.sidebar-collapsed) .workspace { padding-left: 56px; }
+  :root:not(.sidebar-collapsed) .sidebar { position: absolute; inset: var(--native-titlebar-height, 0px) auto 0 0; width: var(--sidebar-width); z-index: 32; background: var(--kd-bg); box-shadow: var(--kd-workspace-shadow); }
+  .sidebar-collapsed .sidebar { padding: 10px 8px; gap: 20px; }
   .primary-nav { display: grid; grid-template-columns: 1fr; }
-  .sidebar a, .sidebar-action, .sidebar #new-task-btn { justify-content: center; padding-inline: 0; }
   .sidebar-footer { display: grid; }
   .dashboard { min-height: 0; padding: 6px 6px 6px 0; overflow: hidden; }
   .task-panel { overflow-y: auto; }

@@ -148,7 +148,7 @@ try {
       if (category === "files") {
         assert.equal(await page.locator('[data-download-extension]').first().getAttribute("role"), null, "extension selection remains a checkbox");
         assert.equal(await page.locator("#cfg-allocation").evaluate(element => element.closest("fieldset").querySelector("legend").textContent), "文件写入与校验");
-        assert.equal(await page.locator("#cfg-dropbox-mode").evaluate(element => element.closest("fieldset").querySelector("legend").textContent), "Dropbox 目录展开与过滤");
+        assert.equal(await page.locator("#cfg-dropbox-mode").evaluate(element => element.closest("fieldset").querySelector("legend").textContent), "Dropbox 目录");
         const layout = await page.evaluate(() => {
           const rect = node => node.getBoundingClientRect();
           const fields = [...document.querySelectorAll(".file-group-editor-row .field")].map(field => {

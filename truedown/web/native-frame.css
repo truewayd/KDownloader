@@ -27,11 +27,13 @@
   left: 12px;
   z-index: 31;
   width: calc(var(--sidebar-width) - 24px);
+  overflow: hidden;
   transition: width 220ms cubic-bezier(.2, .8, .2, 1);
 }
 @media (prefers-reduced-motion: reduce) {
   [data-native-frame="custom"][data-native-window="main"] .sidebar-brand { transition: none; }
 }
+.sidebar-collapsed[data-native-frame="custom"][data-native-window="main"] .sidebar-brand { left: 8px; width: 40px; }
 [data-native-frame="overlay"] .native-titlebar-drag { padding-left: 84px; }
 @media (forced-colors: active) {
   .native-titlebar, [data-material="native"] .native-titlebar { background: Canvas; color: CanvasText; }

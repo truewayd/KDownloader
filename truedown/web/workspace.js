@@ -23,14 +23,30 @@ function initWorkspace() {
       }
     });
   });
-  document.querySelectorAll(".sidebar-toggle").forEach((button) => {
-    button.addEventListener("click", () => {
-      const collapsed = document.documentElement.classList.toggle("sidebar-collapsed");
+  const compactSidebar = window.matchMedia("(max-width: 720px)");
+  let preferredCollapsed = false;
+  const setSidebarCollapsed = (collapsed) => {
+    document.documentElement.classList.toggle("sidebar-collapsed", collapsed);
+    document.querySelectorAll(".sidebar-toggle").forEach((button) => {
       button.setAttribute("aria-expanded", String(!collapsed));
       const label = collapsed ? "展开侧栏" : "收起侧栏";
       button.setAttribute("aria-label", label);
       button.dataset.tooltip = label;
     });
+  };
+  setSidebarCollapsed(compactSidebar.matches);
+  compactSidebar.addEventListener("change", () => setSidebarCollapsed(compactSidebar.matches || preferredCollapsed));
+  document.querySelectorAll(".sidebar-toggle").forEach((button) => {
+    button.addEventListener("click", () => {
+      preferredCollapsed = !document.documentElement.classList.contains("sidebar-collapsed");
+      setSidebarCollapsed(preferredCollapsed);
+    });
+  });
+  document.querySelector(".sidebar")?.addEventListener("click", (event) => {
+    if (compactSidebar.matches && event.target.closest("a, #new-task-btn")) setSidebarCollapsed(true);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && compactSidebar.matches) setSidebarCollapsed(true);
   });
   applyWorkspaceRoute(false);
 }

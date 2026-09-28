@@ -575,8 +575,6 @@ function renderTrackerResearchSettings(settings = trackerResearchSettings) {
   els.trackerBonusChancePercent.value = settings.bonusChancePercent;
   els.trackerReportDownloadZero.checked = settings.reportDownloadAsZero;
   els.trackerPretendSeed.checked = settings.pretendToSeed;
-  els.trackerOnlyTraffic.checked = true;
-  els.trackerLocalOnly.checked = true;
   syncTrackerSeedControls();
   const engineLabel = settings.engine === "next"
     ? `Aria2 Next${settings.engineVersion ? ` v${settings.engineVersion}` : ""}`

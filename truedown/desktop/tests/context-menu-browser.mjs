@@ -16,7 +16,7 @@ try {
       <button id="pause-queue-btn">pause queue</button><button id="resume-queue-btn" disabled>resume queue</button>
       <button id="retry-all-btn" aria-disabled="true">retry all</button><button id="clear-done-btn" disabled>clear done</button>
       <button id="open-downloads-btn">downloads</button></div>
-      <aside id="workspace-sidebar"><nav class="primary-nav"><div id="file-group-navigation">
+      <aside id="workspace-sidebar"><nav class="primary-nav"><a id="all-downloads" href="#tasks" data-task-filter="all">All downloads</a><div id="file-group-navigation">
       <a href="#tasks" data-task-category="image"><span id="group-label">Images</span></a></div><div id="group-blank">groups</div></nav></aside>
       <div id="unrelated">other surface</div>
       <div id="caption" data-native-drag>caption</div><pre id="log">diagnostic text</pre>
@@ -33,6 +33,7 @@ try {
       window.openModal = async () => calls.push({ command: "new-task" });
       window.showToast = message => errors.push(message);
       document.addEventListener("click", event => {
+        if (event.target.id === "all-downloads") { event.preventDefault(); window.selectedGroup = "all"; }
         if (event.target.dataset.action) clicked.push(event.target.dataset.action);
         if (event.target.id === "pause-queue-btn") calls.push({ command: "pause-queue" });
       });
@@ -75,6 +76,10 @@ try {
     assert.equal(await page.evaluate(() => selectedGroup), "image");
     await choose("group-edit");
     assert.deepEqual(await page.evaluate(() => calls.at(-1)), { command: "open_group_settings", args: { groupId: "image", add: false } });
+    assert.deepEqual(await open("#all-downloads"), ["group-add", "group-manage"]);
+    assert.equal(await page.evaluate(() => selectedGroup), "all");
+    await choose("group-manage");
+    assert.deepEqual(await page.evaluate(() => calls.at(-1)), { command: "open_group_settings", args: { groupId: null, add: false } });
     assert.deepEqual(await open("#group-blank"), ["new-task", "group-add", "group-manage"]);
     await choose("group-add");
     assert.deepEqual(await page.evaluate(() => calls.at(-1)), { command: "open_group_settings", args: { groupId: null, add: true } });

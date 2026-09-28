@@ -16,6 +16,7 @@
     "test:tooltips": "node tests/tooltips-browser.mjs",
     "test:context-menu": "node tests/context-menu-browser.mjs",
     "test:settings": "node tests/settings-browser-smoke.mjs",
+    "test:select": "node tests/select-browser.mjs",
     "test:auxiliary": "node tests/auxiliary-ui-browser.mjs",
     "test:forms": "node tests/task-forms-browser-smoke.mjs",
     "test:details": "node tests/task-details-browser-smoke.mjs",

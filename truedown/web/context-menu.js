@@ -110,6 +110,10 @@
         selectFileGroup(group);
         group.focus({ preventScroll: true });
         actions = ["group-edit", "group-add", "group-manage"];
+      } else if ((group = target.closest('.primary-nav [data-task-filter="all"]'))) {
+        group.click();
+        group.focus({ preventScroll: true });
+        actions = ["group-add", "group-manage"];
       } else if (target.closest('button, a, [role="button"]')) {
         actions = [];
       } else if (target.closest(".primary-nav")) {

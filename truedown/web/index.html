@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/ui-baseline.css">
   <script src="/components.js" defer></script>
+  <script src="/select.js" defer></script>
   <script src="/api.js" defer></script>
   <script src="/read-recovery.js" defer></script>
   <script src="/native-windows.js"></script>
@@ -81,7 +82,7 @@
             </label>
             <label class="filter-control" for="task-filter">
               <span>状态</span>
-              <select class="kd-select" id="task-filter">
+              <select class="kd-select" id="task-filter" aria-label="下载状态">
                 <option value="all">全部下载</option>
                 <option value="downloading">下载中</option>
                 <option value="queued">排队中</option>
@@ -176,7 +177,7 @@
           <p class="hint">第三方许可证随程序安装。</p>
         </section>
         <section class="settings-section" data-settings-page="application" aria-labelledby="settings-application-title" hidden>
-          <div class="settings-section-heading"><h3 id="settings-application-title">应用与连接</h3><p>启动、托盘与浏览器连接。</p></div>
+          <div class="settings-section-heading"><h3 id="settings-application-title">应用与连接</h3></div>
           <label class="setting-toggle" for="startup-enabled"><input id="startup-enabled" type="checkbox" role="switch" class="kd-switch" disabled><span><strong>开机启动</strong><small>登录后在后台运行。</small></span></label>
             <p class="hint" id="startup-status" role="status">正在读取启动设置…</p>
             <fieldset class="settings-group" data-settings-independent>
@@ -224,7 +225,6 @@
             </fieldset>
             <fieldset class="settings-group">
               <legend>当前下载队列</legend>
-              <p class="hint">立即作用于当前队列。</p>
               <div class="form-grid">
                 <div class="field settings-row">
                   <label for="cfg-task-concurrency">并行任务</label>
@@ -288,12 +288,10 @@
               <div class="field settings-row">
                 <label for="cfg-user-agent">User-Agent</label>
                 <input class="kd-input" id="cfg-user-agent" type="text" placeholder="留空使用 aria2 默认值">
-                <p class="hint">留空使用内核默认值。</p>
               </div>
               <div class="field settings-row">
                 <label for="cfg-referer">Referer</label>
                 <input class="kd-input" id="cfg-referer" type="url" placeholder="https://example.com/">
-                <p class="hint">下载来源页面地址。</p>
               </div>
               <div class="field field-span-2">
                 <label for="cfg-headers">请求头（JSON）</label>
@@ -333,12 +331,12 @@
             </div>
             </fieldset>
             <fieldset class="settings-group">
-              <legend>Dropbox 目录展开与过滤</legend>
+              <legend>Dropbox 目录</legend>
               <div class="field settings-row">
                 <label for="cfg-dropbox-mode">目录下载</label>
                 <select class="kd-select" id="cfg-dropbox-mode">
-                  <option value="direct">直接下载目录压缩包</option>
-                  <option value="expand">默认展开为独立文件任务</option>
+                  <option value="direct">下载压缩包</option>
+                  <option value="expand">展开为独立文件</option>
                 </select>
                 <p class="hint">默认下载压缩包。展开后可逐个文件重试，并按后缀过滤。</p>
               </div>
@@ -350,7 +348,7 @@
             </div>
             <div class="field">
               <span class="field-label" id="excluded-extensions-label">排除的文件后缀</span>
-              <p class="hint">勾选即排除，不区分大小写；仅在 Dropbox 目录展开且选择过滤时生效。支持规则同步的浏览器扩展也可更新此列表。</p>
+              <p class="hint">勾选即排除，忽略大小写。浏览器扩展可同步此列表。</p>
               <div class="extension-grid" role="group" aria-labelledby="excluded-extensions-label">
                 <label><input type="checkbox" value=".psd" data-download-extension><span>.psd</span></label>
                 <label><input type="checkbox" value=".clip" data-download-extension><span>.clip</span></label>
@@ -369,8 +367,7 @@
         <section class="settings-section" data-settings-page="files" data-settings-independent hidden aria-labelledby="file-groups-title">
           <div class="settings-section-heading">
             <h3 id="file-groups-title">文件分组</h3>
-            <p class="hint">按后缀分类并保存到分组子目录，忽略大小写；支持 .tar.gz 等复合后缀，优先匹配较长后缀，未匹配的归入“其他”。</p>
-            <p class="hint">编辑后自动保存并更新任务分组，已有文件和续传任务保留原路径。恢复本页默认不会重置分组。</p>
+            <p class="hint">按后缀存入子目录，支持 .tar.gz，优先匹配较长后缀，其余归入“其他”。编辑自动保存，不移动已有文件；恢复默认不影响分组。</p>
           </div>
           <div id="file-groups-editor"></div>
           <div class="group-editor-actions"><button class="kd-button secondary" id="file-group-add" type="button">新增分组</button></div>
@@ -379,7 +376,6 @@
 <section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-update-title">
             <div class="settings-section-heading">
               <h3 id="settings-update-title">内核与模块</h3>
-              <p>管理 aria2 下载内核和链接解析模块；TrueDown 程序更新位于<a href="#settings/about">关于</a>。</p>
             </div>
             <div class="update-list">
 
@@ -403,7 +399,6 @@
 <section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-modules-title">
             <div class="settings-section-heading">
               <h3 id="settings-modules-title">解析模块</h3>
-              <p>支持的分享链接。</p>
             </div>
             <p class="hint">Dropbox、Google Drive 模块停用后只影响新链接，已有任务仍可恢复。Dropbox 目录展开见<a href="#settings/files">文件管理</a>。</p>
             <div class="module-list" id="module-list" aria-live="polite"></div>
@@ -463,14 +458,6 @@
               <label class="setting-toggle" for="tracker-pretend-seed">
                 <input id="tracker-pretend-seed" type="checkbox" role="switch" class="kd-switch">
                 <span><strong>伪装做种</strong><small>将 left 上报为零，并自动启用“下载量上报为零”。</small></span>
-              </label>
-              <label class="setting-toggle" for="tracker-only-traffic">
-                <input id="tracker-only-traffic" type="checkbox" role="switch" class="kd-switch" checked disabled>
-                <span><strong>仅 tracker 流量</strong><small>内置安全边界，不开放通用代理能力。</small></span>
-              </label>
-              <label class="setting-toggle" for="tracker-local-only">
-                <input id="tracker-local-only" type="checkbox" role="switch" class="kd-switch" checked disabled>
-                <span><strong>仅本机连接</strong><small>端口由 TrueDown 临时分配且只绑定回环地址。</small></span>
               </label>
             </div>
             <p class="hint tracker-research-status" id="tracker-research-status" aria-live="polite">正在读取模块状态…</p>

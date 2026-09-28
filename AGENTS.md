@@ -99,6 +99,8 @@ Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps
 
 ## TrueDown Runtime
 
+- TrueDown select pickers retain native form values and shared change/input events, with a single custom listbox, keyboard navigation, disabled options and lifecycle dismissal. Collapsed navigation is 56px and keeps its toggle at narrow widths without revealing the logo. Right-clicking All downloads selects the all-task view and offers group add/manage only.
+
 - Right-clicking a file group selects its task filter before opening the menu; do not offer a redundant show/open-group action. Sidebar pointer sorting (and Alt+Up/Down) persists through main-window-only `POST /settings/file-groups/order` with a revision and every group ID exactly once; it cannot edit group definitions. Preserve editor drafts when synchronizing newer order revisions. Navigation and decorative controls must not export browser drag payloads; internal drags must not start download imports.
 - Tray menus contain exactly New, Open, Settings and Exit in that order. Windows reuses the content-menu HMENU styling/tracking with a dedicated hidden top-level owner, native foreground activation and notification-area dismissal; never show the main window just to open its tray menu. macOS and Linux retain their system tray menus. Tray-only actions are native callbacks, never WebView menu actions. Caption right-click tracks the borrowed `GetSystemMenu` at native screen coordinates on the UI thread, updates commands for the current window state/style and posts the chosen `WM_SYSCOMMAND`; Alt+Space retains OS keyboard placement.
 
