@@ -6,7 +6,46 @@ import { readFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import { readToastPlacement, assertToastBounds } from "../truedown/desktop/tests/toast-layout.mjs";
 import { stopProcessGroup } from "../truedown/desktop/tests/process-group.mjs";
-import { nativeEditingDocumentReady } from "../truedown/desktop/tests/native-editing.mjs";
+import { nativeEditingDocumentReady, acceptNativeEditing, chooseWebDriverEditingMenu } from "../truedown/desktop/tests/native-editing.mjs";
+
+test("WebDriver menu destruction restores its caller without repeating an editor action", async () => {
+  for (const scenario of ["closed", "still-open", "other-error", "readiness-error"]) {
+    let selected = "caller", clicks = 0, visible = true;
+    const command = async (method, route, body) => {
+      if (method === "GET") return visible ? ["caller", "popup"] : ["caller"];
+      selected = body.handle;
+    };
+    const evaluate = async script => {
+      assert.equal(selected, "popup");
+      if (!script.includes("node.click()")) {
+        if (scenario === "readiness-error") throw new Error("no such window");
+        return true;
+      }
+      clicks++;
+      visible = scenario === "still-open";
+      throw new Error(scenario === "other-error" ? "script failed" : "no such window");
+    };
+    const until = async check => {
+      const value = await check();
+      if (!value) throw new Error("deadline exceeded");
+      return value;
+    };
+    const attempt = chooseWebDriverEditingMenu(command, evaluate, until, "caller", "paste");
+    if (scenario === "closed") await attempt;
+    else await assert.rejects(attempt, scenario === "still-open" ? /deadline/ : scenario === "other-error" ? /script failed/ : /no such window/);
+    assert.equal(selected, "caller");
+    assert.equal(clicks, scenario === "readiness-error" ? 0 : 1);
+  }
+});
+
+test("native editing cleanup does not replace the original failure", async () => {
+  const original = new Error("menu action failed");
+  const evaluate = async script => {
+    if (script.includes("__nativeEditing.cleanup()")) throw new Error("no such window");
+    return true;
+  };
+  await assert.rejects(acceptNativeEditing(evaluate, async check => check(), async () => { throw original; }), error => error === original);
+});
 
 test("editing readiness retries replaced initial documents but propagates other failures", async () => {
   for (const message of ["Execution context was destroyed, most likely because of a navigation", "Cannot find context with specified id"]) {

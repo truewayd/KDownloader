@@ -14,6 +14,7 @@ export async function nativeEditingDocumentReady(evaluate) {
 }
 export async function acceptNativeEditing(evaluate, until, chooseMenu) {
   await evaluate(`${fixture}; return installNativeEditingAcceptance()`);
+  let failure;
   try {
     for (const action of ['copy', 'paste', 'undo', 'redo', 'cut', 'paste', 'select-all']) {
       assert.equal(await evaluate(`return window.__nativeEditing.start('${action}')`), true);
@@ -22,7 +23,30 @@ export async function acceptNativeEditing(evaluate, until, chooseMenu) {
     }
     assert.equal(await evaluate(`return window.__TAURI__.core.invoke('edit_action',{action:'read-clipboard'}).then(()=>false,()=>true)`), true);
     assert.equal(await evaluate(`return window.__TAURI__.core.invoke('plugin:clipboard-manager|read_text').then(()=>false,()=>true)`), true);
+  } catch (error) {
+    failure = error;
+    throw error;
   } finally {
-    await evaluate('return window.__nativeEditing.cleanup()');
+    try { await evaluate('return window.__nativeEditing.cleanup()'); }
+    catch (error) { if (!failure) throw error; }
+  }
+}
+
+export async function chooseWebDriverEditingMenu(command, evaluate, until, caller, action) {
+  const popup = await until(async () => (await command('GET', '/window/handles')).find(handle => handle !== caller));
+  try {
+    await command('POST', '/window', { handle: popup });
+    await until(() => evaluate('return [...document.querySelectorAll("[data-action]")].some(node => node.dataset.action === arguments[0])', [action]));
+    try {
+      await evaluate('document.querySelectorAll("[data-action]").forEach(node => { if (node.dataset.action === arguments[0]) node.click(); }); return true', [action]);
+    } catch (error) {
+      // WebKit may destroy the selected popup before execute/async replies.
+      // Never replay the click. Require its disappearance below; the caller
+      // separately verifies actual editor delivery, not just menu dismissal.
+      if (!/\bno such window\b/.test(error?.message || '')) throw error;
+    }
+    await until(async () => !(await command('GET', '/window/handles')).includes(popup));
+  } finally {
+    await command('POST', '/window', { handle: caller });
   }
 }

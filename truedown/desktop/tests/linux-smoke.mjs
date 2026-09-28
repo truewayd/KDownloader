@@ -7,7 +7,7 @@ import http from "node:http";
 import { spawn } from "node:child_process";
 import { readToastPlacement, assertToastBounds } from "./toast-layout.mjs";
 import { stopProcessGroup } from "./process-group.mjs";
-import { acceptNativeEditing } from "./native-editing.mjs";
+import { acceptNativeEditing, chooseWebDriverEditingMenu } from "./native-editing.mjs";
 
 if (process.platform !== "linux" || !process.env.DISPLAY) throw new Error("Run this test inside xvfb-run and dbus-run-session");
 const application = path.resolve(process.argv[2] || "target/debug/TrueDown");
@@ -71,14 +71,7 @@ try {
   assert.equal(JSON.parse(info.body).product, "TrueDown");
   phase = "native editor and clipboard delivery";
   const editingCaller = await command("GET", "/window");
-  await acceptNativeEditing(evaluate, until, async action => {
-    const popup = await until(async () => (await command("GET", "/window/handles")).find(handle => handle !== editingCaller));
-    await command("POST", "/window", { handle: popup });
-    await until(() => evaluate(`return Boolean(document.querySelector('[data-action="${action}"]'))`));
-    await evaluate(`document.querySelector('[data-action="${action}"]').click(); return true`);
-    await until(async () => !(await command("GET", "/window/handles")).includes(popup));
-    await command("POST", "/window", { handle: editingCaller });
-  });
+  await acceptNativeEditing(evaluate, until, action => chooseWebDriverEditingMenu(command, evaluate, until, editingCaller, action));
   phase = "native windows and settings";
   for (const kind of ["settings", "logs", "about", "new-task"]) await evaluate("return window.__TAURI__.core.invoke('open_auxiliary',{kind:arguments[0]})", [kind]);
   const handles = await until(async () => { const handles = await command("GET", "/window/handles"); return handles.length === 3 && handles; });
