@@ -71,8 +71,9 @@ Auxiliary commands are restricted by window role.
 The Tauri bundled frontend uses `api.js`, `task-view.js`, `settings.js`,
 `logs.js`, `workspace.js`, and the canonical component runtime. `task-forms.js`
 owns the native form lifecycle and preference refresh. The core does not embed
-or serve frontend resources: the HTTP listener is API-only, and former webpage
-paths return 404. Production frontend requests use native IPC. Browser layout
+or serve frontend resources: the HTTP listener is API-only. The root `/` returns
+plain-text 405 Method Not Allowed; former webpage and static asset paths return
+404. Production frontend requests use native IPC. Browser layout
 fixtures inject a test-only HTTP transport. HTTP authentication uses API Key
 headers; browser session cookies and frontend token storage are retired. Task rows are
 reconciled by identity, hidden task views stop polling, and late responses must

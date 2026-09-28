@@ -131,7 +131,7 @@ truedown-cli.exe paths
 truedown-cli.exe exit
 ```
 
-内核默认前台运行，`http://127.0.0.1:15151` 仅提供 API，网页和静态资源请求返回 404；图形操作请使用 TrueDown 桌面应用。CLI 与桌面共用服务端默认值、任务库及鉴权，CLI 不启动第二个下载管理器。全局参数放在命令前，命令参数放在 URL 或任务 ID 前；API Key 通过 `TRUEDOWN_API_TOKEN` 或配置目录中的 token 文件读取。启用认证后，HTTP 请求使用 `X-Api-Key`，不再签发或接受网页会话 Cookie。独立内核的程序升级由部署者管理。
+内核默认前台运行，`http://127.0.0.1:15151` 仅提供 API，直接访问根地址返回纯文本 `405 Method Not Allowed`，其他网页和静态资源请求返回 404；图形操作请使用 TrueDown 桌面应用。CLI 与桌面共用服务端默认值、任务库及鉴权，CLI 不启动第二个下载管理器。全局参数放在命令前，命令参数放在 URL 或任务 ID 前；API Key 通过 `TRUEDOWN_API_TOKEN` 或配置目录中的 token 文件读取。启用认证后，HTTP 请求使用 `X-Api-Key`，不再签发或接受网页会话 Cookie。独立内核的程序升级由部署者管理。
 
 启用认证且使用非默认数据目录时，各条 CLI 命令均需传入 `--data-dir`，或在当前终端设置 `TRUEDOWN_DATA_DIR`。`--data-dir` 选择本地凭据，连接地址仍由 `--endpoint` 或 `TRUEDOWN_ADDR` 指定。
 
