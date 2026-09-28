@@ -156,7 +156,7 @@ if (process.argv.includes("--serve")) {
         return { start, middle, end, expanded: sidebar.getBoundingClientRect().width };
       });
       assert.ok(!widths.missing && widths.start > widths.middle && widths.middle > widths.end, JSON.stringify(widths));
-      assert.equal(widths.end, 88);
+      assert.equal(widths.end, 56);
       assert.equal(widths.expanded, widths.start);
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.locator(".sidebar-toggle").click();

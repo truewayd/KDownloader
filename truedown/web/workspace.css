@@ -45,7 +45,8 @@
 .sidebar-collapsed #workspace-traffic { justify-content: center; gap: 0; font-size: 11px; }
 .sidebar-collapsed #workspace-traffic .traffic-count,
 .sidebar-collapsed #workspace-traffic .traffic-speed > .icon { display: none; }
-.sidebar-collapsed #workspace-traffic .traffic-speed { margin: 0; }
+.sidebar-collapsed #workspace-traffic .traffic-speed { margin: 0; flex-shrink: 1; max-width: 100%; }
+.sidebar-collapsed #workspace-speed { white-space: normal; line-height: 1.15; text-align: center; }
 .workspace-notice { min-width: 0; }
 .workspace-notice .sidebar-action { width: 100%; text-align: left; }
 .notice-copy { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; line-height: 1.4; white-space: nowrap; }
