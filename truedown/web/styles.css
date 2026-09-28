@@ -1069,18 +1069,17 @@ h2 {
 
 .module-list {
 	display: grid;
-	gap: 16px;
+	gap: 24px;
 }
 
 .module-card {
 	display: grid;
 	grid-template-columns: 40px minmax(0, 1fr);
 	align-items: start;
-	gap: 16px;
+	gap: 8px 16px;
 	border: 0;
-	border-radius: var(--kd-radius);
-	padding: 18px;
-	background: var(--kd-input);
+	padding: 0;
+	background: transparent;
 }
 
 .module-card-copy {
@@ -1093,7 +1092,7 @@ h2 {
 	display: flex;
 	align-items: baseline;
 	flex-wrap: wrap;
-	gap: 7px;
+	gap: 8px;
 }
 
 .module-card-heading strong {
@@ -1122,6 +1121,7 @@ h2 {
 
 .module-card-actions {
 	display: flex;
+	align-items: center;
 	grid-column: 2;
 	flex: 0 0 auto;
 	flex-wrap: wrap;
@@ -1141,22 +1141,21 @@ h2 {
   display: grid;
   gap: 16px;
   border: 0;
-  border-radius: var(--kd-radius);
-  padding: 18px;
-  background: var(--kd-input);
+  padding: 0;
+  background: transparent;
 }
 
 .update-card-copy {
   display: grid;
   min-width: 0;
-  gap: 10px;
+  gap: 8px;
 }
 
 .update-card-heading {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 8px;
 }
 
 .update-card-heading strong {
