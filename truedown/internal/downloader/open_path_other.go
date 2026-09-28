@@ -20,3 +20,5 @@ func systemOpenPath(path string) error {
 	go func() { _ = process.Wait() }()
 	return nil
 }
+
+func RunPathOpenHelper(args []string) (bool, error) { return false, nil }

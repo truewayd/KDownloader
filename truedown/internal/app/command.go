@@ -8,12 +8,20 @@ import (
 	"os/signal"
 	"syscall"
 
+	"truedown/internal/downloader"
 	"truedown/internal/enginesignal"
 	"truedown/internal/systemupdate"
 )
 
 // Main adapts command-line flags and OS signals to the reusable service.
 func Main(args []string, build BuildInfo) int {
+	if handled, err := downloader.RunPathOpenHelper(args); handled {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
 	if handled, err := enginesignal.RunHelper(args); handled {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
