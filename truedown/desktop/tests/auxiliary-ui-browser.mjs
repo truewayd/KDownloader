@@ -126,6 +126,37 @@ try {
   assert.equal(await page.locator('[data-module-reset="dropbox"]').isDisabled(), false, "canceled workflows release the module slot");
   assert.deepEqual(errors, []);
   await page.close();
+  for (const long of [false, true]) {
+    const popup = await browser.newPage({ viewport: { width: 440, height: 160 } });
+    await popup.addInitScript(long => {
+      window.__TRUEDOWN_PLATFORM__ = "windows";
+      window.__TAURI__ = { core: { invoke: async (command, args) => {
+        if (command === "apply_material") return true;
+        if (command === "confirmation_init") return {
+          title: "Confirm", message: long ? "Long message\n".repeat(100) : "A short message that should fit without a scrollbar.",
+          kind: "info", cancelLabel: "Cancel", confirmLabel: "Confirm",
+        };
+        if (command === "confirmation_ready") window.readyHeight = args.height;
+      } } };
+    }, long);
+    await popup.goto(`${origin}/confirmation.html`);
+    await popup.waitForFunction(() => window.readyHeight > 0);
+    await popup.setViewportSize({ width: 440, height: await popup.evaluate(() => readyHeight) });
+    const layout = await popup.evaluate(() => {
+      const message = document.querySelector("#message"), footer = document.querySelector("footer");
+      return { scrolls: message.scrollHeight > message.clientHeight, horizontal: document.documentElement.scrollWidth > innerWidth,
+        footerFits: footer.getBoundingClientRect().bottom <= innerHeight,
+        material: document.documentElement.dataset.material, background: getComputedStyle(document.body).backgroundColor,
+        pointer: getComputedStyle(document.querySelector("#confirm")).cursor };
+    });
+    assert.equal(layout.scrolls, long, "only long confirmation text needs scrolling");
+    assert.equal(layout.horizontal, false);
+    assert.equal(layout.footerFits, true);
+    assert.equal(layout.material, "native");
+    assert.equal(layout.background, "rgba(0, 0, 0, 0)");
+    assert.equal(layout.pointer, "pointer");
+    await popup.close();
+  }
   console.log("Auxiliary UI: literal group labels, category drafts, OS startup feedback and module concurrency passed");
 } finally {
   releaseModule?.();

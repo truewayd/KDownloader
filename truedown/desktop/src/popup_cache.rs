@@ -55,6 +55,8 @@ impl Cache {
             .on_navigation(crate::windows::local_navigation);
         let builder = if kind == Kind::Confirmation {
             builder
+                .transparent(cfg!(any(windows, target_os = "macos")))
+                .initialization_script(crate::appearance::initialization())
                 .min_inner_size(320.0, 144.0)
                 .center()
                 .icon(

@@ -40,8 +40,10 @@
     cancel.textContent = options.cancelLabel; confirm.textContent = options.confirmLabel;
     confirm.className = `kd-button ${options.kind === "info" ? "primary" : "danger"}`;
     (options.kind === "info" ? confirm : cancel).focus();
-    const content = document.getElementById("message");
-    const height = Math.max(144, Math.min(420, Math.ceil(content.scrollHeight + 40 + 16 + document.querySelector("footer").offsetHeight)));
+    const panel = document.querySelector(".confirmation");
+    panel.classList.add("measuring");
+    const height = Math.max(144, Math.min(420, Math.ceil(panel.getBoundingClientRect().height) + 2));
+    panel.classList.remove("measuring");
     await invoke("confirmation_ready", { height });
     initialized = true; window.__popupActive = true;
     } catch (error) { console.error("confirmation_init", error); document.getElementById("message").textContent = "无法打开确认窗口，请关闭后重试。"; }
