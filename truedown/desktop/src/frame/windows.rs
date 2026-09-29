@@ -324,6 +324,10 @@ unsafe extern "system" fn procedure(
 
 /// Must run on the HWND's owning UI thread, after the WebView is constructed.
 pub unsafe fn install(hwnd: HWND) -> Result<(), String> {
+    let mut existing = 0usize;
+    if GetWindowSubclass(hwnd, Some(procedure), SUBCLASS, &mut existing) != 0 {
+        return Ok(());
+    }
     if webview(hwnd).is_null() {
         return Err("Native WebView host is unavailable".into());
     }

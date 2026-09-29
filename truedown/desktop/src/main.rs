@@ -22,6 +22,8 @@ mod tray_actions;
 mod tray_image;
 mod update;
 mod webview;
+#[cfg(windows)]
+mod window_shell;
 mod windows;
 
 use core::Core;
@@ -206,6 +208,10 @@ fn main() {
             handler(invoke)
         })
         .setup(move |app| {
+            #[cfg(windows)]
+            app.manage(appearance::Materials::default());
+            #[cfg(windows)]
+            app.manage(window_shell::Shells::default());
             if let Err(error) = app.state::<startup::Startup>().migrate_legacy() {
                 eprintln!("Cannot migrate login registration: {error}");
             }

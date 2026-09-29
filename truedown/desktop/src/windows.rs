@@ -219,8 +219,21 @@ async fn open_auxiliary_locked(
     settings_route: Option<&str>,
 ) -> Result<(), String> {
     let existing = app.get_webview_window(kind.label());
+    #[cfg(windows)]
+    let recovered = crate::window_shell::recover(app, kind.label()).await?;
+    #[cfg(windows)]
+    let existing = recovered.clone().or(existing);
     let reused = existing.is_some();
     let window = if let Some(window) = existing {
+        #[cfg(windows)]
+        let window = if !state.suppress
+            && recovered.is_none()
+            && !window.is_visible().map_err(|e| e.to_string())?
+        {
+            crate::window_shell::renew(window, kind.icon().map_err(|e| e.to_string())?).await?
+        } else {
+            window
+        };
         window
     } else {
         let (width, height) = match kind {

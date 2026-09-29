@@ -1,5 +1,42 @@
 use tauri::WebviewWindow;
 
+#[cfg(windows)]
+#[derive(Default)]
+pub struct Materials(std::sync::Mutex<std::collections::HashMap<String, (bool, bool)>>);
+
+// Native backdrop attributes belong to an HWND, not to the retained WebView.
+// Restore them before the replacement shell is shown, without waiting for a
+// DOM focus event (which need not fire when the document remains focused).
+#[cfg(windows)]
+pub async fn restore(window: &WebviewWindow) -> Result<(), String> {
+    use tauri::Manager;
+    let owned = window.clone();
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    window
+        .run_on_main_thread(move || {
+            let preference = owned
+                .state::<Materials>()
+                .0
+                .lock()
+                .ok()
+                .and_then(|states| states.get(owned.label()).copied());
+            let result = if let Some((enabled, dark)) = preference {
+                let applied = apply(&owned, enabled, dark);
+                owned
+                    .eval(format!(
+                        "document.documentElement.dataset.material = '{}';",
+                        if applied { "native" } else { "solid" }
+                    ))
+                    .map_err(|e| e.to_string())
+            } else {
+                Ok(())
+            };
+            let _ = sender.send(result);
+        })
+        .map_err(|e| e.to_string())?;
+    receiver.await.map_err(|e| e.to_string())?
+}
+
 pub fn initialization() -> &'static str {
     if cfg!(windows) {
         "window.__TRUEDOWN_PLATFORM__ = 'windows';"
@@ -12,6 +49,20 @@ pub fn initialization() -> &'static str {
 
 #[tauri::command]
 pub fn apply_material(window: WebviewWindow, enabled: bool, dark: bool) -> bool {
+    #[cfg(windows)]
+    if matches!(
+        window.label(),
+        "main" | "settings" | "new-task" | "task-details"
+    ) {
+        use tauri::Manager;
+        if let Ok(mut states) = window.state::<Materials>().0.lock() {
+            states.insert(window.label().to_owned(), (enabled, dark));
+        }
+    }
+    apply(&window, enabled, dark)
+}
+
+fn apply(window: &WebviewWindow, enabled: bool, dark: bool) -> bool {
     #[cfg(not(windows))]
     let _ = dark;
     #[cfg(windows)]
