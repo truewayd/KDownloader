@@ -13,6 +13,7 @@ function installNativeEditingAcceptance() {
   target.style.cssText = 'position:fixed;left:40px;top:170px;width:240px;height:50px;z-index:100';
   document.body.append(source, target);
   let pending = false, completed = false, failed = false;
+  let failureReason = '';
   let menuRequests = 0, menuError = "", menuResult;
   window.invokeNative = async (command, args) => {
     if (command === 'show_context_menu') {
@@ -30,6 +31,12 @@ function installNativeEditingAcceptance() {
       return result;
     } catch (error) {
       failed = true;
+      const message = error?.message || String(error);
+      failureReason = [
+        'Editing requires the focused window', 'Editing requires the foreground window',
+        'Editing requires the visible window', 'Cannot dispatch editing command',
+        'Native editing is suppressed during hidden acceptance', 'Editing window closed',
+      ].includes(message) ? message : 'command rejected';
       throw error;
     } finally { pending = false; }
   };
@@ -37,7 +44,7 @@ function installNativeEditingAcceptance() {
     debug() { return { menuRequests, menuError, menuResult, visible: source.checkVisibility(), inert: Boolean(source.closest('[inert]')), pageMenus: document.querySelectorAll('[role="menu"]').length }; },
     async start(action) {
       if (pending) throw new Error('Overlapping editor actions');
-      completed = false; failed = false;
+      completed = false; failed = false; failureReason = '';
       const input = action === 'copy' ? source : target;
       input.focus();
       if (action === 'copy') source.setSelectionRange(7, 7 + marker.length);
@@ -54,7 +61,7 @@ function installNativeEditingAcceptance() {
       return true;
     },
     ready(action) {
-      if (failed) throw new Error('Native editing command failed or returned data');
+      if (failed) throw new Error(`Native editing command failed or returned data (${action}: ${failureReason || 'non-unit response'})`);
       if (pending || !completed) return false;
       if (action === 'copy') return document.activeElement === source;
       if (action === 'select-all') return target.selectionStart === 0 && target.selectionEnd === marker.length;

@@ -87,7 +87,7 @@ test("native editing acceptance rejects acknowledgments without delivery and nev
   const source = await readFile(new URL("../truedown/desktop/tests/native-editing.js", import.meta.url), "utf8");
   const controls = [];
   let response = null;
-  const original = async () => response;
+  const original = async () => { if (response instanceof Error) throw response; return response; };
   const context = vm.createContext({
     window: { invokeNative: original },
     crypto: { randomUUID: () => "fixture-unique-id" },
@@ -116,6 +116,15 @@ test("native editing acceptance rejects acknowledgments without delivery and nev
   await context.window.invokeNative("edit_action", { action: "paste" });
   await new Promise(resolve => setImmediate(resolve));
   assert.throws(() => fixture.ready("paste"), /failed or returned data/);
+  for (const [message, expected] of [
+    ["Editing requires the foreground window", "Editing requires the foreground window"],
+    ["private unexpected payload", "command rejected"],
+  ]) {
+    response = new Error(message);
+    await fixture.start("paste");
+    await assert.rejects(context.window.invokeNative("edit_action", { action: "paste" }));
+    assert.throws(() => fixture.ready("paste"), error => error.message.includes(expected) && !error.message.includes("private unexpected payload"));
+  }
   fixture.cleanup();
   assert.equal(context.window.invokeNative, original);
   assert.equal(context.window.__nativeEditing, undefined);

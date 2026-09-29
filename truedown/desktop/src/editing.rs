@@ -33,9 +33,13 @@ pub async fn run(window: tauri::WebviewWindow, action: Action) -> Result<(), Str
                 if caller.state::<crate::windows::Windows>().suppress {
                     return Err("Native editing is suppressed during hidden acceptance".into());
                 }
-                if !caller.is_visible().map_err(|error| error.to_string())?
-                    || !caller.is_focused().map_err(|error| error.to_string())?
-                {
+                if !caller.is_visible().map_err(|error| error.to_string())? {
+                    return Err("Editing requires the visible window".into());
+                }
+                // Windows menus temporarily change Tao's cached focus flags.
+                // execute() verifies the actual foreground HWND on the UI thread.
+                #[cfg(not(windows))]
+                if !caller.is_focused().map_err(|error| error.to_string())? {
                     return Err("Editing requires the focused window".into());
                 }
                 execute(&caller, webview, action)
@@ -55,7 +59,9 @@ fn execute(
     action: Action,
 ) -> Result<(), String> {
     use windows_sys::Win32::UI::{
-        Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_KEYBOARD, KEYEVENTF_KEYUP, VK_CONTROL},
+        Input::KeyboardAndMouse::{
+            IsWindowEnabled, SendInput, INPUT, INPUT_KEYBOARD, KEYEVENTF_KEYUP, VK_CONTROL,
+        },
         WindowsAndMessaging::GetForegroundWindow,
     };
     let key = match action {
@@ -68,7 +74,8 @@ fn execute(
     };
     unsafe {
         // Match native menu editing without reading or returning the clipboard.
-        if GetForegroundWindow() != window.hwnd().map_err(|error| error.to_string())?.0 {
+        let hwnd = window.hwnd().map_err(|error| error.to_string())?.0;
+        if GetForegroundWindow() != hwnd || IsWindowEnabled(hwnd) == 0 {
             return Err("Editing requires the foreground window".into());
         }
         let mut inputs: [INPUT; 4] = std::mem::zeroed();

@@ -4,6 +4,7 @@
 - Restore native auxiliary-window opening transitions while retaining live WebViews and drafts. Reapply Mica and caption theme before showing replacement native windows.
 
 - Restrict narrow-screen sidebar reservation to the main workspace. Standalone task details no longer inherit an extra 56px empty strip on the left; both gutters remain 8px.
+- Validate Windows editor actions against the actual foreground, enabled native window after menu dismissal, without depending on stale framework focus flags.
 
 ## Verification
 
