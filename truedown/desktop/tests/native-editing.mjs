@@ -36,7 +36,9 @@ export async function chooseWebDriverEditingMenu(command, evaluate, until, calle
   const popup = await until(async () => (await command('GET', '/window/handles')).find(handle => handle !== caller));
   try {
     await command('POST', '/window', { handle: popup });
-    await until(() => evaluate('return [...document.querySelectorAll("[data-action]")].some(node => node.dataset.action === arguments[0])', [action]));
+    // Rendering buttons precedes native readiness. An early click is rejected
+    // by the caller-bound IPC gate and must never be retried as an editor action.
+    await until(() => evaluate('return window.__popupActive === true && [...document.querySelectorAll("[data-action]")].some(node => node.dataset.action === arguments[0])', [action]));
     try {
       await evaluate('document.querySelectorAll("[data-action]").forEach(node => { if (node.dataset.action === arguments[0]) node.click(); }); return true', [action]);
     } catch (error) {

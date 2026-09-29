@@ -40,6 +40,31 @@ test("WebDriver menu destruction restores its caller without repeating an editor
   }
 });
 
+test("editing drivers wait for native readiness even after menu buttons render", async () => {
+  let visible = true, clicks = 0, readinessPolls = 0;
+  const context = vm.createContext({ window: {}, document: { querySelectorAll: () => [{
+    dataset: { action: "copy" }, click() { clicks++; visible = false; },
+  }] } });
+  const evaluate = async (script, args = []) => {
+    context.args = args;
+    const result = vm.runInContext(`(function(){${script}}).apply(null,args)`, context);
+    if (!script.includes("node.click()")) {
+      readinessPolls++;
+      if (readinessPolls === 1) assert.equal(result, false);
+      context.window.__popupActive = true;
+    }
+    return result;
+  };
+  const until = async check => {
+    for (let attempt = 0; attempt < 3; attempt++) { const value = await check(); if (value) return value; }
+    throw new Error("deadline exceeded");
+  };
+  await chooseWebDriverEditingMenu(async method => method === "GET" ? (visible ? ["caller", "popup"] : ["caller"]) : undefined,
+    evaluate, until, "caller", "copy");
+  assert.equal(readinessPolls, 2);
+  assert.equal(clicks, 1);
+});
+
 test("native editing cleanup does not replace the original failure", async () => {
   const original = new Error("menu action failed");
   const evaluate = async script => {

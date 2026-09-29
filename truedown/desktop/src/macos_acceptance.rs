@@ -105,7 +105,7 @@ impl Fixture {
         // WKWebView may suspend a never-mapped page. Only the isolated CI app is shown.
         crate::show_main(&self.app);
         self.visibility("main", true)?;
-        self.until("main", "window.__TRUEDOWN_PLATFORM__ === 'macos' && document.querySelector('#task-count') && window.__TAURI__")?;
+        self.until("main", "window.__TRUEDOWN_PLATFORM__ === 'macos' && document.querySelector('#task-count') && window.__TAURI__ && document.hasFocus()")?;
         self.check("main", "(async()=>{const r=await window.__TAURI__.core.invoke('core_request',{request:{method:'GET',path:'/system/info'}});return JSON.parse(r.body).product==='TrueDown'})()")?;
         self.check(
             "main",
@@ -144,7 +144,7 @@ impl Fixture {
                     };
                     self.until(
                         &label,
-                        &format!("Boolean(document.querySelector('[data-action=\"{action}\"]'))"),
+                        &format!("window.__popupActive === true && Boolean(document.querySelector('[data-action=\"{action}\"]'))"),
                     )?;
                     // Acknowledge the evaluation before clicking destroys its WebView.
                     self.window(&label)?
