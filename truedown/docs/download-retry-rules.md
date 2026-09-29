@@ -32,7 +32,10 @@ separate native confirmation window in the desktop app.
 | Situation | Behavior |
 | --- | --- |
 | Failed HTTP task with usable payload and `.aria2` map | Resume at the same path; keep downloaded pieces. |
-| Owned payload without `.aria2`, including a file already at its expected size | Remove only that task's incomplete payload and start again at the same path. Sparse/preallocated file length cannot prove completeness. |
+| Stable engine: owned payload without `.aria2`, including a file already at its expected size | Remove only that task's incomplete payload and start again at the same path. Sparse/preallocated file length cannot prove completeness. |
+| NEXT 2.8.2+: owned payload without `.aria2` | Preserve it for the engine's native checkpoint validation. A same-URL failed retry retains its GID. |
+| NEXT rejects an existing output without matching native state | Leave the bytes intact and report that Retry will restart this file from zero. |
+| NEXT resolver request renews its source URL | Reuse the task and output, validate remote metadata, then start from zero under a new GID. |
 | Orphaned `.aria2` for an owned task with no payload | Remove the unusable map and start at the same path. |
 | Invalid HTTP range or incompatible piece length | Persist a clean restart, then remove the owned payload/map before resubmission. |
 | Engine rejects a demonstrably corrupt HTTP map | Report damaged resume state; Retry starts the same file from zero. |
@@ -50,7 +53,7 @@ until the user retries it. Pausing and closing the application retain resumable
 files; a task is complete only when the engine reports successful completion.
 
 Incomplete HTTP downloads continue to use their recorded filename alongside
-the `.aria2` map. They are not usable completed files merely because they are
+the stable engine's `.aria2` map or NEXT's profile-owned native state. They are not usable completed files merely because they are
 visible in the download directory. Do not rename or replace either file while
 the task is running.
 
@@ -63,6 +66,10 @@ a replacement filename or start the engine. Clean-restart intent survives queue
 waits and process restarts. The old GID is retained until its result can be
 removed; subsequent retries cannot forget a still-running writer. Queued work
 also carries its expected GID so older work cannot apply stale recheck intent.
+When a native HTTP retry reuses its GID, terminal polls are ignored until the
+previous result has been retired; revision checks reject polls from before
+resubmission. TrueDown's task database restores the original GID and URL on
+engine restart, while the profile's native state directory holds the ranges.
 
 Existing records retain their stored output path and migrate to resume state.
 HTTP recovery checks direct child paths and validates the entire payload/control

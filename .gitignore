@@ -20,6 +20,7 @@ truedown/desktop/gen/
 !truedown/COMPONENTS.md
 !truedown/docs/ab-download-manager-review.md
 !truedown/docs/ab-api-compatibility.md
+!truedown/docs/aria2-next-compatibility.md
 !truedown/docs/tauri-audit-2026-09-08.md
 !truedown/docs/tauri-auxiliary-audit-2026-09-09.md
 !truedown/docs/download-retry-rules.md
