@@ -52,14 +52,41 @@ impl Tracking {
         ACTIVE.with(|slot| slot.set(&*state));
         Ok(Self { state, hook })
     }
-    pub fn selected(&self, native: u32) -> u32 {
-        if self.state.selected.get() != 0 {
-            self.state.selected.get()
-        } else {
-            native
-        }
+    pub unsafe fn selected(&self, native: u32, cancelled: bool) -> u32 {
+        resolve_selection(
+            self.state.selected.get(),
+            native,
+            self.state.visible_owner,
+            GetForegroundWindow() == self.state.owner,
+            IsWindowVisible(self.state.owner) != 0,
+            cancelled,
+        )
     }
 }
+
+fn resolve_selection(
+    confirmed: u32,
+    native: u32,
+    visible_owner: bool,
+    foreground: bool,
+    visible: bool,
+    cancelled: bool,
+) -> u32 {
+    // Hiding a tray popup can transfer foreground after its input was validated.
+    // Content menus still require their caller to remain visible and foreground.
+    if cancelled
+        || (visible_owner && !visible)
+        || (!foreground && (visible_owner || confirmed == 0))
+    {
+        return 0;
+    }
+    if confirmed != 0 {
+        confirmed
+    } else {
+        native
+    }
+}
+
 impl Drop for Tracking {
     fn drop(&mut self) {
         unsafe {
@@ -145,4 +172,20 @@ unsafe extern "system" fn filter(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
         }
     }
     CallNextHookEx(std::ptr::null_mut(), code, wp, lp)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_selection;
+
+    #[test]
+    fn tray_selection_survives_dismissal_but_not_cancellation() {
+        assert_eq!(resolve_selection(4, 0, false, false, false, false), 4);
+        assert_eq!(resolve_selection(4, 0, false, false, false, true), 0);
+        assert_eq!(resolve_selection(0, 4, false, false, false, false), 0);
+        assert_eq!(resolve_selection(0, 4, false, true, false, false), 4);
+        assert_eq!(resolve_selection(4, 0, true, false, true, false), 0);
+        assert_eq!(resolve_selection(4, 0, true, true, false, false), 0);
+        assert_eq!(resolve_selection(4, 0, true, true, true, false), 4);
+    }
 }

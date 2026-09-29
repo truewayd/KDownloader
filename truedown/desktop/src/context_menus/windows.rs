@@ -216,13 +216,7 @@ unsafe fn track_at(
         hwnd,
         std::ptr::null(),
     );
-    let selected = tracking.selected(selected as u32);
-    if cancelled.load(Ordering::SeqCst)
-        || (visible_owner && IsWindowVisible(hwnd) == 0)
-        || GetForegroundWindow() != hwnd
-    {
-        return Ok(None);
-    }
+    let selected = tracking.selected(selected as u32, cancelled.load(Ordering::SeqCst));
     Ok(selected
         .checked_sub(1)
         .and_then(|index| actions.get(index as usize))

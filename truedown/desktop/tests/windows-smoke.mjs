@@ -559,8 +559,10 @@ try {
   // An authenticated external client exit must stop the desktop, not trigger
   // crash recovery. Read this isolated fixture's key only in the test driver.
   const token = (await fs.readFile(path.join(storage.paths.config, "truedown.token"), "utf8")).trim();
+  const exitStarted = performance.now();
   assert.equal((await fetch(`http://127.0.0.1:${port}/system/exit`, { method: "POST", headers: { "X-Api-Key": token } })).status, 202);
   await waitUntil(() => child.exitCode !== null, 20000);
+  console.log(`native_external_exit_ms=${Math.round(performance.now() - exitStarted)}`);
   console.log("native_windows=ok native_task_forms=ok task_form_drafts=ok task_form_permissions=ok task_creation_refresh=ok shared_cache=ok shared_settings=ok retained_drafts=ok private_auth=ok scale_layout=ok native_theme=ok material_surfaces=ok forced_colors=ok reduced_transparency=ok core_recovery=ok orphan_cleanup=ok external_exit=ok all_windows_hidden=ok");
 } finally {
   if (main && child.exitCode === null) await invoke(main, "core_request", { request: { method: "POST", path: "/system/exit" } }).catch(() => {});
