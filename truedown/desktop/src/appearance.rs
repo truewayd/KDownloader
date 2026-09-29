@@ -97,11 +97,11 @@ fn apply(window: &WebviewWindow, enabled: bool, dark: bool) -> bool {
             && transparent
             && contrast_available
             && contrast.dwFlags & HCF_HIGHCONTRASTON == 0
-            && window_vibrancy::apply_mica(&window, Some(dark)).is_ok()
+            && window_vibrancy::apply_mica(window, Some(dark)).is_ok()
         {
             return true;
         }
-        let _ = window_vibrancy::clear_mica(&window);
+        let _ = window_vibrancy::clear_mica(window);
         // Keep the caption aligned without pinning the WebView's system theme.
         if let Ok(handle) = window.hwnd() {
             let dark = i32::from(dark);
@@ -120,13 +120,13 @@ fn apply(window: &WebviewWindow, enabled: bool, dark: bool) -> bool {
         let workspace = objc2_app_kit::NSWorkspace::sharedWorkspace();
         // window-vibrancy 0.6 inserts a fresh NSVisualEffectView on each apply;
         // focus/theme updates must replace the old view rather than stack them.
-        let _ = window_vibrancy::clear_vibrancy(&window);
+        let _ = window_vibrancy::clear_vibrancy(window);
         if enabled
             && !workspace.accessibilityDisplayShouldReduceTransparency()
             && !workspace.accessibilityDisplayShouldIncreaseContrast()
         {
             return window_vibrancy::apply_vibrancy(
-                &window,
+                window,
                 window_vibrancy::NSVisualEffectMaterial::Sidebar,
                 None,
                 None,
