@@ -1,21 +1,22 @@
 //! Extend the client into the caption while keeping DWM's real caption buttons.
 //! The WebView region excludes those buttons, so its child HWND cannot obscure
 //! their painting or consume their non-client mouse input (including Snap).
+//! An active DOM tooltip can reveal its bounded, rounded footprint temporarily.
 use std::ptr::null_mut;
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
     Graphics::{
         Dwm::{DwmDefWindowProc, DwmExtendFrameIntoClientArea},
         Gdi::{
-            BeginPaint, CombineRgn, CreateRectRgn, DeleteObject, EndPaint, FillRect,
-            GetStockObject, InvalidateRect, ScreenToClient, SetWindowRgn, BLACK_BRUSH, HDC,
-            PAINTSTRUCT, RGN_DIFF,
+            BeginPaint, CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, EndPaint,
+            FillRect, GetStockObject, InvalidateRect, ScreenToClient, SetWindowRgn, BLACK_BRUSH,
+            HDC, HRGN, PAINTSTRUCT, RGN_AND, RGN_DIFF, RGN_OR,
         },
     },
     UI::{
         Controls::MARGINS,
         HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow, GetSystemMetricsForDpi},
-        Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
+        Shell::{DefSubclassProc, GetWindowSubclass, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
 };
@@ -23,6 +24,66 @@ use windows_sys::Win32::{
 const SUBCLASS: usize = 0x54444652;
 pub const BUTTON_WIDTH: f64 = 144.0;
 pub const CAPTION_HEIGHT: f64 = 40.0;
+
+#[derive(Default)]
+struct Tooltip {
+    session: u32,
+    revision: u32,
+    bounds: Option<super::TooltipBounds>,
+}
+
+unsafe fn tooltip_state(hwnd: HWND) -> Option<&'static mut Tooltip> {
+    let mut data = 0;
+    if GetWindowSubclass(hwnd, Some(procedure), SUBCLASS, &mut data) == 0 || data == 0 {
+        None
+    } else {
+        Some(&mut *(data as *mut Tooltip))
+    }
+}
+
+pub unsafe fn tooltip(
+    hwnd: HWND,
+    session: u32,
+    revision: u32,
+    bounds: Option<super::TooltipBounds>,
+) -> Result<u32, String> {
+    let state = tooltip_state(hwnd).ok_or("Native frame unavailable")?;
+    if session == 0 {
+        state.session = state
+            .session
+            .checked_add(1)
+            .ok_or("Tooltip session exhausted")?;
+        state.revision = 0;
+        state.bounds = None;
+    } else if state.session == session && revision > state.revision {
+        state.revision = revision;
+        state.bounds =
+            bounds.filter(|_| IsWindowVisible(hwnd) != 0 && GetForegroundWindow() == hwnd);
+    }
+    let current = state.session;
+    refresh(hwnd);
+    Ok(current)
+}
+
+unsafe fn tooltip_region(bounds: super::TooltipBounds, rect: &RECT) -> HRGN {
+    // CSS viewport ratios include WebView zoom as well as monitor DPI.
+    let scale = rect.right as f64 / bounds.viewport_width;
+    if !bounds.valid()
+        || !(0.25..=8.0).contains(&scale)
+        || (bounds.viewport_height * scale - rect.bottom as f64).abs() > 2.0
+    {
+        return null_mut();
+    }
+    let radius = (bounds.radius * scale * 2.0).round() as i32;
+    CreateRoundRectRgn(
+        (bounds.left * scale).floor() as i32,
+        (bounds.top * scale).floor() as i32,
+        ((bounds.left + bounds.width) * scale).ceil() as i32 + 1,
+        ((bounds.top + bounds.height) * scale).ceil() as i32 + 1,
+        radius,
+        radius,
+    )
+}
 
 pub unsafe fn sizing_offset(hwnd: HWND) -> Result<(f64, f64), String> {
     let mut inner = RECT::default();
@@ -125,6 +186,19 @@ unsafe fn refresh(hwnd: HWND) {
     );
     if !region.is_null() && !buttons.is_null() && CombineRgn(region, region, buttons, RGN_DIFF) != 0
     {
+        if let Some(bounds) = tooltip_state(hwnd).and_then(|state| state.bounds) {
+            let tip = tooltip_region(bounds, &rect);
+            if !tip.is_null() {
+                // Reveal only the caption intersection, preserving resize borders.
+                let allowed = CreateRectRgn(0, edge, rect.right, rect.bottom);
+                if !allowed.is_null() {
+                    CombineRgn(tip, tip, allowed, RGN_AND);
+                    CombineRgn(region, region, tip, RGN_OR);
+                    DeleteObject(allowed);
+                }
+                DeleteObject(tip);
+            }
+        }
         // Ownership transfers only after a successful SetWindowRgn call.
         if SetWindowRgn(child, region, 1) == 0 {
             DeleteObject(region);
@@ -146,8 +220,22 @@ unsafe extern "system" fn procedure(
     wp: WPARAM,
     lp: LPARAM,
     _: usize,
-    _: usize,
+    data: usize,
 ) -> LRESULT {
+    if matches!(
+        message,
+        WM_SIZE
+            | WM_MOVE
+            | WM_DPICHANGED
+            | WM_SHOWWINDOW
+            | WM_ACTIVATE
+            | WM_CANCELMODE
+            | WM_ENTERSIZEMOVE
+    ) {
+        if let Some(state) = tooltip_state(hwnd) {
+            state.bounds = None;
+        }
+    }
     if message == WM_ERASEBKGND || message == WM_PRINTCLIENT {
         paint_caption(hwnd, wp as HDC);
         return 1;
@@ -211,16 +299,23 @@ unsafe extern "system" fn procedure(
         // The large icon borrows Tao's small-icon handle until window teardown.
         SendMessageW(hwnd, WM_SETICON, ICON_BIG as WPARAM, 0);
         RemoveWindowSubclass(hwnd, Some(procedure), SUBCLASS);
+        if data != 0 {
+            drop(Box::from_raw(data as *mut Tooltip));
+        }
+        return DefSubclassProc(hwnd, message, wp, lp);
     }
     let result = DefSubclassProc(hwnd, message, wp, lp);
     if matches!(
         message,
         WM_SIZE
+            | WM_MOVE
             | WM_DPICHANGED
             | WM_DWMCOMPOSITIONCHANGED
             | WM_THEMECHANGED
             | WM_SHOWWINDOW
             | WM_ACTIVATE
+            | WM_CANCELMODE
+            | WM_ENTERSIZEMOVE
     ) {
         refresh(hwnd);
     }
@@ -232,7 +327,9 @@ pub unsafe fn install(hwnd: HWND) -> Result<(), String> {
     if webview(hwnd).is_null() {
         return Err("Native WebView host is unavailable".into());
     }
-    if SetWindowSubclass(hwnd, Some(procedure), SUBCLASS, 0) == 0 {
+    let state = Box::into_raw(Box::<Tooltip>::default());
+    if SetWindowSubclass(hwnd, Some(procedure), SUBCLASS, state as usize) == 0 {
+        drop(Box::from_raw(state));
         return Err(std::io::Error::last_os_error().to_string());
     }
     // Tauri supplies ICON_SMALL only. Give the taskbar the same role-specific
@@ -252,6 +349,7 @@ pub unsafe fn install(hwnd: HWND) -> Result<(), String> {
     ) == 0
     {
         RemoveWindowSubclass(hwnd, Some(procedure), SUBCLASS);
+        drop(Box::from_raw(state));
         return Err(std::io::Error::last_os_error().to_string());
     }
     refresh(hwnd);
@@ -265,6 +363,52 @@ mod tests {
         CreateCompatibleDC, CreateDIBSection, DeleteDC, GdiFlush, SelectObject, BITMAPINFO,
         BITMAPINFOHEADER, DIB_RGB_COLORS,
     };
+
+    #[test]
+    fn tooltip_reveal_is_rounded_and_tracks_viewport_scale() {
+        use windows_sys::Win32::Graphics::Gdi::PtInRegion;
+        unsafe {
+            for scale in [1.0, 1.25, 1.5, 2.0] {
+                let viewport = RECT {
+                    right: (800.0 * scale) as i32,
+                    bottom: (600.0 * scale) as i32,
+                    ..Default::default()
+                };
+                let bounds = super::super::TooltipBounds {
+                    left: 600.0,
+                    top: 12.0,
+                    width: 192.0,
+                    height: 38.0,
+                    radius: 12.0,
+                    viewport_width: 800.0,
+                    viewport_height: 600.0,
+                };
+                let region = tooltip_region(bounds, &viewport);
+                assert!(!region.is_null());
+                assert_ne!(
+                    PtInRegion(region, (700.0 * scale) as i32, (25.0 * scale) as i32),
+                    0
+                );
+                assert_eq!(
+                    PtInRegion(region, (600.0 * scale) as i32, (12.0 * scale) as i32),
+                    0
+                );
+                assert_eq!(
+                    PtInRegion(region, (799.0 * scale) as i32, (25.0 * scale) as i32),
+                    0
+                );
+                DeleteObject(region);
+                assert!(tooltip_region(
+                    super::super::TooltipBounds {
+                        viewport_height: 800.0,
+                        ..bounds
+                    },
+                    &viewport
+                )
+                .is_null());
+            }
+        }
+    }
 
     #[test]
     fn extended_caption_sizes_fit_small_work_areas_without_repeated_growth() {

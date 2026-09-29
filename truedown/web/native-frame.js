@@ -10,6 +10,44 @@
     if (typeof showToast === "function") showToast(String(error?.message || error), "error");
     else console.error("Window operation failed:", error);
   };
+  // Keep the shared DOM tooltip; expose only its rounded footprint through the
+  // native caption exclusion. Coalesce layouts and serialize show/hide IPC.
+  let tooltipSession = 0, tooltipRevision = 0, tooltipPending, tooltipSending = false;
+  const flushTooltip = async () => {
+    if (!tooltipSession || tooltipSending) return;
+    tooltipSending = true;
+    try {
+      while (tooltipPending !== undefined) {
+        const bounds = tooltipPending;
+        tooltipPending = undefined;
+        await invoke("frame_tooltip", { session: tooltipSession, revision: ++tooltipRevision, bounds });
+      }
+    } catch (error) {
+      delete root.dataset.nativeTooltip;
+      document.removeEventListener("kd-tooltip-layout", tooltipLayout);
+      KDComponents.installTooltips().hide();
+      // A failed reveal must not leave caption pixels exposed.
+      tooltipPending = undefined;
+      await invoke("frame_tooltip", { session: tooltipSession, revision: ++tooltipRevision, bounds: null }).catch(console.error);
+      console.error("Native tooltip layout failed:", error);
+    } finally { tooltipSending = false; }
+  };
+  const tooltipLayout = event => {
+    tooltipPending = disposed ? null : event.detail;
+    void flushTooltip();
+  };
+  if (platform === "windows") {
+    document.addEventListener("kd-tooltip-layout", tooltipLayout);
+    invoke("frame_tooltip", { session: 0, revision: 0, bounds: null }).then(session => {
+      if (!Number.isInteger(session) || session <= 0) throw new Error("Invalid native tooltip session");
+      tooltipSession = session;
+      if (!disposed) root.dataset.nativeTooltip = "true";
+      void flushTooltip();
+    }).catch(error => {
+      document.removeEventListener("kd-tooltip-layout", tooltipLayout);
+      console.error("Native tooltip initialization failed:", error);
+    });
+  }
   const refresh = async () => {
     dirty = true;
     if (updating || disposed) return;
@@ -68,6 +106,9 @@
   window.addEventListener("focus", refresh);
   window.addEventListener("pagehide", () => {
     disposed = true; clearTimeout(timer); observer.disconnect();
+    document.removeEventListener("kd-tooltip-layout", tooltipLayout);
+    tooltipPending = null;
+    void flushTooltip();
     window.removeEventListener("resize", resized);
     window.removeEventListener("focus", refresh);
   }, { once: true });

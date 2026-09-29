@@ -72,10 +72,60 @@ try {
     assert.equal(state.clientTopInset, 0);
     assert.deepEqual(state.captionHits, [8, 9, 20]);
     const output = path.join(fixture, `${kind}-system-theme.png`);
-    const capture = powershell("windows-visual-window.ps1", ["-WindowHandle", state.handle, "-OutputPath", output]);
+    const capture = powershell("windows-visual-window.ps1", ["-WindowHandle", state.handle, "-OutputPath", output, ...(kind === "main" ? ["-KeepVisible"] : [])]);
     assert.match(capture, /native_caption_glyphs=ok/);
     evidence[kind] = { dark, state, output };
     console.log(`${kind}: native caption glyphs and system theme OK`);
+    if (kind === "main") {
+      const tooltipEvidence = [];
+      const readOwner = () => readWindows().find(window => window.handle === state.handle);
+      for (const scheme of ["light", "dark"]) {
+        await page.emulateMedia({ colorScheme: scheme });
+        console.log(`Waiting for foreground: ${fixture} (${scheme})`);
+        await until(() => readOwner().foreground, 60000);
+        await until(() => page.evaluate(() => document.documentElement.dataset.nativeTooltip === "true"));
+        await page.evaluate(() => {
+          const button = document.createElement("button");
+          button.id = "caption-tooltip-fixture";
+          button.textContent = "Tooltip fixture";
+          button.dataset.tooltip = "Title bar tooltip overlay";
+          button.style.cssText = "position:fixed;right:16px;top:60px;z-index:100";
+          document.body.append(button);
+          button.focus();
+        });
+        await until(() => page.evaluate(() => !document.getElementById("kd-tooltip").hidden));
+        const revealed = await until(() => { const owner = readOwner(); return !owner.captionExcludedFromWebView && owner; });
+        const bounds = await page.locator("#kd-tooltip").boundingBox();
+        assert.ok(bounds.y < 40, "Tooltip must cover caption pixels");
+        const screenshot = path.join(fixture, `main-tooltip-${scheme}.png`);
+        // Flush the WebView compositor before PrintWindow reads native pixels.
+        await page.screenshot({ path: path.join(fixture, `tooltip-webview-${scheme}.png`) });
+        assert.equal(await page.locator("#kd-tooltip").isVisible(), true);
+        assert.equal(await page.locator("#kd-tooltip").textContent(), "Title bar tooltip overlay");
+        powershell("windows-popup-capture.ps1", ["-Title", readOwner().title, "-OutputPath", screenshot]);
+        await page.keyboard.press("Escape");
+        await until(() => readOwner().captionExcludedFromWebView);
+        assert.equal(await page.locator("#kd-tooltip").isVisible(), false);
+        await page.locator("#caption-tooltip-fixture").evaluate(node => node.remove());
+        tooltipEvidence.push({ scheme, bounds, revealed, screenshot });
+      }
+      // Commands from a previous document/session must not reopen a reveal.
+      const session = await invoke(page, "frame_tooltip", { session: 0, revision: 0, bounds: null });
+      const layout = await page.evaluate(() => ({ left: innerWidth - 200, top: 8, width: 180, height: 38, radius: 12, viewportWidth: innerWidth, viewportHeight: innerHeight }));
+      await invoke(page, "frame_tooltip", { session, revision: 2, bounds: null });
+      await invoke(page, "frame_tooltip", { session, revision: 1, bounds: layout });
+      assert.equal(readOwner().captionExcludedFromWebView, true);
+      const newer = await invoke(page, "frame_tooltip", { session: 0, revision: 0, bounds: null });
+      assert.notEqual(session, newer);
+      await invoke(page, "frame_tooltip", { session, revision: 3, bounds: layout });
+      assert.equal(readOwner().captionExcludedFromWebView, true);
+      await assert.rejects(invoke(page, "frame_tooltip", { session: newer, revision: 1, bounds: { ...layout, width: 4000 } }));
+      await page.reload();
+      await until(() => page.evaluate(() => document.documentElement.dataset.nativeTooltip === "true").catch(() => false));
+      assert.equal(readOwner().captionExcludedFromWebView, true);
+      evidence.tooltips = tooltipEvidence;
+      console.log("main: light/dark DOM tooltip caption reveal, dismissal, stale request rejection and navigation OK");
+    }
   }
   await fs.writeFile(path.join(fixture, "evidence.json"), JSON.stringify(evidence, null, 2) + "\n");
   console.log(`Screenshots: ${fixture}`);

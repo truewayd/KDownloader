@@ -5,6 +5,102 @@ use tauri::{Manager, WebviewWindow, WebviewWindowBuilder, Wry};
 #[cfg(windows)]
 mod windows;
 
+pub fn navigation_started(webview: &tauri::Webview) {
+    #[cfg(windows)]
+    {
+        let window = webview.window();
+        let owned = window.clone();
+        let _ = window.run_on_main_thread(move || {
+            if let Ok(handle) = owned.hwnd() {
+                unsafe {
+                    let _ = windows::tooltip(handle.0, 0, 0, None);
+                }
+            }
+        });
+    }
+    #[cfg(not(windows))]
+    let _ = webview;
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TooltipBounds {
+    left: f64,
+    top: f64,
+    width: f64,
+    height: f64,
+    radius: f64,
+    viewport_width: f64,
+    viewport_height: f64,
+}
+
+impl TooltipBounds {
+    fn valid(&self) -> bool {
+        [
+            self.left,
+            self.top,
+            self.width,
+            self.height,
+            self.radius,
+            self.viewport_width,
+            self.viewport_height,
+        ]
+        .iter()
+        .all(|v| v.is_finite())
+            && self.left >= 0.0
+            && self.top >= 0.0
+            && self.width > 0.0
+            && self.width <= 321.0
+            && self.height > 0.0
+            && self.height <= 4096.0
+            && self.radius >= 0.0
+            && self.radius <= 16.0
+            && self.viewport_width > 0.0
+            && self.viewport_width <= 32768.0
+            && self.viewport_height > 0.0
+            && self.viewport_height <= 32768.0
+            && self.left + self.width <= self.viewport_width + 1.0
+            && self.top + self.height <= self.viewport_height + 1.0
+    }
+}
+
+/// Only the caller's shared tooltip may reveal pixels over its caption.
+#[tauri::command]
+pub async fn frame_tooltip(
+    window: WebviewWindow,
+    session: u32,
+    revision: u32,
+    bounds: Option<TooltipBounds>,
+) -> Result<u32, String> {
+    if !matches!(
+        window.label(),
+        "main" | "settings" | "new-task" | "task-details"
+    ) || bounds.as_ref().is_some_and(|bounds| !bounds.valid())
+        || (session == 0 && (revision != 0 || bounds.is_some()))
+    {
+        return Err("Invalid tooltip layout".into());
+    }
+    #[cfg(windows)]
+    {
+        let owned = window.clone();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        window
+            .run_on_main_thread(move || {
+                let result = owned
+                    .hwnd()
+                    .map_err(|e| e.to_string())
+                    .and_then(|handle| unsafe {
+                        windows::tooltip(handle.0, session, revision, bounds)
+                    });
+                let _ = sender.send(result);
+            })
+            .map_err(|e| e.to_string())?;
+        receiver.await.map_err(|e| e.to_string())?
+    }
+    #[cfg(not(windows))]
+    Err("Native tooltip clipping is Windows-only".into())
+}
+
 /// Setup already runs on the UI thread; auxiliary creation dispatches here.
 pub fn install(window: &WebviewWindow) -> Result<(), String> {
     #[cfg(windows)]
@@ -182,7 +278,58 @@ fn system_menu(_window: &WebviewWindow) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::Action;
+    use super::{Action, TooltipBounds};
+
+    #[test]
+    fn tooltip_bounds_are_finite_and_viewport_bounded() {
+        let valid = TooltipBounds {
+            left: 600.0,
+            top: 12.0,
+            width: 192.0,
+            height: 38.0,
+            radius: 12.0,
+            viewport_width: 800.0,
+            viewport_height: 600.0,
+        };
+        assert!(valid.valid());
+        for invalid in [
+            TooltipBounds {
+                left: -1.0,
+                ..valid
+            },
+            TooltipBounds {
+                width: 322.0,
+                ..valid
+            },
+            TooltipBounds {
+                height: 4097.0,
+                ..valid
+            },
+            TooltipBounds {
+                top: f64::NAN,
+                ..valid
+            },
+            TooltipBounds {
+                radius: f64::INFINITY,
+                ..valid
+            },
+            TooltipBounds {
+                viewport_width: 0.0,
+                ..valid
+            },
+            TooltipBounds {
+                left: 799.0,
+                ..valid
+            },
+        ] {
+            assert!(!invalid.valid());
+        }
+        assert!(serde_json::from_value::<TooltipBounds>(serde_json::json!({
+            "left": 0, "top": 0, "width": 200, "height": 30, "radius": 12,
+            "viewportWidth": 800, "viewportHeight": 600, "window": "settings"
+        }))
+        .is_err());
+    }
 
     #[test]
     fn frame_actions_do_not_accept_arbitrary_commands_or_windows() {

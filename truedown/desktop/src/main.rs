@@ -198,6 +198,7 @@ fn main() {
                 frame::frame_action,
                 frame::frame_state,
                 frame::frame_title,
+                frame::frame_tooltip,
                 pickers::choose_download_directory,
                 appearance::apply_material,
                 update::desktop_ready
@@ -306,6 +307,11 @@ fn main() {
             #[cfg(all(debug_assertions, target_os = "macos"))]
             macos_acceptance::start(app.handle());
             Ok(())
+        })
+        .on_page_load(|webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                frame::navigation_started(webview);
+            }
         })
         .on_window_event(|window, event| {
             if window.label().starts_with("confirmation-")

@@ -993,6 +993,7 @@
     tip.hidden = true;
     ownerDocument.body.append(tip);
     let anchor = null, timer = 0, leaveTimer = 0;
+    const publishBounds = bounds => ownerDocument.dispatchEvent(new view.CustomEvent("kd-tooltip-layout", { detail: bounds }));
     const selector = "[data-tooltip]";
     const find = node => node?.closest?.(selector);
     const hide = () => {
@@ -1003,6 +1004,7 @@
         if (ids.length) anchor.setAttribute("aria-describedby", ids.join(" "));
         else anchor.removeAttribute("aria-describedby");
       }
+      if (!tip.hidden) publishBounds(null);
       if (tip.hidePopover && tip.matches(":popover-open")) tip.hidePopover();
       tip.hidden = true;
       anchor = null;
@@ -1032,6 +1034,10 @@
       } else if (top < topEdge) top = box.bottom + gap;
       tip.style.left = `${Math.max(edge, Math.min(left, width - bounds.width - edge))}px`;
       tip.style.top = `${Math.max(topEdge, Math.min(top, height - bounds.height - edge))}px`;
+      const placed = tip.getBoundingClientRect();
+      publishBounds({ left: placed.left, top: placed.top, width: placed.width, height: placed.height,
+        radius: parseFloat(view.getComputedStyle(tip).borderTopLeftRadius) || 0,
+        viewportWidth: width, viewportHeight: height });
     };
     const show = target => {
       view.clearTimeout(leaveTimer);

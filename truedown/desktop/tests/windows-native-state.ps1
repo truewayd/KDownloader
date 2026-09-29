@@ -15,6 +15,7 @@ public sealed class TrueDownWindowState {
     public string handle;
     public string title;
     public bool visible;
+    public bool foreground;
     public bool caption;
     public bool resizable;
     public bool minimizable;
@@ -55,6 +56,8 @@ public static class TrueDownNativeState {
     private static extern int GetWindowLong(IntPtr window, int index);
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr window, out RECT rectangle);
     [DllImport("user32.dll")]
@@ -116,6 +119,7 @@ public static class TrueDownNativeState {
                 handle = window.ToInt64().ToString("x"),
                 title = title.ToString(),
                 visible = IsWindowVisible(window),
+                foreground = GetForegroundWindow() == window,
                 caption = (GetWindowLong(window, -16) & 0x00c00000) == 0x00c00000,
                 resizable = (GetWindowLong(window, -16) & 0x00040000) != 0,
                 minimizable = (GetWindowLong(window, -16) & 0x00020000) != 0,

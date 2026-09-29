@@ -13,7 +13,7 @@
     "test:macos": "node tests/macos-smoke.mjs",
     "test:workspace": "node tests/workspace-browser-smoke.mjs",
     "test:notice": "node tests/workspace-notice-browser.mjs",
-    "test:tooltips": "node tests/tooltips-browser.mjs",
+    "test:tooltips": "node tests/tooltips-browser.mjs && node tests/tooltip-overlay-browser.mjs",
     "test:context-menu": "node tests/context-menu-browser.mjs",
     "test:settings": "node tests/settings-browser-smoke.mjs",
     "test:select": "node tests/select-browser.mjs",

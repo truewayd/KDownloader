@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][ValidateRange(1, 2147483647)][int]$ProcessId,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]+$')][string]$WindowHandle,
-    [Parameter(Mandatory = $true)][string]$OutputPath
+    [Parameter(Mandatory = $true)][string]$OutputPath,
+    [switch]$KeepVisible
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
@@ -31,7 +32,7 @@ public static class TrueDownVisibleWindow {
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern IntPtr SendMessageTimeoutW(IntPtr window, uint message, UIntPtr wparam, IntPtr lparam, uint flags, uint timeout, out IntPtr result);
-    public static void Capture(IntPtr window, uint expectedProcess, string path) {
+    public static void Capture(IntPtr window, uint expectedProcess, string path, bool keepVisible) {
         uint process;
         GetWindowThreadProcessId(window, out process);
         if (process != expectedProcess) throw new InvalidOperationException("Refusing another process's window");
@@ -80,12 +81,12 @@ public static class TrueDownVisibleWindow {
             }
             Console.WriteLine("native_caption_glyphs=ok");
         } finally {
-            ShowWindow(window, 0);
+            if (!keepVisible) ShowWindow(window, 0);
             SetWindowPos(window, new IntPtr(-2), 0, 0, 0, 0, 0x0013);
-            if (foreground != IntPtr.Zero) SetForegroundWindow(foreground);
+            if (!keepVisible && foreground != IntPtr.Zero) SetForegroundWindow(foreground);
             if (previous != IntPtr.Zero) SetThreadDpiAwarenessContext(previous);
         }
     }
 }
 '@
-[TrueDownVisibleWindow]::Capture([IntPtr]::new([Convert]::ToInt64($WindowHandle, 16)), [uint32]$ProcessId, $OutputPath)
+[TrueDownVisibleWindow]::Capture([IntPtr]::new([Convert]::ToInt64($WindowHandle, 16)), [uint32]$ProcessId, $OutputPath, $KeepVisible.IsPresent)

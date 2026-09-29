@@ -88,6 +88,7 @@ jobs:
           node tests/workspace-browser-smoke.mjs
           node tests/workspace-notice-browser.mjs
           node tests/tooltips-browser.mjs
+          node tests/tooltip-overlay-browser.mjs
           node tests/context-menu-browser.mjs
           node tests/task-forms-browser-smoke.mjs
           node tests/task-details-browser-smoke.mjs

@@ -44,6 +44,27 @@ directly.
 
 ## Component boundaries
 
+### Caption tooltip composition
+
+TrueDown keeps tooltips in the canonical DOM/popover controller, including text,
+keyboard dismissal, pointer transit and `aria-describedby`. The controller emits
+`kd-tooltip-layout` with viewport-relative bounds or null on dismissal. Windows'
+native-frame adapter serializes/coalesces those layouts through caller-scoped
+`frame_tooltip` IPC. A new document opens a native session; old sessions and
+revisions cannot overwrite a newer layout. The native frame unions only the
+tooltip's rounded footprint into the WebView region, retaining the resize edge
+and caption exclusions elsewhere. Native move/resize/activation/hide and page
+navigation clear the reveal. CSS-to-client ratios account for DPI and WebView
+zoom. Without a working adapter, placement retains the caption-safe top inset.
+
+This follows the composition approach observed in the locally installed Codex
+26.924.2738.0 Windows package: its main bundle configures Electron's hidden
+title bar and title-bar overlay; renderer bundles use Radix Tooltip/Portal.
+That evidence establishes a DOM tooltip above window chrome, not a separate
+native tooltip window. TrueDown uses its existing Tauri/WebView2 frame instead
+of importing Electron or replacing Windows caption controls. Native screenshots
+must validate final composition; browser screenshots alone omit DWM controls.
+
 ### Light DOM
 
 Owned documents use the shared `kd-*` vocabulary:
