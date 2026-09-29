@@ -166,6 +166,7 @@ func resolveGoogleDriveDownloadWithProfile(
 				continue
 			}
 			metadata := remoteMetadata{URL: resolvedURL, Name: sanitizeModulePathComponent(name)}
+			metadata.ContentDisposition = response.Header.Get("Content-Disposition")
 			metadata.Length, metadata.LengthKnown = responseTotalLength(response, responseRequestMethod(response))
 			metadata.Digest = strings.TrimSpace(response.Header.Get("X-Goog-Hash"))
 			headers := googleDriveDownloadHeaders(task.Headers, client.Jar, responseRequestURL(response), profile)

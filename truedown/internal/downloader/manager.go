@@ -205,11 +205,12 @@ type admission struct {
 }
 
 type dropboxMetadata struct {
-	URL         string
-	Name        string
-	Digest      string
-	Length      int64
-	LengthKnown bool
+	ContentDisposition string
+	URL                string
+	Name               string
+	Digest             string
+	Length             int64
+	LengthKnown        bool
 }
 
 type ariaRPC interface {
@@ -553,6 +554,9 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		proposed := cloneTask(task)
 		proposed.PreviousGID = removeGID
 		proposed.GID = m.newGIDLocked()
+		if m.keepHTTPRetryGID(task) && task.Link == identity.Link {
+			proposed.GID = task.GID
+		}
 		proposed.Fingerprint = fingerprint
 		proposed.RequestJSON = string(requestJSON)
 		proposed.Link = identity.Link
@@ -567,6 +571,9 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 			proposed.Status = StatusPaused
 		}
 		proposed.TransferState = retryTransferState(task)
+		if m.usesNativeHTTPState() && task.Link != identity.Link {
+			proposed.TransferState = transferRestart
+		}
 		proposed.Error = ""
 		proposed.Progress = "Waiting for aria2 to verify and resume partial data"
 		proposed.Revision = m.revision + 1
@@ -596,6 +603,9 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		proposed := cloneTask(task)
 		proposed.PreviousGID = removeGID
 		proposed.GID = m.newGIDLocked()
+		if m.keepHTTPRetryGID(task) {
+			proposed.GID = task.GID
+		}
 		proposed.Status = StatusQueued
 		if identity.Opts.startPaused {
 			proposed.Status = StatusPaused
@@ -706,7 +716,7 @@ func (m *Manager) findModuleResumeLocked(identity requestIdentity, fingerprint s
 			return false
 		}
 		outputPath := filepath.Join(task.Folder, task.OutputName)
-		return pathExists(outputPath) && pathExists(outputPath+".aria2")
+		return pathExists(outputPath) && (m.usesNativeHTTPState() || pathExists(outputPath+".aria2"))
 	}
 	if id, ok := m.fingerprints[fingerprint]; ok {
 		if task := m.tasks[id]; eligible(task) {
@@ -1225,7 +1235,13 @@ func (m *Manager) RequeueTasks(ids []int64) TaskOperationResult {
 		originals[id] = cloneTask(task)
 		task.TransferState = retryTransferState(task)
 		discardPartials[id] = task.TransferState == transferRestart
-		removeGIDs[id] = m.rotateGIDLocked(task)
+		if m.keepHTTPRetryGID(task) {
+			task.PreviousGID = firstNonEmptyString(task.PreviousGID, task.GID)
+			removeGIDs[id] = task.PreviousGID
+			task.admissionFailureStatus, task.admissionFailureRevision = "", 0
+		} else {
+			removeGIDs[id] = m.rotateGIDLocked(task)
+		}
 		m.setStatusLocked(task, StatusQueued)
 		task.Error = ""
 		if discardPartials[id] {
@@ -2137,7 +2153,8 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 	isCurrent := func(task *Task) bool {
 		// Local operations completed after this poll began take precedence.
 		// Revisions created inside this batch still accept later child/status rows.
-		return task != nil && (pollRevision < 0 || task.Revision <= pollRevision || task.Revision > applyRevision)
+		return task != nil && (task.PreviousGID == "" || task.PreviousGID != task.GID) &&
+			(pollRevision < 0 || task.Revision <= pollRevision || task.Revision > applyRevision)
 	}
 	for _, parent := range statuses {
 		if len(parent.FollowedBy) == 0 {
@@ -2215,7 +2232,11 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 			if isHTTP && (state.ErrorCode == "8" || state.ErrorCode == "10" || requiresCleanHTTPRestart(task.Error)) {
 				task.TransferState = transferRestart
 			}
-			if isHTTP && state.ErrorCode == "1" && invalidHTTPResumeControl(task, state.TotalLength) {
+			if isHTTP && m.usesNativeHTTPState() && state.ErrorCode == "13" {
+				task.TransferState = transferRestart
+				task.Error = "HTTP output has no matching native recovery state; retry will restart this file from zero"
+			}
+			if isHTTP && !m.usesNativeHTTPState() && state.ErrorCode == "1" && invalidHTTPResumeControl(task, state.TotalLength) {
 				task.TransferState = transferRestart
 				task.Error = "HTTP resume control file is damaged; retry will restart this file from zero"
 			}
@@ -2931,6 +2952,7 @@ func requestDropboxMetadata(ctx context.Context, task *Task, client *http.Client
 		return dropboxMetadata{}, fmt.Errorf("Dropbox did not return a trusted content URL")
 	}
 	metadata := dropboxMetadata{URL: response.Request.URL.String()}
+	metadata.ContentDisposition = response.Header.Get("Content-Disposition")
 	metadata.Name = contentDispositionName(response.Header.Get("Content-Disposition"))
 	metadata.Digest = strings.TrimSpace(response.Header.Get("Repr-Digest"))
 	if metadata.Digest == "" && (method == http.MethodHead || response.StatusCode == http.StatusOK) {

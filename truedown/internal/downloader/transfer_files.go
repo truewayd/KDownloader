@@ -18,6 +18,15 @@ func (m *Manager) usesNativeHTTPState() bool {
 	return m.aria2Next && aria2NextVersionAtLeast(m.aria2NextVersion, 2, 8, 2)
 }
 
+// Native range checkpoints belong to the GID, URL and output together.
+// Retiring a terminal RPC result frees the GID without changing its identity.
+func (m *Manager) keepHTTPRetryGID(task *Task) bool {
+	var identity requestIdentity
+	return m.usesNativeHTTPState() && task.Status == StatusError &&
+		retryTransferState(task) != transferRestart &&
+		json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.BitTorrent == nil
+}
+
 func retryTransferState(task *Task) string {
 	var identity requestIdentity
 	if json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.BitTorrent != nil {

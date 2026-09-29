@@ -147,10 +147,12 @@ func (*dropboxResolverModule) prepare(ctx context.Context, m *Manager, task *Tas
 		Link:    task.Link,
 		Headers: dropboxContentHeaders(task.Headers),
 		Metadata: remoteMetadata{
-			URL: metadata.URL, Name: metadata.Name, Digest: metadata.Digest,
+			ContentDisposition: metadata.ContentDisposition,
+			URL:                metadata.URL, Name: metadata.Name, Digest: metadata.Digest,
 			Length: metadata.Length, LengthKnown: metadata.LengthKnown,
 		},
 	}
+	m.resolveMetadataFilename(ctx, &prepared.Metadata)
 	if m.dropboxProxy != nil {
 		proxyRequest, requestErr := http.NewRequest(http.MethodGet, task.Link, nil)
 		if requestErr != nil {

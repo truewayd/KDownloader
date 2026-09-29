@@ -138,6 +138,7 @@ func (module *googleDriveResolverModule) resolve(
 	if err != nil {
 		return ModuleAddResult{}, true, err
 	}
+	m.resolveMetadataFilename(probeCtx, &metadata)
 	name := identity.Name
 	if name == "" {
 		name = sanitizeModulePathComponent(metadata.Name)
@@ -169,6 +170,7 @@ func (module *googleDriveResolverModule) prepare(ctx context.Context, m *Manager
 		return modulePreparation{}, err
 	}
 	prepared := modulePreparation{Link: metadata.URL, Headers: headers, Metadata: metadata}
+	m.resolveMetadataFilename(resolveCtx, &prepared.Metadata)
 	if m.googleDriveProxy != nil {
 		proxyRequest, requestErr := http.NewRequest(http.MethodGet, task.Link, nil)
 		if requestErr != nil {

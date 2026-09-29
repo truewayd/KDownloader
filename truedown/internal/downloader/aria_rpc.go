@@ -13,10 +13,11 @@ import (
 )
 
 type ariaClient struct {
-	url    string
-	secret string
-	http   *http.Client
-	nextID atomic.Uint64
+	url                string
+	secret             string
+	http               *http.Client
+	nextID             atomic.Uint64
+	filenameResolution atomic.Bool
 }
 
 type ariaRPCError struct {
@@ -154,7 +155,8 @@ func (c *ariaClient) callContext(ctx context.Context, method string, params []an
 
 func (c *ariaClient) ready() error {
 	var version struct {
-		Version string `json:"version"`
+		Version          string   `json:"version"`
+		DownloadFeatures []string `json:"downloadFeatures"`
 	}
 	if err := c.call("aria2.getVersion", nil, &version); err != nil {
 		return err
@@ -162,7 +164,29 @@ func (c *ariaClient) ready() error {
 	if strings.TrimSpace(version.Version) == "" {
 		return fmt.Errorf("aria2 RPC returned an empty engine version")
 	}
+	supported := false
+	for _, feature := range version.DownloadFeatures {
+		supported = supported || feature == "filename-resolution"
+	}
+	c.filenameResolution.Store(supported)
 	return nil
+}
+
+func (c *ariaClient) resolveFilename(ctx context.Context, url, disposition string) (string, error) {
+	if !c.filenameResolution.Load() {
+		return "", nil
+	}
+	if len(url) > 16384 || len(disposition) > 8192 {
+		return "", fmt.Errorf("filename metadata exceeds engine limits")
+	}
+	// []byte is encoded as base64 by encoding/json; the RPC needs integers.
+	data := make([]int, len(disposition))
+	for index := 0; index < len(disposition); index++ {
+		data[index] = int(disposition[index])
+	}
+	var name string
+	err := c.callContext(ctx, "aria2.resolveFilename", []any{url, data}, &name)
+	return name, err
 }
 
 func (c *ariaClient) addURI(t *Task, options map[string]any) error {

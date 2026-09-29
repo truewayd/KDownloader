@@ -62,11 +62,12 @@ type ModuleAddResult struct {
 }
 
 type remoteMetadata struct {
-	URL         string
-	Name        string
-	Digest      string
-	Length      int64
-	LengthKnown bool
+	ContentDisposition string
+	URL                string
+	Name               string
+	Digest             string
+	Length             int64
+	LengthKnown        bool
 }
 
 type modulePreparation struct {
