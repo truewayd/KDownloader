@@ -264,6 +264,34 @@ Linux icon placement above is our cross-window-manager choice, not a GNOME rule.
 
 ## Change rules
 
+### Windows auxiliary-window lifecycle
+
+Settings, new-task and task-details retain their WebView documents when closed.
+On a visible desktop, reopening a hidden auxiliary window replaces only its
+native shell so Windows can supply its normal opening transition. The same
+document is moved through one hidden parking window; it is not navigated or
+reloaded. Native close-to-hide remains responsible for the closing transition.
+There are no application animation frames or `AnimateWindow` substitutes.
+
+Reattachment preserves the role label, icon, position and measured client size.
+Restore the frame subclass and the last requested material/color scheme before
+showing the new HWND: DWM backdrop attributes do not follow a moved WebView,
+and a retained document need not receive another DOM focus event. Re-evaluate
+system transparency and high contrast through the ordinary material policy.
+Failed shell setup retains the document for the next open attempt. The main
+window, native menus, and non-Windows window lifecycles are unchanged.
+
+`node truedown/desktop/tests/windows-reopen-visual.mjs --visible` runs an isolated
+debug fixture and saves compositor-frame crops in its temporary directory.
+It verifies document/draft retention, DWM attributes, caption clipping, icons and
+client size across light, dark and emulated forced-color reopens. Inspect its
+screen frames for composition; attribute assertions alone do not prove animation
+or Mica rendering, and overlapping desktop windows can obscure screen captures.
+Add `--layout-only` to check native task-detail gutters without cycling themes.
+Ordinary `test:windows` acceptance remains hidden.
+
+### Shared component changes
+
 - Add reusable behavior to `shared/components.js`, not page scripts.
 - Keep business logic, RPCs, and host DOM discovery outside components.
 - Do not add a second injected button or dialog implementation.

@@ -506,7 +506,7 @@ try {
   });
   await main.locator(`[data-action="details"][data-id="${completed.id}"]`).click();
   const details = await waitUntil(() => context.pages().find(page => page.url().includes("window=task-details")));
-  await waitForNativeCondition(details, () => document.querySelector("#task-location-grid").textContent.includes("Documents review"));
+  await waitForNativeCondition(details, () => document.querySelector("#task-location-grid")?.textContent.includes("Documents review"));
   assert.equal(await main.evaluate(() => currentPage), "tasks");
   assert.equal(await main.locator("#batch-task-btn").count(), 0);
   await details.locator("#task-settings-tab").click();

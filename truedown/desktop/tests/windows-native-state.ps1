@@ -21,6 +21,7 @@ public sealed class TrueDownWindowState {
     public bool minimizable;
     public bool maximizable;
     public int clientTopInset;
+    public int[] clientSize;
     public int[] captionHits;
     public bool captionExcludedFromWebView;
     public int dpi;
@@ -60,6 +61,8 @@ public static class TrueDownNativeState {
     private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr window, out RECT rectangle);
+    [DllImport("user32.dll")]
+    private static extern bool GetClientRect(IntPtr window, out RECT rectangle);
     [DllImport("user32.dll")]
     private static extern bool ClientToScreen(IntPtr window, ref POINT point);
     [DllImport("user32.dll")]
@@ -131,6 +134,9 @@ public static class TrueDownNativeState {
             if (!GetWindowRect(window, out bounds) || !ClientToScreen(window, ref origin))
                 throw new InvalidOperationException("Cannot read native frame geometry");
             state.clientTopInset = origin.y - bounds.top;
+            RECT client;
+            if (!GetClientRect(window, out client)) throw new InvalidOperationException("Cannot read native client size");
+            state.clientSize = new int[] { client.right - client.left, client.bottom - client.top };
             var caption = new TITLEBARINFOEX { size = (uint)Marshal.SizeOf(typeof(TITLEBARINFOEX)), states = new uint[6], rects = new RECT[6] };
             var memory = Marshal.AllocHGlobal((int)caption.size);
             var region = CreateRectRgn(0, 0, 0, 0);
