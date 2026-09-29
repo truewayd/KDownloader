@@ -244,8 +244,8 @@
   .app-shell { min-height: 0; }
   .workspace { flex-direction: row; }
   :root { --settings-nav-width: 80px; }
-  :root:not(.sidebar-collapsed) .workspace { padding-left: 56px; }
-  :root:not(.sidebar-collapsed) .sidebar { position: absolute; inset: var(--native-titlebar-height, 0px) auto 0 0; width: var(--sidebar-width); z-index: 32; background: var(--kd-bg); box-shadow: var(--kd-workspace-shadow); }
+  :root:not(.sidebar-collapsed):is(:not([data-native-window]), [data-native-window="main"]) .workspace { padding-left: 56px; }
+  :root:not(.sidebar-collapsed):is(:not([data-native-window]), [data-native-window="main"]) .sidebar { position: absolute; inset: var(--native-titlebar-height, 0px) auto 0 0; width: var(--sidebar-width); z-index: 32; background: var(--kd-bg); box-shadow: var(--kd-workspace-shadow); }
   .sidebar-collapsed .sidebar { padding: 10px 8px; gap: 20px; }
   .primary-nav { display: grid; grid-template-columns: 1fr; }
   .sidebar-footer { display: grid; }

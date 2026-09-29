@@ -78,6 +78,9 @@ try {
     await page.goto(`http://127.0.0.1:${server.address().port}/index.html?window=task-details`);
     await page.waitForFunction(() => taskDetailData?.id === 1);
     assert.equal(await page.locator(".sidebar").isVisible(), false);
+    const panel = await page.locator(".task-detail-page").boundingBox();
+    assert.ok(panel && Math.abs(panel.x - 8) <= 1 && Math.abs(width - panel.x - panel.width - 8) <= 1,
+      "Standalone task details must keep equal 8px gutters without a hidden sidebar reservation");
     assert.equal(await page.locator("#task-detail-back").isVisible(), false);
     assert.equal(await page.locator("#batch-task-btn").count(), 0);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
