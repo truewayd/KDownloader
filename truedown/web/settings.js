@@ -234,8 +234,9 @@ function renderStartupSettings() {
   els.startupEnabled.disabled = state?.supported !== true;
   const status = !state ? "尚未读取启动设置。" : !state.supported
     ? "此实例不支持内置开机启动。"
-    : state.enabled ? "已开启，下次登录时在后台启动。" : "已关闭。";
+    : "";
   els.startupStatus.textContent = `${status}${stringValue(state?.reason)}`;
+  els.startupStatus.hidden = !els.startupStatus.textContent;
 }
 
 async function updateStartupSettings() {
@@ -256,6 +257,7 @@ async function updateStartupSettings() {
   } catch (error) {
     renderStartupSettings();
     els.startupStatus.textContent = `保存启动设置失败：${error.message}`;
+    els.startupStatus.hidden = false;
     showToast(els.startupStatus.textContent, "error");
   } finally {
     KDComponents.setBusyState(els.startupEnabled, false);

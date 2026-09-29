@@ -173,13 +173,15 @@ try {
         const startup = page.getByRole("switch", { name: /开机启动/ });
         await startup.focus();
         await page.keyboard.press("Space");
-        await page.waitForFunction(() => document.querySelector("#startup-status").textContent.includes("已开启"));
+        await page.waitForFunction(() => document.querySelector("#startup-enabled").checked && !document.querySelector("#startup-enabled").disabled);
+        assert.equal(await page.locator("#startup-status").isVisible(), false, "normal startup state needs no duplicate explanation");
         assert.equal(await startup.isChecked(), true);
         assert.equal(fixture["/settings/startup"].enabled, true);
         failSave = true;
         await startup.focus();
         await page.keyboard.press("Space");
         await page.waitForFunction(() => document.querySelector("#startup-status").textContent.includes("失败"));
+        assert.equal(await page.locator("#startup-status").isVisible(), true, "startup save failures stay visible");
         assert.equal(await startup.isChecked(), true, "failed switch save restores persisted state");
         failSave = false;
         assert.equal(await page.locator("#tray-single").isVisible(), width !== 390);
