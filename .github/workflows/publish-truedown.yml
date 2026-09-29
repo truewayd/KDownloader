@@ -103,6 +103,9 @@ jobs:
         working-directory: truedown
         run: go vet ./...
 
+      - name: Accept reviewed NEXT engine
+        run: ./truedown/tools/test-next-engine.ps1
+
       - name: Build TrueDown
         run: ./truedown/build.ps1 -OutputDirectory dist/TrueDown -Version $env:RELEASE_TAG -BuildNumber $env:BUILD_NUMBER -Commit ${{ github.sha }}
 

@@ -109,7 +109,7 @@ func TestGroupDirectoriesWriteActualFilesWithAria2(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(payload) }))
 	defer server.Close()
 	root := t.TempDir()
-	m, err := NewManager(engine, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	m, err := NewManagerWithConfig(engine, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), integrationManagerConfig())
 	if err != nil {
 		t.Fatal(err)
 	}

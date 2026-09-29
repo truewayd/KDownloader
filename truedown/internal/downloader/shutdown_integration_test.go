@@ -25,7 +25,7 @@ func TestEngineShutdownTiming(t *testing.T) {
 	for _, mode := range []string{"rpc", "interrupt"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
-			m, err := NewManagerWithConfig(path, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), shutdownTestConfig())
+			m, err := NewManagerWithConfig(path, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), integrationManagerConfig())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -58,7 +58,7 @@ func TestEngineShutdownTiming(t *testing.T) {
 	}
 }
 
-func shutdownTestConfig() ManagerConfig {
+func integrationManagerConfig() ManagerConfig {
 	version := os.Getenv("TRUEDOWN_ARIA2_NEXT_VERSION")
 	return ManagerConfig{Aria2Next: version != "", Aria2NextVersion: version}
 }
@@ -83,7 +83,7 @@ func TestManagerStopCheckpointsAndResumes(t *testing.T) {
 	root := t.TempDir()
 	newManager := func() *Manager {
 		t.Helper()
-		m, err := NewManagerWithConfig(path, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), shutdownTestConfig())
+		m, err := NewManagerWithConfig(path, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), integrationManagerConfig())
 		if err != nil {
 			t.Fatal(err)
 		}

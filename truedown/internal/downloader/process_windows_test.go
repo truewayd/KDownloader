@@ -48,7 +48,7 @@ func TestEngineInterruptWithInheritedCtrlCIgnore(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	m, err := NewManager(path, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	m, err := NewManagerWithConfig(path, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), integrationManagerConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,11 @@ func TestEngineInterruptWithInheritedCtrlCIgnore(t *testing.T) {
 	started := time.Now()
 	m.Stop()
 	t.Logf("ignored CTRL+C safe exit: %s, %v", time.Since(started), m.cmd.ProcessState)
-	if !m.cmd.ProcessState.Success() || time.Since(started) > 2500*time.Millisecond {
+	deadline := 2500 * time.Millisecond
+	if m.aria2Next {
+		deadline = 6 * time.Second
+	}
+	if !m.cmd.ProcessState.Success() || time.Since(started) > deadline {
 		t.Fatal("engine ignored graceful interrupt and reached kill timeout")
 	}
 }

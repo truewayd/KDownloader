@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,7 +32,7 @@ func TestAriaHTTPRepeatedInterruptedRetriesKeepOneOutput(t *testing.T) {
 	var resumed atomic.Int32
 	var modified atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Range") != "" {
+		if value := r.Header.Get("Range"); value != "" && !strings.HasPrefix(value, "bytes=0-") {
 			resumed.Add(1)
 		}
 		if fail.Load() {
@@ -50,7 +51,7 @@ func TestAriaHTTPRepeatedInterruptedRetriesKeepOneOutput(t *testing.T) {
 	}))
 	defer server.Close()
 	root := t.TempDir()
-	m, err := NewManager(engine, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	m, err := NewManagerWithConfig(engine, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), integrationManagerConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,12 +85,15 @@ func TestAriaHTTPRepeatedInterruptedRetriesKeepOneOutput(t *testing.T) {
 		}
 		waitForStatus(t, m, task.ID, 12*time.Second, StatusError)
 		current, _ := m.GetTask(task.ID)
+		if m.usesNativeHTTPState() && current.GID != task.GID {
+			t.Fatal("native retry changed checkpoint owner")
+		}
 		if current.OutputName != task.OutputName {
 			t.Fatalf("retry %d renamed output: %q", attempt, current.OutputName)
 		}
 		assertTransferDirectory(t, task.Folder, task.OutputName, false)
 	}
-	// Keep this attempt's real aria2 control file to exercise byte-range resume.
+	// Keep this attempt's engine checkpoint to exercise byte-range resume.
 	fail.Store(false)
 	resumed.Store(0)
 	if err := m.RequeueTask(task.ID); err != nil {
@@ -98,7 +102,7 @@ func TestAriaHTTPRepeatedInterruptedRetriesKeepOneOutput(t *testing.T) {
 	waitForStatus(t, m, task.ID, 12*time.Second, StatusDone)
 	assertTransferHash(t, path, payload)
 	if resumed.Load() == 0 {
-		t.Fatal("valid control-file retry did not issue a range request")
+		t.Fatal("valid checkpoint retry did not resume a nonzero byte range")
 	}
 	assertTransferDirectory(t, task.Folder, task.OutputName, true)
 
@@ -131,7 +135,7 @@ func TestAriaHTTPOwnedOutputWithoutControlRestoresAfterRestart(t *testing.T) {
 	root := t.TempDir()
 	database := filepath.Join(root, "records.db")
 	folder := filepath.Join(root, "downloads")
-	m, err := NewManager(engine, folder, database)
+	m, err := NewManagerWithConfig(engine, folder, database, integrationManagerConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +157,7 @@ func TestAriaHTTPOwnedOutputWithoutControlRestoresAfterRestart(t *testing.T) {
 	if err := os.WriteFile(path, make([]byte, len(payload)), 0600); err != nil {
 		t.Fatal(err)
 	}
-	restored, err := NewManager(engine, folder, database)
+	restored, err := NewManagerWithConfig(engine, folder, database, integrationManagerConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,10 +165,24 @@ func TestAriaHTTPOwnedOutputWithoutControlRestoresAfterRestart(t *testing.T) {
 	if err := restored.Start(); err != nil {
 		t.Fatal(err)
 	}
+	if restored.usesNativeHTTPState() {
+		waitForStatus(t, restored, task.ID, 12*time.Second, StatusError)
+		failed, _ := restored.GetTask(task.ID)
+		if failed.TransferState != transferRestart {
+			t.Fatalf("missing native state must offer a clean retry: %+v", failed)
+		}
+		assertTransferHash(t, path, make([]byte, len(payload)))
+		if err := restored.RequeueTask(task.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
 	waitForStatus(t, restored, task.ID, 12*time.Second, StatusDone)
 	assertTransferHash(t, path, payload)
 	assertTransferDirectory(t, task.Folder, task.OutputName, true)
 
+	if restored.usesNativeHTTPState() {
+		return // NEXT never reads adjacent legacy control files.
+	}
 	// A corrupt piece map must become an actionable error and a clean retry,
 	// even when the payload happens to have the expected preallocated size.
 	if err := os.WriteFile(path+".aria2", []byte{0xfe, 0xff}, 0600); err != nil {

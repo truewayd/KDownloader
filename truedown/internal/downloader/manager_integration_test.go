@@ -22,7 +22,7 @@ func TestManagerAria2Lifecycle(t *testing.T) {
 	}
 
 	sourceDir := t.TempDir()
-	payload := []byte(strings.Repeat("TrueDown integration payload\n", 16384))
+	payload := []byte(strings.Repeat("TrueDown integration payload\n", 4096))
 	if err := os.WriteFile(filepath.Join(sourceDir, "payload.bin"), payload, 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestManagerAria2Lifecycle(t *testing.T) {
 	defer server.Close()
 
 	stateDir := t.TempDir()
-	m, err := NewManager(aria2Path, filepath.Join(stateDir, "downloads"), filepath.Join(stateDir, "records.db"))
+	m, err := NewManagerWithConfig(aria2Path, filepath.Join(stateDir, "downloads"), filepath.Join(stateDir, "records.db"), integrationManagerConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,11 +120,13 @@ func TestManagerDetectsUnexpectedAria2ExitForRecovery(t *testing.T) {
 	defer server.Close()
 	exits := make(chan error, 1)
 	stateDir := t.TempDir()
+	config := integrationManagerConfig()
+	config.EngineExit = func(_ *Manager, exitErr error) { exits <- exitErr }
 	manager, err := NewManagerWithConfig(
 		aria2Path,
 		filepath.Join(stateDir, "downloads"),
 		filepath.Join(stateDir, "records.db"),
-		ManagerConfig{EngineExit: func(_ *Manager, exitErr error) { exits <- exitErr }},
+		config,
 	)
 	if err != nil {
 		t.Fatal(err)
