@@ -171,12 +171,21 @@ and material integration only. Page styles own layout, not alternate palettes.
   reads; runtime status and user values are excluded. Simple settings opt into
   the two-column `settings-row` layout. File-group editors, suffix selections
   and multiline fields retain stacked labels and adapt to the content width.
+  File groups use separate cards and editable suffix chips backed by the existing
+  string array. Keep the add-group action visible above the list, and preserve
+  focused inputs across autosave. Navigation clips horizontal overflow during
+  sidebar transitions; pointer sorting uses an inert floating preview and a
+  placeholder, with cancellation restoring the confirmed order.
 - Do not repeat a purpose icon in both native caption and content. Windows
   confirmation frames omit the caption icon; warning/error content has one
   severity icon, while informational content needs none. macOS keeps the single
   content icon. Linux content omits an extra icon because window-manager
   decorations may already supply one. Native utility windows retain their
   role icon without duplicating it in an interior heading.
+  Confirmation content uses the whole native material surface when available
+  (Mica on Windows, vibrancy on macOS), with the existing accessibility/unsupported
+  fallback. Measure natural content before sizing; only bounded long messages
+  scroll, while the action footer stays visible.
 - A native window title names its purpose once. Do not repeat that title as a
   visible heading inside the window; show explanatory detail and actions there.
   Hidden accessible headings may remain. Distinct category titles inside the
