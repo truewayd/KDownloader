@@ -151,6 +151,21 @@ try {
           assert.equal(await page.locator('[data-sort-field="file"] use').getAttribute("href"), `/icons.svg#icon-arrow-${order === "asc" ? "up" : "down"}`);
         }
         if (native) {
+          await page.emulateMedia({ reducedMotion: "no-preference" });
+          for (let toggle = 0; toggle < 2; toggle++) {
+            assert.deepEqual(await page.evaluate(async () => {
+              document.querySelector(".sidebar-toggle").click();
+              const overflow = [];
+              const start = performance.now();
+              while (performance.now() - start < 300) {
+                const nav = document.querySelector(".primary-nav");
+                if (nav.scrollWidth > nav.clientWidth && !["hidden", "clip"].includes(getComputedStyle(nav).overflowX)) overflow.push("navigation");
+                if (document.documentElement.scrollWidth > innerWidth) overflow.push("window");
+                await new Promise(requestAnimationFrame);
+              }
+              return overflow;
+            }), [], `${name}: horizontal overflow during sidebar transition`);
+          }
           await page.locator(".sidebar-toggle").click();
           assert.equal(await page.locator(".sidebar-toggle").getAttribute("aria-expanded"), "false");
           const sidebar = await page.locator(".sidebar").boundingBox();

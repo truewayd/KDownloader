@@ -152,7 +152,7 @@ try {
         const layout = await page.evaluate(() => {
           const rect = node => node.getBoundingClientRect();
           const fields = [...document.querySelectorAll(".file-group-editor-row .field")].map(field => {
-            const label = rect(field.querySelector("label")), control = rect(field.querySelector("input, textarea")), bounds = rect(field);
+            const label = rect(field.querySelector("label, .field-label")), control = rect(field.querySelector(".group-suffixes, input")), bounds = rect(field);
             return { label: { x: label.x, right: label.right, bottom: label.bottom, height: label.height }, control: { x: control.x, right: control.right, top: control.top }, right: bounds.right };
           });
           const extensions = document.querySelector(".extension-grid"), bounds = rect(extensions), title = rect(document.querySelector("#excluded-extensions-label"));

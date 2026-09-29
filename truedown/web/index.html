@@ -178,8 +178,10 @@
         </section>
         <section class="settings-section" data-settings-page="application" aria-labelledby="settings-application-title" hidden>
           <div class="settings-section-heading"><h3 id="settings-application-title">应用与连接</h3></div>
+          <fieldset class="settings-group"><legend>启动</legend>
           <label class="setting-toggle" for="startup-enabled"><input id="startup-enabled" type="checkbox" role="switch" class="kd-switch" disabled><span><strong>开机启动</strong><small>登录后在后台运行。</small></span></label>
             <p class="hint" id="startup-status" role="status">正在读取启动设置…</p>
+          </fieldset>
             <fieldset class="settings-group" data-settings-independent>
               <legend>托盘图标</legend>
               <p class="hint" id="tray-support">正在读取托盘设置…</p>
@@ -369,8 +371,8 @@
             <h3 id="file-groups-title">文件分组</h3>
             <p class="hint">按后缀存入子目录，支持 .tar.gz，优先匹配较长后缀，其余归入“其他”。编辑自动保存，不移动已有文件；恢复默认不影响分组。</p>
           </div>
-          <div id="file-groups-editor"></div>
           <div class="group-editor-actions"><button class="kd-button secondary" id="file-group-add" type="button"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-plus"></use></svg>新增分组</button></div>
+          <div id="file-groups-editor"></div>
           <p class="hint" id="file-groups-status" role="status"></p>
         </section>
 <section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-update-title">

@@ -42,7 +42,7 @@ test("an older group save cannot replace newer edits and queued changes use the 
     fileGroupsSaving: false, fileGroupsSaveQueued: false, fileGroupsMutationVersion: 1,
     fileGroupsReadVersion: 0, fileGroupsEditorRevision: 4, fileGroupsNeedsSync: false,
     currentPage: "settings", currentSettingsPage: "files",
-    document: { getElementById: id => id === "file-groups-editor" ? { closest: () => panel } : status },
+    document: { getElementById: id => id === "file-groups-editor" ? { closest: () => panel, contains: () => false } : status },
     captureFileGroupsDraft() {}, applyFileGroups() {}, cancelReadRetry() {},
     renderFileGroupsEditor() { renders++; },
     requestJSON: async (_path, options) => {

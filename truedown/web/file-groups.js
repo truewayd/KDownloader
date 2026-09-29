@@ -167,6 +167,8 @@ function bindFileGroupSorting() {
     const drag = fileGroupDrag;
     if (!drag) return;
     fileGroupDrag = null;
+    cancelAnimationFrame(drag.frame);
+    drag.preview?.remove();
     if (nav.hasPointerCapture(drag.pointer)) nav.releasePointerCapture(drag.pointer);
     nav.classList.remove("group-sorting");
     drag.link.classList.remove("group-dragging");
@@ -197,14 +199,36 @@ function bindFileGroupSorting() {
       nav.classList.add("group-sorting");
       drag.link.classList.add("group-dragging");
       drag.link.focus({ preventScroll: true });
+      const rect = drag.link.getBoundingClientRect();
+      drag.preview = drag.link.cloneNode(true);
+      drag.preview.className = "group-drag-preview";
+      drag.preview.removeAttribute("href");
+      drag.preview.removeAttribute("data-task-category");
+      drag.preview.removeAttribute("data-tooltip");
+      drag.preview.setAttribute("aria-hidden", "true");
+      drag.preview.inert = true;
+      drag.preview.style.width = `${rect.width}px`;
+      drag.preview.style.left = `${rect.left}px`;
+      drag.offsetY = drag.y - rect.top;
+      document.body.append(drag.preview);
+      const scroll = () => {
+        if (fileGroupDrag !== drag) return;
+        const scroller = nav.closest(".primary-nav"), bounds = scroller.getBoundingClientRect();
+        const delta = drag.currentY < bounds.top + 28 ? -8 : drag.currentY > bounds.bottom - 28 ? 8 : 0;
+        if (delta) { scroller.scrollTop += delta; place(drag); }
+        drag.frame = requestAnimationFrame(scroll);
+      };
+      drag.frame = requestAnimationFrame(scroll);
     }
     event.preventDefault();
-    const scroller = nav.closest(".primary-nav"), bounds = scroller.getBoundingClientRect();
-    if (event.clientY < bounds.top + 24) scroller.scrollTop -= 12;
-    else if (event.clientY > bounds.bottom - 24) scroller.scrollTop += 12;
-    const next = [...nav.children].find(link => link !== drag.link && event.clientY < link.getBoundingClientRect().top + link.offsetHeight / 2);
-    nav.insertBefore(drag.link, next || null);
+    drag.currentY = event.clientY;
+    drag.preview.style.top = `${event.clientY - drag.offsetY}px`;
+    place(drag);
   });
+  function place(drag) {
+    const next = [...nav.children].find(link => link !== drag.link && drag.currentY < link.getBoundingClientRect().top + link.offsetHeight / 2);
+    if (drag.link.nextElementSibling !== (next || null)) nav.insertBefore(drag.link, next || null);
+  }
   window.addEventListener("pointerup", event => {
     if (fileGroupDrag?.pointer !== event.pointerId) return;
     const bounds = nav.closest(".primary-nav").getBoundingClientRect();
@@ -237,14 +261,83 @@ function markFileGroupsDraft() {
   document.getElementById("file-groups-status").textContent = "\u6709\u672a\u4fdd\u5b58\u7684\u4fee\u6539\u3002";
 }
 
+function fileGroupSuffixValues(value) {
+  return value.split(/[\s,;\uff0c\uff1b]+/).filter(Boolean);
+}
+
 function captureFileGroupsDraft() {
   if (!fileGroupsDraft) return;
+  const groups = new Map(fileGroupsDraft.map(group => [group.id, group]));
   for (const row of document.querySelectorAll("[data-group-id]")) {
-    const group = fileGroupsDraft.find((item) => item.id === row.dataset.groupId);
+    const group = groups.get(row.dataset.groupId);
+    if (!group) continue;
     group.name = row.querySelector("input").value;
     group.directory = row.querySelector("[data-group-directory]").value.trim();
-    group.extensions = row.querySelector("textarea").value.split(/[\s,;\uff0c\uff1b]+/).filter(Boolean);
+    group.extensions = [...row.querySelectorAll("[data-group-suffix]")].flatMap(input => fileGroupSuffixValues(input.value));
   }
+}
+
+function createGroupSuffixEditor(group, i) {
+  const suffixes = document.createElement("div");
+  suffixes.className = "group-suffixes";
+  suffixes.id = `group-ext-${i}`;
+  suffixes.setAttribute("role", "group");
+  suffixes.setAttribute("aria-labelledby", `group-ext-label-${i}`);
+  if (group.id === "other") {
+    suffixes.textContent = "自动接收未匹配的文件";
+    suffixes.classList.add("hint");
+    return suffixes;
+  }
+  const addSuffix = document.createElement("button");
+  addSuffix.type = "button";
+  addSuffix.className = "kd-button secondary suffix-add";
+  addSuffix.id = `group-suffix-add-${i}`;
+  addSuffix.textContent = "+ 后缀";
+  let suffixSequence = 0;
+  const appendSuffix = (value = "") => {
+    const chip = document.createElement("div");
+    chip.className = "group-suffix-chip";
+    const input = document.createElement("input");
+    input.className = "kd-input";
+    input.dataset.groupSuffix = "";
+    input.id = `group-suffix-${i}-${suffixSequence++}`;
+    input.setAttribute("aria-label", "文件后缀");
+    input.placeholder = ".ext";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.value = value;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "kd-icon-button";
+    remove.setAttribute("aria-label", "删除后缀");
+    remove.innerHTML = iconMarkup("close");
+    // Avoid a blur-triggered save replacing the chip before its click arrives.
+    remove.addEventListener("pointerdown", event => event.preventDefault());
+    remove.addEventListener("click", () => {
+      const next = chip.nextElementSibling?.querySelector("input") || addSuffix;
+      chip.remove();
+      next.focus();
+      captureFileGroupsDraft(); markFileGroupsDraft(); scheduleFileGroupsSave();
+    });
+    input.addEventListener("keydown", event => {
+      if (event.key === "Enter") { event.preventDefault(); addSuffix.click(); }
+    });
+    input.addEventListener("change", () => {
+      const values = fileGroupSuffixValues(input.value);
+      if (values.length > 1) {
+        input.value = values[0];
+        for (const value of values.slice(1)) appendSuffix(value);
+      }
+    });
+    chip.append(input, remove);
+    suffixes.insertBefore(chip, addSuffix);
+    return input;
+  };
+  suffixes.append(addSuffix);
+  for (const suffix of group.extensions) appendSuffix(suffix);
+  addSuffix.addEventListener("pointerdown", event => event.preventDefault());
+  addSuffix.addEventListener("click", () => appendSuffix().focus());
+  return suffixes;
 }
 
 function renderFileGroupsEditor() {
@@ -253,21 +346,18 @@ function renderFileGroupsEditor() {
     const row = document.createElement("div");
     row.className = "file-group-editor-row";
     row.dataset.groupId = group.id;
-    row.innerHTML = `<div class="field"><label for="group-name-${i}">\u5206\u7ec4\u540d\u79f0</label><input class="kd-input" id="group-name-${i}" maxlength="40" required></div><div class="field"><label for="group-ext-${i}">\u6587\u4ef6\u540e\u7f00</label><textarea class="kd-input" id="group-ext-${i}" rows="2" placeholder=".zip .7z .tar.gz"></textarea></div><button class="kd-icon-button" type="button" aria-label="\u5220\u9664\u5206\u7ec4" data-tooltip="\u5220\u9664\u5206\u7ec4">${iconMarkup("trash")}</button>`;
+    row.innerHTML = `<div class="field"><label for="group-name-${i}">\u5206\u7ec4\u540d\u79f0</label><input class="kd-input" id="group-name-${i}" maxlength="40" required></div><div class="field group-suffix-field"><span class="field-label" id="group-ext-label-${i}">\u6587\u4ef6\u540e\u7f00</span></div><button class="kd-icon-button" type="button" aria-label="\u5220\u9664\u5206\u7ec4" data-tooltip="\u5220\u9664\u5206\u7ec4">${iconMarkup("trash")}</button>`;
     row.querySelector("input").value = group.name;
     row.querySelector("input").closest(".field").classList.add("group-name-field");
-    row.querySelector("textarea").closest(".field").classList.add("group-suffix-field");
-    row.querySelector("textarea").value = group.extensions.join(" ");
+    row.querySelector(".group-suffix-field").append(createGroupSuffixEditor(group, i));
     const directoryField = document.createElement("div");
     directoryField.className = "field group-directory-field";
     directoryField.innerHTML = `<label for="group-dir-${i}">保存子目录</label><input class="kd-input" id="group-dir-${i}" data-group-directory maxlength="80" placeholder="留空使用分组名称">`;
     directoryField.querySelector("input").value = group.directory || "";
     row.insertBefore(directoryField, row.querySelector(".group-suffix-field"));
-    row.querySelector("button").dataset.removeGroup = group.id;
+    row.querySelector(":scope > button").dataset.removeGroup = group.id;
     if (group.id === "other") {
-      row.querySelector("textarea").disabled = true;
-      row.querySelector("textarea").placeholder = "\u81ea\u52a8\u63a5\u6536\u672a\u5339\u914d\u7684\u6587\u4ef6";
-      row.querySelector("button").disabled = true;
+      row.querySelector("[data-remove-group]").disabled = true;
     }
     const iconButton = document.createElement("button");
     iconButton.type = "button";
@@ -350,7 +440,9 @@ async function loadFileGroupsEditor() {
   const merging = Boolean(fileGroupsDraft && fileGroupsNeedsSync);
   const focused = document.activeElement;
   const focusedGroup = focused?.closest("[data-group-id]")?.dataset.groupId;
-  const focusedIndex = focusedGroup ? [...focused.closest("[data-group-id]").querySelectorAll("input, textarea, button")].indexOf(focused) : -1;
+  const focusSelector = focusedGroup && [".group-name-field input", "[data-group-directory]", "[data-group-icon]", "[data-remove-group]", ".suffix-add", "[data-group-suffix]", ".group-suffix-chip button"].find(selector => focused.matches(selector));
+  const focusedSuffix = focused?.closest(".group-suffix-chip")?.querySelector("input").value;
+  const focusedIndex = focusSelector ? [...focused.closest("[data-group-id]").querySelectorAll(focusSelector)].indexOf(focused) : -1;
   const selection = focusedGroup && typeof focused.selectionStart === "number" ? [focused.selectionStart, focused.selectionEnd] : null;
   if (merging) captureFileGroupsDraft();
   fileGroupsDraft = merging ? reconcileFileGroups(fileGroupsBase || [], fileGroupsDraft, state.groups) : structuredClone(state.groups);
@@ -359,11 +451,13 @@ async function loadFileGroupsEditor() {
   cancelReadRetry("file-groups");
   fileGroupsEditorRevision = state.revision;
   renderFileGroupsEditor();
-  if (focusedGroup) {
+  if (focusedGroup && focusSelector) {
     const row = [...document.querySelectorAll("[data-group-id]")].find(item => item.dataset.groupId === focusedGroup);
-    const field = row?.querySelectorAll("input, textarea, button")[focusedIndex];
+    if (focusedSuffix === "") row?.querySelector(".suffix-add")?.click();
+    const fields = [...(row?.querySelectorAll(focusSelector) || [])];
+    const field = fields.find(field => focusedSuffix !== undefined && field.closest(".group-suffix-chip")?.querySelector("input").value === focusedSuffix) || fields[focusedIndex] || row?.querySelector(".suffix-add");
     field?.focus({ preventScroll: true });
-    if (selection) field?.setSelectionRange(...selection);
+    if (selection) field?.setSelectionRange?.(...selection);
   }
   document.getElementById("file-groups-status").textContent = merging ? "已同步最新分组，草稿已保留，继续编辑后自动保存。" : "";
 }
@@ -400,17 +494,41 @@ async function saveFileGroups() {
     const state = await requestJSON("/settings/file-groups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision: fileGroupsEditorRevision, groups: submitted }) });
     fileGroupsReadVersion++;
     applyFileGroups(state);
-    if (mutationVersion === fileGroupsMutationVersion) fileGroupsDraft = structuredClone(state.groups);
+    const unchanged = mutationVersion === fileGroupsMutationVersion;
+    if (unchanged) fileGroupsDraft = structuredClone(state.groups);
     fileGroupsBase = structuredClone(state.groups);
     fileGroupsNeedsSync = false;
     cancelReadRetry("file-groups");
     fileGroupsEditorRevision = state.revision;
-    if (mutationVersion === fileGroupsMutationVersion) {
-      const focusedID = document.activeElement?.id;
-      renderFileGroupsEditor();
-      if (currentPage === "settings" && currentSettingsPage === "files" && focusedID) document.getElementById(focusedID)?.focus({ preventScroll: true });
+    if (unchanged) {
+      const editor = document.getElementById("file-groups-editor");
+      if (!editor.contains(document.activeElement)) renderFileGroupsEditor();
+      else {
+        // Keep the active chip and any new empty input across autosave.
+        for (const row of editor.children) {
+          const group = state.groups.find(group => group.id === row.dataset.groupId);
+          if (!group) continue;
+          for (const [field, value] of [[row.querySelector("input"), group.name], [row.querySelector("[data-group-directory]"), group.directory || ""]]) {
+            if (field.value !== value) field.value = value;
+          }
+          const normalized = new Map();
+          for (const input of row.querySelectorAll("[data-group-suffix]")) {
+            const raw = input.value.trim().toLowerCase();
+            const value = raw.startsWith(".") ? raw : `.${raw}`;
+            if (!group.extensions.includes(value)) continue;
+            if (input.value !== value) input.value = value;
+            const previous = normalized.get(value);
+            if (previous) {
+              const remove = input === document.activeElement ? previous : input;
+              remove.closest(".group-suffix-chip").remove();
+              if (remove === input) continue;
+            }
+            normalized.set(value, input);
+          }
+        }
+      }
+      document.getElementById("file-groups-status").textContent = "\u5206\u7ec4\u5df2\u4fdd\u5b58\uff0c\u5df2\u6709\u4efb\u52a1\u4f1a\u81ea\u52a8\u91cd\u65b0\u5f52\u7c7b\u3002";
     }
-    if (mutationVersion === fileGroupsMutationVersion) document.getElementById("file-groups-status").textContent = "\u5206\u7ec4\u5df2\u4fdd\u5b58\uff0c\u5df2\u6709\u4efb\u52a1\u4f1a\u81ea\u52a8\u91cd\u65b0\u5f52\u7c7b\u3002";
     renderedTaskPageURL = "";
   } catch (error) {
     document.getElementById("file-groups-status").textContent = error.status === 409 ? "分组已变更，正在自动同步，草稿已保留。" : `\u4fdd\u5b58\u5931\u8d25\uff1a${error.message}`;

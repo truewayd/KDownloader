@@ -108,7 +108,10 @@ try {
     await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
     await page.mouse.down();
     await page.mouse.move(end.x + end.width / 2, end.y + end.height - 2, { steps: 8 });
+    assert.equal(await page.locator(".group-drag-preview").count(), 1);
+    await page.screenshot({ path: path.join(screenshots, `group-drag-${width}-${colorScheme}.png`) });
     await page.mouse.up();
+    assert.equal(await page.locator(".group-drag-preview").count(), 0);
     await page.waitForFunction(revision => fileGroupsState.revision > revision && !fileGroupOrderSaving, beforeDrag);
     assert.deepEqual(groups.groups.slice(0, 2).map(group => group.id), ["video", "image"]);
     assert.equal(await page.evaluate(() => currentCategory), "project", "sorting must not activate the dragged group");
@@ -145,6 +148,7 @@ try {
     await page.locator("#task-search").fill("Cover");
     await page.waitForFunction(() => document.querySelectorAll("tr[data-task-id]").length === 1);
     for (const cached of [true, false]) {
+      await page.waitForFunction(() => !loadTasksPromise && !taskRefreshRequested && renderedTaskPageURL === taskPageURL());
       const previousNotModified = taskNotModified;
       await page.locator('[data-action="details"][data-id="7"]').click();
       await page.waitForFunction(() => currentPage === "task" && taskDetailData?.id === 7 && document.querySelector("#task-detail-title").textContent === "Cover.PSD");
@@ -173,15 +177,31 @@ try {
     assert.equal(await page.locator("#task-setting-tries").inputValue(), "9");
     await page.evaluate(() => { location.hash = "settings/groups"; });
     await page.waitForFunction(() => document.querySelectorAll("[data-group-id]").length === 8 && fileGroupsEditorRevision === fileGroupsState.revision && !fileGroupsNeedsSync);
-    await commitGroupField(page.locator('[data-group-id="project"] textarea'), ".blend");
+    await page.locator('[data-group-id="project"] .group-suffix-chip').first().getByRole("button", { name: "删除后缀" }).click();
+    await page.waitForFunction(() => !fileGroupsSaving && fileGroupsDraft.find(group => group.id === "project").extensions.length === 1);
+    assert.deepEqual(groups.groups.find(group => group.id === "project").extensions, [".blend"]);
     await page.locator("#file-group-add").click();
     const custom = page.locator('[data-group-id^="group-"]');
     await commitGroupField(custom.locator(".group-name-field input"), "Design source");
     assert.equal(groups.groups.find(group => group.id.startsWith("group-")).name, "Design source");
     await commitGroupField(custom.locator("[data-group-directory]"), "Design Files");
     assert.equal(groups.groups.find(group => group.name === "Design source").directory, "Design Files");
-    await commitGroupField(custom.locator("textarea"), ".PSD");
+    await custom.locator(".suffix-add").click();
+    await commitGroupField(custom.locator("[data-group-suffix]"), ".PSD");
     assert.deepEqual(groups.groups.find(group => group.name === "Design source").extensions, [".psd"]);
+    await custom.locator(".suffix-add").click();
+    await custom.locator("[data-group-suffix]").last().fill(".clip, .SAI");
+    await custom.locator("[data-group-suffix]").last().press("Enter");
+    await page.waitForFunction(() => !fileGroupsSaving && !fileGroupsSaveQueued);
+    assert.equal(await custom.locator("[data-group-suffix]").count(), 4, "paste creates separate chips and Enter preserves the next empty input");
+    assert.equal(await page.evaluate(() => document.activeElement?.value), "");
+    assert.deepEqual(groups.groups.find(group => group.name === "Design source").extensions, [".psd", ".clip", ".sai"]);
+    for (const suffix of [".clip", ".sai"]) {
+      await custom.locator(".group-suffix-chip").filter({ has: page.locator(`input`) }).evaluateAll((chips, suffix) => {
+        chips.find(chip => chip.querySelector("input").value === suffix).querySelector("button").click();
+      }, suffix);
+      await page.waitForFunction(() => !fileGroupsSaving && !fileGroupsSaveQueued);
+    }
     await custom.locator(".group-icon-trigger").click();
     await page.locator('[data-icon-choice="star"]').click();
     await page.evaluate(() => document.activeElement.blur());
@@ -214,7 +234,7 @@ try {
     await page.close();
     console.log(`${width} ${colorScheme}: groups, suffix editing, filters, details, retained drafts, persistence and conflicts OK`);
   }
-  assert.equal(groupWrites, 21, "each committed group field and icon saves automatically; conflict recovery does not replay writes");
+  assert.equal(groupWrites, 33, "each field, paste, suffix removal and icon saves once; conflict recovery does not replay writes");
   assert.equal(detailWrites, 4);
   console.log(`Screenshots: ${screenshots}`);
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
