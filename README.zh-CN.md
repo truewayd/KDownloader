@@ -92,7 +92,7 @@ TrueDown 使用 Go 下载内核与 Tauri 原生桌面界面，支持 Windows、L
 环境要求：
 
 - Windows、Linux 或 macOS，以及对应的 [Tauri 构建依赖](https://v2.tauri.app/start/prerequisites/)
-- Go 1.26.4 或兼容的新版本工具链
+- Go 1.26.8 或兼容的新版本工具链
 - Node.js 22 或更新版本、Rust 1.98.1
 - Windows 使用仓库内的稳定 aria2；Linux/macOS 需安装 aria2
 
