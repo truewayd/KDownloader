@@ -4,12 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
+	"slices"
 	"strings"
 	"sync"
 )
-
-var excludedExtensionPattern = regexp.MustCompile(`^\.[a-z0-9]{1,16}$`)
 
 var defaultExcludedExtensions = []string{
 	".psd", ".clip", ".sai", ".sai2", ".kra", ".xcf", ".procreate", ".afphoto", ".afdesign", ".blend",
@@ -18,6 +16,9 @@ var defaultExcludedExtensions = []string{
 const (
 	DropboxModeDirect     = "direct"
 	DropboxModeExpand     = "expand"
+	DropboxFilterProject  = "project"
+	DropboxFilterOff      = "off"
+	DropboxFilterCustom   = "custom"
 	maxDownloadRulesBytes = 16 * 1024
 )
 
@@ -27,6 +28,7 @@ type DownloadRules struct {
 	Enabled            bool     `json:"enabled"`
 	ExcludedExtensions []string `json:"excludedExtensions"`
 	DropboxMode        string   `json:"dropboxMode"`
+	FilterMode         string   `json:"filterMode"`
 }
 
 // DownloadRulesUpdate preserves the current Dropbox mode when older clients
@@ -35,6 +37,7 @@ type DownloadRulesUpdate struct {
 	Enabled            bool     `json:"enabled"`
 	ExcludedExtensions []string `json:"excludedExtensions"`
 	DropboxMode        *string  `json:"dropboxMode"`
+	FilterMode         *string  `json:"filterMode"`
 }
 
 type downloadRulesStore struct {
@@ -66,19 +69,40 @@ func newDownloadRulesStoreAt(path string) (*downloadRulesStore, error) {
 
 func defaultDownloadRules() DownloadRules {
 	return DownloadRules{
-		ExcludedExtensions: append([]string(nil), defaultExcludedExtensions...),
-		DropboxMode:        DropboxModeDirect,
+		Enabled:     true,
+		FilterMode:  DropboxFilterProject,
+		DropboxMode: DropboxModeDirect,
 	}
 }
 
 func normalizeDownloadRules(rules DownloadRules) (DownloadRules, error) {
-	if len(rules.ExcludedExtensions) > 64 {
+	if len(rules.ExcludedExtensions) > 128 {
 		return DownloadRules{}, &ValidationError{Message: "too many excluded file extensions"}
 	}
 	normalized := DownloadRules{
 		Enabled:            rules.Enabled,
 		ExcludedExtensions: make([]string, 0, len(rules.ExcludedExtensions)),
 		DropboxMode:        strings.ToLower(strings.TrimSpace(rules.DropboxMode)),
+		FilterMode:         strings.ToLower(strings.TrimSpace(rules.FilterMode)),
+	}
+	// Legacy profiles and extension writes retain their explicit filter choice.
+	if normalized.FilterMode == "" {
+		normalized.FilterMode = DropboxFilterOff
+		if rules.Enabled {
+			normalized.FilterMode = DropboxFilterCustom
+		}
+	}
+	switch normalized.FilterMode {
+	case DropboxFilterProject, DropboxFilterCustom:
+		normalized.Enabled = true
+	case DropboxFilterOff:
+		normalized.Enabled = false
+	default:
+		return DownloadRules{}, &ValidationError{Message: "Dropbox filter mode must be project, off or custom"}
+	}
+	// Null means custom mode has never been initialized; an empty list is explicit.
+	if rules.FilterMode != "" && rules.ExcludedExtensions == nil && normalized.FilterMode != DropboxFilterCustom {
+		normalized.ExcludedExtensions = nil
 	}
 	if normalized.DropboxMode == "" {
 		normalized.DropboxMode = DropboxModeDirect
@@ -89,7 +113,7 @@ func normalizeDownloadRules(rules DownloadRules) (DownloadRules, error) {
 	seen := make(map[string]struct{}, len(rules.ExcludedExtensions))
 	for _, raw := range rules.ExcludedExtensions {
 		value := strings.ToLower(strings.TrimSpace(raw))
-		if !excludedExtensionPattern.MatchString(value) {
+		if !groupSuffixPattern.MatchString(value) {
 			return DownloadRules{}, &ValidationError{Message: fmt.Sprintf("invalid excluded file extension %q", raw)}
 		}
 		if _, exists := seen[value]; exists {
@@ -106,8 +130,9 @@ func (store *downloadRulesStore) snapshot() DownloadRules {
 	defer store.mu.RUnlock()
 	return DownloadRules{
 		Enabled:            store.rules.Enabled,
-		ExcludedExtensions: append([]string(nil), store.rules.ExcludedExtensions...),
+		ExcludedExtensions: slices.Clone(store.rules.ExcludedExtensions),
 		DropboxMode:        store.rules.DropboxMode,
+		FilterMode:         store.rules.FilterMode,
 	}
 }
 
@@ -136,10 +161,18 @@ func (store *downloadRulesStore) updateRequest(request DownloadRulesUpdate) (Dow
 	if request.DropboxMode != nil {
 		mode = *request.DropboxMode
 	}
+	filterMode := ""
+	if request.FilterMode != nil {
+		filterMode = *request.FilterMode
+		if strings.TrimSpace(filterMode) == "" {
+			return DownloadRules{}, &ValidationError{Message: "Dropbox filter mode must be project, off or custom"}
+		}
+	}
 	normalized, err := normalizeDownloadRules(DownloadRules{
 		Enabled:            request.Enabled,
 		ExcludedExtensions: request.ExcludedExtensions,
 		DropboxMode:        mode,
+		FilterMode:         filterMode,
 	})
 	if err != nil {
 		return DownloadRules{}, err
@@ -158,14 +191,30 @@ func (store *downloadRulesStore) updateRequest(request DownloadRulesUpdate) (Dow
 func (store *downloadRulesStore) snapshotUnlocked() DownloadRules {
 	return DownloadRules{
 		Enabled:            store.rules.Enabled,
-		ExcludedExtensions: append([]string(nil), store.rules.ExcludedExtensions...),
+		ExcludedExtensions: slices.Clone(store.rules.ExcludedExtensions),
 		DropboxMode:        store.rules.DropboxMode,
+		FilterMode:         store.rules.FilterMode,
 	}
 }
 
 // DownloadRules returns the current Dropbox mode and expansion filter defaults.
 func (m *Manager) DownloadRules() DownloadRules {
 	return m.downloadRules.snapshot()
+}
+
+// Resolve the project group for each expansion; never persist a stale copy.
+func (m *Manager) dropboxFilterRules() DownloadRules {
+	rules := m.DownloadRules()
+	if rules.FilterMode == DropboxFilterProject {
+		rules.ExcludedExtensions = []string{}
+		for _, group := range m.FileGroups().Groups {
+			if group.ID == "project" {
+				rules.ExcludedExtensions = group.Extensions
+				break
+			}
+		}
+	}
+	return rules
 }
 
 // SetDownloadRules persists the complete Dropbox mode and filter defaults.

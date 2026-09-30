@@ -192,6 +192,10 @@ Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps
 
 - TrueDown views recover failed reads automatically without refresh/reload controls. View-owned retries back off, stop on navigation/teardown and suspend while hidden; transport deadlines remain bounded. Recovery preserves unsaved drafts and never replays task creation, saves, deletion or other mutations. Conflicting revisions merge only locally edited fields into fresh read snapshots before the next user-initiated write.
 
+- Dropbox expansion filtering persists `filterMode=project|off|custom`. New profiles and reset default to `project`, resolving the current `project` group by its stable ID for each expansion; renamed groups still sync, while a deleted or empty project group excludes nothing. Custom mode initially copies the current project suffixes into an independent, editable chip list. Custom suffixes share the group syntax (including compound suffixes) and 128-item bound. Existing profiles and older filter-only writes map their `enabled` choice to `custom` or `off`, preserving their suffixes and directory-download mode. Filtering never applies to ordinary media or direct archive downloads.
+
+- Dropbox `excludedExtensions` stores the independent custom list across mode changes: `null` means custom filtering has never been initialized, while `[]` means the user explicitly cleared it. Preserve that distinction through persistence and snapshots; only an uninitialized custom list is seeded from the current project group.
+
 ## Build And Release
 
 - TrueDown release numbers come from the highest published `truedown-build-N` plus one, never the workflow run counter. Drafts and failed builds do not consume numbers. A repository-wide TrueDown publishing concurrency group serializes selection through publication; every platform uses the same job output. Before uploading, revalidate the candidate against published releases and the tested commit, discard only its incomplete draft, and reject stale reruns or conflicting existing tags without changing public releases. Once public, a release number is consumed even if the final visibility check needs retrying.

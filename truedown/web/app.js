@@ -10,8 +10,9 @@ const DEFAULT_EXCLUDED_EXTENSIONS = Object.freeze([
   ".psd", ".clip", ".sai", ".sai2", ".kra", ".xcf", ".procreate", ".afphoto", ".afdesign", ".blend",
 ]);
 const DEFAULT_DOWNLOAD_RULES = Object.freeze({
-  enabled: false,
-  excludedExtensions: DEFAULT_EXCLUDED_EXTENSIONS,
+  enabled: true,
+  filterMode: "project",
+  excludedExtensions: null,
   dropboxMode: "direct",
 });
 const DEFAULT_RUNTIME_SETTINGS = Object.freeze({
@@ -99,8 +100,9 @@ let tokenAuthEnabled = false;
 let tokenAuthManaged = false;
 let downloadSettings = loadDownloadSettings();
 let downloadRules = {
+  filterMode: DEFAULT_DOWNLOAD_RULES.filterMode,
   enabled: DEFAULT_DOWNLOAD_RULES.enabled,
-  excludedExtensions: [...DEFAULT_DOWNLOAD_RULES.excludedExtensions],
+  excludedExtensions: DEFAULT_DOWNLOAD_RULES.excludedExtensions,
   dropboxMode: DEFAULT_DOWNLOAD_RULES.dropboxMode,
 };
 let runtimeSettings = { ...DEFAULT_RUNTIME_SETTINGS };
@@ -146,7 +148,7 @@ function cacheElements() {
 	"cfg-check-integrity",
 	"cfg-dropbox-mode",
     "cfg-extra",
-    "cfg-filter-enabled",
+    "cfg-filter-mode",
     "cfg-folder",
     "cfg-global-speed",
     "cfg-global-speed-unit",
@@ -254,6 +256,7 @@ function bindEvents() {
   els.settingsForm.addEventListener("submit", saveDownloadSettings);
   els.settingsForm.addEventListener("input", markSettingsDraft);
   els.settingsForm.addEventListener("change", (event) => {
+    if (event.target === els.cfgFilterMode) changeDropboxFilterMode();
     if (!event.target.closest("[data-settings-independent]")) { markSettingsDraft(event); saveDownloadSettings(event); }
   });
   els.startupEnabled.addEventListener("change", updateStartupSettings);

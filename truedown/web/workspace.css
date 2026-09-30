@@ -189,6 +189,8 @@
 .group-suffix-chip .kd-input { width: 88px; min-width: 0; border: 0; background: transparent; padding-inline: 10px 2px; }
 .group-suffix-chip .kd-icon-button { flex: 0 0 32px; width: 32px; height: 32px; min-height: 32px; background: transparent; }
 .group-suffix-chip .icon { width: 14px; height: 14px; }
+.dropbox-settings > .field + .field { margin-top: 16px; }
+#dropbox-suffix-editor .group-suffix-chip { background: var(--kd-surface-raised); }
 .file-group-editor-row > button { margin-top: 26px; }
 .file-group-editor-row .field > label { white-space: nowrap; }
 .group-editor-actions { display: flex; gap: 12px; flex-wrap: wrap; position: sticky; top: calc(-1 * var(--settings-top-inset)); z-index: 2; padding-block: 8px; background: var(--kd-surface); }

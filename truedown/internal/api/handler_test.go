@@ -661,9 +661,10 @@ func TestDownloadRulesEndpointPersistsAndValidatesConfig(t *testing.T) {
 	get := httptest.NewRequest(http.MethodGet, "/settings/download-rules", nil)
 	getResponse := httptest.NewRecorder()
 	mux.ServeHTTP(getResponse, get)
-	if getResponse.Code != http.StatusOK || !strings.Contains(getResponse.Body.String(), `"enabled":false`) ||
+	if getResponse.Code != http.StatusOK || !strings.Contains(getResponse.Body.String(), `"enabled":true`) ||
+		!strings.Contains(getResponse.Body.String(), `"filterMode":"project"`) ||
 		!strings.Contains(getResponse.Body.String(), `"dropboxMode":"direct"`) ||
-		!strings.Contains(getResponse.Body.String(), `".psd"`) {
+		!strings.Contains(getResponse.Body.String(), `"excludedExtensions":null`) {
 		t.Fatalf("default rules status=%d body=%s", getResponse.Code, getResponse.Body.String())
 	}
 
@@ -674,7 +675,7 @@ func TestDownloadRulesEndpointPersistsAndValidatesConfig(t *testing.T) {
 	postResponse := httptest.NewRecorder()
 	mux.ServeHTTP(postResponse, post)
 	if postResponse.Code != http.StatusOK || postResponse.Body.String() !=
-		"{\"enabled\":true,\"excludedExtensions\":[\".psd\",\".clip\"],\"dropboxMode\":\"expand\"}\n" {
+		"{\"enabled\":true,\"excludedExtensions\":[\".psd\",\".clip\"],\"dropboxMode\":\"expand\",\"filterMode\":\"custom\"}\n" {
 		t.Fatalf("save rules status=%d body=%s", postResponse.Code, postResponse.Body.String())
 	}
 	legacy := httptest.NewRequest(http.MethodPost, "/settings/download-rules", strings.NewReader(
@@ -689,6 +690,8 @@ func TestDownloadRulesEndpointPersistsAndValidatesConfig(t *testing.T) {
 	for _, body := range []string{
 		`{"enabled":true,"excludedExtensions":["../psd"]}`,
 		`{"enabled":true,"excludedExtensions":[],"dropboxMode":"archive"}`,
+		`{"filterMode":"unknown"}`,
+		`{"filterMode":""}`,
 		`{"enabled":true,"excludedExtensions":[],"unknown":true}`,
 	} {
 		request := httptest.NewRequest(http.MethodPost, "/settings/download-rules", strings.NewReader(body))

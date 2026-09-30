@@ -45,6 +45,7 @@ function applyFileGroups(state) {
   if (state.revision < fileGroupsState.revision) return;
   const changed = JSON.stringify(state) !== JSON.stringify(fileGroupsState);
   fileGroupsState = state;
+  if (changed) renderDropboxProjectFilter();
   if (fileGroupsDraft && !fileGroupsSaving && state.revision > fileGroupsEditorRevision) {
     fileGroupsNeedsSync = true;
     scheduleFileGroupsSync();
@@ -278,12 +279,19 @@ function captureFileGroupsDraft() {
 }
 
 function createGroupSuffixEditor(group, i) {
+  return createSuffixEditor(group.extensions, `group-${i}`, {
+    labelID: `group-ext-label-${i}`, fallback: group.id === "other",
+    onRemove: () => { captureFileGroupsDraft(); markFileGroupsDraft(); scheduleFileGroupsSave(); },
+  });
+}
+
+function createSuffixEditor(extensions, identity, { labelID, fallback = false, readOnly = false, onRemove = () => {} } = {}) {
   const suffixes = document.createElement("div");
   suffixes.className = "group-suffixes";
-  suffixes.id = `group-ext-${i}`;
+  suffixes.id = `${identity}-suffixes`;
   suffixes.setAttribute("role", "group");
-  suffixes.setAttribute("aria-labelledby", `group-ext-label-${i}`);
-  if (group.id === "other") {
+  suffixes.setAttribute("aria-labelledby", labelID);
+  if (fallback) {
     suffixes.textContent = "自动接收未匹配的文件";
     suffixes.classList.add("hint");
     return suffixes;
@@ -291,7 +299,8 @@ function createGroupSuffixEditor(group, i) {
   const addSuffix = document.createElement("button");
   addSuffix.type = "button";
   addSuffix.className = "kd-button secondary suffix-add";
-  addSuffix.id = `group-suffix-add-${i}`;
+  addSuffix.id = `${identity}-suffix-add`;
+  addSuffix.hidden = readOnly;
   addSuffix.textContent = "+ 后缀";
   let suffixSequence = 0;
   const appendSuffix = (value = "") => {
@@ -299,8 +308,10 @@ function createGroupSuffixEditor(group, i) {
     chip.className = "group-suffix-chip";
     const input = document.createElement("input");
     input.className = "kd-input";
-    input.dataset.groupSuffix = "";
-    input.id = `group-suffix-${i}-${suffixSequence++}`;
+    if (identity.startsWith("group-")) input.dataset.groupSuffix = "";
+    else input.dataset.downloadExtension = "";
+    input.id = `${identity}-suffix-${suffixSequence++}`;
+    input.readOnly = readOnly;
     input.setAttribute("aria-label", "文件后缀");
     input.placeholder = ".ext";
     input.autocomplete = "off";
@@ -311,16 +322,17 @@ function createGroupSuffixEditor(group, i) {
     remove.className = "kd-icon-button";
     remove.setAttribute("aria-label", "删除后缀");
     remove.innerHTML = iconMarkup("close");
+    remove.hidden = readOnly;
     // Avoid a blur-triggered save replacing the chip before its click arrives.
     remove.addEventListener("pointerdown", event => event.preventDefault());
     remove.addEventListener("click", () => {
       const next = chip.nextElementSibling?.querySelector("input") || addSuffix;
       chip.remove();
       next.focus();
-      captureFileGroupsDraft(); markFileGroupsDraft(); scheduleFileGroupsSave();
+      onRemove();
     });
     input.addEventListener("keydown", event => {
-      if (event.key === "Enter") { event.preventDefault(); addSuffix.click(); }
+      if (event.key === "Enter") { event.preventDefault(); if (!readOnly) addSuffix.click(); }
     });
     input.addEventListener("change", () => {
       const values = fileGroupSuffixValues(input.value);
@@ -334,7 +346,7 @@ function createGroupSuffixEditor(group, i) {
     return input;
   };
   suffixes.append(addSuffix);
-  for (const suffix of group.extensions) appendSuffix(suffix);
+  for (const suffix of extensions) appendSuffix(suffix);
   addSuffix.addEventListener("pointerdown", event => event.preventDefault());
   addSuffix.addEventListener("click", () => appendSuffix().focus());
   return suffixes;

@@ -102,7 +102,7 @@ func (m *Manager) addDropboxFolderWithProfile(
 	if err := validateRequest(identity); err != nil {
 		return DropboxExpansionResult{}, true, err
 	}
-	excluded, err := normalizeDropboxExcludedExtensions(m.DownloadRules(), applyFilter)
+	excluded, err := normalizeDropboxExcludedExtensions(m.dropboxFilterRules(), applyFilter)
 	if err != nil {
 		return DropboxExpansionResult{}, true, err
 	}

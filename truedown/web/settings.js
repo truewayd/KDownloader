@@ -36,6 +36,7 @@ let startupSettings = null;
 let traySettings = null, traySaving = false;
 let taskDefaultsRevision = 0;
 let taskDefaultsLoad = null;
+let dropboxCustomSuffixes = null;
 
 function invalidateSettingRead(key) {
   const revision = (settingReadVersions.get(key) || 0) + 1;
@@ -315,17 +316,14 @@ async function saveDownloadSettings(event) {
       downloadRules = normalizeServerDownloadRules(await requestJSON("/settings/download-rules", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          enabled: els.cfgFilterEnabled.checked, dropboxMode: els.cfgDropboxMode.value,
-          excludedExtensions: [...document.querySelectorAll("[data-download-extension]:checked")].map((input) => input.value),
+          enabled: els.cfgFilterMode.value !== "off", filterMode: els.cfgFilterMode.value,
+          dropboxMode: els.cfgDropboxMode.value,
+          excludedExtensions: readDropboxCustomSuffixes(),
         }),
       }));
       invalidateSettingRead("rules");
       serverSaved = true;
-      els.cfgDropboxMode.value = downloadRules.dropboxMode;
-      els.cfgFilterEnabled.checked = downloadRules.enabled;
-      document.querySelectorAll("[data-download-extension]").forEach((input) => {
-        input.checked = downloadRules.excludedExtensions.includes(input.value);
-      });
+      renderDropboxFilter(downloadRules);
     } else if (page === "advanced") {
       next.extra = els.cfgExtra.value.trim();
     } else if (page === "experimental") {
@@ -556,12 +554,7 @@ function renderDownloadSettings(settings = downloadSettings, rules = downloadRul
     els.cfgAllocation.value = settings.allocation;
     els.cfgCheckIntegrity.checked = settings.checkIntegrity;
     els.cfgRemoteTime.checked = settings.remoteTime;
-    els.cfgDropboxMode.value = rules.dropboxMode;
-    els.cfgFilterEnabled.checked = rules.enabled;
-    const selected = new Set(rules.excludedExtensions);
-    document.querySelectorAll("[data-download-extension]").forEach((input) => {
-      input.checked = selected.has(input.value);
-    });
+    renderDropboxFilter(rules);
   }
   if (!page || page === "advanced") els.cfgExtra.value = settings.extra;
 }
@@ -634,7 +627,7 @@ function normalizeExcludedExtensions(value, fallback) {
     let extension = String(item || "").trim().toLowerCase();
     if (!extension) continue;
     if (!extension.startsWith(".")) extension = `.${extension}`;
-    if (!/^\.[a-z0-9]{1,16}$/.test(extension)) {
+    if (!/^\.[a-z0-9]{1,16}(\.[a-z0-9]{1,16}){0,3}$/.test(extension)) {
       if (fallback) return [...fallback];
       throw new Error(`无效的排除后缀：${item}`);
     }
@@ -643,20 +636,79 @@ function normalizeExcludedExtensions(value, fallback) {
       result.push(extension);
     }
   }
-  if (result.length > 64) {
+  if (result.length > 128) {
     if (fallback) return [...fallback];
-    throw new Error("排除后缀不能超过 64 项");
+    throw new Error("排除后缀不能超过 128 项");
   }
   return result;
 }
 
 function normalizeServerDownloadRules(value) {
   const rules = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const filterMode = ["project", "off", "custom"].includes(rules.filterMode)
+    ? rules.filterMode : rules.enabled === true ? "custom" : "off";
   return {
-    enabled: rules.enabled === true,
-    excludedExtensions: normalizeExcludedExtensions(rules.excludedExtensions, DEFAULT_EXCLUDED_EXTENSIONS),
+    enabled: filterMode !== "off",
+    filterMode,
+    excludedExtensions: rules.filterMode && rules.filterMode !== "custom" && rules.excludedExtensions == null
+      ? null : normalizeExcludedExtensions(rules.excludedExtensions, DEFAULT_EXCLUDED_EXTENSIONS),
     dropboxMode: rules.dropboxMode === "expand" ? "expand" : "direct",
   };
+}
+
+function projectFilterExtensions() {
+  return [...(fileGroupsState.groups.find(group => group.id === "project")?.extensions || [])];
+}
+
+function readDropboxCustomSuffixes() {
+  if (els.cfgFilterMode.value === "custom") {
+    dropboxCustomSuffixes = normalizeExcludedExtensions(
+      [...document.querySelectorAll("#dropbox-suffix-editor input")].flatMap(input => fileGroupSuffixValues(input.value)),
+    );
+  }
+  return dropboxCustomSuffixes === null ? null : [...dropboxCustomSuffixes];
+}
+
+function changeDropboxFilterMode() {
+  if (els.cfgFilterMode.value === "custom" && dropboxCustomSuffixes === null) {
+    dropboxCustomSuffixes = projectFilterExtensions();
+  }
+  renderDropboxSuffixEditor();
+}
+
+function renderDropboxFilter(rules) {
+  els.cfgDropboxMode.value = rules.dropboxMode;
+  els.cfgFilterMode.value = rules.filterMode;
+  dropboxCustomSuffixes = rules.excludedExtensions === null ? null : [...rules.excludedExtensions];
+  renderDropboxSuffixEditor();
+}
+
+function renderDropboxProjectFilter() {
+  if (document.getElementById("cfg-filter-mode")?.value === "project") renderDropboxSuffixEditor();
+}
+
+function renderDropboxSuffixEditor() {
+  const mode = els.cfgFilterMode.value;
+  const readOnly = mode === "project";
+  const project = fileGroupsState.groups.find(group => group.id === "project");
+  document.getElementById("dropbox-filter-extensions").hidden = mode === "off";
+  document.getElementById("dropbox-filter-hint").textContent = mode === "off"
+    ? "目录展开时不过滤文件。"
+    : readOnly ? (project ? `与“${project.name}”分组同步；修改分组后缀后，后续目录展开立即使用新规则。`
+      : "工程分组已删除，当前不排除任何后缀。可恢复工程分组或选择自定义。")
+      : "自定义规则独立于工程分组，忽略大小写；支持 .tar.gz，可逐块编辑、添加或删除。仅用于目录展开。";
+  const extensions = readOnly ? projectFilterExtensions() : dropboxCustomSuffixes ?? [];
+  const host = document.getElementById("dropbox-suffix-editor");
+  const values = [...host.querySelectorAll("input")].map(input => input.value);
+  if (host.firstElementChild && host.dataset.mode === mode && JSON.stringify(values) === JSON.stringify(extensions)) return;
+  host.dataset.mode = mode;
+  host.replaceChildren(createSuffixEditor(extensions, "dropbox", {
+    labelID: "excluded-extensions-label", readOnly,
+    onRemove: () => {
+      markSettingsDraft();
+      saveDownloadSettings({ preventDefault() {} });
+    },
+  }));
 }
 
 async function loadServerDownloadRules() {

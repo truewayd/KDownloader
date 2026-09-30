@@ -334,7 +334,7 @@
               </label>
             </div>
             </fieldset>
-            <fieldset class="settings-group">
+            <fieldset class="settings-group dropbox-settings">
               <legend>Dropbox 目录</legend>
               <div class="field settings-row">
                 <label for="cfg-dropbox-mode">目录下载</label>
@@ -344,27 +344,18 @@
                 </select>
                 <p class="hint">默认下载压缩包。展开后可逐个文件重试，并按后缀过滤。</p>
               </div>
-            <div class="toggle-grid">
-              <label class="setting-toggle" for="cfg-filter-enabled">
-                <input id="cfg-filter-enabled" type="checkbox" role="switch" class="kd-switch">
-                <span><strong>过滤文件</strong><small>仅用于目录展开，不影响普通下载。</small></span>
-              </label>
+            <div class="field settings-row">
+              <label for="cfg-filter-mode">文件过滤</label>
+              <select class="kd-select" id="cfg-filter-mode" aria-describedby="dropbox-filter-hint">
+                <option value="project">跟随工程分组</option>
+                <option value="off">关闭</option>
+                <option value="custom">自定义</option>
+              </select>
+              <p class="hint" id="dropbox-filter-hint">仅在目录展开时过滤，默认与工程分组同步。</p>
             </div>
-            <div class="field">
+            <div class="field" id="dropbox-filter-extensions">
               <span class="field-label" id="excluded-extensions-label">排除的文件后缀</span>
-              <p class="hint">勾选即排除，忽略大小写。浏览器扩展可同步此列表。</p>
-              <div class="extension-grid" role="group" aria-labelledby="excluded-extensions-label">
-                <label><input type="checkbox" value=".psd" data-download-extension><span>.psd</span></label>
-                <label><input type="checkbox" value=".clip" data-download-extension><span>.clip</span></label>
-                <label><input type="checkbox" value=".sai" data-download-extension><span>.sai</span></label>
-                <label><input type="checkbox" value=".sai2" data-download-extension><span>.sai2</span></label>
-                <label><input type="checkbox" value=".kra" data-download-extension><span>.kra</span></label>
-                <label><input type="checkbox" value=".xcf" data-download-extension><span>.xcf</span></label>
-                <label><input type="checkbox" value=".procreate" data-download-extension><span>.procreate</span></label>
-                <label><input type="checkbox" value=".afphoto" data-download-extension><span>.afphoto</span></label>
-                <label><input type="checkbox" value=".afdesign" data-download-extension><span>.afdesign</span></label>
-                <label><input type="checkbox" value=".blend" data-download-extension><span>.blend</span></label>
-              </div>
+              <div id="dropbox-suffix-editor"></div>
             </div>
             </fieldset>
           </section>

@@ -182,7 +182,7 @@ func TestAddDropboxFolderRecursesPaginatesFiltersAndCreatesResumableFiles(t *tes
 		}),
 	}
 	if _, err := manager.SetDownloadRules(DownloadRules{
-		Enabled: true, ExcludedExtensions: []string{".psd"},
+		FilterMode: DropboxFilterProject, ExcludedExtensions: []string{".png"},
 	}); err != nil {
 		t.Fatal(err)
 	}
