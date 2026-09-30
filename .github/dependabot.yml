@@ -5,3 +5,30 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+  - package-ecosystem: "npm"
+    directory: "/truedown/desktop"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      desktop-tools:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "gomod"
+    directory: "/truedown"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      core-dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "cargo"
+    directory: "/truedown/desktop"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      native-dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

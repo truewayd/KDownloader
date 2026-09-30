@@ -72,6 +72,12 @@ jobs:
         run: brew install aria2
       - name: Install desktop build dependencies
         run: npm ci
+      - name: Audit build and core dependencies
+        working-directory: truedown
+        run: |
+          npm audit --prefix desktop --audit-level=low
+          go mod verify
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - name: Build native desktop and Go sidecars
         env:
           RUSTUP_TOOLCHAIN: 1.98.1

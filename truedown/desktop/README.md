@@ -118,6 +118,22 @@ also run `cargo test --locked --release --test dependencies` for the optimized
 GLib FFI regression. Version-only GLib advisories must be assessed against the
 patched source rather than hidden with a global ignore rule.
 
+Dependabot checks the desktop npm and Cargo manifests and the core Go module
+weekly. Native validation audits npm build dependencies and runs
+`go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...` from `truedown` on each
+desktop OS, using the Go baseline in `go.mod`. A clean scan on a newer local
+toolchain does not establish that the CI baseline is secure. Review upstream
+security notices as well: advisory indexes can lag newly published fixes.
+
+The 2026-09-30 review raised the Go baseline to 1.26.8, updated x/sys and
+the Unix SQLite dependency, and raised Tauri's minimum runtime to 2.11.6 for
+[GHSA-w28w-mhc8-qvjv](https://github.com/tauri-apps/tauri/security/advisories/GHSA-w28w-mhc8-qvjv).
+An OSV scan of all 515 Rust lockfile dependencies, including local patches and
+inactive platforms, reported RUSTSEC-2024-0429 and its GLib alias. That source
+defect is covered by the verified patch and optimized Linux regression above;
+the original version and advisory remain visible. GTK3 compatibility still
+depends on upstream platform support.
+
 ## Native packages
 
 From the repository root, `truedown/build.ps1` produces the Windows package.
