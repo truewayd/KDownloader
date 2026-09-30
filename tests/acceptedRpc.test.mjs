@@ -11,6 +11,7 @@ globalThis.chrome = {
   runtime: {
     id: "test-extension",
     lastError: null,
+    getURL: (value) => `chrome-extension://test-extension/${value}`,
     sendMessage(payload, callback) {
       globalThis.__acceptedTabMessages?.push(payload);
       callback?.();
@@ -20,6 +21,12 @@ globalThis.chrome = {
     sendMessage(_tabId, payload, callback) {
       globalThis.__acceptedTabMessages?.push(payload);
       callback?.();
+    },
+  },
+  notifications: {
+    create(id, options, callback) {
+      globalThis.__acceptedNotifications?.push({ id, ...options });
+      callback?.(id);
     },
   },
 };
@@ -70,7 +77,9 @@ const downloadUrl = asModuleUrl(`
     return { success: true, skipped: true };
   }
   export async function dispatchTextDownloadTask() { return { success: true }; }
-  export async function runSequentialDownloads() { return { successCount: 0, results: [] }; }
+  export async function runSequentialDownloads() {
+    return globalThis.__acceptedNativeResult || { successCount: 0, results: [] };
+  }
 `);
 const pawchiveUrl = asModuleUrl(`
   export async function fetchAllPawchiveCreatorPosts() { return globalThis.__acceptedPawPosts || []; }
@@ -124,7 +133,7 @@ const fallbackUrl = asModuleUrl(`
   export async function enqueueNativeFallback(requests) {
     globalThis.__acceptedFallbackEnqueued = Array.isArray(requests) ? requests : [requests];
   }
-  export async function takeNativeFallback() { return null; }
+  export async function takeNativeFallback() { return globalThis.__acceptedPendingFallback || null; }
 `);
 const configUrl = asModuleUrl(`
   export async function loadExternalLinkFilterConfig() { return { mode: "disabled" }; }
@@ -167,6 +176,7 @@ const {
   createExternalLinkAccumulator,
   fetchCreatorPosts,
   forEachAnchorHref,
+  handleNativeFallbackDecision,
   projectCreatorPost,
   projectDownloadResultForBroadcast,
 } = handlerInternals;
@@ -524,6 +534,7 @@ test("empty creator batches emit a successful terminal response with their reque
 test("creator page request failures cannot masquerade as successful empty downloads", async (t) => {
   t.mock.method(console, "error", () => {});
   globalThis.__acceptedTabMessages = [];
+  globalThis.__acceptedNotifications = [];
   globalThis.__acceptedApiResponse = () => { throw new Error("HTTP 503"); };
   const requestId = `failed-page:${crypto.randomUUID()}`;
   try {
@@ -535,6 +546,8 @@ test("creator page request failures cannot masquerade as successful empty downlo
     const terminal = await waitForBatchCompletion(requestId);
     assert.equal(terminal.result.success, false);
     assert.match(terminal.result.error, /HTTP 503/);
+    assert.equal(globalThis.__acceptedNotifications.length, 1);
+    assert.match(globalThis.__acceptedNotifications[0].message, /could not finish fetching posts/);
     globalThis.__acceptedApiResponse = () => ({ error: "invalid page" });
     const invalidId = `invalid-page:${crypto.randomUUID()}`;
     createDownloadHandlers()["creator.pageFetch"]({
@@ -544,6 +557,7 @@ test("creator page request failures cannot masquerade as successful empty downlo
     });
     assert.match((await waitForBatchCompletion(invalidId)).result.error, /Invalid creator posts response/);
   } finally {
+    globalThis.__acceptedNotifications = null;
     globalThis.__acceptedApiResponse = null;
     globalThis.__acceptedTabMessages = null;
   }
@@ -658,6 +672,7 @@ test("Pawchive Links only mode includes links from incomplete posts without medi
 
 test("partially successful post batches expose post-level terminal failure counts", async () => {
   globalThis.__acceptedTabMessages = [];
+  globalThis.__acceptedNotifications = [];
   globalThis.__acceptedFallbackFactory = (postId) => postId === "complete"
     ? { success: true, noFiles: true, results: [] }
     : { success: true, results: [{ success: true }, { success: false }] };
@@ -674,7 +689,10 @@ test("partially successful post batches expose post-level terminal failure count
     assert.deepEqual((await waitForBatchCompletion(requestId)).result, {
       success: false, totalCount: 2, successCount: 1, failedCount: 1,
     });
+    assert.equal(globalThis.__acceptedNotifications.length, 1);
+    assert.match(globalThis.__acceptedNotifications[0].message, /1 of 2 posts failed or were incomplete/);
   } finally {
+    globalThis.__acceptedNotifications = null;
     globalThis.__acceptedFallbackFactory = null;
     globalThis.__acceptedTabMessages = null;
   }
@@ -702,6 +720,7 @@ test("Pawchive DM exports emit a correlated terminal success", async () => {
 test("single-post completion reports history persistence failures and preserves links", async (t) => {
   t.mock.method(console, "warn", () => {});
   globalThis.__acceptedTabMessages = [];
+  globalThis.__acceptedNotifications = [];
   globalThis.__acceptedHistoryError = "IndexedDB unavailable";
   globalThis.__acceptedExternalLinks = ["https://example.com/project.zip"];
   const requestId = `history-failure:${crypto.randomUUID()}`;
@@ -718,9 +737,129 @@ test("single-post completion reports history persistence failures and preserves 
     assert.equal(terminal.result.success, false);
     assert.match(terminal.result.error, /saving download history failed/);
     assert.deepEqual(terminal.result.externalLinks, ["https://example.com/project.zip"]);
+    assert.equal(globalThis.__acceptedNotifications.length, 1);
+    assert.match(globalThis.__acceptedNotifications[0].message, /history saved/);
   } finally {
+    globalThis.__acceptedNotifications = null;
     globalThis.__acceptedHistoryError = null;
     globalThis.__acceptedExternalLinks = null;
     globalThis.__acceptedTabMessages = null;
+  }
+});
+
+test("post notifications distinguish incomplete content, partial submission and total failure", async () => {
+  const cases = [
+    [{ success: false, incomplete: true, externalLinks: ["https://example.com/project.zip"] }, "Post content is incomplete", /Media downloads were skipped/],
+    [{ success: true, backend: true, results: [{ success: true }, { success: false }] }, "Download is incomplete", /1 of 2 files were submitted; 1 failed/],
+    // Chrome can return a successful orchestration with every individual submission rejected.
+    [{ success: true, results: [{ success: false }, { success: false }] }, "Download failed", /files submitted/],
+    [{ success: false, error: "HTTP 503 secret-token" }, "Download failed", /could not be fetched/],
+    [{ success: true, noFiles: true, results: [] }, null],
+    [{ success: true, backend: true, results: [{ success: true }] }, null],
+    [{ success: false, cancelled: true }, null],
+    [{ backendFailed: true, fallbackTasks: [{ url: "https://kemono.cr/a.jpg", fileName: "a.jpg" }] }, null],
+  ];
+  try {
+    for (const [result, title, messagePattern] of cases) {
+      globalThis.__acceptedNotifications = [];
+      globalThis.__acceptedTabMessages = [];
+      globalThis.__acceptedFallbackFactory = () => result;
+      const message = { service: "patreon", userId: "creator", postId: "post-one", requestId: crypto.randomUUID() };
+      const context = {
+        message,
+        sender: { url: "https://kemono.cr/patreon/user/creator/post/post-one", tab: { id: 41 } },
+        sendResponse() {},
+      };
+      createDownloadHandlers().startDownload(context);
+      createDownloadHandlers().startDownload(context);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(globalThis.__acceptedNotifications.length, title ? 1 : 0);
+      if (title) {
+        const notice = globalThis.__acceptedNotifications[0];
+        assert.equal(notice.title, title);
+        assert.match(notice.message, messagePattern);
+        assert.match(notice.message, /patreon \/ creator \/ post-one/);
+        assert.doesNotMatch(notice.message, /secret-token/);
+        const terminal = globalThis.__acceptedTabMessages.find((entry) => entry.action === "downloadComplete");
+        assert.ok(terminal, "notification must not replace terminal UI delivery");
+        if (result.externalLinks) assert.deepEqual(terminal.result.externalLinks, result.externalLinks);
+      }
+    }
+  } finally {
+    globalThis.__acceptedNotifications = null;
+    globalThis.__acceptedTabMessages = null;
+    globalThis.__acceptedFallbackFactory = null;
+  }
+});
+
+test("download notices use localized counts and cannot block completion when notification creation fails", async (t) => {
+  const zh = JSON.parse(await readFile(path.join(root, "_locales/zh_CN/messages.json"), "utf8"));
+  chrome.i18n = {
+    getMessage(key, substitutions = []) {
+      const entry = zh[key];
+      return entry?.message.replace(/\$([A-Z]+)\$/g, (_match, name) => {
+        const position = Number(entry.placeholders[name.toLowerCase()].content.slice(1));
+        return substitutions[position - 1];
+      }) || "";
+    },
+  };
+  globalThis.__acceptedFallbackFactory = () => ({ success: true, results: [{ success: true }, { success: false }] });
+  globalThis.__acceptedNotifications = [];
+  globalThis.__acceptedTabMessages = [];
+  const start = async () => {
+    const requestId = crypto.randomUUID();
+    createDownloadHandlers().startDownload({
+      message: { service: "patreon", userId: "creator", postId: "one", requestId },
+      sender: { url: "https://kemono.cr/patreon/user/creator/post/one", tab: { id: 42 } },
+      sendResponse() {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.ok(globalThis.__acceptedTabMessages.some((entry) => entry.action === "downloadComplete" && entry.requestId === requestId));
+  };
+  try {
+    await start();
+    assert.equal(globalThis.__acceptedNotifications[0].title, zh.downloadPartialTitle.message);
+    assert.match(globalThis.__acceptedNotifications[0].message, /共 2 个文件，已提交 1 个，1 个提交失败/);
+    t.mock.method(console, "warn", () => {});
+    let callbackFailure = false;
+    t.mock.method(chrome.notifications, "create", (_id, _options, callback) => {
+      if (!callbackFailure) throw new Error("Notifications unavailable");
+      chrome.runtime.lastError = { message: "Permission denied" };
+      try { callback(); } finally { chrome.runtime.lastError = null; }
+    });
+    await start();
+    callbackFailure = true;
+    await start();
+  } finally {
+    delete chrome.i18n;
+    globalThis.__acceptedNotifications = null;
+    globalThis.__acceptedTabMessages = null;
+    globalThis.__acceptedFallbackFactory = null;
+  }
+});
+
+test("native fallback failures notify once per batch and cancellations stay quiet", async () => {
+  const request = (postId) => ({
+    item: { service: "patreon", userId: "creator", postId },
+    tasks: [], tabId: 43,
+  });
+  globalThis.__acceptedPendingFallback = { requests: [request("one"), request("two")] };
+  globalThis.__acceptedNativeResult = { successCount: 1, results: [{ success: true }, { success: false }] };
+  globalThis.__acceptedNotifications = [];
+  try {
+    await handleNativeFallbackDecision("fallback-batch", true);
+    assert.equal(globalThis.__acceptedNotifications.length, 1);
+    assert.match(globalThis.__acceptedNotifications[0].message, /2 of 2 posts failed or were incomplete/);
+    globalThis.__acceptedNotifications = [];
+    await handleNativeFallbackDecision("fallback-batch", false);
+    assert.equal(globalThis.__acceptedNotifications.length, 0);
+    globalThis.__acceptedPendingFallback = { requests: [request("one")] };
+    await handleNativeFallbackDecision("fallback-single", true);
+    assert.equal(globalThis.__acceptedNotifications.length, 1);
+    assert.match(globalThis.__acceptedNotifications[0].message, /1 of 2 files were submitted/);
+  } finally {
+    globalThis.__acceptedPendingFallback = null;
+    globalThis.__acceptedNativeResult = null;
+    globalThis.__acceptedNotifications = null;
   }
 });

@@ -221,7 +221,67 @@ export function projectDownloadResultForBroadcast(result) {
   return dto;
 }
 
-function broadcastComplete(item, result, tabId, requestId = item?.requestId) {
+function downloadNoticeText(key, fallback, substitutions = []) {
+  try {
+    return chrome.i18n.getMessage(key, substitutions) || fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function notifyDownloadIssue(scope, result, batch = false) {
+  if (result.cancelled || (result.success && !result.incomplete && result.failedCount === 0)) return;
+  if (typeof globalThis.chrome?.notifications?.create !== "function") return;
+
+  const partial = result.successCount > 0 && result.failedCount > 0;
+  const title = result.incomplete
+    ? downloadNoticeText("downloadIncompleteTitle", "Post content is incomplete")
+    : (partial
+      ? downloadNoticeText("downloadPartialTitle", "Download is incomplete")
+      : downloadNoticeText("downloadFailedTitle", "Download failed"));
+  let message;
+  if (batch) {
+    message = result.totalCount > 0
+      ? downloadNoticeText("downloadBatchIssueMessage",
+        `${result.failedCount} of ${result.totalCount} posts failed or were incomplete. Please retry.`,
+        [String(result.failedCount), String(result.totalCount)])
+      : downloadNoticeText("downloadBatchFailedMessage",
+        "The batch could not finish fetching posts or saving its results. Please retry.");
+  } else if (result.incomplete) {
+    message = downloadNoticeText("downloadIncompleteMessage",
+      "The site has not provided the full post. Media downloads were skipped. Available external links can still be viewed.");
+  } else if (partial) {
+    message = downloadNoticeText("downloadPartialMessage",
+      `${result.successCount} of ${result.totalCount} files were submitted; ${result.failedCount} failed. Please retry.`,
+      [String(result.successCount), String(result.totalCount), String(result.failedCount)]);
+  } else {
+    message = downloadNoticeText("downloadFailedMessage",
+      "The post could not be fetched, its files submitted, or its history saved. Check the site and downloader, then retry.");
+  }
+  // Do not put raw backend errors, media URLs or credentials in OS notifications.
+  const context = boundedResultText(
+    [scope.service, scope.userId, ...(batch ? [] : [scope.postId])].filter(Boolean).join(" / "),
+    240
+  );
+  try {
+    chrome.notifications.create(`download-issue:${crypto.randomUUID()}`, {
+      type: "basic",
+      iconUrl: chrome.runtime.getURL("icons/icon48.png"),
+      title,
+      message: context ? `${context}\n${message}` : message,
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn("[Background] download issue notification failed", chrome.runtime.lastError.message);
+      }
+    });
+  } catch (error) {
+    console.warn("[Background] download issue notification failed", error);
+  }
+}
+
+function broadcastComplete(item, result, tabId, requestId = item?.requestId, notify = true) {
+  const projected = projectDownloadResultForBroadcast(result);
+  if (notify) notifyDownloadIssue(item, projected);
   safeBroadcast(
     {
       action: "downloadComplete",
@@ -229,7 +289,7 @@ function broadcastComplete(item, result, tabId, requestId = item?.requestId) {
       service: item.service,
       userId: item.userId,
       postId: item.postId,
-      result: projectDownloadResultForBroadcast(result),
+      result: projected,
     },
     tabId
   );
@@ -461,10 +521,10 @@ async function runDownloadBatch(items, sender, scope = {}) {
             broadcastComplete(item, {
               success: false,
               error: error && error.message ? error.message : String(error),
-            }, tabId, scope.requestId);
+            }, tabId, scope.requestId, false);
           }
         } else {
-          broadcastComplete(item, result, tabId, scope.requestId);
+          broadcastComplete(item, result, tabId, scope.requestId, false);
           const historyRecord = buildDownloadHistoryRecord(item, result);
           if ((historyRecord && historyRecord.status !== "partial")
               || (result?.success === true
@@ -484,7 +544,8 @@ async function runDownloadBatch(items, sender, scope = {}) {
             error: err && err.message ? err.message : String(err),
           },
           tabId,
-          scope.requestId
+          scope.requestId,
+          false
         );
       }
 
@@ -510,7 +571,7 @@ async function runDownloadBatch(items, sender, scope = {}) {
           broadcastComplete(request.item, {
             success: false,
             error: err && err.message ? err.message : String(err),
-          }, request.tabId);
+          }, request.tabId, request.item.requestId, false);
         }
       }
     }
@@ -555,7 +616,7 @@ function fallbackCancelledMessage() {
   }
 }
 
-async function completeNativeFallbackRequest(request, shouldContinue) {
+async function completeNativeFallbackRequest(request, shouldContinue, notify = true) {
   if (!shouldContinue) {
     broadcastComplete(request.item, {
       success: false,
@@ -587,12 +648,15 @@ async function completeNativeFallbackRequest(request, shouldContinue) {
         result.error = "Downloads were dispatched, but saving download history failed";
       }
     }
-    broadcastComplete(request.item, result, request.tabId);
+    broadcastComplete(request.item, result, request.tabId, request.item.requestId, notify);
+    return projectDownloadResultForBroadcast(result);
   } catch (error) {
-    broadcastComplete(request.item, {
+    const result = {
       success: false,
       error: error && error.message ? error.message : String(error),
-    }, request.tabId);
+    };
+    broadcastComplete(request.item, result, request.tabId, request.item.requestId, notify);
+    return projectDownloadResultForBroadcast(result);
   }
 }
 
@@ -600,8 +664,18 @@ export async function handleNativeFallbackDecision(notificationId, shouldContinu
   const pending = await takeNativeFallback(notificationId);
   if (!pending) return false;
   await clearNativeFallbackNotification(notificationId);
-  for (const request of (pending.requests || []).slice(0, 5000)) {
-    await completeNativeFallbackRequest(request, shouldContinue === true);
+  const requests = (pending.requests || []).slice(0, 5000);
+  let successful = 0;
+  for (const request of requests) {
+    const result = await completeNativeFallbackRequest(request, shouldContinue === true, requests.length === 1);
+    if (result?.success && result.failedCount === 0) successful++;
+  }
+  if (shouldContinue === true && requests.length > 1) {
+    notifyDownloadIssue({}, projectDownloadResultForBroadcast({
+      success: successful === requests.length,
+      totalCount: requests.length,
+      successCount: successful,
+    }), true);
   }
   return true;
 }
@@ -945,14 +1019,18 @@ function linksFileName(kind, service, userId, qualifier = "") {
 }
 
 function runAcceptedTask(label, task, scope, tabId, requestToken) {
-  const complete = (result) => safeBroadcast({
-    action: "downloadComplete",
-    batch: true,
-    requestId: scope.requestId,
-    service: scope.service,
-    userId: scope.userId,
-    result: projectDownloadResultForBroadcast(result),
-  }, tabId);
+  const complete = (result) => {
+    const projected = projectDownloadResultForBroadcast(result);
+    notifyDownloadIssue(scope, projected, true);
+    safeBroadcast({
+      action: "downloadComplete",
+      batch: true,
+      requestId: scope.requestId,
+      service: scope.service,
+      userId: scope.userId,
+      result: projected,
+    }, tabId);
+  };
   Promise.resolve().then(task).then(complete, (err) => {
     console.error(`[Background] ${label} failed`, err);
     broadcastBatchError(scope, err, tabId);

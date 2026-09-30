@@ -596,6 +596,39 @@
       }
     }
   },
+  "downloadIncompleteTitle": {
+    "message": "帖子内容不完整"
+  },
+  "downloadPartialTitle": {
+    "message": "下载不完整"
+  },
+  "downloadFailedTitle": {
+    "message": "下载失败"
+  },
+  "downloadIncompleteMessage": {
+    "message": "站点尚未提供完整帖子，已跳过媒体下载。帖子中已有的外部链接仍可查看。"
+  },
+  "downloadPartialMessage": {
+    "message": "共 $TOTAL$ 个文件，已提交 $SUCCESS$ 个，$FAILED$ 个提交失败，请重试。",
+    "placeholders": {
+      "success": { "content": "$1" },
+      "total": { "content": "$2" },
+      "failed": { "content": "$3" }
+    }
+  },
+  "downloadFailedMessage": {
+    "message": "获取帖子、提交文件或保存下载记录失败，请检查站点及下载器后重试。"
+  },
+  "downloadBatchIssueMessage": {
+    "message": "共 $TOTAL$ 个帖子，$FAILED$ 个下载失败或不完整，请重试。",
+    "placeholders": {
+      "failed": { "content": "$1" },
+      "total": { "content": "$2" }
+    }
+  },
+  "downloadBatchFailedMessage": {
+    "message": "批量抓取未能完成帖子获取或结果保存，请重试。"
+  },
   "historyImportFinalizing": {
     "message": "正在完成历史记录导入…"
   }

@@ -596,6 +596,39 @@
       }
     }
   },
+  "downloadIncompleteTitle": {
+    "message": "Post content is incomplete"
+  },
+  "downloadPartialTitle": {
+    "message": "Download is incomplete"
+  },
+  "downloadFailedTitle": {
+    "message": "Download failed"
+  },
+  "downloadIncompleteMessage": {
+    "message": "The site has not provided the full post. Media downloads were skipped. Available external links can still be viewed."
+  },
+  "downloadPartialMessage": {
+    "message": "$SUCCESS$ of $TOTAL$ files were submitted; $FAILED$ failed. Please retry.",
+    "placeholders": {
+      "success": { "content": "$1" },
+      "total": { "content": "$2" },
+      "failed": { "content": "$3" }
+    }
+  },
+  "downloadFailedMessage": {
+    "message": "The post could not be fetched, its files submitted, or its history saved. Check the site and downloader, then retry."
+  },
+  "downloadBatchIssueMessage": {
+    "message": "$FAILED$ of $TOTAL$ posts failed or were incomplete. Please retry.",
+    "placeholders": {
+      "failed": { "content": "$1" },
+      "total": { "content": "$2" }
+    }
+  },
+  "downloadBatchFailedMessage": {
+    "message": "The batch could not finish fetching posts or saving its results. Please retry."
+  },
   "historyImportFinalizing": {
     "message": "Finalizing history import..."
   }
