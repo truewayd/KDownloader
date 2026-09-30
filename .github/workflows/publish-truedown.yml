@@ -82,8 +82,15 @@ jobs:
           package-manager-cache: false
 
       - name: Set up native build tools
+        shell: bash
         run: |
-          rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+          for attempt in 1 2 3; do
+            if rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep 10
+          done
           npm ci --prefix truedown/desktop
 
       - name: Test release asset validation
@@ -191,8 +198,15 @@ jobs:
           package-manager-cache: false
 
       - name: Set up native build tools
+        shell: bash
         run: |
-          rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+          for attempt in 1 2 3; do
+            if rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep 10
+          done
           npm ci --prefix truedown/desktop
 
       - name: Install Linux native runtime and build dependencies
