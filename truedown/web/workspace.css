@@ -25,7 +25,9 @@
 .sidebar .sidebar-toggle:hover { background: var(--kd-secondary-hover); border-color: transparent; color: var(--kd-text); }
 .sidebar #new-task-btn { justify-content: flex-start; gap: 10px; padding-inline: 12px; font-weight: 600; }
 .primary-nav, .settings-nav, .sidebar-footer { display: grid; gap: 4px; }
-.primary-nav { align-content: start; min-width: 0; overflow-x: hidden; }
+.primary-nav { position: relative; align-content: start; min-width: 0; overflow-x: hidden; }
+.has-navigation-indicator a[aria-current]::before { display: none; }
+.navigation-indicator { position: absolute; top: 0; left: 3px; width: 3px; height: 18px; border-radius: 3px; background: var(--kd-accent); pointer-events: none; transition: transform 320ms cubic-bezier(.22, 1, .36, 1); }
 .primary-nav > *, .file-group-navigation { min-width: 0; }
 .nav-section-label { margin: 0 12px 6px; font-size: 11px; color: var(--kd-muted); }
 .primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link { position: relative; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 8px 12px; }
@@ -133,7 +135,7 @@
 #settings-reset-btn:hover { background: var(--kd-secondary-hover); }
 .settings-save-error { margin: 0 0 20px; color: var(--kd-error-text); }
 .settings-save-error:empty { display: none; }
-.settings-content { container: settings / inline-size; padding: 28px 32px 40px; overflow-y: auto; flex: 1; min-width: 0; min-height: 0; scrollbar-gutter: stable; background: var(--kd-surface); }
+.settings-content { --settings-top-inset: 28px; container: settings / inline-size; padding: var(--settings-top-inset) 32px 40px; overflow-y: auto; flex: 1; min-width: 0; min-height: 0; scrollbar-gutter: stable; background: var(--kd-surface); }
 .settings-content > .settings-section { display: grid; align-content: start; gap: 24px; max-width: 880px; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .settings-content > .settings-section:not([hidden]) { margin-bottom: 24px; }
 .settings-content > .settings-section:not(:has(~ .settings-section:not([hidden]))) { margin-bottom: 0; }
@@ -189,7 +191,7 @@
 .group-suffix-chip .icon { width: 14px; height: 14px; }
 .file-group-editor-row > button { margin-top: 26px; }
 .file-group-editor-row .field > label { white-space: nowrap; }
-.group-editor-actions { display: flex; gap: 12px; flex-wrap: wrap; position: sticky; top: 0; z-index: 2; padding-block: 8px; background: var(--kd-surface); }
+.group-editor-actions { display: flex; gap: 12px; flex-wrap: wrap; position: sticky; top: calc(-1 * var(--settings-top-inset)); z-index: 2; padding-block: 8px; background: var(--kd-surface); }
 @container settings (max-width: 680px) {
   .settings-content .extension-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
@@ -263,7 +265,7 @@
   .settings-nav { padding: 4px; }
   .settings-nav-link { justify-content: center; padding: 8px; }
   .settings-nav-link span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .settings-content { min-width: 0; padding: 20px 16px; }
+  .settings-content { --settings-top-inset: 20px; min-width: 0; padding: var(--settings-top-inset) 16px; }
   .settings-category-header { margin-bottom: 24px; }
   .settings-category-header h2 { font-size: 20px; }
   .settings-content > .settings-section { min-width: 0; }
@@ -276,7 +278,7 @@
 }
 
 /* One responsive toolbar; list scrolling is independent of its controls. */
-.task-panel { container: task-workspace / inline-size; }
+.task-panel { position: relative; container: task-workspace / inline-size; }
 .task-toolbar { align-items: center; gap: 8px; padding: 12px 16px; }
 .task-toolbar .task-query-controls { display: flex; flex: 0 1 360px; min-width: 0; gap: 8px; }
 .task-toolbar .search-control { width: auto; flex: 1; min-width: 80px; }
@@ -316,4 +318,42 @@
 @media (max-width: 380px) {
   .brand-copy { display: none; }
 
+}
+
+/* Search geometry is shared by the task toolbar and settings navigation. */
+:is(.search-field, .settings-search-field) { position: relative; min-width: 0; }
+:is(.search-field, .settings-search-field) .kd-input { width: 100%; height: 36px; min-height: 36px; padding-inline: 36px 36px; font-size: 13px; }
+:is(.search-field, .settings-search-field) .search-icon { left: 12px; width: 16px; height: 16px; }
+:is(.search-field, .settings-search-field) input::-webkit-search-cancel-button { display: none; }
+.search-field .search-clear, #settings-search-clear { position: absolute; right: 4px; top: 4px; width: 28px; height: 28px; min-height: 28px; padding: 6px; border-radius: 50%; background: transparent; }
+.search-field .search-clear:hover, #settings-search-clear:hover { background: var(--kd-secondary-hover); }
+
+/* Overlay selection actions leave the toolbar and virtual viewport in place. */
+.task-panel .batch-toolbar { position: absolute; z-index: 5; inset: auto auto 20px 50%; transform: translateX(-50%); display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; width: max-content; max-width: calc(100% - 24px); padding: 8px 12px; border: 0; border-radius: 28px; background: rgb(38 38 38 / 94%); color: #fafafa; box-shadow: 0 4px 16px rgb(0 0 0 / 18%); backdrop-filter: blur(16px); animation: kd-selection-in 220ms cubic-bezier(.22, 1, .36, 1); }
+.batch-toolbar strong { color: inherit; font-weight: 500; white-space: nowrap; padding-inline: 4px; }
+.batch-toolbar .batch-actions { gap: 4px; }
+.batch-toolbar :is(.kd-button.secondary, .kd-icon-button) { background: transparent; border-color: transparent; color: inherit; }
+.batch-toolbar :is(.kd-button.secondary, .kd-icon-button):hover:not(:disabled) { background: rgb(255 255 255 / 12%); color: inherit; }
+.batch-toolbar .kd-button { min-height: 32px; padding: 6px 10px; border-radius: 999px; }
+.batch-toolbar .kd-button.danger { background: #ba3434; border-color: transparent; color: #fff; }
+.batch-toolbar .kd-button.danger:hover:not(:disabled) { background: #ce3c3c; color: #fff; }
+.batch-toolbar > .kd-icon-button { width: 32px; height: 32px; min-height: 32px; border-radius: 50%; }
+.batch-toolbar .icon { width: 16px; height: 16px; }
+.task-panel:has(.batch-toolbar:not([hidden])) #tasks-wrap { padding-bottom: 96px; scroll-padding-bottom: 96px; }
+.task-rows tr.is-selected { background: color-mix(in srgb, var(--kd-text) 6%, transparent); }
+.task-rows tr[data-update-download="true"] .task-file-cell > .icon { color: var(--kd-accent); }
+.update-task-label { color: var(--kd-accent); font-weight: 600; }
+.task-rows tr[data-update-download="true"][data-status="downloading"] .task-file-cell > .icon { animation: kd-update-turn 2.4s linear infinite; }
+.task-progress::-webkit-progress-value { transition: width 240ms cubic-bezier(.22, 1, .36, 1); }
+@keyframes kd-update-turn { to { transform: rotate(360deg); } }
+@keyframes kd-selection-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) {
+  .navigation-indicator, .task-progress::-webkit-progress-value { transition: none; }
+  .kd-toast { transition: none; }
+  .task-panel .batch-toolbar, .task-rows tr[data-update-download="true"] .task-file-cell > .icon { animation: none; }
+}
+@media (forced-colors: active) {
+  .navigation-indicator { background: Highlight; forced-color-adjust: none; }
+  .task-panel .batch-toolbar { background: Canvas; color: CanvasText; border: 1px solid CanvasText; backdrop-filter: none; }
+  .task-rows tr.is-selected { outline: 1px solid Highlight; outline-offset: -1px; }
 }

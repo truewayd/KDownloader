@@ -23,7 +23,7 @@ body {
   overflow: hidden;
   background: var(--kd-bg);
   color: var(--kd-text);
-  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--kd-font-family);
 }
 
 html::-webkit-scrollbar,
@@ -40,8 +40,7 @@ body::-webkit-scrollbar,
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1px solid var(--kd-border);
-  padding: 10px 12px;
+  padding: 12px;
   background: color-mix(in srgb, var(--kd-bg) 97%, transparent);
 }
 
@@ -49,7 +48,7 @@ body::-webkit-scrollbar,
   margin: 0;
   color: var(--kd-text);
   font-size: 18px;
-  font-weight: 680;
+  font-weight: 600;
   line-height: 1.2;
 }
 
@@ -62,7 +61,7 @@ body::-webkit-scrollbar,
   max-width: 150px;
   color: var(--kd-subtle);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 1.2;
   text-align: right;
 }
@@ -77,17 +76,17 @@ body::-webkit-scrollbar,
 .container {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-height: 0;
   height: auto;
   max-height: none;
   overflow-y: auto;
-  padding: 10px 12px 12px;
+  padding: 12px;
 }
 
 .kd-panel {
   flex-shrink: 0;
-  padding: 11px;
+  padding: 12px;
 }
 
 .kd-panel-heading h2 {
@@ -103,11 +102,11 @@ body::-webkit-scrollbar,
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   width: 100%;
   color: var(--kd-muted);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 1.3;
 }
 
@@ -129,7 +128,7 @@ body::-webkit-scrollbar,
 .column {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
 }
 
 .input-flex {
@@ -160,7 +159,6 @@ body::-webkit-scrollbar,
   flex-shrink: 0;
   align-items: center;
   min-height: 42px;
-  border-bottom: 1px solid var(--kd-border);
   padding: 8px 12px;
   background: color-mix(in srgb, var(--kd-surface) 97%, transparent);
 }
@@ -176,7 +174,7 @@ body::-webkit-scrollbar,
   min-width: 150px;
   color: var(--kd-muted);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 

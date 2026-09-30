@@ -1,28 +1,28 @@
 /* Shared extension-page primitives. Page styles should only define layout. */
 :root {
   color-scheme: dark;
-  --kd-bg: #151a1a;
-  --kd-surface: #1e2525;
-  --kd-surface-raised: #2a3434;
-  --kd-border: rgba(224, 235, 235, 0.12);
-  --kd-border-strong: rgba(224, 235, 235, 0.22);
-  --kd-text: #f1f5f5;
-  --kd-muted: #a6b2b2;
-  --kd-subtle: #7f9090;
+  --kd-bg: #202020;
+  --kd-surface: #2b2b2b;
+  --kd-surface-raised: #353535;
+  --kd-border: rgb(255 255 255 / 9%);
+  --kd-border-strong: rgb(255 255 255 / 20%);
+  --kd-text: #f5f5f5;
+  --kd-muted: #bcbcbc;
+  --kd-subtle: #a8a8a8;
   --kd-accent: #487a7a;
   --kd-accent-hover: #3c6868;
   --kd-accent-soft: rgba(72, 122, 122, 0.22);
   --kd-icon: #8eb2b2;
-  --kd-input: #121717;
-  --kd-input-focus: #192020;
-  --kd-placeholder: #8b9a9a;
+  --kd-input: #242424;
+  --kd-input-focus: #202020;
+  --kd-placeholder: #9b9b9b;
   --kd-button-text: #ffffff;
   --kd-button-border: rgba(72, 122, 122, 0.78);
   --kd-focus: #79a8a8;
-  --kd-secondary-hover: #354040;
-  --kd-secondary-hover-border: rgba(224, 235, 235, 0.3);
-  --kd-shadow: 0 18px 44px rgba(12, 28, 28, 0.34);
-  --kd-panel-inset: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
+  --kd-secondary-hover: #3b3b3b;
+  --kd-secondary-hover-border: rgb(255 255 255 / 22%);
+  --kd-shadow: 0 4px 16px rgb(0 0 0 / 14%);
+  --kd-panel-inset: none;
   --kd-success-border: rgba(101, 163, 90, 0.44);
   --kd-success-bg: rgba(32, 58, 37, 0.96);
   --kd-success-text: #d4ebd0;
@@ -37,7 +37,11 @@
   --kd-danger-button-hover-bg: rgba(195, 91, 80, 0.28);
   --kd-danger-button-text: #f2c6c1;
   --kd-control-height: 36px;
-  --kd-radius: 8px;
+  --kd-control-radius: 12px;
+  --kd-radius: 16px;
+  --kd-item-radius: 10px;
+  --kd-pill-radius: 999px;
+  --kd-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
   --kd-motion-fast: 140ms;
   --kd-motion-base: 180ms;
   --kd-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -46,28 +50,28 @@
 @media (prefers-color-scheme: light) {
   :root {
     color-scheme: light;
-    --kd-bg: #f3f7f7;
+    --kd-bg: #f3f3f3;
     --kd-surface: #ffffff;
-    --kd-surface-raised: #e6eeee;
-    --kd-border: rgba(47, 69, 69, 0.14);
-    --kd-border-strong: rgba(47, 69, 69, 0.24);
-    --kd-text: #202b2b;
-    --kd-muted: #5e6f6f;
-    --kd-subtle: #607171;
+    --kd-surface-raised: #f5f5f5;
+    --kd-border: rgb(0 0 0 / 8%);
+    --kd-border-strong: rgb(0 0 0 / 20%);
+    --kd-text: #202020;
+    --kd-muted: #606060;
+    --kd-subtle: #6a6a6a;
     --kd-accent: #487a7a;
     --kd-accent-hover: #3c6868;
     --kd-accent-soft: rgba(72, 122, 122, 0.14);
     --kd-icon: #3c6868;
-    --kd-input: #fbfdfd;
-    --kd-input-focus: #eef5f5;
-    --kd-placeholder: #697676;
+    --kd-input: #ffffff;
+    --kd-input-focus: #ffffff;
+    --kd-placeholder: #707070;
     --kd-button-text: #ffffff;
     --kd-button-border: rgba(72, 122, 122, 0.78);
     --kd-focus: #487a7a;
-    --kd-secondary-hover: #dce7e7;
-    --kd-secondary-hover-border: rgba(47, 69, 69, 0.3);
-    --kd-shadow: 0 18px 44px rgba(35, 60, 60, 0.14);
-    --kd-panel-inset: 0 1px 0 rgba(255, 255, 255, 0.75) inset;
+    --kd-secondary-hover: #f0f0f0;
+    --kd-secondary-hover-border: rgb(0 0 0 / 18%);
+    --kd-shadow: 0 4px 16px rgb(0 0 0 / 8%);
+    --kd-panel-inset: none;
     --kd-success-border: rgba(78, 132, 69, 0.34);
     --kd-success-bg: rgba(235, 247, 229, 0.98);
     --kd-success-text: #365b2f;
@@ -90,7 +94,7 @@
   box-sizing: border-box;
 }
 
-body { -webkit-user-select: none; user-select: none; }
+body { font-family: var(--kd-font-family); font-size: 14px; -webkit-user-select: none; user-select: none; }
 input, textarea, [contenteditable]:not([contenteditable="false"]),
 pre, code, .kd-selectable, [role="alert"], [role="status"], .kd-confirm-dialog > p {
   -webkit-user-select: text;
@@ -144,7 +148,7 @@ textarea {
 .kd-panel-heading {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -153,7 +157,7 @@ textarea {
   margin: 0;
   color: var(--kd-text);
   font-size: 15px;
-  font-weight: 680;
+  font-weight: 600;
   line-height: 1.25;
 }
 
@@ -166,7 +170,7 @@ textarea {
 }
 
 .kd-panel > .kd-panel-heading {
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .kd-button,
@@ -177,13 +181,13 @@ textarea {
   gap: 8px;
   min-height: var(--kd-control-height);
   border: 0;
-  border-radius: var(--kd-radius);
+  border-radius: var(--kd-control-radius);
   padding: 8px 12px;
   background: var(--kd-surface-raised);
   color: var(--kd-text);
   cursor: pointer;
   font-size: 13px;
-  font-weight: 720;
+  font-weight: 500;
   line-height: 1;
   text-decoration: none;
   appearance: none;
@@ -273,8 +277,8 @@ select {
   width: 100%;
   height: var(--kd-control-height);
   border: 1px solid var(--kd-border);
-  border-radius: var(--kd-radius);
-  padding: 0 10px;
+  border-radius: var(--kd-control-radius);
+  padding: 0 12px;
   background: var(--kd-input);
   color: var(--kd-text);
   outline: none;
@@ -288,6 +292,8 @@ select {
 input::placeholder {
   color: var(--kd-placeholder);
 }
+
+.kd-input[type="search"] { border-radius: var(--kd-pill-radius); }
 
 .kd-input:focus,
 .kd-select:focus,
@@ -349,7 +355,7 @@ textarea.kd-input {
   height: 9px;
   margin: 2px 0 0 5px;
   border: solid var(--kd-button-text);
-  border-width: 0 2px 2px 0;
+  border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
 }
 
@@ -369,18 +375,18 @@ textarea.kd-input {
   color: var(--kd-muted);
   cursor: pointer;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 500;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
 .kd-segment:first-child {
   border-right: 0;
-  border-radius: var(--kd-radius) 0 0 var(--kd-radius);
+  border-radius: var(--kd-control-radius) 0 0 var(--kd-control-radius);
 }
 
 .kd-segment:last-child {
-  border-radius: 0 var(--kd-radius) var(--kd-radius) 0;
+  border-radius: 0 var(--kd-control-radius) var(--kd-control-radius) 0;
 }
 
 .kd-segment.is-active {
@@ -432,7 +438,12 @@ textarea.kd-input {
   top: 18px;
   right: 18px;
   z-index: 2147483646;
-  display: none;
+  display: block;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-8px);
+  transition: opacity 180ms ease, transform 220ms cubic-bezier(.22, 1, .36, 1), visibility 0s linear 220ms;
   max-width: min(360px, calc(100vw - 36px));
   border: 1px solid var(--kd-border);
   border-radius: var(--kd-radius);
@@ -441,7 +452,7 @@ textarea.kd-input {
   color: var(--kd-text);
   box-shadow: var(--kd-shadow);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 500;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
@@ -502,18 +513,21 @@ textarea.kd-input {
 }
 
 .kd-toast.is-visible {
-  display: block;
-  animation: kd-toast-in var(--kd-motion-base) ease-out;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition-delay: 0s;
 }
 
 .kd-toast.success {
-  border-color: var(--kd-success-border);
+  border-color: var(--kd-border);
   background: var(--kd-success-bg);
   color: var(--kd-success-text);
 }
 
 .kd-toast.error {
-  border-color: var(--kd-error-border);
+  border-color: var(--kd-border);
   background: var(--kd-error-bg);
   color: var(--kd-error-text);
 }
@@ -556,12 +570,8 @@ textarea.kd-input {
   to { transform: rotate(360deg); }
 }
 
-@keyframes kd-toast-in {
-  from { opacity: 0; transform: translateY(-6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
 @media (prefers-reduced-motion: reduce) {
+  .kd-toast { transition: none; }
   *,
   *::before,
   *::after {

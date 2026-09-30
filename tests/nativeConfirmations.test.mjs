@@ -71,7 +71,7 @@ test("desktop product confirmations use an independent window by default", async
 test("single retries dispatch immediately while deletion still honors cancellation", async () => {
   const calls = [];
   const context = vm.createContext({
-    activeTaskActions: new Set(), taskStatusByID: new Map([[1, "error"]]),
+    activeTaskActions: new Set(), taskStatusByID: new Map([[1, "error"]]), updateTaskIDs: new Set(), taskDetailData: null,
     setTaskActionBusy() {}, runTaskAction: async (action, id) => calls.push([action, id]),
     confirmAction: async () => { calls.push(["confirm"]); return false; }, showToast: assert.fail,
   });

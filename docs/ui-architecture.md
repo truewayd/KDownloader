@@ -78,7 +78,7 @@ Owned documents use the shared `kd-*` vocabulary:
 
 Page CSS may define layout, density, and responsive placement. It must not
 redefine the shared extension-page tokens or component behavior. TrueDown
-keeps its standalone CSS artifact, with token equality enforced by tests.
+keeps its standalone CSS artifact, with effective light/dark theme equality enforced by tests.
 
 The form controls share font inheritance, selector arrows, focus rings, and
 disabled/hover behavior. Select arrows survive focus and disabled states;
@@ -138,10 +138,24 @@ swaps and hostile generic site selectors from moving or disabling controls.
 
 ## TrueDown visual baseline
 
+Task selection uses a bottom floating action bar inside the task workspace, with
+clear-selection focus restoration and enough scroll clearance for the last row.
+It never changes the virtual viewport height. A single navigation indicator moves
+between file groups with a 320 ms cubic-bezier transition; reduced motion disables
+it. Search controls share a 36 px height, icon inset and explicit clear control.
+Native material navigation uses alpha overlays for hover and selection. Toasts
+transition both in and out, hiding hit targets as soon as dismissal starts.
+Ordinary borders stay at 1 px with low contrast; the floating selection surface
+has no decorative outline. Keyboard focus and forced colors retain clear edges.
+The add-group action sticks to the settings scrollport edge after passing it.
+Updater-owned tasks expose a durable `updateDownload` marker, a purpose label and
+animated transfer icon. Individual, selected and whole-queue pause/removal flows
+explain update consequences; completed downloads do not imply installation.
+
 `truedown/web/ui-baseline.css` is the authoritative product theme, loaded by
 the main/settings/task pages and independent confirmation/menu pages. The base
 primitives retain the shared extension token contract; this single product
-layer supplies neutral desktop surfaces. `native-appearance.css` owns OS frame
+layer supplies the reference neutral surfaces used by extension pages and injected Shadow DOM controls. `native-appearance.css` owns OS frame
 and material integration only. Page styles own layout, not alternate palettes.
 
 - Neutral light/dark surfaces; retain the teal brand accent for active actions.
@@ -149,8 +163,9 @@ and material integration only. Page styles own layout, not alternate palettes.
   category headings 24px. Ordinary controls use weight 500, headings 600.
 - Spacing follows 4/8/12/16/24/32px. Controls are normally 36px tall; menus use
   34px rows and 16px icons. Compact toolbars may use 32px controls.
-- TrueDown controls have 12px corners, panels 16px and menu items 10px, all
-  supplied by `ui-baseline.css`; extension surfaces retain their existing tokens.
+- Both products use 12px control corners, 16px panel/modal corners and 10px
+  list-item corners. Extension tokens in `shared/ui.css` follow TrueDown's
+  `ui-baseline.css`; injected controls apply the same baseline inside Shadow DOM.
   Joined input/select controls round only their outside corners. Use whitespace and surface
   tones for grouping. No decorative panel outlines, button shadows or repeated
   separators. Editable fields and visible keyboard/high-contrast focus retain

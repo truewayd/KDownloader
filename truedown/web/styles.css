@@ -460,13 +460,17 @@ textarea:disabled {
   bottom: auto;
   left: 50%;
   z-index: 200;
-  display: none;
+  display: block;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 220ms cubic-bezier(.22, 1, .36, 1), visibility 0s linear 220ms;
   width: max-content;
   max-width: min(480px, calc(100vw - 32px));
   max-height: calc(100dvh - var(--native-titlebar-height, 0px) - 64px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  transform: translateX(-50%);
+  transform: translate(-50%, -8px);
   border: 1px solid var(--kd-border);
   border-radius: var(--kd-radius);
   padding: 11px 13px;
@@ -480,18 +484,21 @@ textarea:disabled {
 }
 
 .kd-toast.is-visible {
-  display: block;
-  animation: kd-toast-in var(--kd-motion-base) ease-out;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+  transition-delay: 0s;
 }
 
 .kd-toast.success {
-  border-color: var(--kd-success-border);
+  border-color: var(--kd-border);
   background: var(--kd-success-bg);
   color: var(--kd-success-text);
 }
 
 .kd-toast.error {
-  border-color: var(--kd-error-border);
+  border-color: var(--kd-border);
   background: var(--kd-error-bg);
   color: var(--kd-error-text);
 }
@@ -1650,11 +1657,6 @@ label {
 .dialog-error {
   color: var(--kd-error-text) !important;
   font-size: 12px;
-}
-
-@keyframes kd-toast-in {
-  from { opacity: 0; transform: translate(-50%, -6px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
 }
 
 @media (max-width: 720px) {

@@ -75,11 +75,12 @@
         <h1 class="visually-hidden" id="tasks-title">全部下载</h1>
           <div class="panel-actions task-toolbar" aria-label="队列操作">
           <div class="task-query-controls">
-            <label class="search-control" for="task-search">
+            <div class="search-control search-field">
               <span class="visually-hidden">搜索文件名或链接</span>
               <svg class="icon search-icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-search"></use></svg>
-              <input class="kd-input" id="task-search" type="search" placeholder="搜索文件名或链接" autocomplete="off">
-            </label>
+              <input class="kd-input" id="task-search" type="search" aria-label="搜索文件名或链接" placeholder="搜索文件名或链接" autocomplete="off">
+              <button class="kd-icon-button search-clear" id="task-search-clear" type="button" aria-label="清空搜索" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-close"></use></svg></button>
+            </div>
             <label class="filter-control" for="task-filter">
               <span>状态</span>
               <select class="kd-select" id="task-filter" aria-label="下载状态">
@@ -102,13 +103,14 @@
         </div>
         <p class="hint" id="task-load-status" role="status" hidden></p>
 
-        <div class="batch-toolbar" id="batch-toolbar" hidden>
-          <strong id="batch-selection-count">已选择 0 项</strong>
+        <div class="batch-toolbar" id="batch-toolbar" role="region" aria-label="已选任务操作" hidden>
+          <strong id="batch-selection-count" role="status">已选择 0 项</strong>
           <div class="batch-actions">
-            <button class="kd-button secondary compact" id="batch-pause-btn" type="button">批量暂停</button>
-            <button class="kd-button secondary compact" id="batch-resume-btn" type="button">批量继续</button>
-            <button class="kd-button danger compact" id="batch-remove-btn" type="button">批量移除</button>
+            <button class="kd-button secondary compact" id="batch-pause-btn" type="button"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-pause"></use></svg>暂停</button>
+            <button class="kd-button secondary compact" id="batch-resume-btn" type="button"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-play"></use></svg>继续</button>
+            <button class="kd-button danger compact" id="batch-remove-btn" type="button"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-trash"></use></svg>移除</button>
           </div>
+          <button class="kd-icon-button" id="batch-clear-btn" type="button" aria-label="取消选择" data-tooltip="取消选择"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-close"></use></svg></button>
         </div>
 
         <div class="table-scroll" id="tasks-wrap" tabindex="0" aria-label="任务列表，滚动查看全部任务">

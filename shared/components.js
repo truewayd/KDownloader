@@ -15,11 +15,11 @@
 
   const CONTENT_COMPONENT_STYLES = String.raw`
     :host {
-      --kd-content-surface: #1e2525;
-      --kd-content-surface-raised: #2a3434;
-      --kd-content-border: rgba(224, 235, 235, 0.22);
-      --kd-content-text: #f1f5f5;
-      --kd-content-muted: #a6b2b2;
+      --kd-content-surface: #2b2b2b;
+      --kd-content-surface-raised: #353535;
+      --kd-content-border: rgb(255 255 255 / 20%);
+      --kd-content-text: #f5f5f5;
+      --kd-content-muted: #bcbcbc;
       --kd-content-accent: #487a7a;
       --kd-content-accent-hover: #3c6868;
       --kd-content-accent-text: #ffffff;
@@ -38,7 +38,7 @@
       display: inline-block;
       pointer-events: auto;
       cursor: pointer;
-      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
       letter-spacing: 0;
     }
 
@@ -58,7 +58,7 @@
       min-height: 36px;
       margin: 0;
       border: 0;
-      border-radius: 8px;
+      border-radius: 12px;
       padding: 8px 12px;
       background: var(--kd-content-accent);
       color: var(--kd-content-accent-text);
@@ -66,7 +66,7 @@
       cursor: pointer;
       font: inherit;
       font-size: 13px;
-      font-weight: 720;
+      font-weight: 500;
       line-height: 1;
       text-align: center;
       text-decoration: none;
@@ -238,10 +238,10 @@
     @media (prefers-color-scheme: light) {
       :host {
         --kd-content-surface: #ffffff;
-        --kd-content-surface-raised: #e6eeee;
-        --kd-content-border: rgba(47, 69, 69, 0.24);
-        --kd-content-text: #202b2b;
-        --kd-content-muted: #5e6f6f;
+        --kd-content-surface-raised: #f5f5f5;
+        --kd-content-border: rgb(0 0 0 / 20%);
+        --kd-content-text: #202020;
+        --kd-content-muted: #606060;
         --kd-content-accent: #487a7a;
         --kd-content-accent-hover: #3c6868;
         --kd-content-accent-text: #ffffff;
@@ -278,11 +278,11 @@
 
   const LINKS_DIALOG_STYLES = String.raw`
     :host {
-      --kd-content-surface: #1e2525;
-      --kd-content-surface-raised: #2a3434;
-      --kd-content-border: rgba(224, 235, 235, 0.22);
-      --kd-content-text: #f1f5f5;
-      --kd-content-muted: #a6b2b2;
+      --kd-content-surface: #2b2b2b;
+      --kd-content-surface-raised: #353535;
+      --kd-content-border: rgb(255 255 255 / 20%);
+      --kd-content-text: #f5f5f5;
+      --kd-content-muted: #bcbcbc;
       --kd-content-link: #8eb2b2;
       --kd-content-focus: #79a8a8;
       position: fixed;
@@ -290,7 +290,7 @@
       z-index: 2147483647;
       display: block;
       box-sizing: border-box;
-      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
     }
 
     .overlay {
@@ -312,26 +312,26 @@
       max-height: min(80vh, 720px);
       overflow-y: auto;
       border: 1px solid var(--kd-content-border);
-      border-radius: 8px;
-      padding: 20px;
+      border-radius: 16px;
+      padding: 24px;
       background: var(--kd-content-surface);
       color: var(--kd-content-text);
-      box-shadow: 0 20px 54px rgba(0, 0, 0, 0.46);
+      box-shadow: 0 4px 16px rgb(0 0 0 / 14%);
       animation: kd-links-dialog-in 180ms ease-out;
     }
 
     .dialog { -webkit-user-select: none; user-select: none; }
     .dialog * { box-sizing: border-box; }
     .dialog a { -webkit-user-select: text; user-select: text; }
-    h3 { margin: 0 0 8px; color: var(--kd-content-text); font-size: 18px; font-weight: 700; line-height: 1.3; }
-    p { margin: 0 0 14px; color: var(--kd-content-muted); font-size: 13px; line-height: 1.5; }
+    h3 { margin: 0 0 8px; color: var(--kd-content-text); font-size: 19px; font-weight: 600; line-height: 1.3; }
+    p { margin: 0 0 16px; color: var(--kd-content-muted); font-size: 13px; line-height: 1.5; }
     ul { display: flex; flex-direction: column; gap: 8px; margin: 0 0 16px; padding: 0; list-style: none; }
-    li { min-width: 0; border-left: 3px solid color-mix(in srgb, #487a7a 72%, transparent); padding: 8px 10px; background: color-mix(in srgb, var(--kd-content-surface-raised) 62%, transparent); }
+    li { min-width: 0; border-radius: 10px; padding: 8px 12px; background: color-mix(in srgb, var(--kd-content-surface-raised) 62%, transparent); }
     a { color: var(--kd-content-link); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; text-decoration: none; }
     a:hover { text-decoration: underline; }
     a:focus-visible,
     button:focus-visible { outline: 2px solid var(--kd-content-focus); outline-offset: 2px; }
-    button { width: 100%; min-height: 36px; border: 0; border-radius: 8px; padding: 8px 12px; background: #487a7a; color: #fff; cursor: pointer; font: inherit; font-size: 13px; font-weight: 700; }
+    button { width: 100%; min-height: 36px; border: 0; border-radius: 12px; padding: 8px 12px; background: #487a7a; color: #fff; cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; }
     button:hover { border-color: #3c6868; background: #3c6868; }
     .dialog::-webkit-scrollbar { width: 8px; }
     .dialog::-webkit-scrollbar-track { border-radius: 4px; background: color-mix(in srgb, var(--kd-content-surface-raised) 45%, transparent); }
@@ -340,10 +340,10 @@
     @media (prefers-color-scheme: light) {
       :host {
         --kd-content-surface: #ffffff;
-        --kd-content-surface-raised: #e6eeee;
-        --kd-content-border: rgba(47, 69, 69, 0.24);
-        --kd-content-text: #202b2b;
-        --kd-content-muted: #5e6f6f;
+        --kd-content-surface-raised: #f5f5f5;
+        --kd-content-border: rgb(0 0 0 / 20%);
+        --kd-content-text: #202020;
+        --kd-content-muted: #606060;
         --kd-content-link: #3c6868;
         --kd-content-focus: #487a7a;
       }

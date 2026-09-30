@@ -192,6 +192,7 @@ function renderTaskDetails(task) {
   document.getElementById("task-detail-title").textContent = task.outputName || task.name || `\u4efb\u52a1 #${task.id}`;
   document.title = document.getElementById("task-detail-title").textContent;
   const facts = [
+    ...(task.updateDownload ? [["任务用途", "应用更新 · 下载完成后由更新服务校验，安装状态请在设置中查看"]] : []),
     ["\u6587\u4ef6\u540d", task.outputName || task.name],
     ["\u72b6\u6001", statusMeta[task.status]?.label], ["\u6587\u4ef6\u5927\u5c0f", taskBytes(task.totalLength)],
     ["\u5df2\u4e0b\u8f7d", taskDownloadedBytes(task.status === "done" ? task.totalLength : task.completedLength || 0)],

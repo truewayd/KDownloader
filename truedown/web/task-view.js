@@ -47,7 +47,7 @@ function reconcileTaskRows(body, tasks) {
   const keep = new Set(tasks.map((task) => task.id));
   for (const [id, row] of rows) if (!keep.has(id)) row.remove();
   tasks.forEach((task, index) => {
-    const shape = JSON.stringify([task.status, task.outputName, task.name, task.folder, task.link, task.error, task.category, taskCategoryMeta(task.category).label, taskCategoryMeta(task.category).icon]);
+    const shape = JSON.stringify([task.status, task.outputName, task.name, task.folder, task.link, task.error, task.category, taskCategoryMeta(task.category).label, taskCategoryMeta(task.category).icon, task.updateDownload]);
     let row = rows.get(task.id);
     if (!row || row.taskShape !== shape) {
       const template = document.createElement("template");
@@ -59,6 +59,8 @@ function reconcileTaskRows(body, tasks) {
       });
       row.taskShape = shape;
     }
+    row.dataset.updateDownload = String(task.updateDownload === true);
+    row.dataset.status = task.status;
     const progress = taskProgressLabel(task);
     const label = row.querySelector(".progress-line");
     if (label.textContent !== progress) {

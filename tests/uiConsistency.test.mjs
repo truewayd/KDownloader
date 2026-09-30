@@ -517,8 +517,22 @@ function kdTokens(css) {
   ]);
 }
 
-test("TrueDown keeps its light and dark design tokens", () => {
-  assert.deepEqual(kdTokens(trueDownCss), kdTokens(sharedCss));
+test("extension themes follow the effective TrueDown visual baseline", () => {
+  const themes = (css) => {
+    const [dark, light = ""] = css.split("@media (prefers-color-scheme: light)");
+    const base = Object.fromEntries(kdTokens(dark));
+    return [base, { ...base, ...Object.fromEntries(kdTokens(light)) }];
+  };
+  const extension = themes(sharedCss);
+  const desktop = themes(trueDownCss);
+  const baseline = themes(trueDownBaseline);
+  for (let theme = 0; theme < 2; theme++) {
+    const effective = { ...desktop[theme], ...baseline[theme] };
+    for (const [name, value] of Object.entries(extension[theme])) {
+      if (name === "--kd-font-family") continue;
+      assert.equal(value, effective[name], `${theme ? "light" : "dark"} ${name}`);
+    }
+  }
 });
 
 test("every light-DOM design token referenced by shared controls is defined", () => {
@@ -621,7 +635,7 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownApp, /const MAX_PAGE_ETAGS = 128/);
   assert.match(trueDownApp, /If-None-Match/);
   assert.match(trueDownApp, /while \(pageETags\.size > MAX_PAGE_ETAGS\)/);
-  assert.match(trueDownApp, /if \(!selectedTaskIDs\.has\(id\)\) taskStatusByID\.delete\(id\)/);
+  assert.match(trueDownApp, /if \(!selectedTaskIDs\.has\(id\)\) \{ taskStatusByID\.delete\(id\); updateTaskIDs\.delete\(id\); \}/);
   assert.match(trueDownApp, /function renderDownloadSettings\(settings = downloadSettings, rules = downloadRules, runtime = runtimeSettings, page = ""\)/);
   assert.match(trueDownApp, /data-select-page/);
   assert.match(trueDownApp, /JSON\.stringify\(\{ action, ids \}\)/);

@@ -75,6 +75,7 @@ const statusMeta = {
 const els = {};
 const selectedTaskIDs = new Set();
 const taskStatusByID = new Map();
+const updateTaskIDs = new Set();
 const activeTaskActions = new Set();
 const pageETags = new Map();
 let trueDownToast = null;
@@ -292,10 +293,16 @@ function bindEvents() {
   els.tasksContainer.addEventListener("click", onTaskSort);
   els.tasksContainer.addEventListener("change", onTaskSelection);
   els.taskSearch.addEventListener("input", () => {
+    document.getElementById("task-search-clear").hidden = !els.taskSearch.value;
     window.clearTimeout(searchTimer);
     searchTimer = window.setTimeout(applyTaskSearch, 250);
   });
   els.taskSearch.addEventListener("search", applyTaskSearch);
+  document.getElementById("task-search-clear").addEventListener("click", () => {
+    els.taskSearch.value = "";
+    applyTaskSearch();
+    els.taskSearch.focus();
+  });
   els.taskFilter.addEventListener("change", () => {
     currentFilter = els.taskFilter.value;
     resetTaskViewport();
@@ -306,6 +313,10 @@ function bindEvents() {
   els.batchPauseBtn.addEventListener("click", () => runSelectedAction("pause", "暂停"));
   els.batchResumeBtn.addEventListener("click", () => runSelectedAction("resume", "继续"));
   els.batchRemoveBtn.addEventListener("click", () => runSelectedAction("remove", "移除", true));
+  document.getElementById("batch-clear-btn").addEventListener("click", clearTaskSelection);
+  els.batchToolbar.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { event.preventDefault(); clearTaskSelection(); }
+  });
   els.copyApiTokenBtn.addEventListener("click", copyAPIToken);
   els.tokenAuthEnabled.addEventListener("change", updateAuthSettings);
 	els.moduleList.addEventListener("click", onModuleAction);
@@ -328,6 +339,7 @@ function bindEvents() {
 
 function applyTaskSearch() {
   window.clearTimeout(searchTimer);
+  document.getElementById("task-search-clear").hidden = !els.taskSearch.value;
   const next = els.taskSearch.value.trim();
   if (next === currentSearch) return;
   currentSearch = next;
@@ -727,6 +739,8 @@ async function onTaskAction(event) {
   if (activeTaskActions.has(id)) return;
   setTaskActionBusy(id, true);
   try {
+    const update = updateTaskIDs.has(id) || (taskDetailData?.id === id && taskDetailData.updateDownload === true);
+    if (update && !await confirmUpdateTaskAction(action)) return;
     if (action === "requeue") {
       await runTaskAction("requeue", id, "任务已重新排队。");
     }
@@ -741,7 +755,7 @@ async function onTaskAction(event) {
       showToast("已打开任务下载目录。");
     }
     if (action === "remove") {
-      if (taskStatusByID.get(id) !== "done" && !await confirmAction({
+      if (!update && taskStatusByID.get(id) !== "done" && !await confirmAction({
         title: "移除下载任务",
         message: "正在下载的任务会停止，并删除未完成文件。此操作无法撤销。",
         confirmLabel: "移除任务",
@@ -756,6 +770,22 @@ async function onTaskAction(event) {
   }
 }
 
+async function confirmUpdateTaskAction(action) {
+  const options = {
+    pause: { title: "暂停更新下载", message: "此任务用于更新 TrueDown 或下载内核。暂停后，更新会等待；继续此任务可恢复下载。", confirmLabel: "暂停更新" },
+    remove: { title: "移除更新下载", message: "移除此任务会中断尚在下载的更新，并删除未完成文件。需要时请从设置重新发起更新；已完成并验证的更新不会因此撤销。", confirmLabel: "移除更新", danger: true },
+    requeue: { title: "重新下载更新文件", message: "旧更新任务的临时下载地址可能已经失效，重试此任务也不会重新触发安装。建议从设置重新发起更新。", confirmLabel: "仍然重试", kind: "warning" },
+  }[action];
+  return !options || await confirmAction(options);
+}
+
+function clearTaskSelection() {
+  selectedTaskIDs.clear();
+  els.tasksContainer.querySelectorAll("[data-select-task]").forEach(input => { input.checked = false; });
+  els.tasksWrap.focus({ preventScroll: true });
+  syncSelectionControls();
+}
+
 async function runTaskAction(action, id, successMessage) {
   const result = await requestJSON("/tasks/batch", {
     method: "POST",
@@ -766,6 +796,7 @@ async function runTaskAction(action, id, successMessage) {
   if (action === "remove") {
     selectedTaskIDs.delete(id);
     taskStatusByID.delete(id);
+    updateTaskIDs.delete(id);
     syncSelectionControls();
   }
   showToast(successMessage);
@@ -817,9 +848,11 @@ async function runSelectedAction(action, label, requiresConfirmation = false) {
     return;
   }
   const allDownloaded = ids.every((id) => taskStatusByID.get(id) === "done");
-  if (requiresConfirmation && !allDownloaded && !await confirmAction({
+  const includesUpdate = ids.some(id => updateTaskIDs.has(id));
+  if (includesUpdate && action === "pause" && !await confirmUpdateTaskAction(action)) return;
+  if (requiresConfirmation && (!allDownloaded || includesUpdate) && !await confirmAction({
     title: `移除 ${ids.length} 个任务`,
-    message: "已完成文件会保留；活动任务会停止，并删除未完成文件。此操作无法撤销。",
+    message: "已完成文件会保留；活动任务会停止，并删除未完成文件。此操作无法撤销。" + (includesUpdate ? "所选任务包含更新下载：未完成的更新会中断，需要时请从设置重新发起；已验证的更新不会因此撤销。" : ""),
     confirmLabel: "批量移除",
     danger: true,
   })) return;
@@ -834,6 +867,7 @@ async function runSelectedAction(action, label, requiresConfirmation = false) {
       (result.succeeded || []).forEach((id) => {
         selectedTaskIDs.delete(id);
         taskStatusByID.delete(id);
+        updateTaskIDs.delete(id);
       });
     }
     const succeeded = result.succeeded?.length || 0;
@@ -860,6 +894,12 @@ async function runQueueAction(action) {
   const button = pause ? els.pauseQueueBtn : els.resumeQueueBtn;
   KDComponents.setBusyState(button, true);
   try {
+    if (pause) {
+      // Queue actions affect tasks outside the current viewport and filters.
+      const state = normalizeSystemUpdateState(await requestJSON("/system/update"));
+      if (state.busy && ["queued", "downloading"].includes(state.download?.status)
+          && !await confirmUpdateTaskAction("pause")) return;
+    }
     const result = await requestJSON(`/queue/${action}`, { method: "POST" });
     const succeeded = result.succeeded?.length || 0;
     const failed = result.failed?.length || 0;
@@ -1043,9 +1083,12 @@ function renderTasks(tasks) {
   const focused = document.activeElement;
   const focusKey = els.tasksContainer.contains(focused) ? taskControlKey(focused) : "";
   for (const id of taskStatusByID.keys()) {
-    if (!selectedTaskIDs.has(id)) taskStatusByID.delete(id);
+    if (!selectedTaskIDs.has(id)) { taskStatusByID.delete(id); updateTaskIDs.delete(id); }
   }
-  tasks.forEach((task) => taskStatusByID.set(task.id, task.status));
+  tasks.forEach((task) => {
+    taskStatusByID.set(task.id, task.status);
+    if (task.updateDownload === true) updateTaskIDs.add(task.id); else updateTaskIDs.delete(task.id);
+  });
   currentTasks = [...tasks];
   const signature = JSON.stringify([
     currentOffset,
@@ -1057,7 +1100,7 @@ function renderTasks(tasks) {
     currentSort,
     currentSortOrder,
     currentTasks.map((task) => [
-      task.id, task.status, task.outputName, task.name, task.folder, task.link, task.progress, task.error, task.category, task.totalLength, task.completedLength, task.downloadSpeed, task.createdAt,
+      task.id, task.status, task.outputName, task.name, task.folder, task.link, task.progress, task.error, task.category, task.totalLength, task.completedLength, task.downloadSpeed, task.createdAt, task.updateDownload,
     ]),
   ]);
   if (signature === lastTaskRenderSignature) {
@@ -1171,10 +1214,10 @@ function taskRow(task, index) {
   if (status === "paused") actions.push(actionButton("resume", task.id, "继续", false, "play"));
   actions.push(actionButton("remove", task.id, "移除", true, "trash"));
   return `
-    <tr data-task-id="${task.id}">
+    <tr data-task-id="${task.id}" data-update-download="${task.updateDownload === true}" data-status="${status}">
       <td class="select-cell"><input type="checkbox" data-select-task value="${task.id}" aria-label="选择任务 ${esc(fileName)}"${selectedTaskIDs.has(task.id) ? " checked" : ""}></td>
       <td class="task-index">${currentOffset + index + 1}</td>
-      <td><div class="task-file-cell">${iconMarkup(taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="details" data-id="${task.id}" data-tooltip="${esc(fileName)}">${esc(fileName)}</button><div class="task-folder">${esc(taskCategoryMeta(task.category).label)}</div></div></div></td>
+      <td><div class="task-file-cell">${iconMarkup(task.updateDownload ? "refresh" : taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="details" data-id="${task.id}" data-tooltip="${esc(fileName)}">${esc(fileName)}</button><div class="task-folder">${task.updateDownload ? '<span class="update-task-label">应用更新</span> · ' + (status === "done" ? '下载完成，安装状态见设置' : status === "error" ? '请从设置重新发起' : '下载后自动校验') : esc(taskCategoryMeta(task.category).label)}</div></div></div></td>
       <td><span class="status-badge status-${status}">${statusLabel}</span></td>
       <td><div class="progress-line" data-tooltip="${esc(progress)}">${esc(taskProgressLabel(task))}</div><progress class="task-progress" max="100" value="${taskProgressPercent(task)}" aria-label="下载进度"></progress></td>
       <td class="task-size">${taskBytes(task.totalLength)}</td>
@@ -1207,6 +1250,9 @@ function iconMarkup(name) {
 }
 
 function syncSelectionControls() {
+  els.tasksContainer.querySelectorAll("tr[data-task-id]").forEach(row => {
+    row.classList.toggle("is-selected", selectedTaskIDs.has(Number(row.dataset.taskId)));
+  });
   const visibleIDs = currentTasks.map((task) => task.id);
   const selectedVisible = visibleIDs.filter((id) => selectedTaskIDs.has(id)).length;
   const selectPage = els.tasksContainer.querySelector("[data-select-page]");

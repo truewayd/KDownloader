@@ -4,6 +4,7 @@ let routeEpoch = 0;
 
 function initWorkspace() {
   initFileGroups();
+  initNavigationIndicator();
   window.addEventListener("hashchange", applyWorkspaceRoute);
   const filter = document.getElementById("task-filter");
   filter?.addEventListener("change", updateTaskNavigation);
@@ -49,6 +50,45 @@ function initWorkspace() {
     if (event.key === "Escape" && compactSidebar.matches) setSidebarCollapsed(true);
   });
   applyWorkspaceRoute(false);
+}
+
+function initNavigationIndicator() {
+  const nav = document.querySelector(".primary-nav");
+  const indicator = document.createElement("span");
+  indicator.className = "navigation-indicator";
+  indicator.setAttribute("aria-hidden", "true");
+  nav.append(indicator);
+  nav.classList.add("has-navigation-indicator");
+  let frame = 0, initialized = false;
+  const update = () => {
+    frame = 0;
+    const selected = nav.querySelector("a[aria-current]");
+    if (!selected || !nav.getClientRects().length) {
+      indicator.hidden = true;
+      initialized = false;
+      return;
+    }
+    const bounds = nav.getBoundingClientRect(), target = selected.getBoundingClientRect();
+    indicator.style.transition = initialized ? "" : "none";
+    indicator.style.transform = `translateY(${target.top - bounds.top + nav.scrollTop + (target.height - 18) / 2}px)`;
+    indicator.hidden = false;
+    // Commit the initial position without animating from the top of the sidebar.
+    if (!initialized) indicator.getBoundingClientRect();
+    initialized = true;
+  };
+  const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+  const mutations = new MutationObserver(schedule);
+  mutations.observe(nav, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-current"] });
+  const resize = new ResizeObserver(schedule);
+  resize.observe(nav);
+  window.addEventListener("resize", schedule);
+  window.addEventListener("pagehide", () => {
+    cancelAnimationFrame(frame);
+    mutations.disconnect();
+    resize.disconnect();
+    window.removeEventListener("resize", schedule);
+  }, { once: true });
+  schedule();
 }
 
 function updateTaskNavigation() {

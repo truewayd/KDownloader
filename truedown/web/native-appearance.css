@@ -30,6 +30,13 @@
 [data-material="native"] .settings-nav { background: var(--native-chrome); }
 [data-material="native"] #settings-form { background: var(--kd-surface); }
 :root[data-platform="windows"] { --native-chrome: transparent; }
+/* Alpha overlays preserve the native material through hover and selection. */
+:root[data-material="native"] { --kd-secondary-hover: color-mix(in srgb, var(--kd-text) 8%, transparent); }
+[data-material="native"] :is(.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link, .settings-search-result):hover { background: color-mix(in srgb, var(--kd-text) 6%, transparent); }
+[data-material="native"] :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current] { background: color-mix(in srgb, var(--kd-surface) 45%, transparent); }
+[data-material="native"] :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current]:hover { background: color-mix(in srgb, var(--kd-surface) 60%, transparent); }
+[data-material="native"] .settings-search-field .kd-input { background: color-mix(in srgb, var(--kd-input) 45%, transparent); }
+[data-material="native"] .settings-search-field .kd-input:focus { background: color-mix(in srgb, var(--kd-input-focus) 65%, transparent); }
 @media (prefers-reduced-transparency: reduce), (forced-colors: active) {
   [data-material="native"] body { background: var(--kd-bg); }
   [data-material="native"] .native-titlebar, [data-material="native"] .sidebar,
@@ -37,4 +44,6 @@
 }
 @media (forced-colors: active) {
   [data-platform] body { background: Canvas; }
+  [data-material="native"] :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current] { background: Highlight; color: HighlightText; }
+  [data-material="native"] .settings-search-field .kd-input { background: Field; color: FieldText; }
 }
