@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,6 +34,9 @@ func TestUpdateWaitEndsOnRemovalCancellationOrEngineExit(t *testing.T) {
 			if len(tasks) != 1 {
 				t.Fatal("update task was not created")
 			}
+			if !tasks[0].UpdateDownload || !m.snapshotTask(tasks[0]).UpdateDownload {
+				t.Fatal("update purpose missing from task or public snapshot")
+			}
 			switch reason {
 			case "removed":
 				if result := m.RemoveTasks([]int64{tasks[0].ID}); len(result.Failed) != 0 {
@@ -59,6 +63,49 @@ func TestUpdateWaitEndsOnRemovalCancellationOrEngineExit(t *testing.T) {
 				t.Fatal("update waiter remained stuck")
 			}
 		})
+	}
+}
+
+func TestUpdatePurposePersistsWithoutClassifyingOrdinaryPackages(t *testing.T) {
+	root := t.TempDir()
+	m, err := NewManager("unused", root, filepath.Join(root, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	update, _, err := m.addUpdateTask("http://127.0.0.1/update/fixture", "update.zip", root, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordinary, _, err := m.addTaskWithModule("https://example.com/update.zip", "update.zip", root, nil, "", 0, Aria2Opts{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := openRecordStore(filepath.Join(root, "persisted.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.InsertBatch([]*Task{update, ordinary}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = openRecordStore(filepath.Join(root, "persisted.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	tasks, err := store.LoadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 || !tasks[0].UpdateDownload || tasks[1].UpdateDownload {
+		t.Fatalf("wrong restored purposes: %+v", tasks)
+	}
+	data, err := json.Marshal(m.snapshotTask(tasks[0]))
+	if err != nil || !strings.Contains(string(data), `"updateDownload":true`) {
+		t.Fatalf("missing public purpose: %s, %v", data, err)
 	}
 }
 

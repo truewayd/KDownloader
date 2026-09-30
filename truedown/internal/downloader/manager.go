@@ -73,6 +73,7 @@ type ManagerConfig struct {
 }
 
 type Task struct {
+	UpdateDownload  bool              `json:"updateDownload,omitempty"`
 	ID              int64             `json:"id"`
 	Name            string            `json:"name"`
 	Link            string            `json:"link"`
@@ -111,6 +112,7 @@ type Task struct {
 // TaskSnapshot contains only fields needed by the web UI. Request headers and
 // aria2 options can contain credentials and must not be exposed by the API.
 type TaskSnapshot struct {
+	UpdateDownload  bool      `json:"updateDownload,omitempty"`
 	Category        string    `json:"category"`
 	TotalLength     int64     `json:"totalLength"`
 	CompletedLength int64     `json:"completedLength,omitempty"`
@@ -180,15 +182,16 @@ func IsEngineStartError(err error) bool {
 }
 
 type requestIdentity struct {
-	Link         string              `json:"link"`
-	Name         string              `json:"name"`
-	Folder       string              `json:"folder"`
-	QueueID      int                 `json:"queueId"`
-	Headers      map[string]string   `json:"headers"`
-	DownloadPage string              `json:"downloadPage"`
-	Opts         Aria2Opts           `json:"opts"`
-	ModuleID     string              `json:"-"`
-	BitTorrent   *bitTorrentIdentity `json:"bitTorrent,omitempty"`
+	UpdateDownload bool                `json:"updateDownload,omitempty"`
+	Link           string              `json:"link"`
+	Name           string              `json:"name"`
+	Folder         string              `json:"folder"`
+	QueueID        int                 `json:"queueId"`
+	Headers        map[string]string   `json:"headers"`
+	DownloadPage   string              `json:"downloadPage"`
+	Opts           Aria2Opts           `json:"opts"`
+	ModuleID       string              `json:"-"`
+	BitTorrent     *bitTorrentIdentity `json:"bitTorrent,omitempty"`
 }
 
 type submission struct {
@@ -640,24 +643,25 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 	}
 	now := time.Now()
 	task := &Task{
-		ID:            m.nextID.Add(1),
-		Fingerprint:   fingerprint,
-		RequestJSON:   string(requestJSON),
-		Name:          identity.Name,
-		Link:          identity.Link,
-		Folder:        folder,
-		Headers:       identity.Headers,
-		DownloadPage:  identity.DownloadPage,
-		QueueID:       identity.QueueID,
-		Opts:          identity.Opts,
-		ModuleID:      moduleID,
-		DropboxDirect: moduleID == DropboxModuleID,
-		GID:           m.newGIDLocked(),
-		Status:        StatusQueued,
-		Progress:      "Waiting for aria2",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		TransferState: transferPending,
+		ID:             m.nextID.Add(1),
+		Fingerprint:    fingerprint,
+		RequestJSON:    string(requestJSON),
+		Name:           identity.Name,
+		Link:           identity.Link,
+		Folder:         folder,
+		Headers:        identity.Headers,
+		DownloadPage:   identity.DownloadPage,
+		QueueID:        identity.QueueID,
+		Opts:           identity.Opts,
+		ModuleID:       moduleID,
+		UpdateDownload: identity.UpdateDownload,
+		DropboxDirect:  moduleID == DropboxModuleID,
+		GID:            m.newGIDLocked(),
+		Status:         StatusQueued,
+		Progress:       "Waiting for aria2",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		TransferState:  transferPending,
 	}
 	task.Status, task.Progress = initialTaskState(identity.Opts)
 	m.touchTaskLocked(task)
@@ -1193,7 +1197,8 @@ func (m *Manager) summaryLocked() TaskSummary {
 
 func (m *Manager) snapshotTask(task *Task) TaskSnapshot {
 	return TaskSnapshot{
-		Category: m.classifyTask(task), TotalLength: task.TotalLength,
+		UpdateDownload: task.UpdateDownload,
+		Category:       m.classifyTask(task), TotalLength: task.TotalLength,
 		CompletedLength: task.CompletedLength, DownloadSpeed: task.DownloadSpeed,
 		ID: task.ID, Name: task.Name, Link: task.Link, Folder: task.Folder,
 		OutputName: task.OutputName, Status: task.Status, Progress: task.Progress,

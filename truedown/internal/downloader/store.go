@@ -342,6 +342,10 @@ func (s *recordStore) LoadAll() ([]*Task, error) {
 			t.ModuleID = DropboxModuleID
 		}
 		t.DropboxDirect = t.ModuleID == DropboxModuleID
+		var identity requestIdentity
+		if json.Unmarshal([]byte(t.RequestJSON), &identity) == nil {
+			t.UpdateDownload = identity.UpdateDownload
+		}
 		if err := json.Unmarshal([]byte(rows.Text(7)), &t.Headers); err != nil {
 			return nil, fmt.Errorf("decode headers for task %d: %w", t.ID, err)
 		}

@@ -26,7 +26,7 @@ func (m *Manager) DownloadUpdate(ctx context.Context, url, name, directory strin
 	if err != nil {
 		return "", err
 	}
-	task, _, err := m.addTaskWithModule(url, name, root, nil, "", 0, opts, "")
+	task, _, err := m.addUpdateTask(url, name, root, opts)
 	if err != nil {
 		os.Remove(root)
 		return "", err
@@ -88,6 +88,19 @@ func (m *Manager) DownloadUpdate(ctx context.Context, url, name, directory strin
 		case <-ticker.C:
 		}
 	}
+}
+
+// Only the updater can assign this purpose. Persist it with the private request
+// identity so failed/interrupted attempts remain recognizable after restart.
+func (m *Manager) addUpdateTask(url, name, directory string, opts Aria2Opts) (*Task, bool, error) {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	identity := normalizeRequest(url, name, directory, m.defaultDir, nil, "", 0, opts)
+	identity.UpdateDownload = true
+	if err := validateRequest(identity); err != nil {
+		return nil, false, err
+	}
+	return m.addIdentityLocked(identity, "")
 }
 
 func copyUpdateOutput(task *Task, directory string, maximum int64) (string, error) {
