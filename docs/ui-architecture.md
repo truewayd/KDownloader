@@ -234,6 +234,14 @@ and material integration only. Page styles own layout, not alternate palettes.
 - The list has no visible pagination. A bounded 100-row window with overscan
   follows scrolling, reuses task rows and refreshes through conditional reads.
   Global overview counters are maintained at task mutation boundaries.
+  Scroll reads are coalesced per animation frame, including cancellation of a
+  pending jump when returning to the loaded window. Unloaded spacers repeat a
+  single 64px skeleton tile measured from the real row's responsive geometry.
+  A moving gradient highlights its shapes without creating additional task
+  nodes; reduced motion selects a static tile. Resize and theme changes refresh
+  the measured tile.
+  Task rows omit display ordinals; internal task IDs still own selection and
+  actions, while ARIA row indices retain the logical position in the full list.
 - Use one generated Lucide icon system. Icon-only actions require accessible
   labels. The category reset is a small icon next to its heading. Settings
   headings scroll with content; saving is automatic, with no floating save bar.
@@ -247,6 +255,12 @@ and material integration only. Page styles own layout, not alternate palettes.
   focused inputs across autosave. Navigation clips horizontal overflow during
   sidebar transitions; pointer sorting uses an inert floating preview and a
   placeholder, with cancellation restoring the confirmed order.
+  Initially unread categories keep their controls inert and transparent until
+  all category snapshots have been applied. Loading and retry feedback remains
+  visible, and navigation stays available. Completed categories reveal together
+  over 180ms; reduced motion reveals them immediately. Cached visits retain
+  controls and drafts, and stale category completions cannot change the active
+  category's presentation.
 - Do not repeat a purpose icon in both native caption and content. Windows
   confirmation frames omit the caption icon; warning/error content has one
   severity icon, while informational content needs none. macOS keeps the single
