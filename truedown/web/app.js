@@ -1125,22 +1125,22 @@ function renderTasks(tasks) {
     els.tasksContainer.innerHTML = `
     <table class="tasks-table">
       <colgroup>
-        <col class="col-select"><col class="col-index"><col class="col-file"><col class="col-status">
+        <col class="col-select"><col class="col-file"><col class="col-status">
         <col class="col-progress"><col class="col-size"><col class="col-speed"><col class="col-created"><col class="col-actions">
       </colgroup>
       <thead><tr>
         <th scope="col" class="select-cell"><input type="checkbox" data-select-page aria-label="选择当前加载的任务"></th>
-        ${sortableHeading("id", "#")}${sortableHeading("file", "文件")}${sortableHeading("status", "状态")}
+        ${sortableHeading("file", "文件")}${sortableHeading("status", "状态")}
         ${sortableHeading("progress", "进度")}<th scope="col">大小</th><th scope="col">速度 / 剩余</th><th scope="col">添加时间</th><th scope="col" class="align-right">操作</th>
       </tr></thead>
-      <tbody class="task-spacer" aria-hidden="true"><tr><td colspan="9"></td></tr></tbody><tbody class="task-rows"></tbody><tbody class="task-spacer" aria-hidden="true"><tr><td colspan="9"></td></tr></tbody>
+      <tbody class="task-spacer" aria-hidden="true"><tr><td colspan="8"></td></tr></tbody><tbody class="task-rows"></tbody><tbody class="task-spacer" aria-hidden="true"><tr><td colspan="8"></td></tr></tbody>
     </table>`;
     table = els.tasksContainer.querySelector(".tasks-table");
   }
   const sortKey = `${currentSort}:${currentSortOrder}`;
   if (table.dataset.sort !== sortKey) {
-    const headings = ["id", "file", "status", "progress"];
-    const labels = ["#", "文件", "状态", "进度"];
+    const headings = ["file", "status", "progress"];
+    const labels = ["文件", "状态", "进度"];
     headings.forEach((field, i) => {
       const heading = table.querySelectorAll("thead th")[i + 1];
       const active = currentSort === field;
@@ -1206,7 +1206,7 @@ function onTaskSort(event) {
   refreshAndSchedule(true);
 }
 
-function taskRow(task, index) {
+function taskRow(task) {
   const status = statusMeta[task.status] ? task.status : "queued";
   const statusLabel = statusMeta[status].label;
   const progress = task.error ? `! ${formatTaskError(task)}` : task.progress || "-";
@@ -1221,7 +1221,6 @@ function taskRow(task, index) {
   return `
     <tr data-task-id="${task.id}" data-update-download="${task.updateDownload === true}" data-status="${status}">
       <td class="select-cell"><input type="checkbox" data-select-task value="${task.id}" aria-label="选择任务 ${esc(fileName)}"${selectedTaskIDs.has(task.id) ? " checked" : ""}></td>
-      <td class="task-index">${currentOffset + index + 1}</td>
       <td><div class="task-file-cell">${iconMarkup(task.updateDownload ? "refresh" : taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="details" data-id="${task.id}" data-tooltip="${esc(fileName)}">${esc(fileName)}</button><div class="task-folder">${task.updateDownload ? '<span class="update-task-label">应用更新</span> · ' + (status === "done" ? '下载完成，安装状态见设置' : status === "error" ? '请从设置重新发起' : '下载后自动校验') : esc(taskCategoryMeta(task.category).label)}</div></div></div></td>
       <td><span class="status-badge status-${status}">${statusLabel}</span></td>
       <td><div class="progress-line" data-tooltip="${esc(progress)}">${esc(taskProgressLabel(task))}</div><progress class="task-progress" max="100" value="${taskProgressPercent(task)}" aria-label="下载进度"></progress></td>

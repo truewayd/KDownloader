@@ -93,7 +93,6 @@
 @media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
 .tasks-table { font-variant-numeric: tabular-nums; }
 .tasks-table .col-select { width: 36px; }
-.tasks-table .col-index { width: 40px; }
 .tasks-table .col-file { width: 24%; }
 .tasks-table .col-status { width: 88px; }
 .tasks-table .col-link { width: 18%; }
@@ -290,7 +289,17 @@
 .task-rows > tr { height: 64px; }
 .tasks-table .task-rows td { height: 64px; padding-block: 8px; white-space: nowrap; }
 .task-rows .task-file-cell > div { min-width: 0; }
-.tasks-table .task-spacer td { padding: 0; border: 0; background: transparent; line-height: 0; }
+.tasks-table tbody.task-spacer tr td { padding: 0; border: 0; background: transparent; line-height: 0; }
+/* Paint unloaded rows across the full scroll range without adding task nodes.
+   The compositor can expose these before a scroll event or slow read completes. */
+.tasks-table tbody.task-spacer tr td {
+  background-image: var(--task-placeholder-animated);
+  background-size: 100% 64px;
+  background-repeat: repeat-y;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tasks-table tbody.task-spacer tr td { background-image: var(--task-placeholder-static); }
+}
 @container task-workspace (max-width: 820px) {
   .task-toolbar #retry-all-btn, .task-toolbar #clear-done-btn { display: none; }
   .task-toolbar .task-query-controls { flex: 1; }

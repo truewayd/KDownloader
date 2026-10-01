@@ -296,12 +296,11 @@ test("returning from task details never steals focus moved during the page reque
 test("progress polling retains every row control and changes only its progress label", () => {
   const task = { id: 7, status: "downloading", name: "file.zip", progress: "25%" };
   const progress = { textContent: "20%", dataset: { tooltip: "20%" } };
-  const ordinal = { textContent: "1" };
   const checkbox = { checked: true };
   const row = {
     dataset: { taskId: "7" },
     taskShape: JSON.stringify([task.status, task.outputName, task.name, task.folder, task.link, task.error, task.category, "Other", "file", task.updateDownload]),
-    querySelector: (query) => query === ".progress-line" ? progress : query === ".task-index" ? ordinal : checkbox,
+    querySelector: (query) => query === ".progress-line" ? progress : checkbox,
   };
   const body = { children: [row], insertBefore() { assert.fail("unchanged rows must not be moved"); } };
   const context = vm.createContext({

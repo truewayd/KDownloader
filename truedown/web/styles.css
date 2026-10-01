@@ -765,7 +765,6 @@ h2 {
 }
 
 .col-select { width: 40px; }
-.col-index { width: 44px; }
 .col-file { width: 24%; }
 .col-status { width: 92px; }
 .col-link { width: 28%; }
@@ -851,10 +850,6 @@ h2 {
 
 .align-right {
   text-align: right;
-}
-
-.task-index {
-  color: var(--kd-subtle);
 }
 
 .task-name,
