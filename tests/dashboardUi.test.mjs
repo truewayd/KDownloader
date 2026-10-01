@@ -195,6 +195,7 @@ test("settings navigation stays immediate and a late category read never overwri
   vm.runInContext(declaration("initializeSettingsCategory") + "\n" + declaration("loadSettingsPage"), context);
   const first = context.loadSettingsPage();
   assert.equal(content.scrollTop, 0, "a new category starts at its title");
+  assert.equal(content.dataset.loading, "true", "conceal controls while their snapshots are incomplete");
   content.scrollTop = 80;
   const second = context.loadSettingsPage();
   assert.equal(content.scrollTop, 80, "same-category refresh preserves scrolling");
@@ -206,10 +207,12 @@ test("settings navigation stays immediate and a late category read never overwri
   await context.loadSettingsPage();
   assert.equal(rendered, 1);
   assert.equal(panels.engine.inert, false);
+  assert.equal(content.dataset.loading, "false");
   complete();
   await Promise.all([first, second]);
   assert.equal(rendered, 1, "late runtime settings must not reset an advanced draft");
   assert.equal(context.settingsReady.has("general"), true);
+  assert.equal(content.dataset.loading, "false", "a late category must not conceal the active category");
 });
 
 test("single-task removal preserves selection on failure and clears it before a successful refresh", async () => {

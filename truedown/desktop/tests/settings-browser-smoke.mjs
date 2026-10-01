@@ -26,7 +26,7 @@ try {
   for (const width of [1040, 820, 390]) for (const colorScheme of ["light", "dark"]) {
     const native = width === 1040;
     const name = `${native ? "native" : "browser"}-${width}-${colorScheme}`;
-    const context = await browser.newContext({ viewport: { width, height: 760 }, colorScheme, reducedMotion: "reduce" });
+    const context = await browser.newContext({ viewport: { width, height: 760 }, colorScheme, reducedMotion: colorScheme === "light" ? "reduce" : "no-preference" });
     const fixture = {
       "/settings/task-defaults": { revision: 1, values: {} },
       "/settings/runtime": { concurrentDownloads: 3, globalDownloadLimitBps: 0 },
@@ -48,10 +48,13 @@ try {
     };
     let failSave = false, logReads = 0;
     let offline = native && colorScheme === "light";
+    let finishRuntimeRead;
+    const runtimeReadGate = offline ? null : new Promise(resolve => { finishRuntimeRead = resolve; });
     await context.route(/\/(settings\/|system\/|auth\/|modules)/, async route => {
       const endpoint = new URL(route.request().url()).pathname;
       if (!(endpoint in fixture)) throw new Error(`Unexpected settings API: ${endpoint}`);
       if (offline && route.request().method() === "GET") { await route.fulfill({ status: 503, body: "Fixture disconnected" }); return; }
+      if (endpoint === "/settings/runtime" && route.request().method() === "GET") await runtimeReadGate;
       if (endpoint === "/system/logs") { logReads++; fixture[endpoint].content += `fresh ${logReads}\\n`; }
       if (route.request().method() === "POST") {
         if (failSave) { await route.fulfill({ status: 500, body: "Fixture persistence failure" }); return; }
@@ -84,6 +87,15 @@ try {
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(`${origin}/${native ? "?window=settings" : ""}#settings/general`);
+    if (runtimeReadGate) {
+      await page.waitForFunction(() => document.querySelector(".settings-content").dataset.loading === "true");
+      assert.equal(await page.locator('[data-settings-page="general"]').first().evaluate(node => getComputedStyle(node).opacity), "0", "partially loaded controls stay concealed");
+      assert.equal(await page.locator('[data-settings-page="general"]').first().evaluate(node => node.inert), true);
+      assert.equal(await page.locator('[data-settings-link="files"]').isVisible(), true, "navigation remains available during reads");
+      assert.equal(await page.locator(".settings-content").getAttribute("aria-busy"), "true");
+      await page.screenshot({ path: path.join(screenshots, `${name}-loading.png`) });
+      finishRuntimeRead();
+    }
     if (offline) {
       await page.waitForFunction(() => document.querySelector("#settings-load-status").textContent.includes("自动重试"));
       offline = false;
@@ -91,6 +103,11 @@ try {
       assert.equal(await page.locator("#settings-load-status").textContent(), "");
       assert.equal(await page.locator("#settings-save-btn, #settings-footer, #file-groups-save, #tray-save").count(), 0);
     }
+    await page.waitForFunction(() => settingsReady.has("general"));
+    assert.equal(await page.locator(".settings-content").getAttribute("aria-busy"), "false");
+    assert.equal(await page.locator('[data-settings-page="general"]').first().isVisible(), true);
+    assert.equal(await page.locator('[data-settings-page="general"]').first().evaluate(node => getComputedStyle(node).animationName), colorScheme === "light" ? "none" : "kd-settings-reveal");
+    await page.evaluate(() => Promise.all(document.getAnimations().filter(animation => animation.animationName === "kd-settings-reveal").map(animation => animation.finished.catch(() => {}))));
     assert.equal(await page.title(), "设置");
     const noticeCount = await page.locator(".kd-notice").count();
     await page.evaluate(() => KDComponents.prepareNotices());

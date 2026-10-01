@@ -92,6 +92,8 @@ async function loadSettingsPage() {
   document.querySelectorAll("[data-settings-page]").forEach((panel) => {
     panel.hidden = panel.dataset.settingsPage !== page;
   });
+  content.dataset.loading = String(!settingsRendered.has(page));
+  content.ariaBusy = content.dataset.loading;
   document.querySelectorAll("[data-settings-link]").forEach((link) => {
     if (link.dataset.settingsLink === page) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
@@ -105,6 +107,7 @@ async function loadSettingsPage() {
   if (settingsReady.has(page)) {
     if (page === "files" && fileGroupsNeedsSync) scheduleFileGroupsSync();
     initializeSettingsCategory(page);
+    content.dataset.loading = content.ariaBusy = "false";
     els.settingsLoadStatus.textContent = "";
     els.settingsResetBtn.disabled = false;
     if (page === "files") focusFileGroupRoute();
@@ -132,6 +135,7 @@ async function loadSettingsPage() {
     settingsReady.add(page);
     if (epoch !== routeEpoch || currentPage !== "settings" || currentSettingsPage !== page) return;
     initializeSettingsCategory(page);
+    content.dataset.loading = content.ariaBusy = "false";
 
     els.settingsLoadStatus.textContent = "";
     els.settingsResetBtn.disabled = false;
