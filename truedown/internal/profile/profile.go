@@ -19,7 +19,7 @@ const (
 	RuntimeSettings = "truedown.settings.json"
 	DownloadRules   = "truedown.download-rules.json"
 	TaskDefaults    = "truedown.task-defaults.json"
-	FileGroups      = "truedown.file-groups.json"
+	FileGroups      = "truedown.file-groups.v2.json"
 	TraySettings    = "truedown.tray.json"
 	Modules         = "truedown.modules.json"
 	TrackerState    = "truedown.tracker-research.json"

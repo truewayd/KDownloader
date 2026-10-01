@@ -337,6 +337,10 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		store.Close()
 		return nil, err
 	}
+	if err := downloadRules.reconcileProjectFilter(fileGroups.Groups); err != nil {
+		store.Close()
+		return nil, err
+	}
 	trackerResearch, err := newTrackerResearchModuleAt(paths.File(profile.TrackerState))
 	if err != nil {
 		store.Close()

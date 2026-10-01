@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"truedown/internal/profile"
 )
 
 func TestDownloadRulesMigratesMissingDropboxModeToDirect(t *testing.T) {
@@ -99,6 +100,53 @@ func TestDropboxFilterModesFollowProjectAndPersistCustom(t *testing.T) {
 	assertFilter([]string{".blend"})
 	setProject(nil, true)
 	assertFilter(nil)
+	if got := m.DownloadRules(); got.FilterMode != DropboxFilterOff || got.Enabled {
+		t.Fatalf("deleted project did not turn filtering off: %+v", got)
+	}
+	reloaded, err = newDownloadRulesStoreAt(m.downloadRules.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.snapshot(); got.FilterMode != DropboxFilterOff || got.Enabled {
+		t.Fatalf("automatic fallback did not persist: %+v", got)
+	}
+	if got, err := m.UpdateDownloadRules(DownloadRulesUpdate{FilterMode: &project}); err != nil || got.FilterMode != DropboxFilterOff {
+		t.Fatalf("missing project accepted through API: %+v, %v", got, err)
+	}
+	state := m.FileGroups()
+	state.Groups = append(state.Groups, FileGroup{ID: "project", Name: "Project", Extensions: []string{".blend"}})
+	if _, err := m.SetFileGroups(state.Revision, state.Groups); err != nil {
+		t.Fatal(err)
+	}
+	assertFilter(nil)
+}
+
+func TestDropboxMissingProjectMigratesOnStartup(t *testing.T) {
+	root := t.TempDir()
+	groups, err := encodeFileGroups(FileGroupsSnapshot{Revision: 1, Groups: []FileGroup{{ID: "other", Name: "Other", Extensions: []string{}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, profile.FileGroups), groups, 0600); err != nil {
+		t.Fatal(err)
+	}
+	rules := `{"filterMode":"project","enabled":true,"dropboxMode":"expand","excludedExtensions":[".custom"]}`
+	if err := os.WriteFile(filepath.Join(root, "truedown.download-rules.json"), []byte(rules), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m, err := NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	reloaded, err := newDownloadRulesStoreAt(m.downloadRules.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reloaded.snapshot()
+	if got.FilterMode != DropboxFilterOff || got.Enabled || got.DropboxMode != DropboxModeExpand || !slices.Equal(got.ExcludedExtensions, []string{".custom"}) {
+		t.Fatalf("startup fallback lost settings: %+v", got)
+	}
 }
 
 func TestDownloadRulesLegacyDisabledAndInvalidModes(t *testing.T) {

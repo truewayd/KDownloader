@@ -1,10 +1,8 @@
 package downloader
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"unicode"
@@ -56,6 +54,7 @@ func defaultFileGroups() FileGroupsSnapshot {
 	}}
 	for index := range state.Groups {
 		state.Groups[index].Directory = defaultGroupDirectory(state.Groups[index])
+		state.Groups[index].Icon = defaultGroupIcon(state.Groups[index].ID)
 	}
 	return state
 }
@@ -69,6 +68,9 @@ func normalizeFileGroups(groups []FileGroup) ([]FileGroup, error) {
 	ids, names, suffixes := map[string]bool{}, map[string]bool{}, map[string]string{}
 	for _, group := range groups {
 		group.Name = strings.TrimSpace(group.Name)
+		if group.Icon == "" {
+			group.Icon = defaultGroupIcon(group.ID)
+		}
 		if !validGroupIcon(group.Icon) {
 			return invalid("choose a bundled file group icon")
 		}
@@ -115,18 +117,14 @@ func normalizeFileGroups(groups []FileGroup) ([]FileGroup, error) {
 	return result, nil
 }
 
-func readFileGroups(path string) (FileGroupsSnapshot, error) {
-	state := defaultFileGroups()
-	var saved FileGroupsSnapshot
-	err := readStrictJSONFile(path, maxFileGroupsBytes, &saved)
-	if os.IsNotExist(err) {
-		return state, nil
+func defaultGroupIcon(id string) string {
+	if icon := map[string]string{
+		"image": "image", "video": "video", "audio": "music", "archive": "archive",
+		"application": "app-window", "document": "logs", "project": "settings", "other": "file",
+	}[id]; icon != "" {
+		return icon
 	}
-	if err != nil {
-		return state, fmt.Errorf("read file groups: %w", err)
-	}
-	saved.Groups, err = normalizeFileGroups(saved.Groups)
-	return saved, err
+	return "folder"
 }
 
 func cloneFileGroups(state FileGroupsSnapshot) FileGroupsSnapshot {
@@ -192,15 +190,15 @@ func (m *Manager) ReorderFileGroups(revision uint64, ids []string) (FileGroupsSn
 }
 
 func (m *Manager) saveFileGroupsLocked(revision uint64, normalized []FileGroup) (FileGroupsSnapshot, error) {
+	if revision >= maxFileGroupsRevision {
+		return FileGroupsSnapshot{}, &ValidationError{Message: "file group revision is out of range"}
+	}
 	next := FileGroupsSnapshot{Revision: revision + 1, Groups: normalized}
-	data, err := json.MarshalIndent(next, "", "  ")
+	data, err := encodeFileGroups(next)
 	if err != nil {
 		return FileGroupsSnapshot{}, err
 	}
-	if len(data) >= maxFileGroupsBytes {
-		return FileGroupsSnapshot{}, &ValidationError{Message: "file group configuration is too large"}
-	}
-	if err := writeConfigFile(m.fileGroupsPath, append(data, '\n')); err != nil {
+	if err := writeConfigFile(m.fileGroupsPath, data); err != nil {
 		return FileGroupsSnapshot{}, err
 	}
 	m.fileGroups = next
@@ -210,5 +208,10 @@ func (m *Manager) saveFileGroupsLocked(revision uint64, normalized []FileGroup) 
 	}
 	m.revision++
 	m.structureRev++
+	if m.downloadRules != nil {
+		if err := m.downloadRules.reconcileProjectFilter(next.Groups); err != nil {
+			return FileGroupsSnapshot{}, fmt.Errorf("file groups saved, but resetting Dropbox filter failed: %w", err)
+		}
+	}
 	return cloneFileGroups(next), nil
 }

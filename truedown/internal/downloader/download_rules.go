@@ -199,7 +199,27 @@ func (store *downloadRulesStore) snapshotUnlocked() DownloadRules {
 
 // DownloadRules returns the current Dropbox mode and expansion filter defaults.
 func (m *Manager) DownloadRules() DownloadRules {
-	return m.downloadRules.snapshot()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return resolveProjectFilter(m.downloadRules.snapshot(), m.fileGroupsLocked().Groups)
+}
+
+func resolveProjectFilter(rules DownloadRules, groups []FileGroup) DownloadRules {
+	if rules.FilterMode == DropboxFilterProject && !slices.ContainsFunc(groups, func(group FileGroup) bool { return group.ID == "project" }) {
+		rules.FilterMode = DropboxFilterOff
+		rules.Enabled = false
+	}
+	return rules
+}
+
+func (store *downloadRulesStore) reconcileProjectFilter(groups []FileGroup) error {
+	rules := store.snapshot()
+	next := resolveProjectFilter(rules, groups)
+	if next.FilterMode == rules.FilterMode {
+		return nil
+	}
+	_, err := store.update(next)
+	return err
 }
 
 // Resolve the project group for each expansion; never persist a stale copy.
@@ -219,11 +239,23 @@ func (m *Manager) dropboxFilterRules() DownloadRules {
 
 // SetDownloadRules persists the complete Dropbox mode and filter defaults.
 func (m *Manager) SetDownloadRules(rules DownloadRules) (DownloadRules, error) {
-	return m.downloadRules.update(rules)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	normalized, err := normalizeDownloadRules(rules)
+	if err != nil {
+		return DownloadRules{}, err
+	}
+	return m.downloadRules.update(resolveProjectFilter(normalized, m.fileGroupsLocked().Groups))
 }
 
 // UpdateDownloadRules applies dashboard/API fields while allowing older
 // filter-only clients to leave the independently configured Dropbox mode alone.
 func (m *Manager) UpdateDownloadRules(update DownloadRulesUpdate) (DownloadRules, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if update.FilterMode != nil && strings.EqualFold(strings.TrimSpace(*update.FilterMode), DropboxFilterProject) {
+		rules := resolveProjectFilter(DownloadRules{FilterMode: DropboxFilterProject}, m.fileGroupsLocked().Groups)
+		update.FilterMode = &rules.FilterMode
+	}
 	return m.downloadRules.updateRequest(update)
 }

@@ -12,6 +12,7 @@ truedown/desktop/gen/
 *.md
 !README.zh-CN.md
 !docs/ui-architecture.md
+!docs/file-groups.md
 !docs/truedown-core-and-tauri.md
 !docs/project-audit-2026-09-05.md
 !docs/project-reaudit-2026-09-05.md
