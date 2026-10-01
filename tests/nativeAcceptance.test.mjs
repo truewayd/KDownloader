@@ -74,6 +74,44 @@ test("native editing cleanup does not replace the original failure", async () =>
   await assert.rejects(acceptNativeEditing(evaluate, async check => check(), async () => { throw original; }), error => error === original);
 });
 
+test("Win32 selection releases a blocked evaluation without repeating editor actions", { timeout: 1000 }, async () => {
+  let pending, cleaned = false;
+  const started = [], selected = [];
+  const evaluate = async script => {
+    const action = script.match(/__nativeEditing\.start\('([^']+)'\)/)?.[1];
+    if (action) {
+      assert.equal(pending, undefined, "editor operations remain serial");
+      started.push(action);
+      if (action === "select-all") return true;
+      return new Promise(resolve => { pending = { action, resolve }; });
+    }
+    if (script.includes("__nativeEditing.cleanup()")) cleaned = true;
+    return true;
+  };
+  await acceptNativeEditing(evaluate, async check => check(), async action => {
+    assert.equal(pending.action, action);
+    selected.push(action);
+    pending.resolve(true);
+    pending = undefined;
+  }, { concurrentMenuSelection: true });
+  assert.deepEqual(started, ["copy", "paste", "undo", "redo", "cut", "paste", "select-all"]);
+  assert.deepEqual(selected, started.slice(0, -1));
+  assert.equal(cleaned, true);
+});
+
+test("concurrent native editing joins failed operations before cleanup", async () => {
+  const original = new Error("evaluation failed"), events = [];
+  await assert.rejects(acceptNativeEditing(async script => {
+    if (script.includes("__nativeEditing.start")) { events.push("start"); throw original; }
+    if (script.includes("__nativeEditing.cleanup")) events.push("cleanup");
+    return true;
+  }, async check => check(), async () => {
+    await new Promise(resolve => setImmediate(resolve));
+    events.push("menu settled");
+  }, { concurrentMenuSelection: true }), error => error === original);
+  assert.deepEqual(events, ["start", "menu settled", "cleanup"]);
+});
+
 test("editing readiness retries replaced initial documents but propagates other failures", async () => {
   for (const message of ["Execution context was destroyed, most likely because of a navigation", "Cannot find context with specified id"]) {
     assert.equal(await nativeEditingDocumentReady(async () => { throw new Error(message); }), false);

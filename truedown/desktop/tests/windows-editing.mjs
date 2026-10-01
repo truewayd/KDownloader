@@ -42,11 +42,12 @@ let diagnostic = '';
 child.stderr.on('data', chunk => { diagnostic = (diagnostic + chunk.toString()).slice(-8192); });
 child.on('error', error => { launchError = error; });
 const end = Date.now() + 120000;
+let phase = 'debugger connection';
 async function bounded(operation, milliseconds = 10000, deadline = end) {
   let timer;
   try {
     return await Promise.race([operation, new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Native editing deadline exceeded')), Math.max(1, Math.min(milliseconds, deadline - Date.now())));
+      timer = setTimeout(() => reject(new Error(`Native editing deadline exceeded (${phase})`)), Math.max(1, Math.min(milliseconds, deadline - Date.now())));
     })]);
   } finally { clearTimeout(timer); }
 }
@@ -59,29 +60,35 @@ async function until(check, milliseconds = 30000) {
     if (result) return result;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  throw new Error('Native editing readiness timed out');
+  throw new Error(`Native editing readiness timed out (${phase})`);
 }
 const request = (route, options = {}) => fetch(`http://127.0.0.1:${apiPort}${route}`, { ...options, signal: AbortSignal.timeout(3000) });
 try {
   await until(() => fetch(`http://127.0.0.1:${debugPort}/json/version`, { signal: AbortSignal.timeout(2000) }).then(r => r.ok, () => false), 60000);
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { timeout: 10000 });
   let page = browser.contexts()[0].pages()[0];
+  phase = 'main document readiness';
   await bounded(page.emulateMedia({ colorScheme: null }));
   const evaluate = script => bounded(page.evaluate(`(async()=>{${script}})()`));
   await until(() => nativeEditingDocumentReady(evaluate));
+  phase = 'open settings';
   await evaluate("return window.__TAURI__.core.invoke('open_auxiliary',{kind:'settings'})");
   page = await until(() => browser.contexts()[0].pages().find(candidate => candidate.url().includes('window=settings')));
+  phase = 'settings document readiness';
   await page.emulateMedia({ colorScheme: null });
   await until(() => nativeEditingDocumentReady(evaluate));
+  phase = 'file settings readiness';
   await page.locator('[data-settings-link="files"]').click();
   await until(() => evaluate("return typeof settingsReady !== 'undefined' && settingsReady.has('files')"));
   await page.locator('#cfg-folder').click();
+  phase = 'editor fixture initialization';
   await acceptNativeEditing(evaluate, until, async action => {
+    phase = `editor menu ${action}`;
     await until(() => menus.request(child.pid).catch(() => false));
     assert.ok(menuLabels[action], `Unknown native menu action: ${action}`);
     await menus.request(child.pid, { label: menuLabels[action] });
     await until(() => menus.request(child.pid).then(() => false, () => true));
-  });
+  }, { concurrentMenuSelection: true });
   console.log('windows_native_editing=ok clipboard_round_trip=ok editor_actions=ok');
 } finally {
   menus.close();

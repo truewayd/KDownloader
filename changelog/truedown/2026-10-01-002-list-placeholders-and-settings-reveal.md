@@ -30,5 +30,9 @@
 - `npm run test:feedback` from `truedown/desktop`: sticky group actions remain
   aligned during the settings reveal, held at its midpoint for a timing-independent
   geometry check.
+- Native Windows editing acceptance selects a Win32 menu while its triggering
+  evaluation is pending, then joins both operations without replaying actions.
+  Regression tests simulate a menu-blocked reply and check cleanup ordering;
+  stage-specific deadlines identify any future readiness or editing timeout.
 - Browser fixtures verify layout and animation; native compositor acceptance
   and release publication remain separate.

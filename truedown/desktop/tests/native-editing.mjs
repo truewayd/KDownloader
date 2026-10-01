@@ -12,13 +12,23 @@ export async function nativeEditingDocumentReady(evaluate) {
     throw error;
   }
 }
-export async function acceptNativeEditing(evaluate, until, chooseMenu) {
+export async function acceptNativeEditing(evaluate, until, chooseMenu, { concurrentMenuSelection = false } = {}) {
   await evaluate(`${fixture}; return installNativeEditingAcceptance()`);
   let failure;
   try {
     for (const action of ['copy', 'paste', 'undo', 'redo', 'cut', 'paste', 'select-all']) {
-      assert.equal(await evaluate(`return window.__nativeEditing.start('${action}')`), true);
-      if (action !== 'select-all') await chooseMenu(action);
+      const started = evaluate(`return window.__nativeEditing.start('${action}')`);
+      if (concurrentMenuSelection && action !== 'select-all') {
+        // Win32's modal menu loop may hold the CDP reply until selection.
+        // Join both bounded operations; never replay an editor action.
+        const results = await Promise.allSettled([started, chooseMenu(action)]);
+        const failed = results.find(result => result.status === 'rejected');
+        if (failed) throw failed.reason;
+        assert.equal(results[0].value, true);
+      } else {
+        assert.equal(await started, true);
+        if (action !== 'select-all') await chooseMenu(action);
+      }
       await until(() => evaluate(`return window.__nativeEditing.ready('${action}')`), 10000);
     }
     assert.equal(await evaluate(`return window.__TAURI__.core.invoke('edit_action',{action:'read-clipboard'}).then(()=>false,()=>true)`), true);
