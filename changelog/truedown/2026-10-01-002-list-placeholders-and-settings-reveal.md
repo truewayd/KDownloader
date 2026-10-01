@@ -8,7 +8,7 @@
   gradient sweeps through the shapes; reduced motion uses a static tile. Keep
   the 100-task DOM window and bounded reads.
 - Reveal settings categories together after their initial reads and rendering
-  finish, using a 180ms fade with a small vertical offset. Keep navigation,
+  finish, using a 180ms opacity-only fade that retains sticky geometry. Keep navigation,
   loading/retry feedback and cached drafts available. Reduced motion displays
   completed settings immediately.
 - Remove the display-only ordinal column and its heading from the task list,
@@ -27,5 +27,8 @@
   drafts and save feedback at three widths.
 - `npm run test:workspace` from `truedown/desktop`: sorting, selection, retained
   focus, navigation and layout at normal and enlarged scale.
+- `npm run test:feedback` from `truedown/desktop`: sticky group actions remain
+  aligned during the settings reveal, held at its midpoint for a timing-independent
+  geometry check.
 - Browser fixtures verify layout and animation; native compositor acceptance
   and release publication remain separate.

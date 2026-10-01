@@ -258,7 +258,8 @@ and material integration only. Page styles own layout, not alternate palettes.
   Initially unread categories keep their controls inert and transparent until
   all category snapshots have been applied. Loading and retry feedback remains
   visible, and navigation stays available. Completed categories reveal together
-  over 180ms; reduced motion reveals them immediately. Cached visits retain
+  over 180ms using opacity only, preserving sticky and focus geometry throughout
+  the animation; reduced motion reveals them immediately. Cached visits retain
   controls and drafts, and stale category completions cannot change the active
   category's presentation.
 - Do not repeat a purpose icon in both native caption and content. Windows

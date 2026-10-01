@@ -89,13 +89,28 @@ try {
     await page.waitForTimeout(250);
     assert.equal(await page.locator(".kd-toast").evaluate(node => getComputedStyle(node).visibility), "hidden");
     await page.evaluate(() => { location.hash = "#settings/files"; });
-    await page.waitForFunction(() => fileGroupsDraft?.length === 8);
+    await page.waitForFunction(() => fileGroupsDraft?.length === 8 && settingsReady.has("files"));
+    // Hold the production reveal at its midpoint so sticky geometry is checked
+    // during the animation, independently of machine speed.
+    const revealOpacity = await page.evaluate(() => {
+      const content = document.querySelector(".settings-content");
+      const panel = document.querySelector(".group-editor-actions").closest(".settings-section");
+      content.dataset.loading = "true";
+      getComputedStyle(panel).animationName;
+      content.dataset.loading = "false";
+      const animation = panel.getAnimations().find(item => item.animationName === "kd-settings-reveal");
+      animation.pause();
+      animation.currentTime = 90;
+      return Number(getComputedStyle(panel).opacity);
+    });
+    assert.ok(revealOpacity > 0 && revealOpacity < 1, "check sticky placement while settings are fading in");
     await page.locator(".settings-content").evaluate(node => {
       node.scrollTop += document.querySelector(".group-editor-actions").getBoundingClientRect().top - node.getBoundingClientRect().top + 180;
     });
     const sticky = await page.locator(".group-editor-actions").boundingBox();
     const scroller = await page.locator(".settings-content").boundingBox();
     assert.ok(Math.abs(sticky.y - scroller.y) <= 1, `sticky action must meet top: ${sticky.y}, ${scroller.y}`);
+    await page.evaluate(() => document.getAnimations().filter(animation => animation.animationName === "kd-settings-reveal").forEach(animation => animation.finish()));
     await page.screenshot({ path: path.join(output, `${width}-${colorScheme}-sticky.png`) });
     const searchSizes = await page.locator("#settings-search").evaluate(node => [node.offsetHeight, getComputedStyle(node).paddingLeft, getComputedStyle(node).paddingRight]);
     assert.deepEqual(searchSizes, [36, "36px", "36px"]);
