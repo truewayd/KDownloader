@@ -117,3 +117,38 @@ test("About reset changes only the program update preference", async () => {
   assert.equal(context.els.settingsForm.inert, false);
   assert.equal(context.updatePreferenceSaving, false);
 });
+
+test("Engine reset clears advanced parameters while preserving the captured defaults revision", async () => {
+  const writes = [];
+  let saved;
+  const context = vm.createContext({
+    els: { settingsForm: {}, settingsSaveStatus: {} }, currentSettingsPage: "engine",
+    taskDefaultsRevision: 7, downloadSettings: { extra: "--min-split-size=2M", connections: 8 },
+    DEFAULT_DOWNLOAD_RULES: { filterMode: "project", excludedExtensions: null, dropboxMode: "direct", enabled: true },
+    normalizeServerDownloadRules: value => value,
+    DEFAULT_DOWNLOAD_SETTINGS: { extra: "" }, settingsDirtyControls: new Map([["engine", new Set()]]),
+    updatePreferenceSaving: false, settingsMessages: new Map(), resolverModules: [],
+    invalidateSettingRead() {}, normalizeSystemUpdateState: value => value,
+    renderSystemUpdateState() {}, renderSettingsCategory() {}, renderResolverModules() {},
+    applyTaskDefaults(value) { saved = value; },
+    requestJSON: async (path, options) => {
+      const value = JSON.parse(options.body);
+      writes.push({ path, value });
+      if (path === "/settings/updates") {
+        context.taskDefaultsRevision = 8;
+        context.downloadSettings = { extra: "concurrent", connections: 32 };
+      }
+      if (path === "/settings/task-defaults") return { revision: 9, values: value.values };
+      if (path === "/settings/download-rules") return value;
+      return { engine: { active: "stable" } };
+    },
+  });
+  vm.runInContext(declarations("resetImmediateSettings"), context);
+  await context.resetImmediateSettings("engine");
+  assert.deepEqual(writes.find(write => write.path === "/settings/task-defaults").value,
+    { revision: 7, values: { extra: "", connections: 8 } });
+  assert.equal(saved.values.extra, "");
+  assert.equal(context.settingsDirtyControls.has("engine"), false);
+  assert.ok(writes.some(write => write.path === "/system/engine/select"));
+  assert.equal(writes.find(write => write.path === "/settings/download-rules").value.dropboxMode, "direct");
+});

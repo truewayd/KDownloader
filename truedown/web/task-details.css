@@ -5,6 +5,11 @@
 .sidebar-footer { flex-shrink: 0; }
 .task-file-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .task-file-cell > .icon { flex-shrink: 0; color: var(--kd-icon); }
+.task-rows tr:not([data-update-download="true"]) .task-file-cell > .icon {
+  box-sizing: border-box; width: 32px; height: 32px; padding: 7px;
+  border: 1px solid var(--kd-border); border-radius: var(--kd-item-radius);
+  background: var(--kd-surface); color: var(--kd-text);
+}
 .task-file-cell > div { min-width: 0; }
 .task-name-button { display: block; max-width: 100%; padding: 0; border: 0; background: none; color: var(--kd-text); font: inherit; text-align: left; cursor: pointer; }
 .task-name-button:hover { color: var(--kd-accent); text-decoration: underline; }

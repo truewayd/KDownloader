@@ -101,7 +101,7 @@
             </div>
             <button class="kd-icon-button" id="open-downloads-btn" type="button" data-tooltip="打开下载目录" aria-label="打开下载目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button>
         </div>
-        <p class="hint" id="task-load-status" role="status" hidden></p>
+        <p class="hint" id="task-load-status" role="status" data-kd-notice="error" hidden></p>
 
         <div class="batch-toolbar" id="batch-toolbar" role="region" aria-label="已选任务操作" hidden>
           <strong id="batch-selection-count" role="status">已选择 0 项</strong>
@@ -130,19 +130,18 @@
       <div class="settings-search-field"><svg class="icon search-icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-search"></use></svg><input class="kd-input" id="settings-search" type="search" placeholder="搜索设置" aria-label="搜索设置" maxlength="100" autocomplete="off"><button class="kd-icon-button" id="settings-search-clear" type="button" aria-label="清空搜索" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-close"></use></svg></button></div>
       <p class="visually-hidden" id="settings-search-status" role="status"></p>
       <div id="settings-search-results" aria-label="设置搜索结果" hidden></div>
-      <div class="settings-navigation-links"><a class="settings-nav-link" href="#settings/general" data-settings-link="general" data-tooltip="下载与速度"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-gauge"></use></svg><span>下载与速度</span></a>
+      <div class="settings-navigation-links"><a class="settings-nav-link" href="#settings/general" data-settings-link="general" data-tooltip="下载与网络"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-gauge"></use></svg><span>下载与网络</span></a>
 <a class="settings-nav-link" href="#settings/files" data-settings-link="files" data-tooltip="文件管理"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder"></use></svg><span>文件管理</span></a>
 <a class="settings-nav-link" href="#settings/application" data-settings-link="application" data-tooltip="应用与连接"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-app-window"></use></svg><span>应用与连接</span></a>
 <a class="settings-nav-link" href="#settings/engine" data-settings-link="engine" data-tooltip="内核与模块"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-cpu"></use></svg><span>内核与模块</span></a>
-<a class="settings-nav-link" href="#settings/advanced" data-settings-link="advanced" data-tooltip="高级参数"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-sliders-horizontal"></use></svg><span>高级参数</span></a>
 <a class="settings-nav-link" href="#settings/experimental" data-settings-link="experimental" data-tooltip="实验功能"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-flask-conical"></use></svg><span>实验功能</span></a>
 <a class="settings-nav-link" href="#settings/logs" data-settings-link="logs" data-tooltip="应用日志"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-logs"></use></svg><span>应用日志</span></a>
 <a class="settings-nav-link" href="#settings/about" data-settings-link="about" data-tooltip="关于 TrueDown"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-info"></use></svg><span>关于</span></a></div></nav>
     <form id="settings-form" novalidate>
       <div class="settings-content">
-      <header class="settings-category-header"><h2 id="settings-category-title">下载与速度</h2><button class="kd-icon-button" id="settings-reset-btn" type="button" data-tooltip="恢复当前分类默认设置" aria-label="恢复当前分类默认设置"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-reset"></use></svg></button></header>
-      <p class="hint settings-save-error" id="settings-save-status" role="status"></p>
-        <p class="hint" id="settings-load-status" role="status"></p>
+      <header class="settings-category-header"><h2 id="settings-category-title">下载与网络</h2><button class="kd-icon-button" id="settings-reset-btn" type="button" data-tooltip="恢复当前分类默认设置" aria-label="恢复当前分类默认设置"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-reset"></use></svg></button></header>
+      <p class="hint" id="settings-save-status" role="status" data-kd-notice="error"></p>
+        <p class="hint" id="settings-load-status" role="status" data-kd-notice="info"></p>
         <section class="settings-section log-page" id="logs-page" data-settings-page="logs" hidden aria-labelledby="settings-application-log-title">
             <h1 class="visually-hidden" id="settings-application-log-title" tabindex="-1">应用日志</h1>
             <div class="application-log-toolbar">
@@ -161,7 +160,7 @@
 <article class="update-card">
                 <div class="update-card-copy">
                   <div class="update-card-heading">
-                    <strong>TrueDown</strong>
+                    <strong>程序更新</strong>
                     <span id="truedown-update-version">正在读取版本…</span>
                   </div>
                   <p id="truedown-update-status" aria-live="polite">正在读取更新状态…</p>
@@ -182,7 +181,7 @@
           <div class="settings-section-heading"><h3 id="settings-application-title">应用与连接</h3></div>
           <fieldset class="settings-group"><legend>启动</legend>
           <label class="setting-toggle" for="startup-enabled"><input id="startup-enabled" type="checkbox" role="switch" class="kd-switch" disabled><span><strong>开机启动</strong><small>登录后在后台运行。</small></span></label>
-            <p class="hint" id="startup-status" role="status">正在读取启动设置…</p>
+            <p class="hint" id="startup-status" role="status" data-kd-notice="info">正在读取启动设置…</p>
           </fieldset>
             <fieldset class="settings-group" data-settings-independent>
               <legend>托盘图标</legend>
@@ -191,23 +190,17 @@
                 <div class="field settings-row" id="tray-single-field"><label for="tray-single">左键单击</label><select class="kd-select" id="tray-single" disabled><option value="main">打开主窗口</option><option value="newTask">新建下载</option><option value="settings">打开设置</option><option value="none">无操作</option><option value="menu">显示菜单</option></select></div>
                 <div class="field settings-row" id="tray-double-field"><label for="tray-double">左键双击</label><select class="kd-select" id="tray-double" disabled><option value="main">打开主窗口</option><option value="newTask">新建下载</option><option value="settings">打开设置</option><option value="none">无操作</option></select></div>
               </div>
-              <p class="hint" id="tray-status" role="status"></p>
+              <p class="hint" id="tray-status" role="status" data-kd-notice="info"></p>
             </fieldset>
-            <div class="runtime-guide"><h3>数据存储</h3><div id="storage-location" class="hint" role="status">正在读取数据目录…</div><p class="hint">备份或搬迁前请退出 TrueDown，保留配置、任务和恢复状态目录。下载文件保留在原位置。</p></div>
         </section>
         <section data-settings-page="general" hidden class="settings-section" aria-labelledby="settings-general-title">
             <div class="settings-section-heading">
-              <h3 id="settings-general-title">下载与速度</h3>
+              <h3 id="settings-general-title">下载与网络</h3>
             </div>
             <fieldset class="settings-group">
               <legend>新任务默认值</legend>
               <p class="hint">仅用于新任务，已有任务保持不变。</p>
               <div class="form-grid">
-              <div class="field field-span-2">
-                <label for="cfg-folder">保存位置</label>
-                <div class="directory-field"><input class="kd-input" id="cfg-folder" type="text" placeholder="留空使用默认下载目录"><button class="kd-icon-button native-folder-picker" type="button" data-directory-input="cfg-folder" data-tooltip="选择默认保存目录" aria-label="选择默认保存目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button></div>
-                <p class="hint" id="cfg-folder-help">留空使用默认下载目录，文件按<a href="#settings/files">分组</a>存入子目录。修改保存根目录不会移动已有文件。</p>
-              </div>
               <div class="field settings-row">
                 <label for="cfg-conns">连接数</label>
                 <input class="kd-input" id="cfg-conns" type="number" min="1" max="64" placeholder="16" aria-describedby="cfg-conns-help">
@@ -229,6 +222,7 @@
             </fieldset>
             <fieldset class="settings-group">
               <legend>当前下载队列</legend>
+              <p class="hint">保存后立即应用于当前队列。</p>
               <div class="form-grid">
                 <div class="field settings-row">
                   <label for="cfg-task-concurrency">并行任务</label>
@@ -287,7 +281,7 @@
             </fieldset>
             <fieldset class="settings-group">
               <legend>请求信息</legend>
-              <p class="hint">仅在下载来源要求时填写。默认请求头会被新任务继承，请确认其中的凭据适用于下载来源。</p>
+              <p class="hint" data-kd-notice="warning" data-kd-notice-title="请求凭据">仅在下载来源要求时填写。默认请求头会被新任务继承，请确认其中的凭据适用于下载来源。</p>
               <div class="form-grid">
               <div class="field settings-row">
                 <label for="cfg-user-agent">User-Agent</label>
@@ -310,7 +304,16 @@
               <h3 id="settings-file-title">文件管理</h3>
             </div>
             <fieldset class="settings-group">
+              <legend>默认保存目录</legend>
+              <div class="field">
+                <label for="cfg-folder">保存位置</label>
+                <div class="directory-field"><input class="kd-input" id="cfg-folder" type="text" placeholder="留空使用默认下载目录" aria-describedby="cfg-folder-help"><button class="kd-icon-button native-folder-picker" type="button" data-directory-input="cfg-folder" data-tooltip="选择默认保存目录" aria-label="选择默认保存目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg></button></div>
+                <p class="hint" id="cfg-folder-help">新任务按下方文件分组存入子目录；留空使用默认下载目录。修改后不会移动已有文件。</p>
+              </div>
+            </fieldset>
+            <fieldset class="settings-group">
               <legend>文件写入与校验</legend>
+              <p class="hint">仅用于新任务，已有任务保持不变。</p>
             <div class="form-grid">
               <div class="field settings-row field-span-2">
                 <label for="cfg-allocation">文件预分配</label>
@@ -334,30 +337,6 @@
               </label>
             </div>
             </fieldset>
-            <fieldset class="settings-group dropbox-settings">
-              <legend>Dropbox 目录</legend>
-              <div class="field settings-row">
-                <label for="cfg-dropbox-mode">目录下载</label>
-                <select class="kd-select" id="cfg-dropbox-mode">
-                  <option value="direct">下载压缩包</option>
-                  <option value="expand">展开为独立文件</option>
-                </select>
-                <p class="hint">默认下载压缩包。展开后可逐个文件重试，并按后缀过滤。</p>
-              </div>
-            <div class="field settings-row">
-              <label for="cfg-filter-mode">文件过滤</label>
-              <select class="kd-select" id="cfg-filter-mode" aria-describedby="dropbox-filter-hint">
-                <option value="project">跟随工程分组</option>
-                <option value="off">关闭</option>
-                <option value="custom">自定义</option>
-              </select>
-              <p class="hint" id="dropbox-filter-hint">仅在目录展开时过滤，默认与工程分组同步。</p>
-            </div>
-            <div class="field" id="dropbox-filter-extensions">
-              <span class="field-label" id="excluded-extensions-label">排除的文件后缀</span>
-              <div id="dropbox-suffix-editor"></div>
-            </div>
-            </fieldset>
           </section>
         <section class="settings-section" data-settings-page="files" data-settings-independent hidden aria-labelledby="file-groups-title">
           <div class="settings-section-heading">
@@ -374,7 +353,7 @@
             </div>
             <div class="update-list">
 
-              <article class="update-card">
+              <article class="update-card" data-settings-independent>
                 <div class="update-card-copy">
                   <div class="update-card-heading">
                     <strong>aria2 下载内核</strong>
@@ -390,19 +369,55 @@
                 </div>
               </article>
             </div>
+            <fieldset class="settings-group">
+              <legend>高级参数</legend>
+              <div class="field">
+                <label for="cfg-extra">额外 aria2 参数</label>
+                <textarea class="kd-input" id="cfg-extra" rows="4" placeholder="--min-split-size=1M"></textarea>
+                <p class="hint">仅用于新任务。每行一个 --名称=值，如 --min-split-size=1M；留空不添加。仅接受允许的任务参数，不支持进程、RPC 或本地文件选项。</p>
+              </div>
+            </fieldset>
           </section>
 <section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-modules-title">
             <div class="settings-section-heading">
               <h3 id="settings-modules-title">解析模块</h3>
-              <p class="hint">Dropbox、Google Drive 模块停用后只影响新链接，已有任务仍可恢复。Dropbox 目录展开见<a href="#settings/files">文件管理</a>。</p>
+              <p class="hint" data-kd-notice="info">模块停用后只影响新链接，已有任务仍可恢复。文件分组与保存目录见<a href="#settings/files">文件管理</a>。</p>
             </div>
-            <div class="module-list" id="module-list" aria-live="polite"></div>
+            <div class="module-list" id="module-list">
+              <fieldset class="settings-group dropbox-settings" id="dropbox-settings" disabled>
+                <legend class="visually-hidden">Dropbox 下载选项</legend>
+                <div class="field settings-row">
+                  <label for="cfg-dropbox-mode">目录下载</label>
+                  <select class="kd-select" id="cfg-dropbox-mode">
+                    <option value="direct">下载压缩包</option>
+                    <option value="expand">展开为独立文件</option>
+                  </select>
+                  <p class="hint">默认下载压缩包。展开后可逐个文件重试，并按后缀过滤。</p>
+                </div>
+                <div class="field settings-row">
+                  <label for="cfg-filter-mode">文件过滤</label>
+                  <select class="kd-select" id="cfg-filter-mode" aria-describedby="dropbox-filter-hint">
+                    <option value="project">跟随工程分组</option>
+                    <option value="off">关闭</option>
+                    <option value="custom">自定义</option>
+                  </select>
+                </div>
+                <div class="hint" data-kd-notice="info">
+                  <p id="dropbox-filter-hint">仅在目录展开时过滤，默认与工程分组同步。</p>
+                  <p id="dropbox-project-link" hidden><a href="#settings/files/group/project">编辑工程分组</a></p>
+                </div>
+                <div class="field" id="dropbox-filter-extensions">
+                  <span class="field-label" id="excluded-extensions-label">排除的文件后缀</span>
+                  <div id="dropbox-suffix-editor"></div>
+                </div>
+              </fieldset>
+            </div>
           </section>
 <section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-bt-diagnostics-title">
             <div class="settings-section-heading">
               <h3 id="settings-bt-diagnostics-title">BitTorrent 诊断</h3>
             </div>
-            <p class="hint" id="bt-client-identity" aria-live="polite">正在读取当前内核身份…</p>
+            <p class="hint" id="bt-client-identity" aria-live="polite" data-kd-notice="info">正在读取当前内核身份…</p>
             <p class="hint">Aria2 Next 2.6.5+ 的诊断日志位于数据目录的 <code>aria2.log</code>；连接和可用性见任务进度。</p>
           </section>
 <section data-settings-page="experimental" hidden class="settings-section tracker-research-section" aria-labelledby="settings-tracker-research-title">
@@ -410,7 +425,7 @@
               <h3 id="settings-tracker-research-title">Tracker 流量研究（实验性）</h3>
               <p>使用 TrueDown 内置的本地 relay 和 Aria2 Next RPC 复刻 RatioGhost 上报模型，不修改 aria2-next 源码。</p>
             </div>
-            <p class="tracker-research-warning">仅限在你控制的 tracker 或测试环境中研究流量；不得用于欺骗、滥用或违反服务条款。启用即表示你理解并自行承担全部后果。</p>
+            <p data-kd-notice="warning" data-kd-notice-title="实验性功能使用提醒">仅限在你控制的 tracker 或测试环境中研究流量；不得用于欺骗、滥用或违反服务条款。启用即表示你理解并自行承担全部后果。</p>
             <label class="setting-toggle tracker-research-master" for="tracker-research-enabled">
               <input id="tracker-research-enabled" type="checkbox" role="switch" class="kd-switch">
               <span><strong>启用研究</strong><small>需 Aria2 Next 2.5.7+，启用前须确认。</small></span>
@@ -455,32 +470,26 @@
                 <span><strong>伪装做种</strong><small>将 left 上报为零，并自动启用“下载量上报为零”。</small></span>
               </label>
             </div>
-            <p class="hint tracker-research-status" id="tracker-research-status" aria-live="polite">正在读取模块状态…</p>
+            <p class="hint" id="tracker-research-status" aria-live="polite" data-kd-notice="info">正在读取模块状态…</p>
             <p class="hint">仅改写 HTTP/HTTPS tracker，UDP 保持原样。HTTPS 由 relay 直连上游，无中间人解密或自定义证书。模块随 TrueDown 更新。</p>
-          </section>
-<section data-settings-page="advanced" hidden class="settings-section" aria-labelledby="settings-advanced-title">
-            <div class="settings-section-heading">
-              <h3 id="settings-advanced-title">高级参数</h3>
-              <p>仅用于新任务。</p>
-            </div>
-            <div class="field">
-              <label for="cfg-extra">额外 aria2 参数</label>
-              <textarea class="kd-input" id="cfg-extra" rows="4" placeholder="--min-split-size=1M"></textarea>
-              <p class="hint">每行一个 --名称=值，如 --min-split-size=1M；留空不添加。仅接受允许的任务参数，不支持进程、RPC 或本地文件选项。</p>
-            </div>
           </section>
 <section data-settings-page="application" hidden class="settings-section token-card" aria-labelledby="settings-security-title">
             <div class="settings-section-heading">
-              <h3 id="settings-security-title">API Key 认证</h3>
-              <p>浏览器集成和远程仪表盘共用此认证。</p>
+              <h3 id="settings-security-title">浏览器与 API 连接</h3>
+              <p>供兼容浏览器扩展或 API 客户端连接本机 TrueDown。</p>
             </div>
             <label class="setting-toggle" for="token-auth-enabled">
               <input id="token-auth-enabled" type="checkbox" role="switch" class="kd-switch">
               <span><strong>API Key 认证</strong><small>浏览器扩展需填写同一密钥。</small></span>
             </label>
-            <p class="hint" id="token-auth-status" aria-live="polite">正在读取认证设置…</p>
+            <p class="hint" id="token-auth-status" aria-live="polite" data-kd-notice="info">正在读取认证设置…</p>
             <button class="kd-button secondary" id="copy-api-token-btn" type="button" disabled>复制 API Key</button>
-            <div class="runtime-guide"><h3>连接浏览器扩展</h3><ol class="settings-steps"><li>在兼容扩展的下载后端设置中选择 TrueDown，并填写本机服务地址。</li><li>开启认证后，点击“复制 API Key”，将密钥粘贴到扩展的 API Key 输入框并保存。</li><li>若连接失败，确认 TrueDown 正在运行，且服务地址与认证设置一致；更多诊断信息见<a href="#settings/logs">应用日志</a>。</li></ol></div>
+            <ol class="settings-steps" aria-label="连接浏览器扩展"><li>在兼容扩展的下载后端设置中选择 TrueDown，并填写本机服务地址。</li><li>开启认证后，点击“复制 API Key”，将密钥粘贴到扩展的 API Key 输入框并保存。</li><li>若连接失败，确认 TrueDown 正在运行，且服务地址与认证设置一致；更多诊断信息见<a href="#settings/logs">应用日志</a>。</li></ol>
+          </section>
+          <section data-settings-page="application" hidden class="settings-section" aria-labelledby="settings-storage-title">
+            <div class="settings-section-heading"><h3 id="settings-storage-title">数据存储</h3></div>
+            <div id="storage-location" class="hint" role="status">正在读取数据目录…</div>
+            <p class="hint" data-kd-notice="info" data-kd-notice-title="备份与搬迁">备份或搬迁前请退出 TrueDown，保留配置、任务和恢复状态目录。下载文件保留在原位置。</p>
           </section>
       </div>
     </form>
@@ -513,7 +522,7 @@
       <details class="task-transfer-section"><summary>文件位置与链接</summary><dl class="task-info-grid" id="task-location-grid"></dl></details>
     </section>
     <form id="task-settings-form" hidden>
-      <p class="hint">限速即时生效。修改连接数和重试参数前请先暂停任务；已完成的任务仅供查看。</p>
+      <p class="hint" data-kd-notice="info">限速即时生效。修改连接数和重试参数前请先暂停任务；已完成的任务仅供查看。</p>
       <fieldset id="task-settings-fields" disabled>
         <div class="form-grid">
           <div class="field"><label for="task-setting-connections">连接数</label><input class="kd-input" id="task-setting-connections" type="number" min="1" max="64" required></div>

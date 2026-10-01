@@ -117,6 +117,7 @@ let dialogInertRoots = [];
 
 document.addEventListener("DOMContentLoaded", async () => {
   cacheElements();
+  KDComponents.prepareNotices();
   KDComponents.prepareDecorativeIcons();
   KDComponents.installTooltips();
   trueDownToast = KDComponents.createToast(els.toast, { duration: 3200 });
@@ -257,6 +258,7 @@ function bindEvents() {
   els.settingsForm.addEventListener("input", markSettingsDraft);
   els.settingsForm.addEventListener("change", (event) => {
     if (event.target === els.cfgFilterMode) changeDropboxFilterMode();
+    if (event.target === els.cfgDropboxMode) renderDropboxSuffixEditor(true);
     if (!event.target.closest("[data-settings-independent]")) { markSettingsDraft(event); saveDownloadSettings(event); }
   });
   els.startupEnabled.addEventListener("change", updateStartupSettings);

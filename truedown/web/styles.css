@@ -1089,8 +1089,9 @@ h2 {
 	grid-template-columns: 40px minmax(0, 1fr);
 	align-items: start;
 	gap: 8px 16px;
-	border: 0;
-	padding: 0;
+	border: 1px solid var(--kd-border);
+	border-radius: var(--kd-radius);
+	padding: 16px;
 	background: transparent;
 }
 
@@ -1099,6 +1100,8 @@ h2 {
 	min-width: 0;
 	gap: 8px;
 }
+
+.module-card > .dropbox-settings { grid-column: 1 / -1; margin-top: 8px; padding: 0; border: 0; }
 
 .module-card-heading {
 	display: flex;
@@ -1125,10 +1128,6 @@ h2 {
 	color: var(--kd-muted);
 	font-size: 12px;
 	line-height: 1.5;
-}
-
-.module-card-copy .module-card-error {
-	color: var(--kd-error-text);
 }
 
 .module-card-actions {
@@ -1203,16 +1202,6 @@ h2 {
   margin-bottom: 0;
 }
 
-.tracker-research-warning {
-  margin: 0;
-  border: 0;
-  border-radius: var(--kd-radius);
-  padding: 10px;
-  background: var(--kd-error-bg);
-  color: var(--kd-error-text);
-  font-size: 11px;
-  line-height: 1.55;
-}
 
 .tracker-research-master {
   border-color: var(--kd-accent);
@@ -1233,9 +1222,6 @@ h2 {
   border-radius: var(--kd-control-radius);
 }
 
-.tracker-research-status[data-error="true"] {
-  color: var(--kd-error-text);
-}
 
 .inline-update-toggle {
   display: flex;

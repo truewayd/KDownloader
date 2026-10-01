@@ -1,6 +1,6 @@
-const SETTINGS_PAGES = ["general", "files", "application", "engine", "advanced", "experimental", "logs", "about"];
-const SETTINGS_PAGE_ALIASES = { network: "general", groups: "files", security: "application", modules: "engine" };
-const EDITABLE_SETTINGS_PAGES = new Set(["general", "files", "advanced", "experimental"]);
+const SETTINGS_PAGES = ["general", "files", "application", "engine", "experimental", "logs", "about"];
+const SETTINGS_PAGE_ALIASES = { network: "general", groups: "files", security: "application", modules: "engine", advanced: "engine" };
+const EDITABLE_SETTINGS_PAGES = new Set(["general", "files", "engine", "experimental"]);
 const settingsLoads = new Map();
 const settingsReady = new Set();
 const settingsRendered = new Set();
@@ -113,16 +113,16 @@ async function loadSettingsPage() {
   els.settingsResetBtn.disabled = true;
   settingsPanels(page).forEach((panel) => { panel.inert = page !== "logs"; });
   els.settingsLoadStatus.textContent = ["logs", "about"].includes(page) ? "" : "正在读取本页设置…";
+  els.settingsLoadStatus.dataset.error = "false";
   try {
     if (!settingsLoads.has(page)) {
       const loaders = {
         logs: () => {},
         about: () => loadSystemUpdateState(),
         general: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings()]),
-        files: () => Promise.all([loadServerTaskDefaults(), loadServerDownloadRules(), loadFileGroupsEditor()]),
-        advanced: loadServerTaskDefaults,
+        files: () => Promise.all([loadServerTaskDefaults(), loadFileGroupsEditor()]),
         application: () => Promise.all([loadStartupSettings(), loadTraySettings(), loadStorageLocation(), loadAuthSettings()]),
-        engine: () => Promise.all([loadSystemUpdateState(), loadTrackerResearchSettings(), loadResolverModules()]),
+        engine: () => Promise.all([loadServerTaskDefaults(), loadServerDownloadRules(), loadFileGroupsEditor(), loadSystemUpdateState(), loadTrackerResearchSettings(), loadResolverModules()]),
         experimental: loadTrackerResearchSettings,
       };
       settingsLoads.set(page, Promise.resolve().then(() => loaders[page]?.()).finally(() => settingsLoads.delete(page)));
@@ -138,6 +138,7 @@ async function loadSettingsPage() {
   } catch (error) {
     if (epoch !== routeEpoch || currentPage !== "settings" || currentSettingsPage !== page) return;
     els.settingsLoadStatus.textContent = `读取失败，正在自动重试：${error.message}`;
+    els.settingsLoadStatus.dataset.error = "true";
     scheduleReadRetry(`settings:${page}`, loadSettingsPage, () => epoch === routeEpoch && currentPage === "settings" && currentSettingsPage === page);
   } finally {
     // A category becomes editable only after its own read has succeeded.
@@ -196,8 +197,10 @@ async function saveTraySettings() {
   try {
     traySettings = await invokeNative("tray_settings", { preferences });
     document.getElementById("tray-status").textContent = "托盘设置已保存并生效。";
+    document.getElementById("tray-status").dataset.error = "false";
   } catch (error) {
     document.getElementById("tray-status").textContent = `保存失败：${error.message}`;
+    document.getElementById("tray-status").dataset.error = "true";
     showToast(`保存托盘设置失败：${error.message}`, "error");
   } finally {
     traySaving = false;
@@ -237,6 +240,7 @@ function renderStartupSettings() {
     ? "此实例不支持内置开机启动。"
     : "";
   els.startupStatus.textContent = `${status}${stringValue(state?.reason)}`;
+  els.startupStatus.dataset.error = "false";
   els.startupStatus.hidden = !els.startupStatus.textContent;
 }
 
@@ -258,6 +262,7 @@ async function updateStartupSettings() {
   } catch (error) {
     renderStartupSettings();
     els.startupStatus.textContent = `保存启动设置失败：${error.message}`;
+    els.startupStatus.dataset.error = "true";
     els.startupStatus.hidden = false;
     showToast(els.startupStatus.textContent, "error");
   } finally {
@@ -291,7 +296,6 @@ async function saveDownloadSettings(event) {
         proxy: els.cfgProxy.value.trim(), proxyMode: els.cfgProxyMode.value, userAgent: els.cfgUserAgent.value.trim(),
         referer: els.cfgReferer.value.trim(), headers: els.cfgHeaders.value.trim(),
       });
-      next.folder = els.cfgFolder.value.trim();
       next.connections = optionalInt("cfgConns") || DEFAULT_DOWNLOAD_SETTINGS.connections;
       next.speed = Number(els.cfgSpeed.value || 0);
       next.speedUnit = Number(els.cfgSpeedUnit.value);
@@ -311,7 +315,9 @@ async function saveDownloadSettings(event) {
       els.cfgGlobalSpeed.value = normalizedSpeed.value || "";
       els.cfgGlobalSpeedUnit.value = String(normalizedSpeed.unit);
     } else if (page === "files") {
-      Object.assign(next, { allocation: els.cfgAllocation.value, checkIntegrity: els.cfgCheckIntegrity.checked, remoteTime: els.cfgRemoteTime.checked });
+      Object.assign(next, { folder: els.cfgFolder.value.trim(), allocation: els.cfgAllocation.value, checkIntegrity: els.cfgCheckIntegrity.checked, remoteTime: els.cfgRemoteTime.checked });
+    } else if (page === "engine") {
+      next.extra = els.cfgExtra.value.trim();
       invalidateSettingRead("rules");
       downloadRules = normalizeServerDownloadRules(await requestJSON("/settings/download-rules", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -324,8 +330,6 @@ async function saveDownloadSettings(event) {
       invalidateSettingRead("rules");
       serverSaved = true;
       renderDropboxFilter(downloadRules);
-    } else if (page === "advanced") {
-      next.extra = els.cfgExtra.value.trim();
     } else if (page === "experimental") {
       const settings = readTrackerResearchForm();
       let acknowledgedRisk = false;
@@ -394,14 +398,14 @@ async function resetDownloadSettings() {
   }
   const epoch = routeEpoch;
   const descriptions = {
-    files: "恢复文件写入与过滤选项，并立即保存。自定义文件分组保持不变。",
+    files: "恢复默认保存目录、文件写入与校验选项，并立即保存。自定义文件分组和已有下载文件保持不变。",
     application: "关闭开机启动和可编辑的 API Key 认证，恢复本平台的托盘点击行为。数据目录和下载文件保持不变。",
-    engine: "恢复稳定下载内核，开启已安装 NEXT 的自动更新，并启用已安装的解析模块。保留安装包与模块版本。",
+    engine: "恢复稳定下载内核，清空高级参数，开启已安装 NEXT 的自动更新，并启用解析模块。Dropbox 恢复压缩包下载与默认过滤；文件分组、安装包和模块版本保持不变。",
     about: "恢复 TrueDown 自动更新为开启状态。",
   };
   const confirmed = await confirmAction({ title: "恢复默认设置？", message: descriptions[page] || "将本分类的设置恢复为默认值，并立即保存。", confirmLabel: "恢复默认", danger: true });
   if (!confirmed || epoch !== routeEpoch || page !== currentSettingsPage || els.settingsForm.inert) return;
-  if (!EDITABLE_SETTINGS_PAGES.has(page)) { await resetImmediateSettings(page); return; }
+  if (page === "engine" || !EDITABLE_SETTINGS_PAGES.has(page)) { await resetImmediateSettings(page); return; }
   renderSettingsCategory(page, DEFAULT_DOWNLOAD_SETTINGS, DEFAULT_DOWNLOAD_RULES, DEFAULT_RUNTIME_SETTINGS);
   if (page === "experimental") renderTrackerResearchSettings({
     ...trackerResearchSettings, ...DEFAULT_TRACKER_RESEARCH_SETTINGS,
@@ -413,6 +417,8 @@ async function resetDownloadSettings() {
 }
 
 async function resetImmediateSettings(page) {
+  const defaultsRevision = page === "engine" ? taskDefaultsRevision : null;
+  const nextDefaults = page === "engine" ? { ...downloadSettings, extra: DEFAULT_DOWNLOAD_SETTINGS.extra } : null;
   const post = (path, value) => requestJSON(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
   els.settingsForm.inert = true;
   updatePreferenceSaving = true;
@@ -434,6 +440,12 @@ async function resetImmediateSettings(page) {
       systemUpdateState = normalizeSystemUpdateState(await post("/settings/updates", page === "about" ? { autoUpdateTrueDown: true } : { autoUpdateNext: true }));
       renderSystemUpdateState();
       if (page === "engine") {
+        invalidateSettingRead("rules");
+        downloadRules = normalizeServerDownloadRules(await post("/settings/download-rules", DEFAULT_DOWNLOAD_RULES));
+        invalidateSettingRead("rules");
+        applyTaskDefaults(await post("/settings/task-defaults", { revision: defaultsRevision, values: nextDefaults }));
+        settingsDirtyControls.delete(page);
+        renderSettingsCategory(page);
         invalidateSettingRead("modules");
         for (const module of resolverModules) {
           if (!module.installed) replaceResolverModule(await post("/modules", { id: module.id, installed: true }));
@@ -532,7 +544,6 @@ function renderProxyMode() {
 function renderDownloadSettings(settings = downloadSettings, rules = downloadRules, runtime = runtimeSettings, page = "") {
   if (!page || page === "general") {
     const globalSpeed = displaySpeed(runtime.globalDownloadLimitBps);
-    els.cfgFolder.value = settings.folder;
     els.cfgConns.value = settings.connections;
     els.cfgTaskConcurrency.value = runtime.concurrentDownloads;
     els.cfgGlobalSpeed.value = globalSpeed.value || "";
@@ -551,12 +562,15 @@ function renderDownloadSettings(settings = downloadSettings, rules = downloadRul
     els.cfgHeaders.value = settings.headers;
   }
   if (!page || page === "files") {
+    els.cfgFolder.value = settings.folder;
     els.cfgAllocation.value = settings.allocation;
     els.cfgCheckIntegrity.checked = settings.checkIntegrity;
     els.cfgRemoteTime.checked = settings.remoteTime;
+  }
+  if (!page || page === "engine") {
+    els.cfgExtra.value = settings.extra;
     renderDropboxFilter(rules);
   }
-  if (!page || page === "advanced") els.cfgExtra.value = settings.extra;
 }
 
 function renderTrackerResearchSettings(settings = trackerResearchSettings) {
@@ -684,31 +698,47 @@ function renderDropboxFilter(rules) {
 }
 
 function renderDropboxProjectFilter() {
-  if (document.getElementById("cfg-filter-mode")?.value === "project") renderDropboxSuffixEditor();
+  renderDropboxSuffixEditor(true);
 }
 
-function renderDropboxSuffixEditor() {
-  const mode = els.cfgFilterMode.value;
-  const readOnly = mode === "project";
+function renderDropboxSuffixEditor(preserveCustomDraft = false) {
   const project = fileGroupsState.groups.find(group => group.id === "project");
-  document.getElementById("dropbox-filter-extensions").hidden = mode === "off";
+  const projectMissing = fileGroupsState.revision >= 0 && !project;
+  els.cfgFilterMode.querySelector('[value="project"]').disabled = projectMissing;
+  if (projectMissing && els.cfgFilterMode.value === "project") els.cfgFilterMode.value = "off";
+  if (projectMissing && downloadRules.filterMode === "project") downloadRules = { ...downloadRules, filterMode: "off", enabled: false };
+  const mode = els.cfgFilterMode.value;
+  document.getElementById("dropbox-project-link").hidden = mode !== "project" || !project;
+  document.getElementById("dropbox-filter-extensions").hidden = mode !== "custom";
   document.getElementById("dropbox-filter-hint").textContent = mode === "off"
     ? "目录展开时不过滤文件。"
-    : readOnly ? (project ? `与“${project.name}”分组同步；修改分组后缀后，后续目录展开立即使用新规则。`
-      : "工程分组已删除，当前不排除任何后缀。可恢复工程分组或选择自定义。")
+    : mode === "project" ? (project ? `与“${project.name}”分组同步；修改分组后缀后，后续目录展开立即使用新规则。` : "正在读取工程分组…")
       : "自定义规则独立于工程分组，忽略大小写；支持 .tar.gz，可逐块编辑、添加或删除。仅用于目录展开。";
-  const extensions = readOnly ? projectFilterExtensions() : dropboxCustomSuffixes ?? [];
+  const unavailable = !resolverModules.find(module => module.id === "dropbox")?.installed;
+  if (unavailable) document.getElementById("dropbox-filter-hint").textContent = "Dropbox 模块已停用；启用后可编辑目录与过滤选项，已有偏好会保留。";
+  else if (els.cfgDropboxMode.value !== "expand") document.getElementById("dropbox-filter-hint").textContent = "下载压缩包时不使用文件过滤；切换为独立文件后会沿用已保存的过滤选择。";
   const host = document.getElementById("dropbox-suffix-editor");
+  if (mode !== "custom") { host.replaceChildren(); host.dataset.mode = mode; renderDropboxAvailability(); return; }
+  if (preserveCustomDraft && host.dataset.mode === "custom" && host.firstElementChild) { renderDropboxAvailability(); return; }
+  const extensions = dropboxCustomSuffixes ?? [];
   const values = [...host.querySelectorAll("input")].map(input => input.value);
-  if (host.firstElementChild && host.dataset.mode === mode && JSON.stringify(values) === JSON.stringify(extensions)) return;
+  if (host.firstElementChild && host.dataset.mode === mode && JSON.stringify(values) === JSON.stringify(extensions)) { renderDropboxAvailability(); return; }
   host.dataset.mode = mode;
   host.replaceChildren(createSuffixEditor(extensions, "dropbox", {
-    labelID: "excluded-extensions-label", readOnly,
+    labelID: "excluded-extensions-label",
     onRemove: () => {
       markSettingsDraft();
       saveDownloadSettings({ preventDefault() {} });
     },
   }));
+  renderDropboxAvailability();
+}
+
+function renderDropboxAvailability() {
+  document.getElementById("dropbox-settings").disabled = !resolverModules.find(module => module.id === "dropbox")?.installed || pendingResolverModuleActions.has("dropbox");
+  const direct = els.cfgDropboxMode.value !== "expand";
+  els.cfgFilterMode.disabled = direct;
+  document.querySelectorAll("#dropbox-suffix-editor input, #dropbox-suffix-editor button").forEach(control => { control.disabled = direct; });
 }
 
 async function loadServerDownloadRules() {
@@ -846,17 +876,22 @@ function isModuleInstalled(id) {
 
 function renderResolverModules() {
 	if (!els.moduleList) return;
+	const dropboxSettings = document.getElementById("dropbox-settings");
+	dropboxSettings.remove();
 	els.moduleList.replaceChildren();
 	if (!resolverModules.length) {
 		const empty = document.createElement("p");
 		empty.className = "hint";
 		empty.textContent = "没有可用的解析模块。";
 		els.moduleList.append(empty);
+		els.moduleList.append(dropboxSettings);
+		renderDropboxSuffixEditor(true);
 		return;
 	}
 	for (const module of resolverModules) {
 		const card = document.createElement("article");
 		card.className = "module-card";
+		card.dataset.moduleId = module.id;
 		const icon = document.createElement("span");
 		icon.className = "module-card-icon";
 		icon.setAttribute("aria-hidden", "true");
@@ -876,12 +911,13 @@ function renderResolverModules() {
 		copy.append(heading, description);
 		if (module.updateError) {
 			const error = document.createElement("p");
-			error.className = "module-card-error";
+			error.dataset.kdNotice = "error";
 			error.textContent = `更新包未启用：${module.updateError}`;
 			copy.append(error);
 		}
 		const actions = document.createElement("div");
 		actions.className = "module-card-actions";
+		actions.dataset.settingsIndependent = "";
 		const toggle = document.createElement("button");
 		toggle.type = "button";
 		toggle.className = "kd-switch";
@@ -910,8 +946,12 @@ function renderResolverModules() {
 			actions.querySelectorAll("button").forEach(button => KDComponents.setBusyState(button, true));
 		}
 		card.append(icon, copy, actions);
+		if (module.id === "dropbox") card.append(dropboxSettings);
+		KDComponents.prepareNotices(card);
 		els.moduleList.append(card);
 	}
+	if (!dropboxSettings.isConnected) els.moduleList.append(dropboxSettings);
+	renderDropboxSuffixEditor(true);
 }
 
 async function onModuleAction(event) {
@@ -956,6 +996,7 @@ function setResolverModuleBusy(id, busy) {
       KDComponents.setBusyState(button, busy);
     }
   });
+  if (id === "dropbox") renderDropboxAvailability();
 }
 
 async function importModuleUpdate(id) {

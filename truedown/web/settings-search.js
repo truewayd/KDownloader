@@ -18,6 +18,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const page = panel.dataset.settingsPage;
     const category = document.querySelector(`[data-settings-link="${page}"] span`).textContent;
     const help = [...target.querySelectorAll(".hint, p, small")];
+    for (const control of target.querySelectorAll("[aria-describedby]")) {
+      for (const id of control.getAttribute("aria-describedby").split(/\s+/)) {
+        const description = document.getElementById(id);
+        if (description && !help.includes(description)) help.push(description);
+      }
+    }
     if (target.matches(".settings-section-heading")) help.push(...panel.querySelectorAll(":scope > .hint, :scope > p"));
     const authoredHelp = help.filter(node => !node.closest('[role="status"], [aria-live]')).map(node => node.textContent).join(" ");
     entries.push({ target, page, category, title, text: `${category} ${title} ${authoredHelp}`.toLocaleLowerCase() });

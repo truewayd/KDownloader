@@ -133,24 +133,24 @@
 .settings-category-header h2 { margin: 0; font-size: var(--kd-font-title); font-weight: 600; line-height: 1.4; }
 #settings-reset-btn { flex-shrink: 0; min-height: 32px; width: 32px; padding: 6px; color: var(--kd-muted); background: transparent; }
 #settings-reset-btn:hover { background: var(--kd-secondary-hover); }
-.settings-save-error { margin: 0 0 20px; color: var(--kd-error-text); }
-.settings-save-error:empty { display: none; }
+.settings-content > .kd-notice { max-width: 880px; margin-bottom: 20px; }
 .settings-content { --settings-top-inset: 28px; container: settings / inline-size; padding: var(--settings-top-inset) 32px 40px; overflow-y: auto; flex: 1; min-width: 0; min-height: 0; scrollbar-gutter: stable; background: var(--kd-surface); }
 .settings-content > .settings-section { display: grid; align-content: start; gap: 24px; max-width: 880px; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .settings-content > .settings-section:not([hidden]) { margin-bottom: 24px; }
 .settings-content > .settings-section:not(:has(~ .settings-section:not([hidden]))) { margin-bottom: 0; }
 .settings-content .settings-section-heading { margin: 0; }
-#settings-general-title, #settings-file-title, #settings-application-title, #settings-update-title, #settings-advanced-title { display: none; }
-.settings-section-heading h3, .runtime-guide h3 { margin: 0; font-size: var(--kd-font-section); font-weight: 600; line-height: 1.5; }
+#settings-general-title, #settings-file-title, #settings-application-title, #settings-update-title { display: none; }
+.settings-section-heading h3 { margin: 0; font-size: var(--kd-font-section); font-weight: 600; line-height: 1.5; }
 .settings-content .form-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
 .settings-group { min-width: 0; width: 100%; margin: 0; padding: 16px; border: 1px solid var(--kd-border); border-radius: var(--kd-radius); background: transparent; }
-.settings-group legend { float: left; width: 100%; padding: 0; margin-bottom: 16px; font-size: 14px; font-weight: 600; }
+.settings-group legend:not(.visually-hidden) { float: left; width: 100%; padding: 0; margin-bottom: 16px; font-size: 14px; font-weight: 600; }
 .settings-group legend + * { clear: both; }
 .settings-content .hint { margin: 0; line-height: 1.6; overflow-wrap: anywhere; }
 .settings-content .hint:empty { display: none; }
 .settings-content .settings-section-heading .hint { margin-top: 8px; }
+.settings-section-heading > .kd-notice { margin-top: 12px; }
+.settings-content .kd-notice .hint { margin: 0; }
 .settings-section-heading:has(> h3:only-child:is(#settings-general-title, #settings-file-title, #settings-application-title, #settings-update-title)) { display: none; }
-.settings-content .runtime-guide,
 .settings-about > .update-card,
 .settings-content > .settings-section:not(:has(.settings-group)):not(.log-page):not(.settings-about) { padding: 16px; border: 1px solid var(--kd-border); border-radius: var(--kd-radius); background: transparent; }
 .settings-content > .settings-section:not(:has(.settings-group)):not(.log-page):not(.settings-about) { gap: 16px; }
@@ -190,6 +190,7 @@
 .group-suffix-chip .kd-icon-button { flex: 0 0 32px; width: 32px; height: 32px; min-height: 32px; background: transparent; }
 .group-suffix-chip .icon { width: 14px; height: 14px; }
 .dropbox-settings > .field + .field { margin-top: 16px; }
+.dropbox-settings > .field:first-of-type { margin-top: 0; }
 #dropbox-suffix-editor .group-suffix-chip { background: var(--kd-surface-raised); }
 .file-group-editor-row > button { margin-top: 26px; }
 .file-group-editor-row .field > label { white-space: nowrap; }
@@ -219,10 +220,6 @@
 
 
 #settings-load-status:empty { display: none; }
-.runtime-guide { display: grid; gap: 16px; }
-.runtime-guide p, .runtime-guide dd { color: var(--kd-muted); }
-.runtime-guide dt { margin-top: 18px; }
-.runtime-guide dd { margin: 6px 0 0; }
 #storage-location { min-width: 0; overflow-wrap: anywhere; }
 .storage-locations { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px 16px; margin: 0; }
 .storage-locations dt, .storage-locations dd { margin: 0; overflow-wrap: anywhere; }

@@ -31,7 +31,7 @@ test("settings bind the complete defaults snapshot to its revision before awaiti
     els, document: {}, currentPage: "settings", currentSettingsPage: "general",
     settingsReady: new Set(["general"]), settingsMessages: new Map(), settingsDirtyControls: new Map(),
     EDITABLE_SETTINGS_PAGES: new Set(["general"]), settingsPanels: () => [],
-    taskDefaultsRevision: 7, downloadSettings: { connections: 16, extra: "old value" },
+    taskDefaultsRevision: 7, downloadSettings: { connections: 16, extra: "old value", folder: "D:\\Downloads" },
     DEFAULT_DOWNLOAD_SETTINGS: { connections: 16 }, KDComponents: busyComponents,
     optionalInt: () => 3, parseHeaders() {}, validateSettingsSpeed() {},
     invalidateSettingRead() {}, displaySpeed: () => ({ value: 0, unit: 1048576 }),
@@ -51,6 +51,7 @@ test("settings bind the complete defaults snapshot to its revision before awaiti
   finishRuntime({ concurrentDownloads: 3, globalDownloadLimitBps: 0 });
   await pending;
   assert.equal(requests[1].body.values.extra, "old value");
+  assert.equal(requests[1].body.values.folder, "D:\\Downloads", "download and network must not read the file-management directory control");
   assert.equal(requests[1].body.revision, 7, "the server must reject an old snapshot after a concurrent change");
   assert.equal(els.settingsForm.inert, false);
 });
@@ -172,14 +173,18 @@ test("settings navigation stays immediate and a late category read never overwri
   let complete;
   let loads = 0;
   let rendered = 0;
-  const panels = { general: { inert: false }, advanced: { inert: false } };
+  const panels = { general: { inert: false }, engine: { inert: false } };
   const content = { dataset: {}, scrollTop: 120 };
   const fields = Object.fromEntries(["settingsFooter", "settingsSaveStatus", "settingsReloadBtn", "settingsSaveBtn", "settingsResetBtn", "settingsLoadStatus"].map((name) => [name, control()]));
+  fields.settingsLoadStatus.dataset = {};
+  fields.btClientIdentity = control();
   const context = vm.createContext({
     els: fields, currentPage: "settings", currentSettingsPage: "general", routeEpoch: 1,
     settingsLoads: new Map(), settingsReady: new Set(), settingsRendered: new Set(), settingsMessages: new Map(),
     cancelReadRetry() {}, scheduleReadRetry() {},
-    EDITABLE_SETTINGS_PAGES: new Set(["general", "advanced"]),
+    EDITABLE_SETTINGS_PAGES: new Set(["general", "engine"]),
+    scheduleSystemUpdateRefresh() {}, loadSystemUpdateState() {},
+    trackerResearchSettings: {}, bitTorrentIdentityDescription: () => "",
     document: { querySelectorAll: () => [], querySelector: selector => selector === ".settings-content" ? content : null, getElementById: () => control() },
     settingsPanels: (page) => [panels[page]],
     loadServerRuntimeSettings: () => { loads++; return new Promise((resolve) => { complete = resolve; }); },
@@ -196,11 +201,11 @@ test("settings navigation stays immediate and a late category read never overwri
   await Promise.resolve();
   assert.equal(loads, 1);
   assert.equal(panels.general.inert, true);
-  context.currentSettingsPage = "advanced";
+  context.currentSettingsPage = "engine";
   context.routeEpoch++;
   await context.loadSettingsPage();
   assert.equal(rendered, 1);
-  assert.equal(panels.advanced.inert, false);
+  assert.equal(panels.engine.inert, false);
   complete();
   await Promise.all([first, second]);
   assert.equal(rendered, 1, "late runtime settings must not reset an advanced draft");

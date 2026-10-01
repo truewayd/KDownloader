@@ -12,7 +12,7 @@ const defaults = [
   ["image", "\u56fe\u7247", [".png", ".jpg"]], ["video", "\u89c6\u9891", [".mp4"]], ["audio", "\u97f3\u4e50", [".mp3"]],
   ["archive", "\u538b\u7f29\u5305", [".zip"]], ["application", "\u5e94\u7528", [".exe"]], ["document", "\u6587\u6863", [".pdf"]],
   ["project", "\u5de5\u7a0b", [".psd", ".blend"]], ["other", "\u5176\u4ed6", []],
-].map(([id, name, extensions]) => ({ id, name, extensions }));
+].map(([id, name, extensions]) => ({ id, name, extensions, icon: { image: "image", video: "video", audio: "music", archive: "archive", application: "app-window", document: "logs", project: "settings", other: "file" }[id] }));
 const names = ["Sunset.png", "Ocean.mp4", "Piano.mp3", "References.zip", "Installer.exe", "Guide.pdf", "Cover.PSD", "Scene.blend", "Unknown.bin"];
 let groups, tasks, detailWrites = 0, groupWrites = 0, taskNotModified = 0;
 function reset() {
@@ -88,6 +88,13 @@ try {
     };
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.waitForFunction(() => document.querySelectorAll("[data-task-category]").length === 8);
+    for (const [id, icon] of [[1, "image"], [4, "archive"], [6, "logs"], [7, "settings"], [9, "file"]]) {
+      const node = page.locator(`tr[data-task-id="${id}"] .task-file-cell > .icon`);
+      assert.equal(await node.locator("use").getAttribute("href"), `/icons.svg#icon-${icon}`);
+      assert.equal(await node.getAttribute("aria-hidden"), "true");
+      assert.equal((await node.boundingBox()).width, 32);
+    }
+    assert.equal(await page.evaluate(() => taskCategoryMeta("missing-group").icon), "file");
     const writesBeforeMenu = groupWrites;
     // Right-click selects the group before opening its actions.
     await page.locator('[data-task-category="project"] .nav-label').dispatchEvent("contextmenu", { button: 2, clientX: 100, clientY: 100 });
@@ -227,6 +234,8 @@ try {
     await page.screenshot({ path: path.join(screenshots, `groups-${width}-${colorScheme}.png`) });
     await page.locator('[data-task-category^="group-"]').click();
     await page.waitForFunction(() => document.querySelector("tr[data-task-id] .task-folder")?.textContent === "Design source");
+    assert.equal(await page.locator('tr[data-task-id="7"] .task-file-cell > .icon use').getAttribute("href"), "/icons.svg#icon-star", "task icon follows the customized group");
+    await page.screenshot({ path: path.join(screenshots, `group-task-icons-${width}-${colorScheme}.png`) });
     await page.reload();
     await page.waitForFunction(() => document.querySelectorAll("[data-task-category]").length === 9);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);

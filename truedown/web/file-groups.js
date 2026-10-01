@@ -21,7 +21,7 @@ function focusFileGroupRoute() {
   }
   const row = [...document.querySelectorAll("[data-group-id]")].find(row => row.dataset.groupId === id);
   if (!row) { showToast("此分组已不存在，请选择其他分组。", "error"); return; }
-  row.scrollIntoView({ block: "center" });
+  row.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
   row.querySelector("input").focus({ preventScroll: true });
 }
 
@@ -36,8 +36,7 @@ function scheduleFileGroupsSave() {
 
 function taskCategoryMeta(id) {
   const group = fileGroupsState.groups.find((value) => value.id === id);
-  const icons = { image: "image", video: "video", audio: "music", archive: "archive", application: "app-window", document: "logs", project: "settings", other: "file" };
-  return { label: group?.name || "\u5176\u4ed6", icon: group?.icon || icons[id] || "folder" };
+  return { label: group?.name || "\u5176\u4ed6", icon: group?.icon || "file" };
 }
 
 function applyFileGroups(state) {
@@ -98,7 +97,7 @@ function initFileGroups() {
   document.getElementById("file-group-add").addEventListener("click", () => {
     if (!fileGroupsDraft || fileGroupsDraft.length >= 32) return;
     captureFileGroupsDraft();
-    const group = { id: `group-${crypto.randomUUID()}`, name: "", extensions: [] };
+    const group = { id: `group-${crypto.randomUUID()}`, name: "", icon: "folder", directory: "", extensions: [] };
     fileGroupsDraft.splice(Math.max(0, fileGroupsDraft.findIndex((item) => item.id === "other")), 0, group);
     renderFileGroupsEditor();
     document.querySelector(`[data-group-id="${group.id}"] input`).focus();

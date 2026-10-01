@@ -76,6 +76,41 @@ Owned documents use the shared `kd-*` vocabulary:
 - `kd-progress`, `kd-loading`, and `kd-toast` for feedback; and
 - `kd-hidden` for explicit visibility state.
 
+TrueDown block guidance and persistent status feedback use `kd-notice`, prepared
+by `KDComponents.prepareNotices()` from explicit `data-kd-notice="info|warning|error"`
+elements. An optional `data-kd-notice-title` supplies the heading. The shared
+runtime retains the original message node, IDs, live-region semantics and links;
+repeated preparation is idempotent. TrueDown's `ui-baseline.css` owns the single
+icon/content layout, semantic surfaces, wrapping and focus treatment. Empty or
+hidden messages hide their whole surface, and `data-error="true"` on a dynamic
+message switches to the error treatment. Keep short field constraints as hints,
+and keep actionable update cards, the sidebar monitor and transient toasts in
+their existing components.
+
+Advanced aria2 task parameters belong beneath the download core in Engine and
+modules, including autosave and category reset. Dropbox's directory and filter
+controls live inside its module card; the same form nodes survive module list
+refreshes. Module switches and package actions save independently. Disabled
+modules retain their preferences, and direct archive mode disables filter editing.
+Engine and modules reset also resets Dropbox defaults; File management reset
+resets the save directory, file writing and verification, preserving group edits
+and existing files. Dropbox's project-filter link
+uses the existing group route and focuses the editor with smooth scrolling;
+reduced motion uses immediate scrolling. Ordinary task rows display the matched
+group icon in a compact surface, including custom icons; unknown groups use the
+file fallback. Update tasks retain their updater indicator.
+
+Download and network contains transfer limits, proxy, request headers and retry
+defaults, distinguishing immediate queue controls from defaults for new tasks.
+File management owns the save directory alongside file writing and group
+directories. Application and connections orders startup/tray, browser/API
+connection, then data storage; connection instructions share their parent's
+surface. About keeps program updates separate from engine/module updates.
+
+File group persistence uses the versioned document described in
+[`file-groups.md`](file-groups.md). UI snapshots are ordered views, not the on-disk
+format; icons are materialized by the core rather than inferred from group names.
+
 Page CSS may define layout, density, and responsive placement. It must not
 redefine the shared extension-page tokens or component behavior. TrueDown
 keeps its standalone CSS artifact, with effective light/dark theme equality enforced by tests.

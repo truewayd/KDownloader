@@ -32,10 +32,10 @@ try {
       "/settings/runtime": { concurrentDownloads: 3, globalDownloadLimitBps: 0 },
       "/settings/download-rules": { enabled: true, filterMode: "project", dropboxMode: "direct", excludedExtensions: null },
       "/settings/file-groups": { revision: 1, groups: [
-        { id: "image", name: "图片", extensions: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".heic", ".heif", ".bmp", ".tif", ".tiff", ".svg", ".ico"], directory: "Pictures" },
-        { id: "archive", name: "压缩包", extensions: [".zip", ".7z", ".rar", ".tar.gz"], directory: "Archives" },
-        { id: "project", name: "工程", extensions: [".psd", ".clip", ".work.project"], directory: "Projects" },
-        { id: "other", name: "其他", extensions: [], directory: "Other" },
+        { id: "image", name: "图片", icon: "image", extensions: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".heic", ".heif", ".bmp", ".tif", ".tiff", ".svg", ".ico"], directory: "Pictures" },
+        { id: "archive", name: "压缩包", icon: "archive", extensions: [".zip", ".7z", ".rar", ".tar.gz"], directory: "Archives" },
+        { id: "project", name: "工程", icon: "settings", extensions: [".psd", ".clip", ".work.project"], directory: "Projects" },
+        { id: "other", name: "其他", icon: "file", extensions: [], directory: "Other" },
       ] },
       "/settings/startup": { supported: true, enabled: false },
       "/settings/tracker-research": { enabled: false, engine: "stable" },
@@ -92,6 +92,10 @@ try {
       assert.equal(await page.locator("#settings-save-btn, #settings-footer, #file-groups-save, #tray-save").count(), 0);
     }
     assert.equal(await page.title(), "设置");
+    const noticeCount = await page.locator(".kd-notice").count();
+    await page.evaluate(() => KDComponents.prepareNotices());
+    assert.equal(await page.locator(".kd-notice").count(), noticeCount, "notice preparation is idempotent");
+    assert.equal(await page.locator("#settings-save-status").evaluate(node => node.closest(".kd-notice").checkVisibility()), false, "empty feedback leaves no notice surface");
     if (native) {
       const navigation = await page.locator('.settings-search-field').boundingBox();
       assert.equal(navigation.y, navigation.x, `${name}: settings sidebar must have equal top and left spacing`);
@@ -102,8 +106,13 @@ try {
         return link.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
       }), true, `${name}: native title drag area must not cover navigation`);
     }
-    assert.equal(await page.locator("[data-settings-link]").count(), 8);
+    assert.equal(await page.locator("[data-settings-link]").count(), 7);
+    assert.equal(await page.locator('[data-settings-link="general"] span').textContent(), "下载与网络");
     const search = page.getByRole("searchbox", { name: "搜索设置" });
+    await search.fill("保存位置");
+    await page.locator(".settings-search-result").first().click();
+    await page.waitForFunction(() => currentSettingsPage === "files" && settingsReady.has("files"));
+    assert.equal(await page.locator("#cfg-folder").isVisible(), true);
     await search.fill("自动更新");
     assert.equal(await page.locator(".settings-navigation-links").isVisible(), false);
     assert.ok(await page.locator(".settings-search-result").count() >= 2);
@@ -132,7 +141,7 @@ try {
     await search.press("Escape");
     assert.equal(await search.inputValue(), "");
     assert.equal(await page.locator(".settings-navigation-links").isVisible(), true);
-    for (const category of ["general", "files", "application", "engine", "advanced", "experimental", "logs", "about"]) {
+    for (const category of ["general", "files", "application", "engine", "experimental", "logs", "about"]) {
       await page.locator(`[data-settings-link="${category}"]`).click();
       await page.waitForFunction(category => currentSettingsPage === category &&
         (settingsReady.has(category) || document.querySelector("#settings-load-status").textContent.includes("失败")), category);
@@ -146,28 +155,61 @@ try {
       if (native) { assert.equal(geometry.outerBorder, "0px"); assert.equal(geometry.radius, 16); assert.equal(geometry.rightInset, 8); }
       assert.ok(geometry.root <= width && geometry.content <= geometry.client + 1, `${name}/${category}: horizontal overflow ${JSON.stringify(geometry)}`);
       assert.ok(geometry.bottom <= geometry.footerTop + 1 && geometry.footerBottom <= geometry.height, `${name}/${category}: footer overlap`);
+      const notices = await page.locator(".kd-notice:visible").evaluateAll(nodes => nodes.map(node => {
+        const bounds = node.getBoundingClientRect(), icon = node.querySelector(".kd-notice-icon");
+        return { width: bounds.width, scroll: node.scrollWidth, client: node.clientWidth, decorative: icon.getAttribute("aria-hidden"), radius: getComputedStyle(node).borderRadius };
+      }));
+      for (const notice of notices) {
+        assert.ok(notice.scroll <= notice.client + 1, `${name}/${category}: notice content wraps`);
+        assert.equal(notice.decorative, "true");
+        assert.equal(notice.radius, "16px");
+      }
       if (category === "files") {
-        assert.equal(await page.locator('#cfg-filter-mode').inputValue(), "project");
-        assert.equal(await page.locator('[data-download-extension]').first().getAttribute("readonly"), "");
+        await page.locator("#cfg-folder").fill("D:\\Downloads");
+        await page.locator("#cfg-folder").press("Tab");
+        await page.waitForFunction(() => downloadSettings.folder === "D:\\Downloads" && !document.querySelector("#settings-form").inert);
+        assert.equal(fixture["/settings/task-defaults"].values.folder, "D:\\Downloads", "file management owns directory autosave");
+        assert.equal(await page.locator("#dropbox-settings").isVisible(), false);
         assert.equal(await page.locator("#cfg-allocation").evaluate(element => element.closest("fieldset").querySelector("legend").textContent), "文件写入与校验");
-        assert.equal(await page.locator("#cfg-dropbox-mode").evaluate(element => element.closest("fieldset").querySelector("legend").textContent), "Dropbox 目录");
         const layout = await page.evaluate(() => {
           const rect = node => node.getBoundingClientRect();
           const fields = [...document.querySelectorAll(".file-group-editor-row .field")].map(field => {
             const label = rect(field.querySelector("label, .field-label")), control = rect(field.querySelector(".group-suffixes, input")), bounds = rect(field);
             return { label: { x: label.x, right: label.right, bottom: label.bottom, height: label.height }, control: { x: control.x, right: control.right, top: control.top }, right: bounds.right };
           });
-          const extensions = document.querySelector("#dropbox-suffixes"), bounds = rect(extensions), title = rect(document.querySelector("#excluded-extensions-label"));
           const toggles = [...document.querySelectorAll('[data-settings-page="files"] .kd-switch')].map(node => rect(node).right);
-          return { fields, extensions: { x: bounds.x, width: bounds.width, parentWidth: rect(extensions.parentElement).width, top: bounds.top, titleBottom: title.bottom }, toggles };
+          return { fields, toggles };
         });
         for (const field of layout.fields) {
           assert.ok(field.label.height <= 22, `${name}: group labels stay on one line`);
           assert.ok(field.control.top >= field.label.bottom + 4, `${name}: group controls sit below labels`);
           assert.ok(field.control.x >= field.label.x - 1 && field.control.right <= field.right + 1, `${name}: group fields stay within their columns`);
         }
-        assert.ok(Math.abs(layout.extensions.width - layout.extensions.parentWidth) < 2 && layout.extensions.top > layout.extensions.titleBottom, `${name}: suffix choices span their own row`);
         assert.ok(Math.max(...layout.toggles) - Math.min(...layout.toggles) < 2, `${name}: file switches share one aligned column`);
+        await page.locator("#file-groups-title").evaluate(element => element.scrollIntoView({ block: "start" }));
+        await page.screenshot({ path: path.join(screenshots, `${name}-file-groups.png`) });
+      }
+      if (category === "engine") {
+        assert.equal(await page.locator('#dropbox-settings').evaluate(node => node.closest('[data-module-id]')?.dataset.moduleId), "dropbox");
+        assert.equal(await page.locator('#cfg-filter-mode').isDisabled(), true, "archive mode preserves but disables filtering");
+        await page.locator('#cfg-dropbox-mode').selectOption("expand");
+        await page.waitForFunction(() => downloadRules.dropboxMode === "expand" && !document.querySelector("#settings-form").inert);
+        assert.equal(await page.locator('#cfg-filter-mode').inputValue(), "project");
+        assert.equal(await page.locator('#dropbox-filter-extensions').isVisible(), false);
+        assert.equal(await page.locator('#dropbox-suffix-editor input').count(), 0, "project suffixes are shown only in their group");
+        await page.locator('#dropbox-project-link').evaluate(node => node.scrollIntoView({ block: "center" }));
+        await page.screenshot({ path: path.join(screenshots, `${name}-dropbox-project.png`) });
+        await page.emulateMedia({ reducedMotion: "no-preference" });
+        await page.locator('#dropbox-project-link a').click();
+        await page.waitForFunction(() => document.activeElement.closest('[data-group-id="project"]'));
+        await page.waitForFunction(() => {
+          const row = document.querySelector('[data-group-id="project"]').getBoundingClientRect();
+          return row.top >= 0 && row.top < innerHeight - 40;
+        });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        assert.equal(await page.evaluate(() => location.hash), "#settings/files", "group intent is consumed");
+        await page.locator('[data-settings-link="engine"]').click();
+        assert.equal(await page.locator("#cfg-dropbox-mode").evaluate(element => element.closest("fieldset").querySelector("legend").textContent), "Dropbox 下载选项");
         const ruleSaved = mode => page.waitForFunction(mode => downloadRules.filterMode === mode && !document.querySelector("#settings-form").inert, mode);
         await page.locator("#cfg-filter-mode").selectOption("off");
         await ruleSaved("off");
@@ -183,13 +225,15 @@ try {
         assert.deepEqual(fixture["/settings/download-rules"].excludedExtensions, [".psd", ".clip", ".work.project", ".tar.gz", ".blend"]);
         await page.locator("#dropbox-suffix-editor .group-suffix-chip button").first().click();
         await page.waitForFunction(() => !downloadRules.excludedExtensions.includes(".psd") && !document.querySelector("#settings-form").inert);
+        await page.locator("#dropbox-suffix-editor input").first().fill(".draft");
         await page.evaluate(() => {
           const state = structuredClone(fileGroupsState);
           state.revision++;
           state.groups.find(group => group.id === "project").extensions = [".kra"];
           applyFileGroups(state);
         });
-        assert.deepEqual(await page.locator("#dropbox-suffix-editor input").evaluateAll(nodes => nodes.map(node => node.value)), [".clip", ".work.project", ".tar.gz", ".blend"], "custom remains independent after a project edit");
+        assert.deepEqual(await page.locator("#dropbox-suffix-editor input").evaluateAll(nodes => nodes.map(node => node.value)), [".draft", ".work.project", ".tar.gz", ".blend"], "project updates preserve unsaved custom suffix drafts");
+        await page.locator("#dropbox-suffix-editor input").first().fill(".clip");
         await page.locator("#cfg-filter-mode").selectOption("off");
         await ruleSaved("off");
         assert.equal(fixture["/settings/download-rules"].enabled, false);
@@ -212,13 +256,27 @@ try {
         await page.screenshot({ path: path.join(screenshots, `${name}-dropbox-custom.png`) });
         await page.locator("#cfg-filter-mode").selectOption("project");
         await ruleSaved("project");
-        assert.deepEqual(await page.locator("#dropbox-suffix-editor input").evaluateAll(nodes => nodes.map(node => node.value)), [".kra"], "project mode reads the latest group");
+        assert.equal(await page.locator("#dropbox-suffix-editor input").count(), 0, "project mode hides duplicate suffixes");
+        assert.equal(await page.locator("#dropbox-project-link").isVisible(), true);
         await page.evaluate(() => { dropboxCustomSuffixes = null; renderDropboxFilter(normalizeServerDownloadRules(downloadRules)); });
         await page.locator("#cfg-filter-mode").selectOption("custom");
         await ruleSaved("custom");
         assert.deepEqual(fixture["/settings/download-rules"].excludedExtensions, [".clip", ".work.project", ".tar.gz", ".blend"], "saved custom rules survive returning to project mode and reinitialization");
-        await page.locator("#file-groups-title").evaluate(element => element.scrollIntoView({ block: "start" }));
-        await page.screenshot({ path: path.join(screenshots, `${name}-file-groups.png`) });
+        await page.locator("#cfg-filter-mode").selectOption("project");
+        await ruleSaved("project");
+        await page.evaluate(() => {
+          const state = structuredClone(fileGroupsState);
+          state.revision++;
+          state.groups = state.groups.filter(group => group.id !== "project");
+          applyFileGroups(state);
+        });
+        assert.equal(await page.locator("#cfg-filter-mode").inputValue(), "off");
+        assert.equal(await page.locator('#cfg-filter-mode option[value="project"]').isDisabled(), true);
+        assert.equal(await page.locator("#dropbox-project-link").isVisible(), false);
+        assert.equal(await page.locator("#dropbox-filter-extensions").isVisible(), false);
+        await page.locator("#cfg-filter-mode").selectOption("custom");
+        await ruleSaved("custom");
+        assert.equal(await page.locator("#dropbox-suffix-editor input").count(), 4, "automatic fallback preserves custom suffixes");
       }
       if (category === "application") {
         const startup = page.getByRole("switch", { name: /开机启动/ });
@@ -226,6 +284,7 @@ try {
         await page.keyboard.press("Space");
         await page.waitForFunction(() => document.querySelector("#startup-enabled").checked && !document.querySelector("#startup-enabled").disabled);
         assert.equal(await page.locator("#startup-status").isVisible(), false, "normal startup state needs no duplicate explanation");
+        assert.equal(await page.locator("#startup-status").evaluate(node => node.closest(".kd-notice").checkVisibility()), false);
         assert.equal(await startup.isChecked(), true);
         assert.equal(fixture["/settings/startup"].enabled, true);
         failSave = true;
@@ -271,11 +330,22 @@ try {
         }
       }
       if (category === "engine") {
+        assert.equal(await page.locator("#cfg-extra").isVisible(), true);
+        await page.locator("#cfg-extra").fill("--min-split-size=2M");
+        await page.locator("#cfg-extra").press("Tab");
+        await page.waitForFunction(() => downloadSettings.extra === "--min-split-size=2M" && !document.querySelector("#settings-form").inert);
+        assert.equal(fixture["/settings/task-defaults"].values.extra, "--min-split-size=2M");
         assert.equal(await page.locator("#check-truedown-update-btn").isVisible(), false);
         assert.equal(await page.locator(".module-card-icon use").count(), 2);
         await page.locator('[data-module-toggle="dropbox"]').click();
         await page.waitForFunction(() => document.querySelector('[data-module-toggle="dropbox"]').getAttribute("aria-checked") === "false");
         assert.equal(await page.locator('[data-module-toggle="dropbox"]').getAttribute("aria-checked"), "false");
+        assert.equal(await page.locator("#cfg-dropbox-mode").isDisabled(), true);
+        assert.equal(await page.locator("#dropbox-suffix-editor input").first().isDisabled(), true);
+        await page.locator('[data-module-toggle="dropbox"]').click();
+        await page.waitForFunction(() => document.querySelector('[data-module-toggle="dropbox"]').getAttribute("aria-checked") === "true");
+        assert.equal(await page.locator("#cfg-dropbox-mode").isEnabled(), true);
+        assert.equal(await page.locator("#dropbox-suffix-editor input").count(), 4, "module toggles preserve custom rules");
       }
       if (category === "about") {
         assert.equal(await page.locator("#check-truedown-update-btn").isVisible(), true);
@@ -306,11 +376,15 @@ try {
     await page.locator("#settings-reset-btn").click();
     assert.equal(await page.locator("#dialog-overlay").getAttribute("aria-hidden"), "true");
     assert.equal(fixture["/settings/task-defaults"].values.allocation, "trunc", "cancelled reset must not write");
+    assert.equal(fixture["/settings/task-defaults"].values.folder, "D:\\Downloads");
     await page.evaluate(() => { window.confirmResult = true; });
     await page.locator("#settings-reset-btn").click();
     await page.waitForFunction(() => !document.querySelector("#settings-form").inert && downloadSettings.allocation === DEFAULT_DOWNLOAD_SETTINGS.allocation);
+    assert.equal(fixture["/settings/task-defaults"].values.folder, "", "file reset clears the default directory");
+    assert.equal(fixture["/settings/task-defaults"].values.extra, "--min-split-size=2M", "file reset preserves engine defaults");
+    assert.equal(fixture["/settings/download-rules"].filterMode, "custom", "file reset preserves module preferences");
     assert.equal(await page.locator('[data-group-id="other"] .group-name-field input').inputValue(), "", "file-option reset preserves group drafts");
-    for (const [oldPage, newPage] of Object.entries({ network: "general", groups: "files", security: "application", modules: "engine" })) {
+    for (const [oldPage, newPage] of Object.entries({ network: "general", groups: "files", security: "application", modules: "engine", advanced: "engine" })) {
       await page.evaluate(oldPage => { location.hash = `settings/${oldPage}`; }, oldPage);
       await page.waitForFunction(newPage => currentSettingsPage === newPage && settingsReady.has(newPage), newPage);
       assert.equal(await page.locator(`[data-settings-link="${newPage}"]`).getAttribute("aria-current"), "page");
