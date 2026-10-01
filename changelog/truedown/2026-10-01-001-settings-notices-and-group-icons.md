@@ -33,6 +33,8 @@ rejected. This intentional storage break advances the shared product version to
 - `node tests/settings-browser-smoke.mjs` and
   `node tests/file-groups-browser-smoke.mjs` from `truedown/desktop`.
 - `go test ./...` and `go vet ./...` from `truedown`.
+- Windows native editing and popup acceptance navigate to File management before
+  using the relocated save-directory control.
 - Browser checks cover light/dark themes, desktop/narrow widths, drafts,
   navigation, notice visibility and group icons. Native compositor acceptance
   and release publication are separate from these browser checks.

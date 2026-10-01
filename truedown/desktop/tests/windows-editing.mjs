@@ -73,7 +73,8 @@ try {
   page = await until(() => browser.contexts()[0].pages().find(candidate => candidate.url().includes('window=settings')));
   await page.emulateMedia({ colorScheme: null });
   await until(() => nativeEditingDocumentReady(evaluate));
-  await until(() => evaluate("return typeof settingsReady !== 'undefined' && settingsReady.has('general')"));
+  await page.locator('[data-settings-link="files"]').click();
+  await until(() => evaluate("return typeof settingsReady !== 'undefined' && settingsReady.has('files')"));
   await page.locator('#cfg-folder').click();
   await acceptNativeEditing(evaluate, until, async action => {
     await until(() => menus.request(child.pid).catch(() => false));

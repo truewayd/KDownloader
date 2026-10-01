@@ -153,6 +153,8 @@ try {
   await settings.screenshot();
   await capture("设置", "settings.png");
   await invoke(main, "open_auxiliary", { kind: "settings" });
+  await settings.locator('[data-settings-link="files"]').click();
+  await until(() => settings.evaluate(() => settingsReady.has("files")));
   await settings.locator("#cfg-folder").fill("C:\\Downloads\\TrueDown selection");
   await settings.locator("#cfg-folder").click();
   await capture("设置", null);
