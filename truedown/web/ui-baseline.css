@@ -1,4 +1,31 @@
 /* TrueDown visual baseline. All product and popup windows load this file. */
+.kd-notice {
+  --kd-notice-bg: #333026;
+  --kd-notice-link: #8ab4f8;
+  display: flex; align-items: flex-start; gap: 12px;
+  min-width: 0; max-width: 100%; padding: 16px;
+  border: 1px solid var(--kd-border); border-radius: var(--kd-radius);
+  background: var(--kd-notice-bg); color: var(--kd-text);
+  font-size: 13px; line-height: 1.6; overflow-wrap: anywhere;
+}
+.kd-notice[data-tone="warning"] { --kd-notice-bg: #3b3020; }
+.kd-notice[data-tone="error"], .kd-notice:has(.kd-notice-body[data-error="true"]) {
+  --kd-notice-bg: var(--kd-error-bg); color: var(--kd-error-text);
+}
+.kd-notice > .kd-notice-icon { flex: 0 0 16px; width: 16px; height: 16px; margin-top: 3px; }
+.kd-notice-content { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.kd-notice-title { font-size: inherit; font-weight: 500; }
+.kd-notice .kd-notice-body { margin: 0; color: inherit; font-size: inherit; line-height: inherit; }
+.kd-notice-body > p { margin: 0; }
+.kd-notice-body > p + p { margin-top: 8px; }
+.kd-notice a { color: var(--kd-notice-link); text-decoration: none; }
+.kd-notice a:hover { text-decoration: underline; }
+.kd-notice a:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 3px; border-radius: 2px; }
+.kd-notice[hidden], .kd-notice:has(> .kd-notice-content > .kd-notice-body:is(:empty, [hidden])) { display: none; }
+@media (forced-colors: active) {
+  .kd-notice { border-color: CanvasText; background: Canvas; color: CanvasText; }
+  .kd-notice a { color: LinkText; }
+}
 :root {
   --kd-bg: #202020;
   --kd-surface: #2b2b2b;
@@ -154,4 +181,9 @@ input[type="checkbox"]:not(.kd-switch):focus-visible { outline: 2px solid var(--
 @media (forced-colors: active) {
   .kd-button, .kd-icon-button { border: 1px solid ButtonText; }
   .kd-panel { outline: 1px solid CanvasText; }
+}
+@media (prefers-color-scheme: light) {
+  .kd-notice { --kd-notice-bg: #fff6db; --kd-notice-link: #0969da; }
+  .kd-notice[data-tone="warning"] { --kd-notice-bg: #fff0cf; }
+  .kd-notice[data-tone="error"], .kd-notice:has(.kd-notice-body[data-error="true"]) { --kd-notice-bg: var(--kd-error-bg); }
 }

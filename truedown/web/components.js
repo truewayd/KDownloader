@@ -1083,6 +1083,34 @@
     return controller;
   }
 
+  function prepareNotices(scope = document, { spriteURL = "/icons.svg" } = {}) {
+    for (const body of scope.querySelectorAll("[data-kd-notice]")) {
+      if (body.parentElement?.classList.contains("kd-notice-content")) continue;
+      const doc = body.ownerDocument;
+      const notice = doc.createElement("div"), content = doc.createElement("div");
+      notice.className = "kd-notice";
+      notice.dataset.tone = ["warning", "error"].includes(body.dataset.kdNotice) ? body.dataset.kdNotice : "info";
+      content.className = "kd-notice-content";
+      const icon = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+      const use = doc.createElementNS("http://www.w3.org/2000/svg", "use");
+      icon.setAttribute("class", "icon kd-notice-icon");
+      icon.setAttribute("aria-hidden", "true");
+      icon.setAttribute("focusable", "false");
+      use.setAttribute("href", `${spriteURL}#icon-${notice.dataset.tone === "info" ? "info" : "circle-alert"}`);
+      icon.append(use);
+      if (body.dataset.kdNoticeTitle) {
+        const title = doc.createElement("strong");
+        title.className = "kd-notice-title";
+        title.textContent = body.dataset.kdNoticeTitle;
+        content.append(title);
+      }
+      body.classList.add("kd-notice-body");
+      body.before(notice);
+      content.append(body);
+      notice.append(icon, content);
+    }
+  }
+
   function createProgress({ root, fill, track, label } = {}) {
     const hide = () => {
       root?.classList.add("kd-hidden");
@@ -1109,6 +1137,7 @@
     confirmAction,
     installTooltips,
     prepareDecorativeIcons,
+    prepareNotices,
     ensureActionElement,
     ensureLinksDialogElement,
     setBusyState,
