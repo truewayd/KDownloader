@@ -5,14 +5,16 @@ import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "..");
 const loadMessages = async (locale) => JSON.parse(await readFile(path.join(root, "_locales", locale, "messages.json"), "utf8"));
+const excludedDirectories = new Set([".git", "_locales", "dist", "target", "node_modules", "vendor"]);
 
 async function sourceFiles(dir = root) {
   const files = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
-    if ([".git", "_locales"].includes(entry.name)) continue;
     const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) files.push(...await sourceFiles(fullPath));
-    else if (/\.(?:html|js|json)$/.test(entry.name)) files.push(fullPath);
+    if (entry.isDirectory()) {
+      // Build staging directories may move while the test is running.
+      if (!excludedDirectories.has(entry.name)) files.push(...await sourceFiles(fullPath));
+    } else if (entry.isFile() && /\.(?:html|js|json)$/.test(entry.name)) files.push(fullPath);
   }
   return files;
 }
