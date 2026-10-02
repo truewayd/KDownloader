@@ -149,21 +149,14 @@ impl Confirmations {
         let started = std::time::Instant::now();
         loop {
             match tokio::time::timeout(std::time::Duration::from_millis(200), &mut receiver).await {
-                Ok(answer) => {
-                    return answer.map_err(|_| "Confirmation closed without a result".into())
-                }
+                Ok(answer) => return Ok(answer.unwrap_or(false)),
                 Err(_) => {
                     let suppress = app.state::<crate::windows::Windows>().suppress;
                     if !suppress && !window.is_visible().unwrap_or(false) {
                         return Ok(false);
                     }
-                    let ready = self
-                        .pending
-                        .lock()
-                        .unwrap()
-                        .get(&label)
-                        .is_some_and(|p| p.ready);
-                    if !ready && started.elapsed() > std::time::Duration::from_secs(15) {
+                    let ready = self.pending.lock().unwrap().get(&label).map(|p| p.ready);
+                    if initialization_timed_out(ready, started.elapsed()) {
                         return Err("Confirmation window did not initialize".into());
                     }
                 }
@@ -174,6 +167,9 @@ impl Confirmations {
     fn finish(&self, app: &tauri::AppHandle, label: &str, accepted: bool) {
         let entry = self.pending.lock().unwrap().remove(label);
         if let Some(entry) = entry {
+            // Resolve before native teardown: destroying a WebView can wait for
+            // its current IPC callback. A settled request is no longer loading.
+            let _ = entry.sender.send(accepted);
             let popup = app.get_webview_window(label);
             let _ = app.run_on_main_thread(move || {
                 if let Some(popup) = popup {
@@ -183,12 +179,15 @@ impl Confirmations {
                 if entry.parent.is_visible().unwrap_or(false) {
                     let _ = entry.parent.set_focus();
                 }
-                let _ = entry.sender.send(accepted);
                 // Keep the slot until the native window is gone and its parent is restored.
                 drop(entry._slot);
             });
         }
     }
+}
+
+fn initialization_timed_out(ready: Option<bool>, elapsed: std::time::Duration) -> bool {
+    ready == Some(false) && elapsed > std::time::Duration::from_secs(15)
 }
 
 struct Cleanup {
@@ -282,7 +281,7 @@ pub fn confirmation_ready(
 }
 
 #[tauri::command]
-pub fn confirmation_answer(
+pub async fn confirmation_answer(
     app: tauri::AppHandle,
     window: WebviewWindow,
     accepted: bool,
@@ -305,7 +304,10 @@ pub fn confirmation_answer(
 }
 
 #[tauri::command]
-pub fn confirmation_cancel(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
+pub async fn confirmation_cancel(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+) -> Result<(), String> {
     let state = app.state::<Confirmations>();
     state.slot(window.label())?;
     {
@@ -330,6 +332,17 @@ pub fn confirmation_cancel(app: tauri::AppHandle, window: WebviewWindow) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn completed_or_cancelled_confirmations_never_become_initialization_timeouts() {
+        let late = std::time::Duration::from_secs(20);
+        assert!(!initialization_timed_out(None, late));
+        assert!(!initialization_timed_out(Some(true), late));
+        assert!(initialization_timed_out(Some(false), late));
+        assert!(!initialization_timed_out(
+            Some(false),
+            std::time::Duration::from_secs(1)
+        ));
+    }
     #[test]
     fn confirmation_roles_and_callback_ownership_are_bounded() {
         let state = Confirmations::default();

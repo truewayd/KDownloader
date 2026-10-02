@@ -93,10 +93,12 @@ impl Menus {
     fn finish(&self, app: &tauri::AppHandle, label: &str, action: Option<String>) {
         let entry = self.pending.lock().unwrap().remove(label);
         if let Some(entry) = entry {
+            let selected = action.is_some();
+            let _ = entry.sender.send(action);
             let popup = app.get_webview_window(label);
             let _ = app.run_on_main_thread(move || {
                 let restore = entry.keyboard
-                    && (action.is_some()
+                    && (selected
                         || popup
                             .as_ref()
                             .is_some_and(|p| p.is_focused().unwrap_or(false)));
@@ -106,7 +108,6 @@ impl Menus {
                 if restore && entry.parent.is_visible().unwrap_or(false) {
                     let _ = entry.parent.set_focus();
                 }
-                let _ = entry.sender.send(action);
                 drop(entry._slot);
             });
         }
@@ -253,7 +254,7 @@ pub async fn show_context_menu(
     let started = std::time::Instant::now();
     loop {
         match tokio::time::timeout(std::time::Duration::from_millis(150), &mut receiver).await {
-            Ok(result) => return result.map_err(|_| "Menu closed without a result".into()),
+            Ok(result) => return Ok(result.unwrap_or(None)),
             Err(_) => {
                 if !window.is_visible().unwrap_or(false)
                     || (!keyboard.unwrap_or(false) && !caller_active(&window))
@@ -262,13 +263,8 @@ pub async fn show_context_menu(
                 {
                     return Ok(None);
                 }
-                let ready = state
-                    .pending
-                    .lock()
-                    .unwrap()
-                    .get(&label)
-                    .is_some_and(|p| p.ready);
-                if !ready && started.elapsed() > std::time::Duration::from_secs(15) {
+                let ready = state.pending.lock().unwrap().get(&label).map(|p| p.ready);
+                if ready == Some(false) && started.elapsed() > std::time::Duration::from_secs(15) {
                     return Err("Menu window did not initialize".into());
                 }
             }
@@ -366,7 +362,7 @@ pub fn context_menu_key(
 }
 #[cfg(not(windows))]
 #[tauri::command]
-pub fn context_menu_answer(
+pub async fn context_menu_answer(
     app: tauri::AppHandle,
     window: WebviewWindow,
     action: Option<String>,
