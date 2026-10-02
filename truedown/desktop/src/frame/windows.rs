@@ -160,9 +160,10 @@ unsafe fn refresh(hwnd: HWND) {
     DwmExtendFrameIntoClientArea(
         hwnd,
         &MARGINS {
-            // Keep the material continuous beneath transparent WebView content.
-            // Caption exclusion below still protects the native controls.
-            cxLeftWidth: -1,
+            // Extend only the native caption. Full-sheet glass also changes
+            // DWM's caption composition; the Mica backdrop is owned separately
+            // by appearance.rs, not by this frame's margins.
+            cyTopHeight: top,
             ..Default::default()
         },
     );

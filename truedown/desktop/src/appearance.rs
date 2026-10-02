@@ -103,7 +103,7 @@ fn apply(window: &WebviewWindow, enabled: bool, dark: bool) -> bool {
             && window_vibrancy::apply_mica(window, Some(dark)).is_ok()
         {
             // Confirmations keep the standard OS caption, so they do not pass
-            // through our custom frame's full-client backdrop extension.
+            // through our custom frame's caption-only extension.
             if window.label().starts_with("confirmation-") {
                 if let Ok(handle) = window.hwnd() {
                     unsafe {
