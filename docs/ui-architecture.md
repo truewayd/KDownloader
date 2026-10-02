@@ -1,5 +1,17 @@
 # UI component architecture
 
+## Download preview
+
+TrueDown uses one resizable native preview window so the download workspace remains usable.
+Its compact toolbar contains fit/actual-size/zoom controls and explicit file, application chooser
+and directory actions. The central media canvas and footer expose the same Mica surface as the
+caption, with the shared solid/high-contrast fallback. On narrow windows the toolbar wraps;
+image zoom scrolls inside the canvas. Audio/video never autoplay. Task target revisions discard
+stale reads, and hiding the window pauses playback and releases blob URLs.
+
+The preview loads only packaged UI and bounded task-owned bytes. See
+[`preview-security.md`](../truedown/docs/preview-security.md) for format, resource, IPC and path boundaries.
+
 ## Decision
 
 The repository uses one canonical component runtime, `shared/components.js`,

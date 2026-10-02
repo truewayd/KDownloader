@@ -22,3 +22,7 @@ func systemOpenPath(path string) error {
 }
 
 func RunPathOpenHelper(args []string) (bool, error) { return false, nil }
+
+func systemOpenWith(path string) error {
+	return fmt.Errorf("Open with is available on Windows; open the download directory to choose an application")
+}

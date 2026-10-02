@@ -49,6 +49,14 @@ func (m *Manager) OpenTaskDirectory(id int64) error {
 // OpenTaskFile opens a completed task's exact output file on the host. The
 // client supplies only a task ID and cannot choose an arbitrary local path.
 func (m *Manager) OpenTaskFile(id int64) error {
+	return m.openTaskFileUsing(id, m.openPath)
+}
+
+func (m *Manager) OpenTaskWith(id int64) error {
+	return m.openTaskFileUsing(id, systemOpenWith)
+}
+
+func (m *Manager) openTaskFileUsing(id int64, opener func(string) error) error {
 	task, ok := m.GetTask(id)
 	if !ok {
 		return &ValidationError{Message: fmt.Sprintf("task %d not found", id)}
@@ -78,10 +86,10 @@ func (m *Manager) OpenTaskFile(id int64) error {
 	if !info.Mode().IsRegular() {
 		return &ValidationError{Message: "task output is not a regular file"}
 	}
-	if m.openPath == nil {
+	if opener == nil {
 		return fmt.Errorf("system path opener is unavailable")
 	}
-	if err := m.openPath(target); err != nil {
+	if err := opener(target); err != nil {
 		return fmt.Errorf("open task file: %w", err)
 	}
 	return nil

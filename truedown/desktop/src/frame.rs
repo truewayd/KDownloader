@@ -74,7 +74,7 @@ pub async fn frame_tooltip(
 ) -> Result<u32, String> {
     if !matches!(
         window.label(),
-        "main" | "settings" | "new-task" | "task-details"
+        "main" | "settings" | "new-task" | "task-details" | "task-preview"
     ) || bounds.as_ref().is_some_and(|bounds| !bounds.valid())
         || (session == 0 && (revision != 0 || bounds.is_some()))
     {

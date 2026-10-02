@@ -560,6 +560,31 @@ try {
     assert.ok(geometry.monitors.some(({ workArea: area }) => entry.position.x >= area.position.x - 1 && entry.position.y >= area.position.y - 1 && entry.position.x + entry.size.width <= area.position.x + Math.min(area.size.width, 1024) + 1 && entry.position.y + entry.size.height <= area.position.y + Math.min(area.size.height, 720) + 1), `Window escaped its 1024x720 acceptance work area: ${JSON.stringify({ window: entry, viewport, monitors: geometry.monitors })}`);
   }
   assert.deepEqual(errors, []);
+  await assert.rejects(invoke(main, "take_task_clipboard"), /new download form/);
+  assert.deepEqual(await invoke(taskForms["new-task"], "take_task_clipboard"), [], "hidden tests never read the real clipboard");
+  await invoke(main, "open_task_preview", { id: completed.id });
+  const preview = await waitUntil(() => context.pages().find(page => page.url().includes("window=task-preview")));
+  await waitForNativeCondition(preview, () => document.querySelector("#preview-stage pre")?.textContent.includes("TrueDown native task-form acceptance"));
+  await assert.rejects(api(preview, "GET", "/tasks?limit=1"));
+  await assert.rejects(api(preview, "GET", `/tasks/preview?id=${completed.id + 1000}`));
+  await assert.rejects(invoke(settings, "open_task_preview", { id: completed.id }));
+  await assert.rejects(invoke(preview, "open_auxiliary", { kind: "settings" }), /Unavailable in preview windows/);
+  await assert.rejects(invoke(preview, "take_task_clipboard"), /Unavailable in preview windows/);
+  await assert.rejects(invoke(preview, "plugin:clipboard-manager|read_text"), /not allowed|not permitted/i);
+  await assert.rejects(preview.evaluate(() => window.__TAURI__.window.getAllWindows()), /not allowed|not permitted/i);
+  const previewPages = context.pages().length;
+  await preview.evaluate(() => { window.open("https://example.invalid/blocked-preview-window"); location.href = "data:text/html,blocked"; });
+  await waitForNativeCondition(preview, () => location.pathname === "/task-preview.html");
+  assert.equal(context.pages().length, previewPages, "preview cannot create a new WebView");
+  assert.equal(await preview.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await invoke(preview, "close_auxiliary");
+  await waitForNativeCondition(preview, () => document.querySelector("#preview-stage").children.length === 0);
+  await assert.rejects(api(preview, "GET", `/tasks/preview?id=${completed.id}`));
+  await invoke(details, "open_task_preview", { id: completed.id });
+  await waitForNativeCondition(preview, () => document.querySelector("#preview-stage pre")?.textContent.includes("TrueDown native task-form acceptance"));
+  assert.equal(context.pages().filter(page => page.url().includes("window=task-preview")).length, 1);
+  assert.equal(await main.evaluate(async () => (await window.__TAURI__.window.getAllWindows()).find(entry => entry.label === "task-preview").isVisible()), false);
+  console.log("native_preview=ok preview_permissions=ok preview_reopen=ok clipboard_scope=ok");
   // An authenticated external client exit must stop the desktop, not trigger
   // crash recovery. Read this isolated fixture's key only in the test driver.
   const token = (await fs.readFile(path.join(storage.paths.config, "truedown.token"), "utf8")).trim();

@@ -113,8 +113,8 @@ async fn complete(
             .map_err(|e| e.to_string())?
             .inner_size(size.width as f64 / scale, size.height as f64 / scale)
             .visible(false)
-            .resizable(false)
-            .maximizable(false)
+            .resizable(label == "task-preview")
+            .maximizable(label == "task-preview")
             .transparent(true)
             .build()
             .map_err(|e| e.to_string())?

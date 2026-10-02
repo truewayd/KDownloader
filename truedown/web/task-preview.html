@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src blob:; connect-src ipc: http://ipc.localhost; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>下载预览</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/ui-baseline.css">
+  <link rel="stylesheet" href="/native-appearance.css">
+  <link rel="stylesheet" href="/native-frame.css">
+  <link rel="stylesheet" href="/task-preview.css">
+  <script src="/components.js" defer></script>
+  <script src="/api.js" defer></script>
+  <script src="/native-windows.js"></script>
+  <script src="/native-appearance.js" defer></script>
+  <script src="/native-frame.js" defer></script>
+  <script src="/task-preview.js" defer></script>
+</head>
+<body>
+  <div class="preview-layout">
+    <header class="preview-toolbar" aria-label="预览操作">
+      <div class="preview-zoom" role="group" aria-label="图片缩放">
+        <button class="kd-button secondary" id="preview-fit" type="button">适应窗口</button>
+        <button class="kd-button secondary" id="preview-actual" type="button">100%</button>
+        <button class="kd-icon-button" id="preview-out" type="button" aria-label="缩小">−</button>
+        <output id="preview-scale" aria-label="当前缩放">—</output>
+        <button class="kd-icon-button" id="preview-in" type="button" aria-label="放大">＋</button>
+      </div>
+      <div class="preview-actions" role="group" aria-label="文件操作">
+        <button class="kd-button secondary" data-preview-action="open-file" type="button">打开文件</button>
+        <button class="kd-button secondary" data-preview-action="open-with" type="button">打开方式…</button>
+        <button class="kd-button secondary" data-preview-action="open-folder" type="button">打开目录</button>
+      </div>
+    </header>
+    <div id="preview-stage" class="preview-stage" tabindex="0" aria-label="文件预览"></div>
+    <footer class="preview-footer">
+      <span id="preview-info" class="kd-selectable"></span>
+      <span id="preview-status" role="status">正在读取文件…</span>
+    </footer>
+  </div>
+</body>
+</html>

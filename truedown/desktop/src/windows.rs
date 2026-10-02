@@ -11,6 +11,8 @@ pub enum Kind {
     NewTask,
     #[serde(skip)]
     TaskDetails,
+    #[serde(skip)]
+    TaskPreview,
 }
 
 pub struct Windows {
@@ -18,6 +20,7 @@ pub struct Windows {
     pub creation: tokio::sync::Mutex<()>,
     pub storage: crate::webview::Storage,
     pub task_details: std::sync::Mutex<TaskDetails>,
+    pub task_preview: std::sync::Mutex<TaskDetails>,
 }
 
 #[derive(Clone, Copy, Default, serde::Serialize)]
@@ -25,6 +28,34 @@ pub struct TaskDetails {
     id: u64,
     open: bool,
     revision: u64,
+}
+
+impl TaskDetails {
+    pub fn matches_request(&self, path: &str) -> bool {
+        let Ok(url) = tauri::Url::parse(&format!("http://localhost{path}")) else {
+            return false;
+        };
+        let ids: Vec<_> = url
+            .query_pairs()
+            .filter(|(key, _)| key == "id")
+            .map(|(_, value)| value.into_owned())
+            .collect();
+        self.open && ids.len() == 1 && ids[0].parse::<u64>().ok() == Some(self.id)
+    }
+}
+
+pub fn preview_command_allowed(command: &str) -> bool {
+    matches!(
+        command,
+        "core_request"
+            | "task_preview_state"
+            | "close_auxiliary"
+            | "frame_action"
+            | "frame_state"
+            | "frame_title"
+            | "frame_tooltip"
+            | "apply_material"
+    )
 }
 
 impl Kind {
@@ -35,6 +66,7 @@ impl Kind {
             }
             Self::NewTask => include_bytes!("../icons/window/download.png"),
             Self::TaskDetails => include_bytes!("../icons/window/info.png"),
+            Self::TaskPreview => include_bytes!("../icons/window/search.png"),
         };
         tauri::image::Image::from_bytes(bytes)
     }
@@ -45,6 +77,7 @@ impl Kind {
             Self::Logs | Self::About | Self::Engine => "settings",
             Self::NewTask => "new-task",
             Self::TaskDetails => "task-details",
+            Self::TaskPreview => "task-preview",
         }
     }
     fn title(self) -> &'static str {
@@ -55,6 +88,7 @@ impl Kind {
             Self::Engine => "设置",
             Self::NewTask => "新建下载",
             Self::TaskDetails => "任务详情",
+            Self::TaskPreview => "下载预览",
         }
     }
     fn url(self) -> &'static str {
@@ -65,6 +99,7 @@ impl Kind {
             Self::Engine => "index.html?window=settings#settings/engine",
             Self::NewTask => "index.html?window=new-task",
             Self::TaskDetails => "index.html?window=task-details",
+            Self::TaskPreview => "task-preview.html?window=task-preview",
         }
     }
 }
@@ -132,6 +167,13 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
             ]
             .contains(&path),
             "DELETE" => path == "/modules/package",
+            _ => false,
+        },
+        "task-preview" => match method {
+            "GET" => path == "/tasks/preview",
+            "POST" => {
+                ["/tasks/open-file", "/tasks/open-folder", "/tasks/open-with"].contains(&path)
+            }
             _ => false,
         },
         "task-details" => match method {
@@ -247,6 +289,7 @@ async fn open_auxiliary_locked(
             Kind::Settings | Kind::Logs | Kind::About | Kind::Engine => (960.0, 760.0),
             Kind::NewTask => (660.0, 560.0),
             Kind::TaskDetails => (640.0, 640.0),
+            Kind::TaskPreview => (1000.0, 760.0),
         };
         let (min_width, min_height) = minimum_size(kind.label());
         let window = crate::frame::configure(
@@ -266,12 +309,24 @@ async fn open_auxiliary_locked(
         .map_err(|error| error.to_string())?
         .inner_size(width, height)
         .min_inner_size(min_width, min_height)
-        .resizable(false)
-        .maximizable(false)
+        .resizable(matches!(kind, Kind::TaskPreview))
+        .maximizable(matches!(kind, Kind::TaskPreview))
         .visible(false)
         .transparent(cfg!(any(windows, target_os = "macos")))
         .center()
-        .on_navigation(local_navigation)
+        .on_navigation(move |url| {
+            local_navigation(url)
+                && (!matches!(kind, Kind::TaskPreview)
+                    || (url.path() == "/task-preview.html"
+                        && url.query() == Some("window=task-preview")))
+        })
+        .on_new_window(move |_, _| {
+            if matches!(kind, Kind::TaskPreview) {
+                tauri::webview::NewWindowResponse::Deny
+            } else {
+                tauri::webview::NewWindowResponse::Allow
+            }
+        })
         .build()
         .map_err(|error| error.to_string())?;
         crate::frame::install_async(&window).await?;
@@ -322,7 +377,16 @@ pub fn local_navigation(url: &tauri::Url) -> bool {
 
 #[tauri::command]
 pub fn close_auxiliary(window: WebviewWindow) -> Result<(), String> {
-    if !["settings", "logs", "about", "new-task", "task-details"].contains(&window.label()) {
+    if ![
+        "settings",
+        "logs",
+        "about",
+        "new-task",
+        "task-details",
+        "task-preview",
+    ]
+    .contains(&window.label())
+    {
         return Err("This action closes auxiliary windows only".into());
     }
     // Hiding retains unsaved settings and keyboard position across reopen.
@@ -375,6 +439,16 @@ fn emit_task_details(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 pub fn task_details_hidden(app: &tauri::AppHandle, label: &str) {
+    if label == "task-preview" {
+        let state = app.state::<Windows>();
+        let mut preview = state.task_preview.lock().unwrap();
+        preview.open = false;
+        preview.revision += 1;
+        let snapshot = *preview;
+        drop(preview);
+        let _ = app.emit_to(label, "truedown:task-preview", snapshot);
+        return;
+    }
     if label != "task-details" {
         return;
     }
@@ -385,6 +459,41 @@ pub fn task_details_hidden(app: &tauri::AppHandle, label: &str) {
         details.revision += 1;
     }
     let _ = emit_task_details(app);
+}
+
+#[tauri::command]
+pub async fn open_task_preview(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    id: u64,
+) -> Result<(), String> {
+    if !["main", "task-details"].contains(&window.label()) || id == 0 || id > 9_007_199_254_740_991
+    {
+        return Err("Open preview from a download task".into());
+    }
+    let state = app.state::<Windows>();
+    let _creation = state.creation.lock().await;
+    {
+        let mut preview = state.task_preview.lock().unwrap();
+        preview.id = id;
+        preview.open = true;
+        preview.revision += 1;
+    }
+    open_auxiliary_locked(&app, &state, Kind::TaskPreview, None).await?;
+    let preview = *state.task_preview.lock().unwrap();
+    app.emit_to("task-preview", "truedown:task-preview", preview)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn task_preview_state(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+) -> Result<TaskDetails, String> {
+    if window.label() != "task-preview" {
+        return Err("Preview state belongs to its own window".into());
+    }
+    Ok(*app.state::<Windows>().task_preview.lock().unwrap())
 }
 
 #[tauri::command]
@@ -404,6 +513,39 @@ pub fn finish_task_window(app: tauri::AppHandle, window: WebviewWindow) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn preview_reads_and_actions_are_bound_to_the_open_task() {
+        let mut target = TaskDetails {
+            id: 42,
+            open: true,
+            revision: 1,
+        };
+        assert!(target.matches_request("/tasks/preview?id=42&offset=0"));
+        assert!(!target.matches_request("/tasks/preview?id=43"));
+        assert!(!target.matches_request("/tasks/preview?id=42&id=43"));
+        assert!(!target.matches_request("/tasks/preview"));
+        target.open = false;
+        assert!(!target.matches_request("/tasks/preview?id=42"));
+        assert!(allowed("task-preview", "GET", "/tasks/preview"));
+        assert!(allowed("task-preview", "POST", "/tasks/open-with"));
+        for role in ["main", "settings", "new-task", "task-details"] {
+            assert!(!allowed(role, "GET", "/tasks/preview"));
+        }
+        assert!(!allowed("task-preview", "GET", "/tasks"));
+        assert!(!allowed("task-preview", "POST", "/tasks/batch"));
+        assert!(preview_command_allowed("core_request"));
+        for command in [
+            "open_auxiliary",
+            "open_task_details",
+            "open_task_preview",
+            "take_task_clipboard",
+            "copy_api_token",
+            "edit_action",
+            "drop_download_links",
+        ] {
+            assert!(!preview_command_allowed(command));
+        }
+    }
     #[test]
     fn auxiliary_icons_are_distinct_from_the_brand_and_each_other() {
         let settings = Kind::Settings.icon().unwrap();

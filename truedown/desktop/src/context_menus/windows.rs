@@ -354,6 +354,7 @@ pub fn context_menu_key(
 
 fn label(action: &str) -> Option<&'static str> {
     Some(match action {
+        "preview" => "预览文件",
         "details" => "\u{4efb}\u{52a1}\u{8be6}\u{60c5}",
         "pause" => "\u{6682}\u{505c}",
         "resume" => "\u{7ee7}\u{7eed}",

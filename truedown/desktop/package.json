@@ -20,6 +20,7 @@
     "test:auxiliary": "node tests/auxiliary-ui-browser.mjs",
     "test:forms": "node tests/task-forms-browser-smoke.mjs",
     "test:details": "node tests/task-details-browser-smoke.mjs",
+    "test:preview": "node tests/task-preview-browser.mjs",
     "test:viewport": "node tests/task-viewport-browser.mjs",
     "test:groups": "node tests/file-groups-browser-smoke.mjs",
     "test:feedback": "node tests/interaction-feedback-browser.mjs",

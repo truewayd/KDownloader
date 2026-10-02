@@ -133,6 +133,13 @@ pub async fn core_request(
     if !windows::allowed(window.label(), &request.method, path) {
         return Err("This operation is unavailable in this window".into());
     }
+    if window.label() == "task-preview" {
+        let state = app.state::<windows::Windows>();
+        let target = *state.task_preview.lock().unwrap();
+        if !target.matches_request(&request.path) {
+            return Err("Preview request does not match its current task".into());
+        }
+    }
     if path == "/auth/token" {
         return Err("Use the native clipboard action for API credentials".into());
     }

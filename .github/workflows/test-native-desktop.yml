@@ -110,6 +110,7 @@ jobs:
           node tests/file-groups-browser-smoke.mjs
           node tests/interaction-feedback-browser.mjs
           node tests/auxiliary-ui-browser.mjs
+          node tests/task-preview-browser.mjs
           node tests/settings-browser-smoke.mjs
           node tests/select-browser.mjs
       - name: Check private core transport

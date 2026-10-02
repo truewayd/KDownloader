@@ -1,7 +1,7 @@
 (() => {
   const invoke = (command, args) => window.__TAURI__.core.invoke(command, args);
   const definitions = {
-    details: ["任务详情", "info"], pause: ["暂停", "pause"], resume: ["继续", "play"], requeue: ["重试", "retry"],
+    details: ["任务详情", "info"], preview: ["预览文件", "search"], pause: ["暂停", "pause"], resume: ["继续", "play"], requeue: ["重试", "retry"],
     "open-file": ["打开文件", "file"], "open-folder": ["打开下载目录", "folder-open"], remove: ["移除任务", "trash"],
     "new-task": ["新建下载", "download"], settings: ["设置", "settings"],
     "group-edit": ["调整此分组", "folder-pen"],

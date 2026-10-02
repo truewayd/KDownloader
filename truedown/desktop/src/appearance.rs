@@ -52,7 +52,7 @@ pub fn apply_material(window: WebviewWindow, enabled: bool, dark: bool) -> bool 
     #[cfg(windows)]
     if matches!(
         window.label(),
-        "main" | "settings" | "new-task" | "task-details"
+        "main" | "settings" | "new-task" | "task-details" | "task-preview"
     ) {
         use tauri::Manager;
         if let Ok(mut states) = window.state::<Materials>().0.lock() {

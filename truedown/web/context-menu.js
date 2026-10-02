@@ -14,6 +14,7 @@
   const control = action => document.getElementById(controls[action]);
   const controlEnabled = action => available(control(action)) && enabled(control(action));
   const labels = {
+    preview: "预览文件",
     details: "\u4efb\u52a1\u8be6\u60c5", pause: "\u6682\u505c", resume: "\u7ee7\u7eed", requeue: "\u91cd\u8bd5",
     "open-file": "\u6253\u5f00\u6587\u4ef6", "open-folder": "\u6253\u5f00\u4e0b\u8f7d\u76ee\u5f55", remove: "\u79fb\u9664\u4efb\u52a1",
     "new-task": "\u65b0\u5efa\u4e0b\u8f7d", settings: "\u8bbe\u7f6e",

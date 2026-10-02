@@ -579,6 +579,49 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		w.Write([]byte("OK"))
 	})
 
+	mux.HandleFunc("/tasks/preview", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id, err := taskID(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		offset, err := boundedQueryInt(r, "offset", 0, 0, downloader.MaxPreviewSize)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		chunk, err := dm.PreviewTask(id, int64(offset), r.URL.Query().Get("version"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusOK, chunk)
+	})
+
+	mux.HandleFunc("/tasks/open-with", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id, err := taskID(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := dm.OpenTaskWith(id); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Write([]byte("OK"))
+	})
+
 	mux.HandleFunc("/tasks/open-file", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)

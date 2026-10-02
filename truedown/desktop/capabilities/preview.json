@@ -1,0 +1,6 @@
+{
+  "identifier": "preview",
+  "description": "Preview receives its own target events; all other operations use caller-bound Rust commands.",
+  "windows": ["task-preview"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

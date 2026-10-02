@@ -87,8 +87,12 @@ test("settings retains the OS title and drag area without an in-page caption", a
 test("native capabilities permit event subscriptions and window inspection without filesystem or shell mutations", async () => {
   const capability = JSON.parse(await readFile(new URL("../truedown/desktop/capabilities/main.json", import.meta.url), "utf8"));
   const config = JSON.parse(await readFile(new URL("../truedown/desktop/tauri.conf.json", import.meta.url), "utf8"));
-  assert.deepEqual(config.app.security.capabilities, [capability.identifier]);
+  const preview = JSON.parse(await readFile(new URL("../truedown/desktop/capabilities/preview.json", import.meta.url), "utf8"));
+  assert.deepEqual(config.app.security.capabilities, [capability.identifier, preview.identifier]);
   assert.deepEqual([...capability.windows].sort(), ["main", "new-task", "settings", "task-details"]);
+  assert.deepEqual(preview.windows, ["task-preview"]);
+  assert.deepEqual(preview.permissions, ["core:event:allow-listen", "core:event:allow-unlisten"]);
+  assert.equal(preview.remote, undefined);
   assert.equal(capability.remote, undefined, "Remote documents must never acquire native commands");
   // core:default also grants image reads from arbitrary paths and tray/menu
   // mutations. Keep a closed list so a default group cannot restore them.

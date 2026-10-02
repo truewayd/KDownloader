@@ -18,11 +18,20 @@ import (
 )
 
 const openPathHelperFlag = "--internal-open-path"
+const openWithHelperFlag = "--internal-open-with"
 
 var pathOpenSlots = make(chan struct{}, 4)
 var shellExecuteEx = windows.NewLazySystemDLL("shell32.dll").NewProc("ShellExecuteExW")
 
 func systemOpenPath(path string) error {
+	return runPathHelper(path, false)
+}
+
+func systemOpenWith(path string) error {
+	return runPathHelper(path, true)
+}
+
+func runPathHelper(path string, choose bool) error {
 	select {
 	case pathOpenSlots <- struct{}{}:
 		defer func() { <-pathOpenSlots }()
@@ -33,9 +42,13 @@ func systemOpenPath(path string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	flag, timeout := openPathHelperFlag, 10*time.Second
+	if choose {
+		flag, timeout = openWithHelperFlag, 5*time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	command := exec.CommandContext(ctx, executable, openPathHelperFlag)
+	command := exec.CommandContext(ctx, executable, flag)
 	command.Stdin = strings.NewReader(path)
 	// Shell-launched applications must not inherit the core's kill-on-close job.
 	// This small helper skips core/profile startup and avoids Explorer bootstrap.
@@ -68,7 +81,7 @@ func (output *pathOpenOutput) Write(value []byte) (int, error) {
 
 // RunPathOpenHelper must run before profile, job and engine initialization.
 func RunPathOpenHelper(args []string) (bool, error) {
-	if len(args) == 0 || args[0] != openPathHelperFlag {
+	if len(args) == 0 || (args[0] != openPathHelperFlag && args[0] != openWithHelperFlag) {
 		return false, nil
 	}
 	if len(args) != 1 {
@@ -102,6 +115,24 @@ func RunPathOpenHelper(args []string) (bool, error) {
 		return true, fmt.Errorf("initialize system path opener: %w", err)
 	}
 	defer windows.CoUninitialize()
+	if args[0] == openWithHelperFlag {
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			return true, fmt.Errorf("open with requires a regular file")
+		}
+		deadline.Stop()
+		infoOpen := struct {
+			File  *uint16
+			Class *uint16
+			Flags uint32
+		}{File: &file[0], Flags: 4}
+		result, _, _ := windows.NewLazySystemDLL("shell32.dll").NewProc("SHOpenWithDialog").Call(0, uintptr(unsafe.Pointer(&infoOpen)))
+		runtime.KeepAlive(file)
+		if int32(result) < 0 && uint32(result) != 0x800704c7 {
+			return true, fmt.Errorf("Open with failed: 0x%x", uint32(result))
+		}
+		return true, nil
+	}
 	verb := windows.StringToUTF16Ptr("open")
 	info := shellExecuteInfo{
 		// NOASYNC completes shell/DDE dispatch before the helper exits; it does

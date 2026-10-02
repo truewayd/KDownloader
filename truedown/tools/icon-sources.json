@@ -76,8 +76,8 @@
   },
   "projectIcons": ["google-drive", "dropbox"],
   "extension": ["server", "cloud", "clock", "database", "save", "refresh", "upload", "download", "search", "filter"],
-  "nativeMenu": ["download", "app-window", "settings", "logs", "info", "power", "pause", "play", "retry", "file", "folder-open", "folder-pen", "folder-plus", "folders", "trash", "plus", "folder", "undo", "redo", "cut", "copy", "paste", "select-all"],
-  "nativeWindow": ["download", "settings", "info"],
+  "nativeMenu": ["download", "app-window", "settings", "logs", "info", "power", "pause", "play", "retry", "file", "folder-open", "folder-pen", "folder-plus", "folders", "trash", "plus", "folder", "undo", "redo", "cut", "copy", "paste", "select-all", "search"],
+  "nativeWindow": ["download", "settings", "info", "search"],
   "windowsSizes": [16, 18, 20, 24, 28, 32, 36, 40, 44, 48, 56, 64, 72, 80, 96, 128, 256],
   "macRepresentations": {
     "icp4": 16,

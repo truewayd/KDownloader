@@ -21,6 +21,7 @@ fn caller_active(window: &WebviewWindow) -> bool {
 
 const ACTIONS: &[&str] = &[
     "details",
+    "preview",
     "pause",
     "resume",
     "requeue",

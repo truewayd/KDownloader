@@ -145,6 +145,12 @@ fn main() {
         .manage(drops::Drops::default())
         .manage(task_clipboard::Clipboard::default())
         .invoke_handler(|invoke| {
+            if invoke.message.webview_ref().label() == "task-preview"
+                && !windows::preview_command_allowed(invoke.message.command())
+            {
+                invoke.resolver.reject("Unavailable in preview windows");
+                return true;
+            }
             if invoke
                 .message
                 .webview_ref()
@@ -197,6 +203,8 @@ fn main() {
                 windows::open_auxiliary,
                 windows::open_group_settings,
                 windows::open_task_details,
+                windows::open_task_preview,
+                windows::task_preview_state,
                 windows::task_details_state,
                 windows::close_auxiliary,
                 windows::finish_task_window,
@@ -242,6 +250,7 @@ fn main() {
                 creation: Mutex::new(()),
                 storage: webview::Storage::new(&profile),
                 task_details: Default::default(),
+                task_preview: Default::default(),
             });
             for config in &app.config().app.windows {
                 let window = frame::configure(

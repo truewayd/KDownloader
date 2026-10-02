@@ -73,6 +73,8 @@
   "/tasks/batch": [
     "POST"
   ],
+  "/tasks/preview": ["GET"],
+  "/tasks/open-with": ["POST"],
   "/tasks/open-file": [
     "POST"
   ],

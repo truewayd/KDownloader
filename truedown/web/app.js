@@ -755,6 +755,7 @@ async function onTaskAction(event) {
     }
     if (action === "pause") await runTaskAction("pause", id, "任务已暂停。");
     if (action === "resume") await runTaskAction("resume", id, "任务已继续。");
+    if (action === "preview") await invokeNative("open_task_preview", { id });
     if (action === "open-file") {
       await requestText(`/tasks/open-file?id=${encodeURIComponent(id)}`, { method: "POST" });
       showToast("已打开下载文件。");
@@ -1217,7 +1218,7 @@ function taskRow(task) {
   const fileName = task.outputName || task.name || `任务 #${task.id}`;
   const actions = [];
   actions.push(actionButton("open-folder", task.id, "打开下载目录", false, "folder-open"));
-  if (status === "done") actions.push(actionButton("open-file", task.id, "打开文件", false, "file"));
+  if (status === "done") actions.push(actionButton("preview", task.id, "预览文件", false, "search"), actionButton("open-file", task.id, "打开文件", false, "file"));
   if (status === "error") actions.push(actionButton("requeue", task.id, "重试", false, "retry"));
   if (status === "queued" || status === "downloading") actions.push(actionButton("pause", task.id, "暂停", false, "pause"));
   if (status === "paused") actions.push(actionButton("resume", task.id, "继续", false, "play"));
