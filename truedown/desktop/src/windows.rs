@@ -172,7 +172,14 @@ pub fn minimum_size(label: &str) -> (f64, f64) {
 pub async fn open_auxiliary(app: tauri::AppHandle, kind: Kind) -> Result<(), String> {
     let state = app.state::<Windows>();
     let _creation = state.creation.lock().await;
-    open_auxiliary_locked(&app, &state, kind, None).await
+    if matches!(kind, Kind::NewTask) {
+        crate::task_clipboard::capture(&app);
+    }
+    open_auxiliary_locked(&app, &state, kind, None).await?;
+    if matches!(kind, Kind::NewTask) {
+        let _ = app.emit_to("new-task", "truedown:task-clipboard", ());
+    }
+    Ok(())
 }
 
 fn group_settings_route(role: &str, group_id: Option<&str>, add: bool) -> Result<String, String> {

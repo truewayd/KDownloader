@@ -98,7 +98,7 @@ test("native form startup reads only its permitted preferences and retries witho
     document: { querySelector: () => shell },
     refreshNativeTaskPreferences: async () => { actions.push("preferences"); if (fail) throw Error("offline"); },
     configureTaskForm: () => actions.push("form"), showModalMsg() {},
-    drainNativeDrop() {},
+    drainNativeDrop() {}, fillTaskClipboard() {},
   });
   vm.runInContext(declarations("initNativeTaskForm"), context);
   await context.initNativeTaskForm();
@@ -204,7 +204,7 @@ function preferencesContext(requestJSON) {
     nativeTaskPreferences: { pending: null, requested: false, disposed: false, modeDirty: false, filterDirty: false },
     downloadRules: { enabled: false, dropboxMode: "direct" }, resolverModules: [], downloadSettings: {},
     els: Object.fromEntries(["mDropboxMode", "mDropboxFilter", "mDropboxOption", "mGoogleDriveOption", "mResolverOptions", "mLink", "mTorrentFile"].map((name) => [name, control()])),
-    requestJSON, normalizeServerDownloadRules: (rules) => rules, normalizeResolverModules: (result) => result.modules,
+    requestJSON, listenNativeEvent: async () => {}, fillTaskClipboard() {}, normalizeServerDownloadRules: (rules) => rules, normalizeResolverModules: (result) => result.modules,
     applyTaskDefaults: (defaults) => { context.downloadSettings = defaults.values; },
     showModalMsg() {}, document: { hidden: false },
     cancelReadRetry() {}, scheduleReadRetry() {},
@@ -217,6 +217,27 @@ function preferencesContext(requestJSON) {
   context.bindNativeTaskPreferences();
   return { context, events };
 }
+
+test("clipboard tasks fill only an empty form and never replace a concurrent edit or start downloads", async () => {
+  let resolve;
+  const fields = { mLink: control(), mTorrentFile: { files: [] }, downloadForm: { inert: false } };
+  const context = vm.createContext({
+    nativeTaskFormReady: true, nativeTaskPreferences: { disposed: false }, taskClipboardPending: false,
+    readingNativeDrop: false, applyingDrop: false, els: fields,
+    invokeNative: command => { assert.equal(command, "take_task_clipboard"); return new Promise(done => { resolve = done; }); },
+    parseLinks: text => text.split("\n"), showModalMsg() {},
+  });
+  vm.runInContext(declarations("fillTaskClipboard"), context);
+  let pending = context.fillTaskClipboard();
+  fields.mLink.value = "https://example.test/typed";
+  resolve(["https://example.test/clipboard"]); await pending;
+  assert.equal(fields.mLink.value, "https://example.test/typed");
+  fields.mLink.value = "";
+  pending = context.fillTaskClipboard(); resolve(["https://example.test/clipboard"]); await pending;
+  assert.equal(fields.mLink.value, "https://example.test/clipboard");
+  pending = context.fillTaskClipboard(); resolve(["https://example.test/next"]); await pending;
+  assert.equal(fields.mLink.value, "https://example.test/clipboard");
+});
 
 test("native form activation updates enabled modules and untouched rules while retaining explicit drafts", async () => {
   let installed = false, mode = "direct", filter = false;

@@ -18,6 +18,7 @@ mod placement;
 mod popup_cache;
 mod profile;
 mod startup;
+mod task_clipboard;
 mod tray_actions;
 mod tray_image;
 mod update;
@@ -142,6 +143,7 @@ fn main() {
         .manage(context_menus::Menus::default())
         .manage(popup_cache::Cache::default())
         .manage(drops::Drops::default())
+        .manage(task_clipboard::Clipboard::default())
         .invoke_handler(|invoke| {
             if invoke
                 .message
@@ -175,6 +177,7 @@ fn main() {
                 commands::core_request,
                 commands::desktop_state,
                 commands::copy_api_token,
+                task_clipboard::take_task_clipboard,
                 commands::take_dropped_torrent,
                 commands::drop_download_links,
                 commands::edit_action,

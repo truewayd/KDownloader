@@ -12,6 +12,7 @@ function isNativeTaskWindow() {
 
 function bindNativeTaskPreferences() {
   if (!isNativeTaskWindow()) return;
+  listenNativeEvent("truedown:task-clipboard", fillTaskClipboard).catch(console.error);
   window.addEventListener("focus", refreshNativeTaskFormOnActivation);
   window.addEventListener("pagehide", () => {
     nativeTaskPreferences.disposed = true;
@@ -101,10 +102,26 @@ async function initNativeTaskForm() {
       KDComponents.setBusyState(els.submitTaskBtn, false);
       els.submitTaskBtn.disabled = !nativeTaskFormReady;
       if (nativeTaskFormReady && (document.activeElement === document.body || document.activeElement === els.submitTaskBtn)) els.mLink.focus();
-      if (nativeTaskFormReady) drainNativeDrop();
+      if (nativeTaskFormReady) { await drainNativeDrop(); await fillTaskClipboard(); }
     }
   })();
   return nativeTaskFormLoad;
+}
+
+let taskClipboardPending = false;
+async function fillTaskClipboard() {
+  if (!nativeTaskFormReady || nativeTaskPreferences.disposed || taskClipboardPending) return;
+  taskClipboardPending = true;
+  const source = els.mLink.value, file = els.mTorrentFile.files?.[0];
+  try {
+    const links = await invokeNative("take_task_clipboard");
+    if (nativeTaskPreferences.disposed || els.downloadForm.inert || readingNativeDrop || applyingDrop
+      || source.trim() || file || els.mLink.value !== source || els.mTorrentFile.files?.[0] !== file
+      || !Array.isArray(links) || !links.length) return;
+    els.mLink.value = parseLinks(links.join("\n")).join("\n");
+    showModalMsg(`已从剪贴板识别 ${links.length} 个链接，请确认后开始下载。`);
+  } catch { /* Unavailable clipboard access must not prevent manual entry. */ }
+  finally { taskClipboardPending = false; }
 }
 
 async function finishNativeTaskForm(message) {
