@@ -814,7 +814,7 @@ func (m *Manager) PageTaskSnapshotsFilteredIfChanged(
 		return TaskPage{Version: validator}, true
 	}
 	if category != "" {
-		return m.categoryPageLocked(offset, min(limit, 200), status, search, sortField, sortOrder, category, fmt.Sprintf(`"td-%x"`, version)), false
+		return m.categoryPageLocked(offset, min(limit, 200), status, search, sortField, sortOrder, category, validator), false
 	}
 
 	total := len(m.tasks)
@@ -837,17 +837,16 @@ func (m *Manager) PageTaskSnapshotsFilteredIfChanged(
 		Limit:    limit,
 		Total:    total,
 		Revision: m.revision,
+		Version:  validator,
 	}
 	if sortField != "" {
 		if sortField == "id" {
 			m.appendTaskPageByID(&page, status, search, sortOrder == "desc")
-			page.Version = fmt.Sprintf(`"td-%x"`, version)
-			return page, ifNoneMatch != "" && ifNoneMatch == page.Version
+			return page, false
 		}
 		if sortField == "status" {
 			m.appendTaskPageByStatus(&page, status, search, sortOrder == "desc")
-			page.Version = fmt.Sprintf(`"td-%x"`, version)
-			return page, ifNoneMatch != "" && ifNoneMatch == page.Version
+			return page, false
 		}
 		ids := make([]int64, 0, total)
 		for _, id := range m.orderedIDs {
@@ -855,39 +854,29 @@ func (m *Manager) PageTaskSnapshotsFilteredIfChanged(
 				ids = append(ids, id)
 			}
 		}
-		sort.SliceStable(ids, func(left, right int) bool {
-			first := m.tasks[ids[left]]
-			second := m.tasks[ids[right]]
-			comparison := compareTasksForPage(first, second, sortField)
-			if comparison == 0 {
-				comparison = compareInt64(first.ID, second.ID)
-			}
-			if sortOrder == "desc" {
-				return comparison > 0
-			}
-			return comparison < 0
-		})
+		m.sortTaskIDsForPage(ids, sortField, sortOrder)
 		for index := offset; index < len(ids) && len(page.Tasks) < limit; index++ {
 			task := m.tasks[ids[index]]
 			page.Tasks = append(page.Tasks, m.snapshotTask(task))
 		}
-		page.Version = fmt.Sprintf(`"td-%x"`, version)
-		return page, ifNoneMatch != "" && ifNoneMatch == page.Version
+		return page, false
 	}
-	skipped := 0
-	for index := len(m.orderedIDs) - 1; index >= 0 && len(page.Tasks) < limit; index-- {
-		task := m.tasks[m.orderedIDs[index]]
-		if !taskMatchesPage(task, status, search) {
-			continue
+	m.appendTaskPageByID(&page, status, search, true)
+	return page, false
+}
+
+func (m *Manager) sortTaskIDsForPage(ids []int64, field, order string) {
+	// The ID tie-breaker defines a total order, so a stable sort is unnecessary.
+	sort.Slice(ids, func(i, j int) bool {
+		comparison := compareTasksForPage(m.tasks[ids[i]], m.tasks[ids[j]], field)
+		if comparison == 0 {
+			comparison = compareInt64(ids[i], ids[j])
 		}
-		if skipped < offset {
-			skipped++
-			continue
+		if order == "desc" || field == "" {
+			return comparison > 0
 		}
-		page.Tasks = append(page.Tasks, m.snapshotTask(task))
-	}
-	page.Version = fmt.Sprintf(`"td-%x"`, version)
-	return page, ifNoneMatch != "" && ifNoneMatch == page.Version
+		return comparison < 0
+	})
 }
 
 func (m *Manager) appendTaskPageByID(page *TaskPage, status Status, search string, descending bool) {
@@ -3057,13 +3046,6 @@ func expectedDropboxRemoteName(task *Task) string {
 		return task.OutputName
 	}
 	return task.Name
-}
-
-func (m *Manager) applyDropboxMetadata(id int64, metadata dropboxMetadata, enforceIdentity bool) (*Task, error) {
-	return m.applyRemoteMetadata(id, remoteMetadata{
-		URL: metadata.URL, Name: metadata.Name, Digest: metadata.Digest,
-		Length: metadata.Length, LengthKnown: metadata.LengthKnown,
-	}, enforceIdentity, "Dropbox")
 }
 
 func (m *Manager) applyRemoteMetadata(id int64, metadata remoteMetadata, enforceIdentity bool, moduleName string) (*Task, error) {

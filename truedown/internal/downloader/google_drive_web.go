@@ -374,20 +374,6 @@ func googleNativeTypeFromURL(value string) string {
 	return ""
 }
 
-func googleDriveExportURL(nativeType, id, format string) string {
-	if format == "" {
-		switch nativeType {
-		case "document":
-			format = "docx"
-		case "spreadsheets":
-			format = "xlsx"
-		case "presentation":
-			format = "pptx"
-		}
-	}
-	return googleDriveBaselineProfile.exportLink(nativeType, id, format)
-}
-
 func mustParseURLQuery(value string) url.Values {
 	parsed, err := url.Parse(value)
 	if err != nil {

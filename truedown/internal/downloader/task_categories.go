@@ -2,7 +2,6 @@ package downloader
 
 import (
 	"path"
-	"sort"
 	"strings"
 )
 
@@ -58,6 +57,25 @@ func (m *Manager) classifyTask(task *Task) string {
 
 // Filtering precedes sorting and pagination, including tasks outside the visible page.
 func (m *Manager) categoryPageLocked(offset, limit int, status Status, search, field, order, category, version string) TaskPage {
+	page := TaskPage{Groups: m.fileGroupsLocked(), Tasks: make([]TaskSnapshot, 0, limit), Summary: m.summaryLocked(), Offset: offset, Limit: limit, Revision: m.revision, Version: version}
+	if field == "" || field == "id" {
+		// Reuse the ordered index and retain only this page, even for large groups.
+		start, end, step := 0, len(m.orderedIDs), 1
+		if field == "" || order == "desc" {
+			start, end, step = len(m.orderedIDs)-1, -1, -1
+		}
+		for i := start; i != end; i += step {
+			task := m.tasks[m.orderedIDs[i]]
+			if !taskMatchesPage(task, status, search) || m.classifyTask(task) != category {
+				continue
+			}
+			if page.Total >= offset && len(page.Tasks) < limit {
+				page.Tasks = append(page.Tasks, m.snapshotTask(task))
+			}
+			page.Total++
+		}
+		return page
+	}
 	ids := make([]int64, 0)
 	for _, id := range m.orderedIDs {
 		task := m.tasks[id]
@@ -65,17 +83,8 @@ func (m *Manager) categoryPageLocked(offset, limit int, status Status, search, f
 			ids = append(ids, id)
 		}
 	}
-	sort.SliceStable(ids, func(i, j int) bool {
-		comparison := compareTasksForPage(m.tasks[ids[i]], m.tasks[ids[j]], field)
-		if comparison == 0 {
-			comparison = compareInt64(ids[i], ids[j])
-		}
-		if order == "desc" || field == "" {
-			return comparison > 0
-		}
-		return comparison < 0
-	})
-	page := TaskPage{Groups: m.fileGroupsLocked(), Tasks: make([]TaskSnapshot, 0, min(limit, len(ids))), Summary: m.summaryLocked(), Offset: offset, Limit: limit, Total: len(ids), Revision: m.revision, Version: version}
+	m.sortTaskIDsForPage(ids, field, order)
+	page.Total = len(ids)
 	for i := offset; i < len(ids) && len(page.Tasks) < limit; i++ {
 		page.Tasks = append(page.Tasks, m.snapshotTask(m.tasks[ids[i]]))
 	}
