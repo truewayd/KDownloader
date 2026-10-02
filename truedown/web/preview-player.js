@@ -104,7 +104,12 @@ window.TrueDownPreviewPlayer = (() => {
     on(seek, "change", () => { if (duration()) media.currentTime = Math.max(0, Math.min(duration(), Number(seek.value))); seeking = false; updateTime(); });
     on(seek, "blur", () => { seeking = false; updateTime(); });
     on(mute, "click", toggleMute);
-    on(volume, "input", () => { media.volume = Number(volume.value); media.muted = media.volume === 0; });
+    on(volume, "input", () => {
+      const value = Number(volume.value);
+      // volumechange is queued; a quick drag to zero can precede that event.
+      if (value > 0) lastVolume = value;
+      media.volume = value; media.muted = value === 0;
+    });
     on(media, "volumechange", () => {
       const silent = media.muted || media.volume === 0;
       if (media.volume > 0) lastVolume = media.volume;
