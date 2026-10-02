@@ -22,24 +22,25 @@
 <body>
   <div class="preview-layout">
     <header class="preview-toolbar" aria-label="预览操作">
-      <span id="preview-kind" class="preview-kind">文件预览</span>
+      <span class="preview-kind"><svg class="icon" aria-hidden="true" focusable="false"><use id="preview-kind-icon" href="/icons.svg#icon-file"></use></svg><span id="preview-kind">文件预览</span></span>
       <div class="preview-zoom" role="group" aria-label="图片缩放">
-        <button class="kd-button secondary" id="preview-fit" type="button">适应窗口</button>
-        <button class="kd-button secondary" id="preview-actual" type="button">100%</button>
-        <button class="kd-icon-button" id="preview-out" type="button" aria-label="缩小">−</button>
+        <button class="kd-button secondary" id="preview-fit" type="button" aria-label="适应窗口" data-tooltip="适应窗口"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-scan"></use></svg><span class="preview-button-label">适应窗口</span></button>
+        <button class="kd-button secondary" id="preview-actual" type="button" aria-label="原始尺寸（100%）" data-tooltip="原始尺寸（100%）">100%</button>
+        <button class="kd-icon-button" id="preview-out" type="button" aria-label="缩小" data-tooltip="缩小"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-zoom-out"></use></svg></button>
         <output id="preview-scale" aria-label="当前缩放">—</output>
-        <button class="kd-icon-button" id="preview-in" type="button" aria-label="放大">＋</button>
+        <button class="kd-icon-button" id="preview-in" type="button" aria-label="放大" data-tooltip="放大"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-zoom-in"></use></svg></button>
       </div>
-      <button class="kd-button secondary" id="preview-wrap" type="button" aria-pressed="true" hidden>自动换行</button>
+      <button class="kd-button secondary" id="preview-wrap" type="button" aria-pressed="true" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-wrap-text"></use></svg>自动换行</button>
       <div class="preview-actions" role="group" aria-label="文件操作">
-        <button class="kd-button secondary" data-preview-action="open-file" type="button">打开文件</button>
-        <button class="kd-button secondary" data-preview-action="open-with" type="button">打开方式…</button>
-        <button class="kd-button secondary" data-preview-action="open-folder" type="button">打开目录</button>
+        <button class="kd-button secondary" data-preview-action="open-file" type="button" aria-label="打开文件" data-tooltip="打开文件"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-external-link"></use></svg><span class="preview-button-label">打开文件</span></button>
+        <button class="kd-button secondary" data-preview-action="open-with" type="button" aria-label="打开方式…" data-tooltip="打开方式…"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-app-window"></use></svg><span class="preview-button-label">打开方式…</span></button>
+        <button class="kd-button secondary" data-preview-action="open-folder" type="button" aria-label="打开目录" data-tooltip="打开目录"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folder-open"></use></svg><span class="preview-button-label">打开目录</span></button>
       </div>
     </header>
     <div id="preview-stage" class="preview-stage" tabindex="0" aria-label="文件预览"></div>
     <footer class="preview-footer">
       <span id="preview-info" class="kd-selectable"></span>
+      <span id="preview-image-hint" hidden>滚轮缩放 · 拖动查看</span>
       <span id="preview-status" role="status">正在读取文件…</span>
     </footer>
   </div>

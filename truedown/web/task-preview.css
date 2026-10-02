@@ -1,13 +1,16 @@
 body { margin: 0; overflow: hidden; }
 .preview-layout { height: calc(100dvh - var(--native-titlebar-height, 0px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 .preview-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 12px 20px; }
-.preview-kind { color: var(--kd-muted); font-size: 13px; }
+.preview-kind { display: flex; align-items: center; gap: 8px; color: var(--kd-muted); font-size: 13px; white-space: nowrap; }
 .preview-actions { margin-left: auto; }
 .preview-toolbar [hidden] { display: none; }
 .preview-zoom, .preview-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 #preview-scale { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; }
 .preview-stage { min-width: 0; min-height: 0; overflow: auto; padding: 24px; display: grid; place-items: center; }
-.preview-stage img { display: block; max-width: none; max-height: none; margin: auto; user-select: none; }
+.preview-stage[data-kind="img"] { display: flex; overscroll-behavior: contain; }
+.preview-stage img { display: block; flex: none; max-width: none; max-height: none; margin: auto; user-select: none; }
+.preview-stage.can-pan { cursor: grab; }
+.preview-stage.is-panning { cursor: grabbing; }
 .preview-stage pre { align-self: start; justify-self: center; box-sizing: border-box; width: min(100%, 960px); min-width: 0; margin: 0; padding: 24px; border-radius: var(--kd-radius); background: color-mix(in srgb, var(--kd-surface) 65%, transparent); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font: 13px/1.8 Consolas, "Microsoft YaHei UI", monospace; }
 .preview-nowrap pre { white-space: pre; overflow: auto; }
 .preview-stage[data-kind="video"] { overflow: hidden; }
@@ -53,11 +56,14 @@ body { margin: 0; overflow: hidden; }
 .preview-player [hidden] { display: none; }
 .preview-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 24px; padding: 12px 20px 16px; color: var(--kd-muted); font-size: 12px; }
 .preview-footer > * { min-width: 0; overflow-wrap: anywhere; }
+#preview-status:empty { display: none; }
 @media (max-width: 680px), (max-height: 480px) {
   .preview-toolbar { padding: 8px 12px; gap: 8px; }
   .preview-stage { padding: 12px; }
   .preview-footer { padding: 8px 12px; }
   .preview-kind { display: none; }
+  .preview-actions .preview-button-label { display: none; }
+  .preview-actions .kd-button { width: 36px; padding: 0; flex-shrink: 0; }
   .preview-player { gap: 12px; }
   .player-controls { padding: 8px 12px; }
   .player-artwork { width: 72px; height: 72px; margin-bottom: 12px; border-radius: var(--kd-radius); }
@@ -67,6 +73,8 @@ body { margin: 0; overflow: hidden; }
   .preview-stage pre { padding: 16px; }
 }
 @media (max-width: 460px) {
+  #preview-fit { width: 36px; padding: 0; flex-shrink: 0; }
+  #preview-fit .preview-button-label { display: none; }
   .player-volume { width: 48px; }
   .player-actions { flex-wrap: wrap; justify-content: center; gap: 8px; }
   .player-options { justify-content: center; }

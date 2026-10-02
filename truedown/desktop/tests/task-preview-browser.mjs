@@ -76,16 +76,74 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.equal(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight), false);
   }
+  if (process.env.TRUEDOWN_PREVIEW_SCREENSHOT) await page.screenshot({ path: process.env.TRUEDOWN_PREVIEW_SCREENSHOT.replace(/\.png$/, "-narrow.png") });
   await page.locator("#preview-actual").click();
   assert.equal(await page.locator("#preview-scale").textContent(), "100%");
   await page.locator("#preview-in").click();
   assert.equal(await page.locator("#preview-scale").textContent(), "125%");
+  await page.setViewportSize({ width: 1000, height: 760 });
+  await page.locator("#preview-actual").click();
+  const canvas = page.locator("#preview-stage"), image = canvas.locator("img");
+  const bounds = await canvas.boundingBox();
+  const point = { x: bounds.x + bounds.width * .6, y: bounds.y + bounds.height * .6 };
+  const imagePoint = () => image.evaluate((image, point) => {
+    const rect = image.getBoundingClientRect();
+    return { x: (point.x - rect.left) / rect.width, y: (point.y - rect.top) / rect.height, width: rect.width };
+  }, point);
+  const beforeWheel = await imagePoint();
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.wheel(0, -100);
+  await page.waitForFunction(width => document.querySelector("#preview-stage img").width > width, beforeWheel.width);
+  const afterWheel = await imagePoint();
+  assert.ok(Math.abs(beforeWheel.x - afterWheel.x) * afterWheel.width < 2, "wheel zoom preserves the point under the mouse horizontally");
+  assert.ok(Math.abs(beforeWheel.y - afterWheel.y) * afterWheel.width < 2, "wheel zoom preserves the point under the mouse vertically");
+  await page.mouse.wheel(0, 100);
+  await page.waitForFunction(() => document.querySelector("#preview-scale").textContent === "100%");
+  for (let i = 0; i < 4; i++) await page.locator("#preview-in").click();
+  await page.mouse.move(point.x, point.y);
+  const scroll = () => canvas.evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }));
+  const beforeDrag = await scroll();
+  await page.mouse.down(); await page.mouse.move(point.x - 80, point.y - 60); await page.mouse.up();
+  const afterDrag = await scroll();
+  assert.ok(Math.abs(afterDrag.x - beforeDrag.x - 80) < 2 && Math.abs(afterDrag.y - beforeDrag.y - 60) < 2, `drag pans the enlarged image on both axes: ${JSON.stringify({ beforeDrag, afterDrag })}`);
+  assert.equal(await canvas.evaluate(element => element.classList.contains("is-panning")), false);
+  for (const deltaMode of [0, 1, 2]) {
+    await page.locator("#preview-actual").click();
+    await canvas.dispatchEvent("wheel", { deltaY: -1, deltaMode, clientX: point.x, clientY: point.y });
+    assert.ok(await image.evaluate(element => element.width > element.naturalWidth), `wheel mode ${deltaMode} zooms without a modifier`);
+  }
+  await canvas.evaluate(element => {
+    for (let i = 0; i < 40; i++) element.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, cancelable: true }));
+  });
+  assert.equal(await page.locator("#preview-scale").textContent(), "800%");
+  await canvas.evaluate(element => {
+    for (let i = 0; i < 40; i++) element.dispatchEvent(new WheelEvent("wheel", { deltaY: 120, cancelable: true }));
+  });
+  assert.equal(await page.locator("#preview-scale").textContent(), "5%");
+  await canvas.focus(); await page.keyboard.press("0");
+  assert.equal(await page.locator("#preview-scale").textContent(), "100%");
+  await page.keyboard.press("f");
+  assert.equal(await page.locator("#preview-fit").getAttribute("aria-pressed"), "true");
+  assert.equal(await canvas.evaluate(element => {
+    const event = new WheelEvent("wheel", { deltaY: 0, deltaX: 20, cancelable: true });
+    element.dispatchEvent(event); return event.defaultPrevented;
+  }), false, "horizontal-only wheel input is not interpreted as zoom");
+  assert.equal(await page.locator(".preview-toolbar svg:not([aria-hidden='true']), .preview-toolbar svg:not([focusable='false'])").count(), 0);
+  for (const name of ["打开文件", "打开方式…", "打开目录", "适应窗口", "缩小", "放大"]) {
+    const button = page.getByRole("button", { name, exact: true });
+    assert.equal(await button.locator("svg use").count(), 1);
+    assert.ok(await button.getAttribute("data-tooltip"));
+  }
   await page.locator('[data-preview-action="open-with"]').click();
   assert.ok(await page.evaluate(() => previewRequests.some(request => request.method === "POST" && request.path === "/tasks/open-with?id=1")));
   await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 2, revision: 2, open: true } }));
   await page.waitForFunction(() => document.querySelector("#preview-stage pre")?.textContent.includes("<script>"));
   assert.equal(await page.evaluate(() => Boolean(window.injected)), false);
   assert.equal(await page.locator(".preview-zoom").isVisible(), false);
+  assert.equal(await canvas.evaluate(element => {
+    const event = new WheelEvent("wheel", { deltaY: 120, cancelable: true });
+    element.dispatchEvent(event); return event.defaultPrevented;
+  }), false, "text preview retains ordinary wheel scrolling");
   await page.locator("#preview-wrap").click();
   assert.equal(await page.locator("#preview-stage pre").evaluate(element => getComputedStyle(element).whiteSpace), "pre");
   assert.equal(await page.evaluate(async () => {
@@ -114,7 +172,10 @@ try {
   await page.getByRole("button", { name: "取消静音", exact: true }).click();
   await page.locator(".player-volume").evaluate(input => { input.value = ".35"; input.dispatchEvent(new Event("input", { bubbles: true })); });
   assert.equal(await page.locator("audio").evaluate(media => media.volume), .35);
-  await page.locator(".player-volume").evaluate(input => { input.value = "0"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+  await page.locator(".player-volume").evaluate(input => {
+    // Two changes in one task reproduce a quick slider drag before volumechange.
+    for (const value of ["0.35", "0"]) { input.value = value; input.dispatchEvent(new Event("input", { bubbles: true })); }
+  });
   await page.getByRole("button", { name: "取消静音", exact: true }).click();
   assert.equal(await page.locator("audio").evaluate(media => !media.muted && media.volume === .35), true, "unmute restores the last audible volume");
   await page.locator(".player-rate").click();

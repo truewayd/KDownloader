@@ -3,6 +3,8 @@
   const info = document.getElementById("preview-info"), scaleLabel = document.getElementById("preview-scale");
   const zoomButtons = [...document.querySelectorAll(".preview-zoom button")];
   const kindLabel = document.getElementById("preview-kind"), wrapButton = document.getElementById("preview-wrap");
+  const kindIcon = document.getElementById("preview-kind-icon");
+  const imageHint = document.getElementById("preview-image-hint");
   let player = null;
   wrapButton.onclick = () => {
     const wrap = wrapButton.getAttribute("aria-pressed") !== "true";
@@ -10,9 +12,15 @@
   };
   let target = null, controller = null, objectURL = null, picture = null, fit = true, scale = 1, disposed = false;
   let retryTimer = 0, retryDelay = 1000;
+  let pan = null;
+  const endPan = () => {
+    if (pan && stage.hasPointerCapture(pan.id)) stage.releasePointerCapture(pan.id);
+    pan = null; stage.classList.remove("is-panning");
+  };
   const message = text => { status.textContent = text; };
   const release = () => {
     clearTimeout(retryTimer);
+    endPan(); stage.classList.remove("can-pan");
     controller?.abort(); controller = null;
     player?.dispose(); player = null;
     for (const media of stage.querySelectorAll("video, audio")) { media.pause(); media.removeAttribute("src"); media.load(); }
@@ -23,6 +31,8 @@
     scaleLabel.textContent = "—";
     document.querySelector(".preview-zoom").hidden = true; wrapButton.hidden = true;
     stage.dataset.kind = ""; kindLabel.textContent = "文件预览";
+    imageHint.hidden = true;
+    kindIcon.setAttribute("href", "/icons.svg#icon-file");
     stage.classList.remove("preview-nowrap"); wrapButton.setAttribute("aria-pressed", "true");
   };
   const resize = () => {
@@ -37,13 +47,58 @@
     picture.style.height = `${Math.max(1, Math.round(picture.naturalHeight * scale))}px`;
     scaleLabel.textContent = `${Math.round(scale * 100)}%`;
     document.getElementById("preview-fit").setAttribute("aria-pressed", String(fit));
+    document.getElementById("preview-actual").setAttribute("aria-pressed", String(!fit && scale === 1));
+    stage.classList.toggle("can-pan", stage.scrollWidth > stage.clientWidth || stage.scrollHeight > stage.clientHeight);
   };
-  const zoom = factor => { if (!picture) return; fit = false; scale = Math.min(8, Math.max(.05, scale * factor)); resize(); };
-  document.getElementById("preview-fit").onclick = () => { fit = true; resize(); };
-  document.getElementById("preview-actual").onclick = () => { fit = false; scale = 1; resize(); };
+  const setScale = (value, point) => {
+    if (!picture) return;
+    endPan();
+    const viewport = stage.getBoundingClientRect(), before = picture.getBoundingClientRect();
+    const anchor = point || { x: viewport.left + stage.clientWidth / 2, y: viewport.top + stage.clientHeight / 2 };
+    const x = Math.max(0, Math.min(1, (anchor.x - before.left) / before.width));
+    const y = Math.max(0, Math.min(1, (anchor.y - before.top) / before.height));
+    fit = false; scale = Math.min(8, Math.max(.05, value)); resize();
+    const after = picture.getBoundingClientRect();
+    // Keep the image point under the cursor still as it grows beyond the canvas.
+    stage.scrollLeft += after.left + x * after.width - anchor.x;
+    stage.scrollTop += after.top + y * after.height - anchor.y;
+  };
+  const zoom = (factor, point) => setScale(scale * factor, point);
+  const fitImage = () => { endPan(); fit = true; resize(); stage.scrollLeft = stage.scrollTop = 0; };
+  document.getElementById("preview-fit").onclick = fitImage;
+  document.getElementById("preview-actual").onclick = () => setScale(1);
   document.getElementById("preview-out").onclick = () => zoom(1 / 1.25);
   document.getElementById("preview-in").onclick = () => zoom(1.25);
-  stage.addEventListener("wheel", event => { if (picture && (event.ctrlKey || event.metaKey)) { event.preventDefault(); zoom(event.deltaY < 0 ? 1.1 : 1 / 1.1); } }, { passive: false });
+  stage.addEventListener("wheel", event => {
+    if (!picture || !Number.isFinite(event.deltaY) || event.deltaY === 0) return;
+    event.preventDefault();
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientHeight : 1;
+    const delta = Math.max(-120, Math.min(120, event.deltaY * unit));
+    zoom(Math.exp(-delta / 400), { x: event.clientX, y: event.clientY });
+  }, { passive: false });
+  stage.addEventListener("pointerdown", event => {
+    if (!picture || !stage.classList.contains("can-pan") || event.button !== 0 || !event.isPrimary || event.pointerType === "touch") return;
+    const bounds = stage.getBoundingClientRect();
+    if (event.clientX >= bounds.left + stage.clientWidth || event.clientY >= bounds.top + stage.clientHeight) return;
+    event.preventDefault(); stage.focus({ preventScroll: true });
+    pan = { id: event.pointerId, x: event.clientX, y: event.clientY, left: stage.scrollLeft, top: stage.scrollTop };
+    stage.setPointerCapture(event.pointerId); stage.classList.add("is-panning");
+  });
+  stage.addEventListener("pointermove", event => {
+    if (pan?.id !== event.pointerId) return;
+    stage.scrollLeft = pan.left + pan.x - event.clientX;
+    stage.scrollTop = pan.top + pan.y - event.clientY;
+  });
+  for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) stage.addEventListener(name, endPan);
+  stage.addEventListener("keydown", event => {
+    if (!picture || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key === "+" || event.key === "=") zoom(1.25);
+    else if (event.key === "-") zoom(1 / 1.25);
+    else if (event.key === "0") setScale(1);
+    else if (event.key.toLowerCase() === "f") fitImage();
+    else return;
+    event.preventDefault();
+  });
   const observer = new ResizeObserver(resize); observer.observe(stage);
   document.querySelector('[data-preview-action="open-with"]').hidden = window.__TRUEDOWN_PLATFORM__ !== "windows";
   for (const button of document.querySelectorAll("[data-preview-action]")) {
@@ -103,6 +158,7 @@
       info.textContent = `${metadata.name} · ${(metadata.size / 1024 / 1024).toFixed(2)} MiB`;
       if (metadata.mime === "text/plain") {
         stage.dataset.kind = "text"; kindLabel.textContent = "文本"; wrapButton.hidden = false;
+        kindIcon.setAttribute("href", "/icons.svg#icon-logs");
         const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
         if (!current()) return;
         const pre = document.createElement("pre"); pre.textContent = text; stage.append(pre);
@@ -110,6 +166,7 @@
         const type = metadata.mime.startsWith("image/") ? "img" : metadata.mime.startsWith("audio/") ? "audio" : metadata.mime.startsWith("video/") ? "video" : null;
         if (!type) throw new Error("此格式暂不支持预览，请选择打开文件或打开方式。");
         stage.dataset.kind = type; kindLabel.textContent = { img: "图片", audio: "音频", video: "视频" }[type];
+        kindIcon.setAttribute("href", `/icons.svg#icon-${{ img: "image", audio: "music", video: "video" }[type]}`);
         objectURL = URL.createObjectURL(blob);
         const element = document.createElement(type);
         if (type === "img") {
@@ -118,6 +175,7 @@
           element.onload = () => {
             if (!current()) return;
             picture = element; fit = true; resize();
+            imageHint.hidden = false;
             info.textContent += ` · ${element.naturalWidth} × ${element.naturalHeight}`;
             zoomButtons.forEach(button => { button.disabled = false; });
           };
