@@ -77,7 +77,7 @@ for(const [name,entry] of [["truedown-core","./cmd/truedown-core"],["truedown-cl
   run("go",["build","-trimpath","-ldflags",ldflags,"-o",output,entry],{env:{...process.env,CGO_ENABLED:"0",GOOS:goos,GOARCH:goarch}});
 }
 const web=await directory("dist/desktop-web");
-const sources=(await fs.readdir(path.join(project,"web"))).filter(name=>/\.(html|css|js|svg)$/.test(name));
+const sources=(await fs.readdir(path.join(project,"web"))).filter(name=>/\.(html|css|js|svg|png)$/.test(name));
 for(const name of await fs.readdir(web)){
   const output=path.join(web,name);await regularOutput(output);
   if(!sources.includes(name))await fs.unlink(output);

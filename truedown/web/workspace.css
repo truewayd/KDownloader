@@ -84,7 +84,7 @@
 .filter-control > span { display: none; }
 .filter-control .kd-select { width: 100px; font-size: 12px; }
 .pagination { flex-shrink: 0; gap: 4px; }
-.empty-icon .icon { width: 32px; height: 32px; }
+.tasks-container:has(> .empty-state) { display: grid; min-height: 100%; }
 .sidebar-collapsed .sidebar { padding-inline: 8px; }
 .sidebar-collapsed .sidebar-brand .brand, .sidebar-collapsed .nav-section-label { display: none; }
 .sidebar-collapsed .sidebar .nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

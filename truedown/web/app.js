@@ -1289,7 +1289,8 @@ function emptyMarkup() {
   const searched = Boolean(currentSearch);
   const title = searched ? "没有匹配的任务" : filtered ? "此筛选下暂无任务" : "暂无任务";
   const detail = searched ? "请尝试其他文件名或链接关键词。" : filtered ? "请选择其他状态筛选。" : "选择「新建下载」，添加链接或导入 Torrent 文件。";
-  return `<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg></div><h2>${title}</h2><p>${detail}</p></div>`;
+  const illustration = searched || filtered ? "no-results" : "empty-downloads";
+  return `<div class="empty-state"><img class="empty-illustration" src="/${illustration}.png" width="192" height="192" alt="" aria-hidden="true" draggable="false"><h2>${title}</h2><p>${detail}</p></div>`;
 }
 
 function buildBitTorrentStartBody(link, sharedBody) {

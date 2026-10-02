@@ -1,0 +1,16 @@
+{
+  "generator": "Built-in image_gen.imagegen",
+  "transparent_background": true,
+  "assets": [
+    {
+      "path": "web/empty-downloads.png",
+      "purpose": "Empty download library",
+      "prompt": "Use case: stylized-concept. Asset type: production empty-state raster illustration for TrueDown, a restrained native desktop download manager. Primary request: a small sculptural open download inbox tray with one downward arrow hovering immediately above it, suggesting ready for the first download. Style: refined matte paper-and-ceramic editorial illustration, softly rounded geometry, almost orthographic three-quarter view, crisp silhouette, very subtle object shading. Palette: muted teal #487a7a and pale teal #8eb2b2 accents, warm-neutral off-white and medium neutral gray objects. Balanced neutral colors, suitable on both #ffffff and #2b2b2b UI surfaces. Composition: one compact centered coherent subject, generous but not excessive transparent margin, fills about 75 percent of a square canvas; legible when displayed at 160 pixels wide. Background: actual transparent alpha, no backdrop, no floor, no background shadow. No words, letters, numbers, logo, watermark, UI frame, gradients, decorative blobs, stars, confetti, or unrelated objects. Calm utility product illustration rather than a shiny toy."
+    },
+    {
+      "path": "web/no-results.png",
+      "purpose": "No matching search or status filter results",
+      "prompt": "Use case: stylized-concept. Asset type: production no-search-results empty-state raster illustration for TrueDown, a restrained native desktop download manager. Primary request: two small blank rounded document sheets standing together, with a small teal magnifying glass leaning across their lower-right area. Style: refined matte paper-and-ceramic editorial illustration, softly rounded geometry, almost orthographic three-quarter view, crisp silhouette, very subtle object shading. Palette: muted teal #487a7a and pale teal #8eb2b2 accents, warm-neutral off-white and medium neutral gray objects. Balanced neutral colors, suitable on both #ffffff and #2b2b2b UI surfaces. Composition: one compact centered coherent subject, generous but not excessive transparent margin, fills about 75 percent of a square canvas; legible when displayed at 160 pixels wide. Background: actual transparent alpha, no backdrop, no floor, no background shadow. No words, letters, numbers, logo, watermark, UI frame, gradients, decorative blobs, stars, confetti, or unrelated objects. Blank document sheets may have a couple of simple recessed horizontal rules but no text. Calm utility product illustration rather than a shiny toy. The glass is softly frosted pale teal, no scenery or reflections."
+    }
+  ]
+}
