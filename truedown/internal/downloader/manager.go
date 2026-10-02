@@ -2595,7 +2595,7 @@ func (m *Manager) startAria2() error {
 			m.cmd, m.logFile, m.cmdDone, m.rpc = cmd, logFile, cmdDone, rpc
 			if m.aria2Next && aria2NextSupportsNativeDiagnostics(m.aria2NextVersion) {
 				log.Printf("Aria2 Next %s native diagnostics: debug log=%s, rotation=4x10MiB, console log=%s", m.aria2NextVersion, logPath, consoleLogPath)
-				log.Printf("BitTorrent identity is owned by Aria2 Next/libtorrent: versioned A2 peer fingerprint; retired peer-agent and peer-id-prefix inputs are not effective")
+				log.Printf("BitTorrent identity uses native libtorrent; global bt-user-agent/bt-peer-id-prefix configuration supported=%t", m.supportsBTIdentity())
 			} else {
 				log.Printf("aria2 summarized diagnostics: log=%s, console-level=info, summary-interval=5s", consoleLogPath)
 			}
@@ -2654,6 +2654,9 @@ func (m *Manager) aria2StartArgs(port int, secret string, runtimeSettings Runtim
 	}
 	if m.aria2Next {
 		args = append(args, "--check-integrity=true")
+		if m.supportsBTIdentity() {
+			args = append(args, "--bt-user-agent="+runtimeSettings.BTUserAgent, "--bt-peer-id-prefix="+runtimeSettings.BTPeerIDPrefix)
+		}
 		if aria2NextSupportsNativeDiagnostics(m.aria2NextVersion) {
 			args = append(args,
 				"--log="+filepath.ToSlash(filepath.Join(m.engineLogDirectory(), profile.AriaLog)),
@@ -3237,6 +3240,7 @@ func isProtectedAriaOption(name string) bool {
 	case "gid", "dir", "out", "pause", "continue", "conditional-get", "allow-overwrite", "auto-file-renaming",
 		"always-resume", "remove-control-file", "allow-piece-length-change", "force-save",
 		"max-concurrent-downloads", "max-overall-download-limit",
+		"bt-user-agent", "bt-peer-id-prefix",
 		"header", "referer", "enable-rpc", "input-file", "save-session", "log",
 		"ca-certificate", "certificate", "private-key", "load-cookies", "save-cookies", "netrc-path",
 		"server-stat-of", "server-stat-if", "dht-file-path", "dht-file-path6", "torrent-file", "metalink-file",

@@ -126,6 +126,8 @@ test("Engine reset clears advanced parameters while preserving the captured defa
     taskDefaultsRevision: 7, downloadSettings: { extra: "--min-split-size=2M", connections: 8 },
     DEFAULT_DOWNLOAD_RULES: { filterMode: "project", excludedExtensions: null, dropboxMode: "direct", enabled: true },
     normalizeServerDownloadRules: value => value,
+    normalizeServerRuntimeSettings: value => value,
+    DEFAULT_RUNTIME_SETTINGS: { btUserAgent: "qBittorrent/5.2.3", btPeerIdPrefix: "-qB5230-" },
     DEFAULT_DOWNLOAD_SETTINGS: { extra: "" }, settingsDirtyControls: new Map([["engine", new Set()]]),
     updatePreferenceSaving: false, settingsMessages: new Map(), resolverModules: [],
     invalidateSettingRead() {}, normalizeSystemUpdateState: value => value,
@@ -151,4 +153,6 @@ test("Engine reset clears advanced parameters while preserving the captured defa
   assert.equal(context.settingsDirtyControls.has("engine"), false);
   assert.ok(writes.some(write => write.path === "/system/engine/select"));
   assert.equal(writes.find(write => write.path === "/settings/download-rules").value.dropboxMode, "direct");
+  assert.deepEqual(writes.find(write => write.path === "/settings/runtime").value,
+    { btUserAgent: "qBittorrent/5.2.3", btPeerIdPrefix: "-qB5230-" });
 });

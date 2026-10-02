@@ -125,7 +125,7 @@ async function loadSettingsPage() {
         general: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings()]),
         files: () => Promise.all([loadServerTaskDefaults(), loadFileGroupsEditor()]),
         application: () => Promise.all([loadStartupSettings(), loadTraySettings(), loadStorageLocation(), loadAuthSettings()]),
-        engine: () => Promise.all([loadServerTaskDefaults(), loadServerDownloadRules(), loadFileGroupsEditor(), loadSystemUpdateState(), loadTrackerResearchSettings(), loadResolverModules()]),
+        engine: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings(), loadServerDownloadRules(), loadFileGroupsEditor(), loadSystemUpdateState(), loadTrackerResearchSettings(), loadResolverModules()]),
         experimental: loadTrackerResearchSettings,
       };
       settingsLoads.set(page, Promise.resolve().then(() => loaders[page]?.()).finally(() => settingsLoads.delete(page)));
@@ -155,7 +155,7 @@ function initializeSettingsCategory(page) {
   if (settingsRendered.has(page)) return;
   renderSettingsCategory(page);
   if (page === "experimental") renderTrackerResearchSettings();
-  if (page === "engine") els.btClientIdentity.textContent = bitTorrentIdentityDescription(trackerResearchSettings);
+  if (page === "engine") renderBitTorrentIdentity();
   settingsRendered.add(page);
 }
 
@@ -322,6 +322,10 @@ async function saveDownloadSettings(event) {
       Object.assign(next, { folder: els.cfgFolder.value.trim(), allocation: els.cfgAllocation.value, checkIntegrity: els.cfgCheckIntegrity.checked, remoteTime: els.cfgRemoteTime.checked });
     } else if (page === "engine") {
       next.extra = els.cfgExtra.value.trim();
+      const btIdentity = {
+        btUserAgent: els.cfgBtUserAgent.value.trim(),
+        btPeerIdPrefix: els.cfgBtPeerIdPrefix.value.trim(),
+      };
       invalidateSettingRead("rules");
       downloadRules = normalizeServerDownloadRules(await requestJSON("/settings/download-rules", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -334,6 +338,11 @@ async function saveDownloadSettings(event) {
       invalidateSettingRead("rules");
       serverSaved = true;
       renderDropboxFilter(downloadRules);
+      invalidateSettingRead("runtime");
+      runtimeSettings = normalizeServerRuntimeSettings(await requestJSON("/settings/runtime", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(btIdentity),
+      }));
+      invalidateSettingRead("runtime");
     } else if (page === "experimental") {
       const settings = readTrackerResearchForm();
       let acknowledgedRisk = false;
@@ -379,7 +388,7 @@ async function saveDownloadSettings(event) {
     }
 
   } catch (error) {
-    const message = `${serverSaved ? "运行或规则设置已保存，任务默认值保存失败" : "本页设置未保存"}：${error.message}`;
+    const message = `${serverSaved ? "运行或规则设置已保存，本页未全部保存" : "本页设置未保存"}：${error.message}`;
     settingsMessages.set(page, message);
     if (currentPage === "settings" && currentSettingsPage === page) els.settingsSaveStatus.textContent = message;
     showToast(message, "error");
@@ -404,7 +413,7 @@ async function resetDownloadSettings() {
   const descriptions = {
     files: "恢复默认保存目录、文件写入与校验选项，并立即保存。自定义文件分组和已有下载文件保持不变。",
     application: "关闭开机启动和可编辑的 API Key 认证，恢复本平台的托盘点击行为。数据目录和下载文件保持不变。",
-    engine: "恢复稳定下载内核，清空高级参数，开启已安装 NEXT 的自动更新，并启用解析模块。Dropbox 恢复压缩包下载与默认过滤；文件分组、安装包和模块版本保持不变。",
+    engine: "恢复稳定下载内核与默认 BT 身份，清空高级参数，开启已安装 NEXT 的自动更新，并启用解析模块。Dropbox 恢复压缩包下载与默认过滤；文件分组、安装包和模块版本保持不变。",
     about: "恢复 TrueDown 自动更新为开启状态。",
   };
   const confirmed = await confirmAction({ title: "恢复默认设置？", message: descriptions[page] || "将本分类的设置恢复为默认值，并立即保存。", confirmLabel: "恢复默认", danger: true });
@@ -444,6 +453,11 @@ async function resetImmediateSettings(page) {
       systemUpdateState = normalizeSystemUpdateState(await post("/settings/updates", page === "about" ? { autoUpdateTrueDown: true } : { autoUpdateNext: true }));
       renderSystemUpdateState();
       if (page === "engine") {
+        invalidateSettingRead("runtime");
+        runtimeSettings = normalizeServerRuntimeSettings(await post("/settings/runtime", {
+          btUserAgent: DEFAULT_RUNTIME_SETTINGS.btUserAgent, btPeerIdPrefix: DEFAULT_RUNTIME_SETTINGS.btPeerIdPrefix,
+        }));
+        invalidateSettingRead("runtime");
         invalidateSettingRead("rules");
         downloadRules = normalizeServerDownloadRules(await post("/settings/download-rules", DEFAULT_DOWNLOAD_RULES));
         invalidateSettingRead("rules");
@@ -573,6 +587,9 @@ function renderDownloadSettings(settings = downloadSettings, rules = downloadRul
   }
   if (!page || page === "engine") {
     els.cfgExtra.value = settings.extra;
+    els.cfgBtUserAgent.value = runtime.btUserAgent;
+    els.cfgBtPeerIdPrefix.value = runtime.btPeerIdPrefix;
+    renderBitTorrentIdentity();
     renderDropboxFilter(rules);
   }
 }
@@ -592,7 +609,7 @@ function renderTrackerResearchSettings(settings = trackerResearchSettings) {
   const engineLabel = settings.engine === "next"
     ? `Aria2 Next${settings.engineVersion ? ` v${settings.engineVersion}` : ""}`
     : "内置稳定版 aria2";
-  els.btClientIdentity.textContent = bitTorrentIdentityDescription(settings);
+  renderBitTorrentIdentity(settings);
   let support = "尚未检测 Aria2 Next RPC";
   if (settings.supportKnown && settings.supported) {
     support = `${engineLabel} 的 ${settings.requiredRPC} RPC 已就绪`;
@@ -617,12 +634,28 @@ function bitTorrentIdentityDescription(settings) {
   if (settings.engine !== "next") {
     return "BitTorrent 下载需要安装并选择 Aria2 Next。";
   }
+  if (supportsBitTorrentIdentity(settings)) {
+    return "当前内核支持全局 BT 身份设置：User-Agent 用于 Tracker 请求与 Peer 扩展握手，Peer ID 前缀用于 Peer 身份。";
+  }
   const version = settings.engineVersion || "当前版本";
   const libraryVersion = KNOWN_NEXT_LIBTORRENT_VERSIONS[settings.engineVersion];
   const libraryIdentity = libraryVersion ? `libtorrent/${libraryVersion}` : "libtorrent/<官方构建版本>";
   const fingerprint = aria2NextPeerFingerprint(settings.engineVersion);
   const fingerprintText = fingerprint ? `，peer_id 前缀 ${fingerprint}` : "，peer_id 使用 A2 版本指纹";
-  return `当前 tracker/扩展握手身份由官方内核固定为 aria2-next/${version} ${libraryIdentity}${fingerprintText}；普通 HTTP User-Agent 设置不会覆盖它。`;
+  return `此旧版内核的默认身份为 aria2-next/${version} ${libraryIdentity}${fingerprintText}；请升级至 NEXT 2.6.7+ 以配置 BT 身份。`;
+}
+
+function supportsBitTorrentIdentity(settings) {
+  const parts = String(settings.engineVersion || "").split(".").map(Number);
+  return settings.engine === "next" && parts.length === 3 && parts.every(part => Number.isInteger(part) && part >= 0) &&
+    (parts[0] > 2 || (parts[0] === 2 && (parts[1] > 6 || (parts[1] === 6 && parts[2] >= 7))));
+}
+
+function renderBitTorrentIdentity(settings = systemUpdateState
+  ? { engine: systemUpdateState.engine.active, engineVersion: systemUpdateState.engine.activeVersion }
+  : trackerResearchSettings) {
+  els.btClientIdentity.textContent = bitTorrentIdentityDescription(settings);
+  els.cfgBtUserAgent.disabled = els.cfgBtPeerIdPrefix.disabled = !supportsBitTorrentIdentity(settings);
 }
 
 function aria2NextPeerFingerprint(version) {
@@ -752,6 +785,8 @@ async function loadServerDownloadRules() {
 function normalizeServerRuntimeSettings(value) {
   const settings = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
+    btUserAgent: typeof settings.btUserAgent === "string" ? settings.btUserAgent : DEFAULT_RUNTIME_SETTINGS.btUserAgent,
+    btPeerIdPrefix: typeof settings.btPeerIdPrefix === "string" ? settings.btPeerIdPrefix : DEFAULT_RUNTIME_SETTINGS.btPeerIdPrefix,
     concurrentDownloads: boundedInt(
       settings.concurrentDownloads,
       1,
@@ -1157,6 +1192,7 @@ function renderSystemUpdateState() {
   KDComponents.setBusyState(els.restartTruedownUpdateBtn, restartingForUpdate, { manageDisabled: false });
 
   const activeLabel = engine.active === "next" ? "Aria2 Next" : "内置稳定版 aria2";
+  renderBitTorrentIdentity({ engine: engine.active, engineVersion: engine.activeVersion });
   els.engineVersion.textContent = `${activeLabel}${engine.activeVersion ? ` v${engine.activeVersion}` : ""}`;
   let engineStatus = engine.active === "next"
     ? `当前使用 NEXT v${engine.activeVersion || engine.nextInstalledVersion || "unknown"}。`

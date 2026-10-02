@@ -167,12 +167,19 @@ filename is complete. HTTP(S) torrent URLs initially create a metadata download
 whose `followedBy` BT child has a different GID; TrueDown detects that child,
 rebinds the task, and persists the child GID for later control and resume.
 
-The official Aria2 Next binary owns its complete BitTorrent identity. Current
-NEXT uses libtorrent-rasterbar and reports an `aria2-next/<version>
-libtorrent/<version>` tracker/extended-handshake User-Agent with an `A2`
-versioned peer fingerprint. Its compatibility adapter intentionally ignores the
-retired aria2 `peer-agent` and `peer-id-prefix` options, so TrueDown does not
-offer misleading controls that would change only part of the identity.
+Aria2 Next 2.6.7+ exposes global `bt-user-agent` and `bt-peer-id-prefix`
+options. Settings > Engine and modules configures both through the existing
+runtime-settings API, persists them, applies them immediately through
+`aria2.changeGlobalOption`, and restores them at engine startup. The reviewed
+2.8.3 defaults are `qBittorrent/5.2.3` and `-qB5230-`; blank fields restore
+these defaults. TrueDown bounds them to 512 and 20 printable ASCII bytes.
+libtorrent handles tracker requests, extended handshakes and peer identity;
+existing peer connections may need to reconnect to use a changed identity.
+These global settings apply to imported torrents, torrent URLs and magnets,
+independently of HTTP User-Agent/headers. Per-task extra arguments cannot
+override them. Stable aria2 and older NEXT versions never receive these
+options; saved preferences remain available when a supported NEXT is selected.
+Retired `peer-agent` and `peer-id-prefix` are not substitutes for these options.
 
 TrueDown requests native peer, seeder, connection-candidate, tracker-count, and
 availability fields in its bounded status poll and includes them in BT task

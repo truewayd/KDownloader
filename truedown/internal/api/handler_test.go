@@ -519,7 +519,7 @@ func TestRuntimeSettingsEndpointPersistsAria2GlobalSettings(t *testing.T) {
 	getResponse := httptest.NewRecorder()
 	mux.ServeHTTP(getResponse, get)
 	if getResponse.Code != http.StatusOK || getResponse.Body.String() !=
-		"{\"concurrentDownloads\":3,\"globalDownloadLimitBps\":0}\n" {
+		"{\"concurrentDownloads\":3,\"globalDownloadLimitBps\":0,\"btUserAgent\":\"qBittorrent/5.2.3\",\"btPeerIdPrefix\":\"-qB5230-\"}\n" {
 		t.Fatalf("default runtime settings status=%d body=%s", getResponse.Code, getResponse.Body.String())
 	}
 	post := httptest.NewRequest(http.MethodPost, "/settings/runtime", strings.NewReader(

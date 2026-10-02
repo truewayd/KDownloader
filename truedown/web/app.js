@@ -18,6 +18,8 @@ const DEFAULT_DOWNLOAD_RULES = Object.freeze({
 const DEFAULT_RUNTIME_SETTINGS = Object.freeze({
   concurrentDownloads: 3,
   globalDownloadLimitBps: 0,
+  btUserAgent: "qBittorrent/5.2.3",
+  btPeerIdPrefix: "-qB5230-",
 });
 const KNOWN_NEXT_LIBTORRENT_VERSIONS = Object.freeze({
   "2.6.6": "2.1.1",
@@ -242,6 +244,8 @@ function cacheElements() {
 	"tracker-upload-multiplier-max",
 	"tracker-upload-multiplier-min",
 	"bt-client-identity",
+    "cfg-bt-user-agent",
+    "cfg-bt-peer-id-prefix",
 	"application-log-output",
 	"application-log-status",
 	"truedown-update-status",

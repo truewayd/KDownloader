@@ -415,9 +415,20 @@
           </section>
 <section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-bt-diagnostics-title">
             <div class="settings-section-heading">
-              <h3 id="settings-bt-diagnostics-title">BitTorrent 诊断</h3>
+              <h3 id="settings-bt-diagnostics-title">BitTorrent 客户端身份</h3>
             </div>
             <p class="hint" id="bt-client-identity" aria-live="polite" data-kd-notice="info">正在读取当前内核身份…</p>
+            <div class="form-grid">
+              <div class="field">
+                <label for="cfg-bt-user-agent">BT User-Agent</label>
+                <input class="kd-input" id="cfg-bt-user-agent" type="text" maxlength="512" placeholder="qBittorrent/5.2.3" aria-describedby="bt-identity-help">
+              </div>
+              <div class="field">
+                <label for="cfg-bt-peer-id-prefix">BT Peer ID 前缀</label>
+                <input class="kd-input" id="cfg-bt-peer-id-prefix" type="text" maxlength="20" placeholder="-qB5230-" aria-describedby="bt-identity-help">
+              </div>
+            </div>
+            <p class="hint" id="bt-identity-help">适用于所有 torrent 和磁力任务，与普通 HTTP User-Agent 独立。仅支持可打印 ASCII，留空恢复上述默认值。保存后应用于内核，已建立的 Peer 连接可能需重连才更新身份。</p>
             <p class="hint">Aria2 Next 2.6.5+ 的诊断日志位于数据目录的 <code>aria2.log</code>；连接和可用性见任务进度。</p>
           </section>
 <section data-settings-page="experimental" hidden class="settings-section tracker-research-section" aria-labelledby="settings-tracker-research-title">

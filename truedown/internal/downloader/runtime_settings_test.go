@@ -43,7 +43,8 @@ func TestRuntimeSettingsDefaultValidateAndPersist(t *testing.T) {
 		fake.globalOptions[0]["max-overall-download-limit"] != "8388608" {
 		t.Fatalf("aria2 global options=%v", fake.globalOptions)
 	}
-	legacy, err := manager.UpdateRuntimeSettings(RuntimeSettingsUpdate{ConcurrentDownloads: 5})
+	concurrency := 5
+	legacy, err := manager.UpdateRuntimeSettings(RuntimeSettingsUpdate{ConcurrentDownloads: &concurrency})
 	if err != nil || legacy.ConcurrentDownloads != 5 || legacy.GlobalDownloadLimitBps != 8*1024*1024 {
 		t.Fatalf("legacy runtime update=%+v err=%v", legacy, err)
 	}

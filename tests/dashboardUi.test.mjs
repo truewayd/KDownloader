@@ -173,6 +173,7 @@ test("settings navigation stays immediate and a late category read never overwri
   let complete;
   let loads = 0;
   let rendered = 0;
+  const runtimeRead = new Promise(resolve => { complete = resolve; });
   const panels = { general: { inert: false }, engine: { inert: false } };
   const content = { dataset: {}, scrollTop: 120 };
   const fields = Object.fromEntries(["settingsFooter", "settingsSaveStatus", "settingsReloadBtn", "settingsSaveBtn", "settingsResetBtn", "settingsLoadStatus"].map((name) => [name, control()]));
@@ -184,10 +185,10 @@ test("settings navigation stays immediate and a late category read never overwri
     cancelReadRetry() {}, scheduleReadRetry() {},
     EDITABLE_SETTINGS_PAGES: new Set(["general", "engine"]),
     scheduleSystemUpdateRefresh() {}, loadSystemUpdateState() {},
-    trackerResearchSettings: {}, bitTorrentIdentityDescription: () => "",
+    trackerResearchSettings: {}, renderBitTorrentIdentity() {},
     document: { querySelectorAll: () => [], querySelector: selector => selector === ".settings-content" ? content : null, getElementById: () => control() },
     settingsPanels: (page) => [panels[page]],
-    loadServerRuntimeSettings: () => { loads++; return new Promise((resolve) => { complete = resolve; }); },
+    loadServerRuntimeSettings: () => { loads++; return runtimeRead; },
     loadServerTaskDefaults() {}, loadServerDownloadRules() {}, loadSettingsOverview() {}, loadStartupSettings() {},
     loadFileGroupsEditor() {}, loadResolverModules() {}, loadAuthSettings() {}, loadTrackerResearchSettings() {},
     renderSettingsCategory() { rendered++; }, renderSettingsOverview() {},
@@ -204,11 +205,14 @@ test("settings navigation stays immediate and a late category read never overwri
   assert.equal(panels.general.inert, true);
   context.currentSettingsPage = "engine";
   context.routeEpoch++;
-  await context.loadSettingsPage();
+  const engineLoad = context.loadSettingsPage();
+  await Promise.resolve();
+  assert.equal(panels.engine.inert, true, "engine identity also waits for runtime settings");
+  complete();
+  await engineLoad;
   assert.equal(rendered, 1);
   assert.equal(panels.engine.inert, false);
   assert.equal(content.dataset.loading, "false");
-  complete();
   await Promise.all([first, second]);
   assert.equal(rendered, 1, "late runtime settings must not reset an advanced draft");
   assert.equal(context.settingsReady.has("general"), true);
