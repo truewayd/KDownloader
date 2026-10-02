@@ -101,7 +101,11 @@ for (const id of manifest.nativeWindow) {
   await output(`truedown/desktop/icons/window/${id}.png`, render(svg, 256));
 }
 
-const brand = await fs.readFile(path.join(project, "web/truedown-logo.svg"));
+// The web logo has generous inline spacing. Desktop launchers need a fuller
+// silhouette: retain 31px above/below the artwork in an 880px square viewport.
+const brandSource = await fs.readFile(path.join(project, "web/truedown-logo.svg"), "utf8");
+if (!brandSource.includes('viewBox="0 0 1024 1024"')) throw new Error("Unexpected brand viewBox");
+const brand = brandSource.replace('viewBox="0 0 1024 1024"', 'viewBox="72 72 880 880"');
 const frames = new Map();
 function brandFrame(size) {
   if (!frames.has(size)) frames.set(size, render(brand, size));
