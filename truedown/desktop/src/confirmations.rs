@@ -363,7 +363,10 @@ mod tests {
             "apply_material_extra",
             "",
         ] {
-            assert!(!command_allowed(command), "{command} must remain unavailable");
+            assert!(
+                !command_allowed(command),
+                "{command} must remain unavailable"
+            );
         }
     }
 
