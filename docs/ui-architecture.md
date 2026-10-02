@@ -205,13 +205,15 @@ primitives retain the shared extension token contract; this single product
 layer supplies the reference neutral surfaces used by extension pages and injected Shadow DOM controls. `native-appearance.css` owns OS frame
 and material integration only. Page styles own layout, not alternate palettes.
 
-Windows settings, new-download, task-detail and confirmation windows expose
-Mica continuously from caption to content. Do not cover their workspace or
-footer with an opaque card; input and action surfaces retain their own contrast.
-Native frames extend the backdrop across the client area while keeping the
-caption-control exclusion intact. Reduced transparency, high contrast and
-unsupported systems retain the solid fallback. Native HMENU surfaces retain
-their separate opaque rendering policy.
+Windows information, warning and danger confirmations expose Mica continuously
+from caption to content and footer. Settings, new-download and task-detail
+windows retain their opaque working surfaces. Custom native frames extend only
+the caption height, preserving DWM caption composition and the WebView's
+caption-control exclusion; Mica backdrop attributes are applied separately.
+Standard-caption confirmations use a full-client extension and may invoke only
+their own material update alongside initialization, readiness and answering.
+Reduced transparency, high contrast and unsupported systems retain the solid
+fallback. Native HMENU surfaces retain their separate opaque rendering policy.
 
 - Neutral light/dark surfaces; retain the teal brand accent for active actions.
 - System fonts; body 14px, controls/menu labels 13px, section headings 15px,
