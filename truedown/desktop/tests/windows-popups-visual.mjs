@@ -113,6 +113,16 @@ try {
     await popup.emulateMedia({ colorScheme: null });
     await popup.locator("#confirm").waitFor({ state: "visible" });
     await until(() => popup.locator("#title").textContent().then(value => value === title));
+    // Exercise the real popup IPC gate; a browser mock cannot detect a denied
+    // apply_material command silently falling back to an opaque surface.
+    const material = await settings.evaluate(() => document.documentElement.dataset.material);
+    await until(() => popup.evaluate(expected => document.documentElement.dataset.material === expected, material));
+    if (material === "native") {
+      assert.deepEqual(await popup.evaluate(() => ["html", "body", ".confirmation", ".confirmation footer"]
+        .map(selector => getComputedStyle(document.querySelector(selector)).backgroundColor)),
+      Array(4).fill("rgba(0, 0, 0, 0)"));
+    }
+    await assert.rejects(invoke(popup, "core_request", { method: "GET", path: "/system" }), /Unavailable in confirmation windows/);
     await until(async () => {
       if (popup.isClosed()) throw new Error(`Popup ${kind} closed during readiness: ${await settings.evaluate(() => window.popupResult)}`);
       const state = await popup.evaluate(() => ({ active: window.__popupActive, message: document.getElementById("message").textContent }));

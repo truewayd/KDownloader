@@ -2,6 +2,13 @@ use std::sync::Arc;
 use tauri::{Manager, WebviewWindow};
 use tokio::sync::{oneshot, Mutex};
 
+pub fn command_allowed(command: &str) -> bool {
+    matches!(
+        command,
+        "confirmation_init" | "confirmation_ready" | "confirmation_answer" | "apply_material"
+    )
+}
+
 #[derive(Default)]
 pub struct Confirmations {
     slots: [Arc<Mutex<()>>; 4],
@@ -332,6 +339,34 @@ pub async fn confirmation_cancel(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn confirmation_material_is_allowed_without_granting_other_window_actions() {
+        assert!(command_allowed("apply_material"));
+        for command in [
+            "confirmation_init",
+            "confirmation_ready",
+            "confirmation_answer",
+        ] {
+            assert!(command_allowed(command));
+        }
+        for command in [
+            "core_request",
+            "copy_api_token",
+            "frame_action",
+            "frame_tooltip",
+            "open_auxiliary",
+            "confirm_action",
+            "confirmation_cancel",
+            "edit_action",
+            "take_task_clipboard",
+            "tray_settings",
+            "apply_material_extra",
+            "",
+        ] {
+            assert!(!command_allowed(command), "{command} must remain unavailable");
+        }
+    }
+
     #[test]
     fn completed_or_cancelled_confirmations_never_become_initialization_timeouts() {
         let late = std::time::Duration::from_secs(20);

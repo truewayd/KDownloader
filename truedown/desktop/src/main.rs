@@ -169,10 +169,7 @@ fn main() {
                 .webview_ref()
                 .label()
                 .starts_with("confirmation-")
-                && !matches!(
-                    invoke.message.command(),
-                    "confirmation_init" | "confirmation_ready" | "confirmation_answer"
-                )
+                && !confirmations::command_allowed(invoke.message.command())
             {
                 invoke
                     .resolver
