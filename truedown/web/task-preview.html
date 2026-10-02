@@ -16,11 +16,13 @@
   <script src="/native-windows.js"></script>
   <script src="/native-appearance.js" defer></script>
   <script src="/native-frame.js" defer></script>
+  <script src="/preview-player.js" defer></script>
   <script src="/task-preview.js" defer></script>
 </head>
 <body>
   <div class="preview-layout">
     <header class="preview-toolbar" aria-label="预览操作">
+      <span id="preview-kind" class="preview-kind">文件预览</span>
       <div class="preview-zoom" role="group" aria-label="图片缩放">
         <button class="kd-button secondary" id="preview-fit" type="button">适应窗口</button>
         <button class="kd-button secondary" id="preview-actual" type="button">100%</button>
@@ -28,6 +30,7 @@
         <output id="preview-scale" aria-label="当前缩放">—</output>
         <button class="kd-icon-button" id="preview-in" type="button" aria-label="放大">＋</button>
       </div>
+      <button class="kd-button secondary" id="preview-wrap" type="button" aria-pressed="true" hidden>自动换行</button>
       <div class="preview-actions" role="group" aria-label="文件操作">
         <button class="kd-button secondary" data-preview-action="open-file" type="button">打开文件</button>
         <button class="kd-button secondary" data-preview-action="open-with" type="button">打开方式…</button>

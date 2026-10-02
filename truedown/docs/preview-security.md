@@ -44,8 +44,9 @@ boundary. Header checks reduce resource abuse; they do not prove arbitrary codec
   Embedded/compressed BMP payloads and animated WebP are refused.
 - JPEG header inspection is limited to 1 MiB. RIFF/PNG chunk lengths and GIF subblocks must stay inside
   the bounded input; complex/truncated containers fail closed. These checks allocate no pixel buffers.
-- MP4/WebM and MP3/WAV/Ogg/FLAC/M4A use signature-checked, blob-backed native media controls without
-  autoplay. Decoder availability varies by OS. Unsupported codecs remain an ordinary preview error.
+- MP4/WebM and MP3/WAV/Ogg/FLAC/M4A use signature-checked, blob-backed media elements without
+  autoplay. Project-owned controls operate those elements only; no extra IPC/capability or network
+  access is granted. Decoder availability varies by OS. Unsupported codecs remain an ordinary preview error.
 - UTF-8 text, JSON, XML, CSV, Markdown and logs render via `textContent`, with no HTML or Markdown
   evaluation. HTML, SVG, PDF, AVIF, scripts, executables and unknown formats have no embedded viewer.
 - Images have no drag payload. Hiding, switching tasks or unloading aborts reads, pauses/unloads media,

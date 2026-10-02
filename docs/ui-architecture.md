@@ -375,6 +375,25 @@ or Mica rendering, and overlapping desktop windows can obscure screen captures.
 Add `--layout-only` to check native task-detail gutters without cycling themes.
 Ordinary `test:windows` acceptance remains hidden.
 
+### Download preview controls
+
+The download preview switches its toolbar by content type. Image zoom is hidden for
+text and media; text uses a selectable reading surface with optional line wrapping.
+`preview-player.js` owns the audio/video controls over blob-backed media elements:
+seek, time/buffer state, play/pause, ten-second steps, volume/mute, speed and video
+fullscreen. Controls remain visible in a separate bottom surface instead of covering
+the image; audio uses a compact, centered music identity and filename. Follow the
+existing teal accent, neutral alpha surfaces, system typography and control radii.
+The window and toolbar retain the native material background.
+
+Media controls use labelled buttons and keyboard-accessible ranges. Player shortcuts
+apply only when focus is outside a control, so arrows and Space retain normal input
+and button behavior. Fullscreen is user-initiated and may fail with an actionable
+message; exiting, hiding or replacing a preview aborts listeners and releases media.
+Do not add native playback controls, autoplay, external poster art or decoder plugins.
+See the [media API](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement)
+and [custom player guide](https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Audio_and_video_delivery/cross_browser_video_player).
+
 ### Shared component changes
 
 - Add reusable behavior to `shared/components.js`, not page scripts.

@@ -5,6 +5,11 @@ import { chromium } from "playwright";
 
 const assets = new URL("../../web/", import.meta.url);
 const png = await readFile(new URL("empty-downloads.png", assets));
+const wav = Buffer.alloc(44 + 44100 * 2 * 4);
+wav.write("RIFF"); wav.writeUInt32LE(wav.length - 8, 4); wav.write("WAVEfmt ", 8);
+wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+wav.writeUInt32LE(44100, 24); wav.writeUInt32LE(88200, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+wav.write("data", 36); wav.writeUInt32LE(wav.length - 44, 40);
 const server = http.createServer(async (request, response) => {
   const name = new URL(request.url, "http://localhost").pathname.slice(1);
   if (!/^[a-z0-9-]+\.(html|css|js|svg)$/.test(name)) { response.writeHead(404).end(); return; }
@@ -18,10 +23,23 @@ await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 let browser;
 try {
   browser = await chromium.launch({ headless: true });
+  const encoder = await browser.newPage();
+  const video = await encoder.evaluate(async () => {
+    const canvas = document.createElement("canvas"); canvas.width = 320; canvas.height = 180;
+    const context = canvas.getContext("2d"); context.fillStyle = "#487a7a"; context.fillRect(0, 0, 320, 180);
+    const stream = canvas.captureStream(10), recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+    const chunks = [];
+    recorder.ondataavailable = event => chunks.push(event.data);
+    const ended = new Promise(resolve => { recorder.onstop = resolve; });
+    recorder.start(); await new Promise(resolve => setTimeout(resolve, 500)); recorder.stop(); await ended;
+    stream.getTracks().forEach(track => track.stop());
+    return btoa(String.fromCharCode(...new Uint8Array(await new Blob(chunks).arrayBuffer())));
+  });
+  await encoder.close();
   const page = await browser.newPage({ viewport: { width: 1000, height: 760 } });
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
-  await page.addInitScript(({ image }) => {
+  await page.addInitScript(({ image, audio, video }) => {
     window.__TRUEDOWN_PLATFORM__ = "windows";
     window.previewEvents = {}; window.previewRequests = [];
     window.__TAURI__ = {
@@ -37,13 +55,13 @@ try {
         if (url.pathname !== "/tasks/preview") return { status: 200, body: "OK" };
         const id = Number(url.searchParams.get("id"));
         const offset = Number(url.searchParams.get("offset"));
-        const data = id === 1 ? atob(image) : '<script>window.injected=true</script>\nplain text';
+        const data = id === 1 ? atob(image) : id === 4 ? atob(audio) : id === 5 ? atob(video) : '<script>window.injected=true</script>\nplain text';
         const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(data, char => char.charCodeAt(0)));
         const sha256 = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-        return { status: 200, body: JSON.stringify({ name: id === 1 ? "preview.png" : "notes.txt", mime: id === 1 ? "image/png" : "text/plain", size: data.length, sha256, version: "a".repeat(64), offset, data: btoa((id === 3 ? data.replace("plain", "other") : data).slice(offset, offset + 512 * 1024)) }) };
+        return { status: 200, body: JSON.stringify({ name: id === 1 ? "preview.png" : id === 4 ? "sample.wav" : id === 5 ? "sample.webm" : "notes.txt", mime: id === 1 ? "image/png" : id === 4 ? "audio/wav" : id === 5 ? "video/webm" : "text/plain", size: data.length, sha256, version: "a".repeat(64), offset, data: btoa((id === 3 ? data.replace("plain", "other") : data).slice(offset, offset + 512 * 1024)) }) };
       } },
     };
-  }, { image: png.toString("base64") });
+  }, { image: png.toString("base64"), audio: wav.toString("base64"), video });
   await page.goto(`http://127.0.0.1:${server.address().port}/task-preview.html?window=task-preview`);
   await page.waitForFunction(() => document.querySelector("#preview-stage img")?.naturalWidth > 0);
   if (process.env.TRUEDOWN_PREVIEW_SCREENSHOT) await page.screenshot({ path: process.env.TRUEDOWN_PREVIEW_SCREENSHOT });
@@ -67,6 +85,9 @@ try {
   await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 2, revision: 2, open: true } }));
   await page.waitForFunction(() => document.querySelector("#preview-stage pre")?.textContent.includes("<script>"));
   assert.equal(await page.evaluate(() => Boolean(window.injected)), false);
+  assert.equal(await page.locator(".preview-zoom").isVisible(), false);
+  await page.locator("#preview-wrap").click();
+  assert.equal(await page.locator("#preview-stage pre").evaluate(element => getComputedStyle(element).whiteSpace), "pre");
   assert.equal(await page.evaluate(async () => {
     try { await fetch("https://example.invalid/blocked-by-preview-csp"); return false; } catch { return true; }
   }), true, "preview CSP prevents external network access");
@@ -77,8 +98,55 @@ try {
   await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 3, revision: 4, open: true } }));
   await page.waitForFunction(() => document.querySelector("#preview-status").textContent.includes("发生变化"));
   assert.equal(await page.locator("#preview-stage > *").count(), 0, "tampered chunks must never reach a decoder");
+  await page.setViewportSize({ width: 1000, height: 760 });
+  await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 4, revision: 5, open: true } }));
+  await page.waitForFunction(() => document.querySelector("audio")?.readyState >= 3);
+  assert.equal(await page.locator("audio").evaluate(media => media.controls || !media.paused), false, "custom controls without autoplay");
+  await page.getByRole("button", { name: "播放", exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector("audio").paused);
+  await page.getByRole("button", { name: "暂停", exact: true }).click();
+  await page.locator(".preview-player").focus(); await page.keyboard.press("k");
+  await page.waitForFunction(() => !document.querySelector("audio").paused);
+  await page.keyboard.press("Space");
+  assert.equal(await page.locator("audio").evaluate(media => media.paused), true);
+  await page.getByRole("button", { name: "静音", exact: true }).click();
+  assert.equal(await page.locator("audio").evaluate(media => media.muted), true);
+  await page.getByRole("button", { name: "取消静音", exact: true }).click();
+  await page.locator(".player-volume").evaluate(input => { input.value = ".35"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+  assert.equal(await page.locator("audio").evaluate(media => media.volume), .35);
+  await page.locator(".player-volume").evaluate(input => { input.value = "0"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+  await page.getByRole("button", { name: "取消静音", exact: true }).click();
+  assert.equal(await page.locator("audio").evaluate(media => !media.muted && media.volume === .35), true, "unmute restores the last audible volume");
+  await page.locator(".player-rate").click();
+  assert.equal(await page.locator("audio").evaluate(media => media.playbackRate), 1.25);
+  await page.locator(".player-seek").evaluate(input => { input.value = "2"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })); });
+  await page.waitForFunction(() => Math.abs(document.querySelector("audio").currentTime - 2) < .1);
+  await page.locator(".player-seek").focus(); await page.keyboard.press("ArrowRight");
+  assert.ok(await page.locator("audio").evaluate(media => media.currentTime > 2 && media.currentTime < 3), "range arrow does not trigger the player's 10s shortcut");
+  await page.getByRole("button", { name: "前进 10 秒" }).click();
+  await page.waitForFunction(() => document.querySelector("audio").currentTime === document.querySelector("audio").duration);
+  for (const size of [{width:620,height:480},{width:360,height:360}]) {
+    await page.setViewportSize(size);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth || document.documentElement.scrollHeight > innerHeight), false);
+    assert.ok(await page.locator(".player-controls").evaluate(element => element.scrollWidth <= element.clientWidth));
+  }
+  await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+  assert.equal(await page.locator(".player-seek").evaluate(element => getComputedStyle(element).appearance), "auto");
+  await page.emulateMedia({ forcedColors: "none" });
+  await page.evaluate(() => { window.retiredMedia = document.querySelector("audio"); });
+  await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 5, revision: 6, open: true } }));
+  await page.waitForFunction(() => document.querySelector("video")?.readyState >= 2);
+  assert.equal(await page.evaluate(() => retiredMedia.paused && !retiredMedia.hasAttribute("src")), true);
+  assert.equal(await page.locator("video").evaluate(media => media.controls), false);
+  await page.setViewportSize({width:1000,height:760});
+  await page.getByRole("button", { name: "全屏", exact: true }).click();
+  await page.waitForFunction(() => document.fullscreenElement?.classList.contains("preview-player"));
+  await page.getByRole("button", { name: "退出全屏", exact: true }).click();
+  await page.waitForFunction(() => !document.fullscreenElement);
+  await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 5, revision: 7, open: false } }));
+  assert.equal(await page.locator(".preview-player").count(), 0);
   assert.deepEqual(errors, []);
-  console.log("Preview chunks, responsive fit/zoom, open-with, inert text, stale targets and close cleanup passed");
+  console.log("Preview security, fit/zoom, inert text, custom media playback/seek/volume/rate/fullscreen, responsive controls and cleanup passed");
 } finally {
   await browser?.close();
   await new Promise(resolve => server.close(resolve));

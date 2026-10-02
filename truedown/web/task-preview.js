@@ -2,18 +2,28 @@
   const stage = document.getElementById("preview-stage"), status = document.getElementById("preview-status");
   const info = document.getElementById("preview-info"), scaleLabel = document.getElementById("preview-scale");
   const zoomButtons = [...document.querySelectorAll(".preview-zoom button")];
+  const kindLabel = document.getElementById("preview-kind"), wrapButton = document.getElementById("preview-wrap");
+  let player = null;
+  wrapButton.onclick = () => {
+    const wrap = wrapButton.getAttribute("aria-pressed") !== "true";
+    wrapButton.setAttribute("aria-pressed", String(wrap)); stage.classList.toggle("preview-nowrap", !wrap);
+  };
   let target = null, controller = null, objectURL = null, picture = null, fit = true, scale = 1, disposed = false;
   let retryTimer = 0, retryDelay = 1000;
   const message = text => { status.textContent = text; };
   const release = () => {
     clearTimeout(retryTimer);
     controller?.abort(); controller = null;
+    player?.dispose(); player = null;
     for (const media of stage.querySelectorAll("video, audio")) { media.pause(); media.removeAttribute("src"); media.load(); }
     stage.replaceChildren(); picture = null;
     if (objectURL) URL.revokeObjectURL(objectURL);
     objectURL = null;
     zoomButtons.forEach(button => { button.disabled = true; });
     scaleLabel.textContent = "—";
+    document.querySelector(".preview-zoom").hidden = true; wrapButton.hidden = true;
+    stage.dataset.kind = ""; kindLabel.textContent = "文件预览";
+    stage.classList.remove("preview-nowrap"); wrapButton.setAttribute("aria-pressed", "true");
   };
   const resize = () => {
     if (!picture?.naturalWidth) return;
@@ -92,15 +102,18 @@
       document.title = String(metadata.name).replace(/[\u0000-\u001f\u007f-\u009f]/g, " ");
       info.textContent = `${metadata.name} · ${(metadata.size / 1024 / 1024).toFixed(2)} MiB`;
       if (metadata.mime === "text/plain") {
+        stage.dataset.kind = "text"; kindLabel.textContent = "文本"; wrapButton.hidden = false;
         const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
         if (!current()) return;
         const pre = document.createElement("pre"); pre.textContent = text; stage.append(pre);
       } else {
         const type = metadata.mime.startsWith("image/") ? "img" : metadata.mime.startsWith("audio/") ? "audio" : metadata.mime.startsWith("video/") ? "video" : null;
         if (!type) throw new Error("此格式暂不支持预览，请选择打开文件或打开方式。");
+        stage.dataset.kind = type; kindLabel.textContent = { img: "图片", audio: "音频", video: "视频" }[type];
         objectURL = URL.createObjectURL(blob);
         const element = document.createElement(type);
         if (type === "img") {
+          document.querySelector(".preview-zoom").hidden = false;
           element.alt = metadata.name; element.draggable = false;
           element.onload = () => {
             if (!current()) return;
@@ -108,9 +121,11 @@
             info.textContent += ` · ${element.naturalWidth} × ${element.naturalHeight}`;
             zoomButtons.forEach(button => { button.disabled = false; });
           };
-        } else { element.controls = true; element.preload = "metadata"; }
+        } else {
+          player = TrueDownPreviewPlayer.create(element, metadata.name, text => { if (current()) message(text); });
+        }
         element.onerror = () => { if (current()) message("当前 WebView 无法解码此文件，请选择打开文件或打开方式。"); };
-        element.src = objectURL; stage.append(element);
+        element.src = objectURL; stage.append(player ? player.element : element);
       }
       bytes = null;
       message("");
