@@ -68,9 +68,12 @@ fn apply(window: &WebviewWindow, enabled: bool, dark: bool) -> bool {
     #[cfg(windows)]
     {
         use windows_sys::Win32::{
-            Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE},
+            Graphics::Dwm::{
+                DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE,
+            },
             UI::{
                 Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW},
+                Controls::MARGINS,
                 WindowsAndMessaging::{SystemParametersInfoW, SPI_GETHIGHCONTRAST},
             },
         };
@@ -99,6 +102,21 @@ fn apply(window: &WebviewWindow, enabled: bool, dark: bool) -> bool {
             && contrast.dwFlags & HCF_HIGHCONTRASTON == 0
             && window_vibrancy::apply_mica(window, Some(dark)).is_ok()
         {
+            // Confirmations keep the standard OS caption, so they do not pass
+            // through our custom frame's full-client backdrop extension.
+            if window.label().starts_with("confirmation-") {
+                if let Ok(handle) = window.hwnd() {
+                    unsafe {
+                        DwmExtendFrameIntoClientArea(
+                            handle.0,
+                            &MARGINS {
+                                cxLeftWidth: -1,
+                                ..Default::default()
+                            },
+                        );
+                    }
+                }
+            }
             return true;
         }
         let _ = window_vibrancy::clear_mica(window);

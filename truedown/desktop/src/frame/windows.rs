@@ -160,7 +160,9 @@ unsafe fn refresh(hwnd: HWND) {
     DwmExtendFrameIntoClientArea(
         hwnd,
         &MARGINS {
-            cyTopHeight: top,
+            // Keep the material continuous beneath transparent WebView content.
+            // Caption exclusion below still protects the native controls.
+            cxLeftWidth: -1,
             ..Default::default()
         },
     );
