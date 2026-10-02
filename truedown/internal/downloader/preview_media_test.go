@@ -62,6 +62,29 @@ func TestPreviewMediaSignaturesAndPixelBudget(t *testing.T) {
 	}
 }
 
+func TestPreviewWAVSignatureAlias(t *testing.T) {
+	wav := make([]byte, 46)
+	copy(wav, "RIFF")
+	binary.LittleEndian.PutUint32(wav[4:8], uint32(len(wav)-8))
+	copy(wav[8:], "WAVEfmt ")
+	binary.LittleEndian.PutUint32(wav[16:20], 16)
+	binary.LittleEndian.PutUint16(wav[20:22], 1)
+	binary.LittleEndian.PutUint16(wav[22:24], 1)
+	binary.LittleEndian.PutUint32(wav[24:28], 44100)
+	binary.LittleEndian.PutUint32(wav[28:32], 88200)
+	binary.LittleEndian.PutUint16(wav[32:34], 2)
+	binary.LittleEndian.PutUint16(wav[34:36], 16)
+	copy(wav[36:], "data")
+	binary.LittleEndian.PutUint32(wav[40:44], 2)
+	if err := checkPreviewMedia(t, wav, "audio/wav"); err != nil {
+		t.Fatal(err)
+	}
+	copy(wav[8:12], "AVI ")
+	if err := checkPreviewMedia(t, wav, "audio/wav"); err == nil {
+		t.Fatal("non-WAVE RIFF accepted as WAV")
+	}
+}
+
 func TestPreviewAnimationBudget(t *testing.T) {
 	frame := image.NewPaletted(image.Rect(0, 0, 2, 2), color.Palette{color.Black, color.White})
 	animation := gif.GIF{}

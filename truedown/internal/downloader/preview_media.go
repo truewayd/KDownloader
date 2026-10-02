@@ -34,7 +34,7 @@ func validatePreviewMedia(file *os.File, size int64, mime string) error {
 	if mime == "audio/flac" && strings.HasPrefix(string(header), "fLaC") {
 		return nil
 	}
-	if !(detected == mime || mime == "audio/ogg" && detected == "application/ogg" || mime == "audio/mp4" && detected == "video/mp4") {
+	if !(detected == mime || mime == "audio/wav" && detected == "audio/wave" || mime == "audio/ogg" && detected == "application/ogg" || mime == "audio/mp4" && detected == "video/mp4") {
 		return fmt.Errorf("file signature does not match its preview type")
 	}
 	if !strings.HasPrefix(mime, "image/") {
