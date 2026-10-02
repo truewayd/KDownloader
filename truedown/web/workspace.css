@@ -356,7 +356,8 @@
 .batch-toolbar .kd-button.danger:hover:not(:disabled) { background: #ce3c3c; color: #fff; }
 .batch-toolbar > .kd-icon-button { width: 32px; height: 32px; min-height: 32px; border-radius: 50%; }
 .batch-toolbar .icon { width: 16px; height: 16px; }
-.task-panel:has(.batch-toolbar:not([hidden])) #tasks-wrap { padding-bottom: 96px; scroll-padding-bottom: 96px; }
+/* Keep focus clearance without changing the virtual list's scroll geometry. */
+.task-panel:has(.batch-toolbar:not([hidden])) #tasks-wrap { scroll-padding-bottom: 96px; }
 .task-rows tr.is-selected { background: color-mix(in srgb, var(--kd-text) 6%, transparent); }
 .task-rows tr[data-update-download="true"] .task-file-cell > .icon { color: var(--kd-accent); }
 .update-task-label { color: var(--kd-accent); font-weight: 600; }
