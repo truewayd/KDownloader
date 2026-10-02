@@ -332,8 +332,12 @@ async function loadDBModule() {
 
   const constantsSource = await readFile(path.join(root, "background", "constants.js"), "utf8");
   const constantsUrl = `data:text/javascript;base64,${Buffer.from(constantsSource).toString("base64")}`;
-  const dbSource = (await readFile(path.join(root, "background", "db.js"), "utf8"))
+  const utilSource = (await readFile(path.join(root, "background", "util.js"), "utf8"))
     .replace(/from\s+["']\.\/constants\.js["']/, `from "${constantsUrl}"`);
+  const utilUrl = `data:text/javascript;base64,${Buffer.from(utilSource).toString("base64")}`;
+  const dbSource = (await readFile(path.join(root, "background", "db.js"), "utf8"))
+    .replace(/from\s+["']\.\/constants\.js["']/, `from "${constantsUrl}"`)
+    .replace(/from\s+["']\.\/util\.js["']/, `from "${utilUrl}"`);
   const moduleUrl = `data:text/javascript;base64,${Buffer.from(`${dbSource}\n// ${crypto.randomUUID()}`).toString("base64")}`;
   return import(moduleUrl);
 }

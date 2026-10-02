@@ -281,8 +281,8 @@ export const UTIL = {
       try {
         const raw = String(value || '');
         if (raw.length > MAX_URL_LENGTH) continue;
-        const url = new URL(raw).toString();
-        const parsed = new URL(url);
+        const parsed = new URL(raw);
+        const url = parsed.toString();
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
         const host = parsed.hostname.toLowerCase();
         if (blacklist.some((blocked) => host === blocked || host.endsWith(`.${blocked}`))) continue;
@@ -311,27 +311,27 @@ export const UTIL = {
       if (links.size >= MAX_EXTERNAL_LINKS) break;
       const rawUrl = typeof entry === 'string' ? entry : entry && (entry.url || entry.link);
       const rawSourceUrl = typeof entry === 'object' && entry ? entry.sourceUrl : '';
-      let url;
+      let parsed;
       try {
         const value = String(rawUrl || '');
         if (value.length > MAX_URL_LENGTH) continue;
-        url = new URL(value).toString();
+        parsed = new URL(value);
       } catch (e) {
         continue;
       }
-      if (!/^https?:$/i.test(new URL(url).protocol)) continue;
+      if (!/^https?:$/i.test(parsed.protocol)) continue;
+      const url = parsed.toString();
       addLink(url);
 
       try {
-        const parsed = new URL(url);
         const host = parsed.hostname.toLowerCase();
         const isMega = host === 'mega.nz' || host === 'www.mega.nz' || host === 'mega.co.nz' || host === 'www.mega.co.nz';
         if (isMega && !parsed.hash.slice(1).trim() && rawSourceUrl) {
           const sourceValue = String(rawSourceUrl);
           if (sourceValue.length > MAX_URL_LENGTH) continue;
-          const sourceUrl = new URL(sourceValue).toString();
-          if (links.size < MAX_EXTERNAL_LINKS && /^https?:$/i.test(new URL(sourceUrl).protocol)) {
-            addLink(sourceUrl);
+          const sourceUrl = new URL(sourceValue);
+          if (links.size < MAX_EXTERNAL_LINKS && /^https?:$/i.test(sourceUrl.protocol)) {
+            addLink(sourceUrl.toString());
           }
         }
       } catch (e) { }

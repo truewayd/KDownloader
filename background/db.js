@@ -4,6 +4,7 @@ import {
   LEGACY_LAST_ACCESS_KEY,
   CREATOR_FLAG_KEY,
 } from "./constants.js";
+import { hasUnpairedSurrogate } from "./util.js";
 
 const HISTORY_DB_NAME = "kdownloaderHistory";
 const HISTORY_DB_VERSION = 3;
@@ -103,21 +104,6 @@ function openHistoryDB() {
   return historyDbPromise;
 }
 
-function hasUnpairedUtf16Surrogate(value) {
-  for (let index = 0; index < value.length; index++) {
-    const code = value.charCodeAt(index);
-    if (code >= 0xd800 && code <= 0xdbff) {
-      if (index + 1 >= value.length) return true;
-      const next = value.charCodeAt(index + 1);
-      if (next < 0xdc00 || next > 0xdfff) return true;
-      index++;
-    } else if (code >= 0xdc00 && code <= 0xdfff) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function normalizedIdentity(value, field, strict) {
   if (strict && (typeof value !== "string" || !value.trim())) {
     throw new Error(`Invalid history record: ${field} must be a non-empty string`);
@@ -126,7 +112,7 @@ function normalizedIdentity(value, field, strict) {
   if (!normalized) throw new Error(`Invalid history record: missing ${field}`);
   if (normalized.length > MAX_IDENTITY_LENGTH
       || /[\x00-\x1f\x7f]/.test(normalized)
-      || hasUnpairedUtf16Surrogate(normalized)) {
+      || hasUnpairedSurrogate(normalized, MAX_IDENTITY_LENGTH)) {
     throw new Error(
       `Invalid history record: ${field} is too long or contains control characters or an unpaired UTF-16 surrogate`
     );
