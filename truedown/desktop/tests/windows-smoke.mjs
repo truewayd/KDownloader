@@ -158,7 +158,7 @@ async function appearance(page, kind) {
       return { value, alpha: channels[3] ?? 1, brightness: channels.slice(0, 3).reduce((sum, value) => sum + value, 0) / 3 };
     };
     const working = { main: "#tasks-page", settings: "#settings-form", logs: "#logs-page", about: "body > main", "new-task": "#overlay > .modal", "task-details": ".task-detail-page" }[kind];
-    const chrome = { main: [".sidebar", ".app-shell", ".dashboard"], settings: [".settings-page", ".settings-nav", ".settings-content", ".app-shell", ".dashboard"], logs: [".app-shell", ".dashboard"], about: [], "new-task": ["#overlay", ".modal-footer"], "task-details": [".app-shell", ".dashboard", ".task-detail-tabs", ".task-detail-footer"] }[kind];
+    const chrome = { main: [".sidebar", ".app-shell", ".dashboard"], settings: [".settings-page", ".settings-nav", ".app-shell", ".dashboard"], logs: [".app-shell", ".dashboard"], about: [], "new-task": ["#overlay"], "task-details": [".app-shell", ".dashboard"] }[kind];
     return {
       scheme: getComputedStyle(document.documentElement).colorScheme,
       material: document.documentElement.dataset.material,
@@ -229,13 +229,9 @@ async function verifyAppearance(pages, scheme, forcedColors = "none", reducedTra
     if (reducedTransparency) assert.equal(view.reducedTransparency, true);
     if (forcedColors !== "active") {
       assert.equal(view.scheme, scheme);
-      if (kind !== "main" && view.material === "native") {
-        assert.equal(view.working.alpha, 0, `${kind} must expose Mica across its working surface`);
-      } else {
-        assert.ok(view.working.alpha === 1 || (view.material === "solid" && view.body.alpha === 1), `${kind} fallback working surface must be opaque`);
-        const working = view.working.alpha === 1 ? view.working : view.body;
-        assert.equal(working.brightness > 128, scheme === "light", `${kind} working surface must match the native frame theme`);
-      }
+      assert.ok(view.working.alpha === 1 || (view.material === "solid" && view.body.alpha === 1), `${kind} working surface must be opaque`);
+      const working = view.working.alpha === 1 ? view.working : view.body;
+      assert.equal(working.brightness > 128, scheme === "light", `${kind} working surface must match the native frame theme`);
       assert.equal(view.inset, kind === "settings" ? 0 : 8, `${kind} must retain an outer material inset`);
     }
     if (view.material === "native") {

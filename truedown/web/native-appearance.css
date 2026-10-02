@@ -1,5 +1,5 @@
-/* Native frames and auxiliary workspaces share one material. Product structure
-   and the shared control vocabulary remain the same on every platform. */
+/* Native chrome surrounds distinct working surfaces. Confirmation windows alone
+   expose continuous material through their message and action areas. */
 [data-platform="windows"] body { -webkit-font-smoothing: auto; }
 [data-platform="windows"] .dashboard { padding: 8px; }
 [data-platform][data-native-window="settings"] .dashboard { padding: 0; }
@@ -30,14 +30,6 @@
 [data-material="native"] .settings-nav { background: var(--native-chrome); }
 [data-material="native"] #settings-form { background: var(--kd-surface); }
 :root[data-platform="windows"] { --native-chrome: transparent; }
-/* Auxiliary content exposes the same backdrop as its native caption. */
-:root[data-platform="windows"][data-material="native"][data-native-window="settings"] :is(#settings-form, .settings-content),
-:root[data-platform="windows"][data-material="native"][data-native-window="new-task"] :is(#overlay > .modal, .modal-footer),
-:root[data-platform="windows"][data-material="native"][data-native-window="task-details"] :is(.task-detail-page, .task-detail-tabs, .task-detail-footer) {
-  background: transparent;
-  box-shadow: none;
-  border-color: transparent;
-}
 /* Alpha overlays preserve the native material through hover and selection. */
 :root[data-material="native"] { --kd-secondary-hover: color-mix(in srgb, var(--kd-text) 8%, transparent); }
 [data-material="native"] :is(.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link, .settings-search-result):hover { background: color-mix(in srgb, var(--kd-text) 6%, transparent); }
