@@ -10,9 +10,10 @@
 
 ## Verification
 
-- Repository Node tests: 385 passed, 1 skipped.
+- Repository Node tests: 388 passed, 1 skipped.
 - Preview browser regression passed: pointer-anchored wheel zoom, pixel/line/page wheel modes, drag panning, scale bounds, keyboard controls, icons and accessible labels, text scrolling, custom media controls, responsive layout and existing preview security checks.
 - Icon generation check and shared component mirror check passed. Light/narrow preview screenshots were inspected.
 - Cargo: 47 unit tests and 1 dependency regression passed; strict Clippy and Rust formatting checks passed. Corrected the assertion formatting caught by the initial CI run.
 - Final Windows hidden native regression passed: preview permissions/reopen, form and settings state, native materials, accessibility fallbacks, scaling, recovery and process cleanup.
+- Package startup/identity/hidden-window/exit checks passed locally. The visibility probe permits one retry only after a terminated 30-second deadline; regression tests retain failure on repeat timeouts, invalid output, process exit and other errors.
 - Native hover recovery and confirmation appearance were reviewed by the user. Automated visible acceptance was not run.

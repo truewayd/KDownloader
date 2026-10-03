@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { probeWindowVisibility } from "./windows-native-probe.mjs";
 
 const application = path.resolve(process.argv[2] || "");
 assert.ok(process.argv[2], "Pass the packaged native executable");
@@ -128,10 +129,9 @@ try {
   if (process.platform === "win32") {
     // Package acceptance needs visibility only. Caption hit testing belongs to
     // native frame acceptance; allow bounded time for a cold PowerShell startup.
-    const state = await run("pwsh", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+    const windows = await probeWindowVisibility(run, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
       fileURLToPath(new URL("./windows-native-state.ps1", import.meta.url)), "-ProcessId", String(child.pid), "-VisibilityOnly"],
-    { windowsHide: true, timeout: 30000, maxBuffer: 1024 * 1024 });
-    const windows = JSON.parse(state.stdout);
+    () => assertRunning(child), message => console.warn(message));
     assert.ok(windows.length > 0 && windows.every(window => !window.visible), "Packaged native windows must remain hidden");
   }
   await command("exit");
