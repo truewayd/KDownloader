@@ -83,11 +83,9 @@ try {
     const selected = await page.locator('[data-task-category="video"]').boundingBox();
     assert.ok(Math.abs(indicator.y + indicator.height / 2 - selected.y - selected.height / 2) < 1);
     await page.evaluate(() => showToast("Animation preview"));
-    await page.waitForTimeout(260);
-    assert.equal(await page.locator(".kd-toast").evaluate(node => getComputedStyle(node).opacity), "1");
+    await page.waitForFunction(() => getComputedStyle(document.querySelector(".kd-toast")).opacity === "1", null, { timeout: 2000 });
     await page.waitForFunction(() => !document.querySelector(".kd-toast").classList.contains("is-visible"));
-    await page.waitForTimeout(250);
-    assert.equal(await page.locator(".kd-toast").evaluate(node => getComputedStyle(node).visibility), "hidden");
+    await page.waitForFunction(() => getComputedStyle(document.querySelector(".kd-toast")).visibility === "hidden", null, { timeout: 2000 });
     await page.evaluate(() => { location.hash = "#settings/files"; });
     await page.waitForFunction(() => fileGroupsDraft?.length === 8 && settingsReady.has("files"));
     // Hold the production reveal at its midpoint so sticky geometry is checked
