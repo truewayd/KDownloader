@@ -10,6 +10,7 @@ import tarfile
 import tempfile
 import tracemalloc
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from validate_release import (MAX_HEADER, MAX_NAME, MAX_TAR_HEADERS, MAX_TAR_METADATA,
