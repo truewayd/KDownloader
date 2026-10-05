@@ -1,14 +1,15 @@
 """Verify uploaded metadata against the already validated local release set."""
 import json
 import argparse
+import re
 from pathlib import Path
 import sys
 
 
 def validate_assets(directory, assets):
     expected = {path.name: path.stat().st_size for path in Path(directory).iterdir() if path.is_file()}
-    if len(expected) not in (5, 7) or not isinstance(assets, list) or len(assets) != len(expected):
-        raise ValueError("Release must expose all installer assets (seven for the bridge, five afterward)")
+    if len(expected) != 7 or not isinstance(assets, list) or len(assets) != len(expected):
+        raise ValueError("Release must expose all seven installer and legacy migration assets")
     seen = set()
     for asset in assets:
         if not isinstance(asset, dict):
@@ -35,6 +36,14 @@ def release_assets(releases, tag, release_id=None):
 
 def validate_public(directory, releases, tag, release_id, fallback):
     inline = release_assets(releases, tag, release_id)
+    # Match shipped native clients: choose the highest stable numbered build
+    # before examining its assets, not GitHub's latest flag or list ordering.
+    candidates = [release for release in releases
+                  if isinstance(release, dict) and not release.get("draft") and not release.get("prerelease")
+                  and re.fullmatch(r"truedown-build-[1-9][0-9]{0,12}", str(release.get("tag_name", "")))]
+    newest = max(candidates, key=lambda release: int(release["tag_name"].rsplit("-", 1)[1]), default=None)
+    if newest is None or newest["tag_name"] != tag:
+        raise ValueError("Shipped clients would select a different highest stable build")
     # The second endpoint must independently expose the entire validated bundle.
     validate_assets(directory, fallback)
     try:

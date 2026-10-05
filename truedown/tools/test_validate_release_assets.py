@@ -24,6 +24,12 @@ class UploadedAssetsTests(unittest.TestCase):
             validate_assets(directory, assets)
             release = {"id": 48, "tag_name": "truedown-build-48", "draft": False, "prerelease": False, "assets": assets}
             self.assertTrue(validate_public(directory, [release], "truedown-build-48", 48, assets))
+            older = {**release, "id": 47, "tag_name": "truedown-build-47"}
+            preview = {**release, "id": 50, "tag_name": "truedown-build-50", "prerelease": True}
+            self.assertTrue(validate_public(directory, [older, preview, release], "truedown-build-48", 48, assets))
+            newer = {**release, "id": 49, "tag_name": "truedown-build-49", "assets": []}
+            with self.assertRaisesRegex(ValueError, "highest stable build"):
+                validate_public(directory, [release, newer], "truedown-build-48", 48, assets)
             release["assets"] = []
             self.assertFalse(validate_public(directory, [release], "truedown-build-48", 48, assets))
             with self.assertRaises(ValueError):

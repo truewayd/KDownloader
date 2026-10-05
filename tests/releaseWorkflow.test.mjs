@@ -322,8 +322,8 @@ test("TrueDown Windows distribution includes an installer and keeps updater comp
   assert.match(workflow, /test-windows-installer\.ps1/);
   assert.match(workflow, /Copy-Item -LiteralPath "truedown\/dist\/TrueDown-build-\$env:BUILD_NUMBER-windows-amd64-setup\.exe" -Destination \./);
   assert.match(workflow, /release-assets\/\*/);
-  assert.match(workflow, /installer-bridge\.json/);
-  assert.match(workflow, /if \(\[long\]\$env:BUILD_NUMBER -eq \$bridge.build\)/);
+  assert.doesNotMatch(workflow, /installer-bridge\.json|\$bridge\.build/);
+  assert.match(workflow, /Every release must bridge those clients/);
   assert.match(acceptance, /RUNNER_ENVIRONMENT -ne "github-hosted"/);
   assert.match(acceptance, /Get-FileHash/);
   assert.match(acceptance, /package-smoke\.mjs/);

@@ -10,7 +10,6 @@ import tarfile
 import tempfile
 import tracemalloc
 import unittest
-from unittest.mock import patch
 import zipfile
 
 from validate_release import (MAX_HEADER, MAX_NAME, MAX_TAR_HEADERS, MAX_TAR_METADATA,
@@ -20,9 +19,6 @@ from validate_release import (MAX_HEADER, MAX_NAME, MAX_TAR_HEADERS, MAX_TAR_MET
 
 class ReleaseValidationTests(unittest.TestCase):
     def setUp(self):
-        bridge = patch("validate_release.BRIDGE_BUILD", 42)
-        bridge.start()
-        self.addCleanup(bridge.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -107,12 +103,14 @@ class ReleaseValidationTests(unittest.TestCase):
     def test_complete_release(self):
         validate_release(self.root, 42)
 
-    def test_after_bridge_rejects_zip_and_accepts_installer_only(self):
-        with patch("validate_release.BRIDGE_BUILD", 41):
+    def test_every_release_requires_both_legacy_migration_assets(self):
+        for name in ("TrueDown-build-42.zip", "truedown-update-42.json"):
+            asset = self.root / name
+            original = asset.read_bytes()
+            asset.unlink()
             with self.assertRaises(ValueError):
                 validate_release(self.root, 42)
-            (self.root / "TrueDown-build-42.zip").unlink()
-            (self.root / "truedown-update-42.json").unlink()
+            asset.write_bytes(original)
             validate_release(self.root, 42)
 
     def test_missing_or_invalid_installer(self):

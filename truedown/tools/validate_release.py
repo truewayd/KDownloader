@@ -23,7 +23,6 @@ MAX_ZIP_METADATA = MAX_HEADER + 22
 MAX_TAR_METADATA = 1 << 20
 MAX_TAR_HEADERS = 128
 MAX_NAME = 1024
-BRIDGE_BUILD = json.loads((Path(__file__).resolve().parent.parent / "windows/installer-bridge.json").read_text())["build"]
 
 
 class MetadataReader:
@@ -236,16 +235,15 @@ def validate_release(directory, build):
     windows_name = f"TrueDown-build-{build}.zip"
     manifest_name = f"truedown-update-{build}.json"
     installer_name = f"TrueDown-build-{build}-windows-amd64-setup.exe"
-    packages = [(windows_name, "windows", "amd64")] if build == BRIDGE_BUILD else []
+    packages = [(windows_name, "windows", "amd64")]
     for system, extension in (("linux", "tar.gz"), ("macos", "zip")):
         for arch in (("amd64", "arm64") if system == "linux" else ("arm64",)):
             packages.append((f"TrueDown-build-{build}-{system}-{arch}.{extension}", system, arch))
     installer_manifest_name = f"truedown-installer-update-{build}.json"
     expected = {name for name, _, _ in packages} | {installer_manifest_name, installer_name}
-    if build == BRIDGE_BUILD:
-        expected.add(manifest_name)
+    expected.add(manifest_name)
     require({item.name for item in directory.iterdir()} == expected,
-            "Release must contain exactly the installer release set; legacy ZIP assets are bridge-only")
+            "Release must contain exactly the installer release set including legacy migration assets")
     for name in expected:
         asset = directory / name
         require(not asset.is_symlink() and asset.is_file() and asset.stat().st_size > 0,
@@ -278,11 +276,9 @@ def validate_release(directory, build):
                          "asset": {"name": installer_name, "size": installer.stat().st_size, "sha256": digest}}
     require(json.dumps(installer_manifest, sort_keys=True) == json.dumps(expected_manifest, sort_keys=True),
             "Installer manifest does not match its release")
-    manifest = None
-    if build == BRIDGE_BUILD:
-        require((directory / manifest_name).stat().st_size <= 65536, "Oversized update manifest")
-        manifest = json.loads((directory / manifest_name).read_text(encoding="utf-8"), object_pairs_hook=unique_json_object)
-        require(isinstance(manifest, dict) and manifest.get("files") == installer_manifest["files"], "Windows update manifest and installer components differ")
+    require((directory / manifest_name).stat().st_size <= 65536, "Oversized update manifest")
+    manifest = json.loads((directory / manifest_name).read_text(encoding="utf-8"), object_pairs_hook=unique_json_object)
+    require(isinstance(manifest, dict) and manifest.get("files") == installer_manifest["files"], "Windows update manifest and installer components differ")
     for name, system, arch in packages:
         files = validate_package(directory / name, system, arch, build)
         if system == "windows":

@@ -131,10 +131,9 @@ jobs:
       - name: Create legacy-compatible automatic update archive
         run: |
           Copy-Item -LiteralPath "truedown/dist/TrueDown-build-$env:BUILD_NUMBER-windows-amd64-setup.exe" -Destination .
-          $bridge = Get-Content truedown/windows/installer-bridge.json -Raw | ConvertFrom-Json
-          if ([long]$env:BUILD_NUMBER -eq $bridge.build) {
-            Compress-Archive -Path truedown/dist/TrueDown/* -DestinationPath $env:ARTIFACT_NAME -CompressionLevel Optimal
-          }
+          # Shipped ZIP clients select the highest build before checking assets.
+          # Every release must bridge those clients, even after a long absence.
+          Compress-Archive -Path truedown/dist/TrueDown/* -DestinationPath $env:ARTIFACT_NAME -CompressionLevel Optimal
 
       - name: Create update manifest
         run: |
@@ -158,13 +157,10 @@ jobs:
             }
           }
           $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath "truedown-installer-update-$env:BUILD_NUMBER.json" -Encoding utf8NoBOM
-          $bridge = Get-Content truedown/windows/installer-bridge.json -Raw | ConvertFrom-Json
-          if ([long]$env:BUILD_NUMBER -eq $bridge.build) {
-            $archive = Get-Item -LiteralPath $env:ARTIFACT_NAME
-            $manifest.schemaVersion = 2
-            $manifest.asset = [ordered]@{ name = $archive.Name; size = $archive.Length; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive.FullName).Hash.ToLowerInvariant() }
-            $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $env:UPDATE_MANIFEST -Encoding utf8NoBOM
-          }
+          $archive = Get-Item -LiteralPath $env:ARTIFACT_NAME
+          $manifest.schemaVersion = 2
+          $manifest.asset = [ordered]@{ name = $archive.Name; size = $archive.Length; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive.FullName).Hash.ToLowerInvariant() }
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $env:UPDATE_MANIFEST -Encoding utf8NoBOM
 
       - name: Upload build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -335,7 +331,7 @@ jobs:
           $installer = "TrueDown-build-$env:BUILD_NUMBER-windows-amd64-setup.exe"
           $download = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:RELEASE_TAG/$installer"
           $notes = [System.IO.File]::ReadAllText("release-notes.md")
-          [System.IO.File]::WriteAllText("release-notes.md", "[Windows installer ($installer)]($download)`n`nWindows updates use the installer. Only bridge build 94 includes the legacy ZIP migration assets.`n`n$notes")
+          [System.IO.File]::WriteAllText("release-notes.md", "[Windows installer ($installer)]($download)`n`nWindows updates use the installer. The compatibility ZIP and schema-2 manifest let older clients migrate automatically; after migration, all updates use the installer.`n`n$notes")
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
