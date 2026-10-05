@@ -4,6 +4,7 @@
 - Publish a matching compatibility ZIP and schema-2 manifest in every release. Old native clients select the highest build before checking its assets; retaining only one historical bridge would strand users who skip it.
 - Validate all seven assets and identical native components in both update manifests before publication. Existing size, checksum, executable identity, health and rollback checks remain mandatory.
 - Include bounded task-page caching, adjacent-page prefetch and task-change notifications, with revision-aware row reuse and native read deadlines.
+- Cancel and drain task-change notifications before program updates or engine switches, so continuous read subscriptions cannot prevent automatic installation. Active task submissions still block replacement.
 - This migration preserves portable profiles and does not register an installation. Pre-native single-executable clients still need a complete native installation; inline-only discovery depends on GitHub exposing inline assets.
 
 ## Verification

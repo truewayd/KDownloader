@@ -27,6 +27,12 @@ type drainingHandler struct {
 	draining bool
 	active   int
 	drained  chan struct{}
+	waiters  map[*taskChangeWait]struct{}
+}
+
+type taskChangeWait struct {
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 func newDrainingHandler(handler http.Handler) *drainingHandler {
@@ -42,12 +48,27 @@ func (handler *drainingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 	handler.active++
+	var waiter *taskChangeWait
+	if r.Method == http.MethodGet && r.URL.Path == "/tasks/changes" {
+		ctx, cancel := context.WithCancel(r.Context())
+		r = r.WithContext(ctx)
+		waiter = &taskChangeWait{cancel: cancel, done: make(chan struct{})}
+		if handler.waiters == nil {
+			handler.waiters = make(map[*taskChangeWait]struct{})
+		}
+		handler.waiters[waiter] = struct{}{}
+	}
 	delegate := handler.handler
 	handler.mu.Unlock()
 
 	defer func() {
 		handler.mu.Lock()
 		handler.active--
+		if waiter != nil {
+			waiter.cancel()
+			delete(handler.waiters, waiter)
+			close(waiter.done)
+		}
 		if handler.draining && handler.active == 0 {
 			select {
 			case <-handler.drained:
@@ -67,6 +88,7 @@ func (handler *drainingHandler) quiesce(ctx context.Context) error {
 		handler.drained = make(chan struct{})
 	}
 	drained := handler.drained
+	handler.cancelChangeWaitsLocked()
 	if handler.active == 0 {
 		select {
 		case <-drained:
@@ -82,6 +104,17 @@ func (handler *drainingHandler) quiesce(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// Notification waits have no mutations to finish. Cancel them before draining
+// so continuous subscriptions cannot starve program updates or engine switches.
+func (handler *drainingHandler) cancelChangeWaitsLocked() []<-chan struct{} {
+	done := make([]<-chan struct{}, 0, len(handler.waiters))
+	for waiter := range handler.waiters {
+		waiter.cancel()
+		done = append(done, waiter.done)
+	}
+	return done
 }
 
 func (handler *drainingHandler) resume() {
@@ -287,16 +320,29 @@ func (host *managerHost) withProgramUpdateGate(automatic bool, apply func() erro
 	}
 	handler := current.handler
 	handler.mu.Lock()
-	if handler.draining || handler.active > allowed {
+	if handler.draining || handler.active > allowed+len(handler.waiters) {
 		handler.mu.Unlock()
 		return fmt.Errorf("wait for active requests before updating TrueDown")
 	}
 	handler.draining = true
 	handler.drained = make(chan struct{})
+	waiters := handler.cancelChangeWaitsLocked()
 	if handler.active == 0 {
 		close(handler.drained)
 	}
 	handler.mu.Unlock()
+	if len(waiters) > 0 {
+		deadline := time.NewTimer(2 * time.Second)
+		defer deadline.Stop()
+		for _, done := range waiters {
+			select {
+			case <-done:
+			case <-deadline.C:
+				handler.resume()
+				return fmt.Errorf("wait for task notifications to stop before updating TrueDown")
+			}
+		}
+	}
 	if !managerIdle(current.manager) {
 		handler.resume()
 		return fmt.Errorf("wait for queued, downloading, and paused tasks before updating TrueDown")

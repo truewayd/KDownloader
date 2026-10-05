@@ -53,6 +53,10 @@ Row controls retain ID identity, focus, selection and pending actions. Nodes are
 looked up once per row shape, unchanged task revisions skip dynamic updates, and
 placeholder geometry is remeasured only when layout, theme or row shape changes.
 
+Program updates and engine switches cancel and drain read-only task-change waits
+before applying; other active requests retain their admission protection. This
+prevents a continuous notification subscription from starving automatic updates.
+
 ## Verification
 
 - `node --test tests/taskData.test.mjs tests/frontendAudit.test.mjs tests/dashboardUi.test.mjs`

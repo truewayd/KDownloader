@@ -143,6 +143,79 @@ func TestProgramUpdateGateBlocksNewAdmissionAndRestoresOnFailure(t *testing.T) {
 	}
 }
 
+func TestProgramUpdateCancelsNotificationWaitWithoutBypassingActiveWork(t *testing.T) {
+	root := t.TempDir()
+	manager, err := downloader.NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	watchEntered, watchExited := make(chan struct{}), make(chan struct{})
+	workEntered, workRelease, workDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	host := &managerHost{}
+	host.configure(manager, systemupdate.EngineSpec{Kind: systemupdate.EngineStable}, nil, func(*downloader.Manager) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/tasks/changes" {
+				close(watchEntered)
+				<-r.Context().Done()
+				close(watchExited)
+			} else if r.URL.Path == "/add" {
+				close(workEntered)
+				<-workRelease
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})
+	})
+	defer host.stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go host.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/tasks/changes?after=0", nil).WithContext(ctx))
+	<-watchEntered
+	go func() {
+		host.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/add", nil))
+		close(workDone)
+	}()
+	<-workEntered
+	if err := host.withProgramUpdateGate(true, func() error { t.Error("active work bypassed"); return nil }); err == nil {
+		t.Fatal("update allowed while task submission is active")
+	}
+	close(workRelease)
+	<-workDone
+	if err := host.withProgramUpdateGate(true, func() error {
+		select {
+		case <-watchExited:
+		default:
+			t.Error("update ran before notification wait exited")
+		}
+		return context.Canceled // A failed launch must reopen request admission.
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("notification wait blocked automatic update: %v", err)
+	}
+	response := httptest.NewRecorder()
+	host.ServeHTTP(response, httptest.NewRequest("GET", "/tasks", nil))
+	if response.Code != http.StatusNoContent {
+		t.Fatal("failed update did not restore requests")
+	}
+}
+
+func TestEngineDrainCancelsTaskNotifications(t *testing.T) {
+	entered, done := make(chan struct{}), make(chan struct{})
+	handler := newDrainingHandler(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-r.Context().Done()
+	}))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/tasks/changes?after=0", nil).WithContext(ctx))
+		close(done)
+	}()
+	<-entered
+	if err := handler.quiesce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+}
+
 func TestAppendWithoutEnvironmentReplacesCaseInsensitively(t *testing.T) {
 	result := appendWithoutEnvironment([]string{"A=1", "truedown_engine_relaunch=old", "B=2"}, engineRelaunchEnv)
 	if len(result) != 2 || result[0] != "A=1" || result[1] != "B=2" {
