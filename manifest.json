@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extensionName__",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
   "permissions": [
@@ -108,10 +108,20 @@
   ],
   "icons": {
     "16": "icons/icon16.png",
+    "20": "icons/icon20.png",
+    "24": "icons/icon24.png",
+    "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
   "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "20": "icons/icon20.png",
+      "24": "icons/icon24.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    },
     "default_popup": "popup/popup.html"
   },
   "options_ui": {
