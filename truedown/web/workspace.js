@@ -120,6 +120,7 @@ function applyWorkspaceRoute(focus = true) {
   const settingsCategory = Object.hasOwn(SETTINGS_PAGE_ALIASES, category) ? SETTINGS_PAGE_ALIASES[category] : category;
   currentSettingsPage = SETTINGS_PAGES.includes(settingsCategory) ? settingsCategory : "general";
   routeEpoch++;
+  stopTaskReads();
   cancelReadRetries();
   stopTaskDetails();
   stopApplicationLog();

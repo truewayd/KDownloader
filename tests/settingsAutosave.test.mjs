@@ -34,7 +34,7 @@ test("reset requires confirmation, ignores stale navigation and immediately pers
 
 test("an older group save cannot replace newer edits and queued changes use the acknowledged revision", async () => {
   const requests = [], completed = [], status = {};
-  let renders = 0;
+  let renders = 0, invalidations = 0;
   const panel = { querySelectorAll: () => [] };
   const context = vm.createContext({
     structuredClone, queueMicrotask,
@@ -44,6 +44,7 @@ test("an older group save cannot replace newer edits and queued changes use the 
     currentPage: "settings", currentSettingsPage: "files",
     document: { getElementById: id => id === "file-groups-editor" ? { closest: () => panel, contains: () => false } : status },
     captureFileGroupsDraft() {}, applyFileGroups() {}, cancelReadRetry() {},
+    taskPages: { invalidate() { invalidations++; } },
     renderFileGroupsEditor() { renders++; },
     requestJSON: async (_path, options) => {
       requests.push(JSON.parse(options.body));
@@ -69,6 +70,7 @@ test("an older group save cannot replace newer edits and queued changes use the 
   assert.equal(context.fileGroupsEditorRevision, 6);
   assert.equal(context.fileGroupsSaving, false);
   assert.equal(renders, 1);
+  assert.equal(invalidations, 2, "each acknowledged group edit invalidates task ranges");
 });
 
 test("a defaults conflict preserves edited controls and adopts unrelated remote values", async () => {

@@ -12,18 +12,30 @@ const tasks = Array.from({ length: 2400 }, (_, index) => ({ id: index + 1, name:
 const requests = [];
 let revision = 1;
 let pendingReads = null;
+let blockedOffset = null;
+const changeWaiters = new Set();
 const server = http.createServer(async (request, response) => {
   response.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'");
   const url = new URL(request.url, "http://localhost");
+  if (url.pathname === "/tasks/changes") {
+    if (Number(url.searchParams.get("after")) === revision) await new Promise(resolve => {
+      const done = () => { clearTimeout(timer); changeWaiters.delete(done); resolve(); };
+      const timer = setTimeout(done, 10000);
+      changeWaiters.add(done);
+      response.once("close", done);
+    });
+    response.end(JSON.stringify({ revision }));
+    return;
+  }
   if (url.pathname === "/tasks") {
     const offset = Number(url.searchParams.get("offset")), limit = Number(url.searchParams.get("limit"));
     requests.push({ offset, limit });
-    if (pendingReads) await pendingReads;
+    if (pendingReads && (blockedOffset === null || offset === blockedOffset)) await pendingReads;
     const search = url.searchParams.get("search") || "";
     const filtered = tasks.filter(task => task.name.includes(search));
     response.setHeader("Content-Type", "application/json");
     response.setHeader("ETag", `"${revision}-${offset}-${search}"`);
-    response.end(JSON.stringify({ tasks: filtered.slice(offset, offset + limit), total: filtered.length, groups,
+    response.end(JSON.stringify({ tasks: filtered.slice(offset, offset + limit), total: filtered.length, groups, revision, epoch: "fixture", orderVersion: "fixed-order",
       summary: { total: tasks.length, downloading: 1, error: 1, done: tasks.length - 2, downloadSpeed: revision * 4096, groupCounts: { video: tasks.length } } }));
     return;
   }
@@ -48,6 +60,29 @@ try {
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.waitForFunction(() => currentTotal === 2400);
+    if (width === 1200) {
+      let release;
+      blockedOffset = 0;
+      pendingReads = new Promise(resolve => { release = resolve; });
+      const before = requests.length;
+      await page.evaluate(() => { void loadTasks(); });
+      await page.waitForFunction(() => taskLoadTarget !== null);
+      const start = performance.now();
+      await page.locator("#tasks-wrap").evaluate(node => { node.scrollTop = 600 * 64; });
+      await page.waitForFunction(() => currentTasks[0]?.id > 500, null, { timeout: 1500 });
+      console.log(`latest viewport painted in ${Math.round(performance.now() - start)}ms while the old request remained blocked`);
+      assert.ok(requests.length > before);
+      pendingReads = null; blockedOffset = null; release();
+      await page.locator("#tasks-wrap").evaluate(node => { node.scrollTop = 0; });
+      await page.waitForFunction(() => currentTasks[0]?.id === 1 && loadTasksPromise === null);
+      await page.waitForFunction(() => taskChangePromise !== null);
+      const changeStart = performance.now();
+      revision++;
+      tasks[0].completedLength += 100;
+      for (const done of changeWaiters) done();
+      await page.waitForFunction(value => currentTasks[0]?.completedLength === value, tasks[0].completedLength, { timeout: 1500 });
+      console.log(`backend change painted in ${Math.round(performance.now() - changeStart)}ms without waiting for the 2500ms poll`);
+    }
     assert.equal(await page.locator(".pagination, .metric-strip").count(), 0);
     assert.equal(await page.locator(".task-rows tr").count(), 100);
     assert.equal(await page.locator(".task-index, .col-index").count(), 0);
@@ -71,6 +106,7 @@ try {
     const height = await page.locator(".task-rows tr").first().evaluate(row => row.getBoundingClientRect().height);
     assert.equal(height, 64, "virtual offsets must match actual row heights");
     await page.screenshot({ path: path.join(output, `workspace-${width}.png`) });
+    await page.evaluate(() => taskPages.invalidate());
     let releaseReads;
     pendingReads = new Promise(resolve => { releaseReads = resolve; });
     const beforeScroll = requests.length;

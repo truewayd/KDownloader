@@ -76,7 +76,11 @@ func (b *Bridge) Serve(ctx context.Context, input io.ReadCloser, handler http.Ha
 		go func(request protocol.DesktopRequest) {
 			defer workers.Done()
 			defer func() { <-slots; idsMu.Lock(); delete(ids, request.ID); idsMu.Unlock() }()
-			requestCtx, cancel := context.WithTimeout(ctx, 6*time.Minute)
+			deadline := 6 * time.Minute
+			if request.Method == http.MethodGet && (strings.SplitN(request.Path, "?", 2)[0] == "/tasks" || strings.SplitN(request.Path, "?", 2)[0] == "/tasks/changes") {
+				deadline = 12 * time.Second
+			}
+			requestCtx, cancel := context.WithTimeout(ctx, deadline)
 			defer cancel()
 			response := dispatch(requestCtx, handler, request, b.owned)
 			if err := b.Send(response); err != nil {

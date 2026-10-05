@@ -632,9 +632,9 @@ test("TrueDown bounds task rendering and exposes accessible batch controls", () 
   assert.match(trueDownHtml, /href="\/icons\.svg#icon-/);
   assert.match(trueDownHtml, /id="token-auth-enabled"/);
   assert.match(trueDownApp, /const PAGE_SIZE = 100/);
-  assert.match(trueDownApp, /const MAX_PAGE_ETAGS = 128/);
+  assert.match(trueDownApp, /class TaskPageStore/);
   assert.match(trueDownApp, /If-None-Match/);
-  assert.match(trueDownApp, /while \(pageETags\.size > MAX_PAGE_ETAGS\)/);
+  assert.match(trueDownApp, /this\.cache\.size > 8 \|\| size > 1_048_576/);
   assert.match(trueDownApp, /if \(!selectedTaskIDs\.has\(id\)\) \{ taskStatusByID\.delete\(id\); updateTaskIDs\.delete\(id\); \}/);
   assert.match(trueDownApp, /function renderDownloadSettings\(settings = downloadSettings, rules = downloadRules, runtime = runtimeSettings, page = ""\)/);
   assert.match(trueDownApp, /data-select-page/);

@@ -540,7 +540,7 @@ async function saveFileGroups() {
       }
       document.getElementById("file-groups-status").textContent = "\u5206\u7ec4\u5df2\u4fdd\u5b58\uff0c\u5df2\u6709\u4efb\u52a1\u4f1a\u81ea\u52a8\u91cd\u65b0\u5f52\u7c7b\u3002";
     }
-    renderedTaskPageURL = "";
+    taskPages.invalidate();
   } catch (error) {
     document.getElementById("file-groups-status").textContent = error.status === 409 ? "分组已变更，正在自动同步，草稿已保留。" : `\u4fdd\u5b58\u5931\u8d25\uff1a${error.message}`;
     if (error.status === 409) {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { dashboardSource } from "./helpers/truedownSource.mjs";
 import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 
@@ -292,15 +293,16 @@ function createTaskPageHarness(fetchPage) {
     updateMetrics() {},
     updatePagination() {},
     showToast() {},
+    prefetchTaskViewport() {},
   });
   vm.runInContext(`
     const PAGE_SIZE = 100;
-    const MAX_PAGE_ETAGS = 128;
-    const pageETags = new Map();
+    ${readFileSync(new URL('../truedown/web/task-data.js', import.meta.url), 'utf8')}
+    const taskPages = new TaskPageStore(apiFetch);
     let currentOffset = 0, currentTotal = 0;
     let currentCategory = '', currentFilter = 'all', currentSearch = '', currentSort = 'status', currentSortOrder = 'asc';
-    let currentSummary = {}, loadTasksPromise = null, taskRefreshRequested = false, renderedTaskPageURL = '';
-    ${["loadTasks", "taskPageURL", "rememberPageETag", "normalizeSummary", "emptySummary", "safeCount"].map((name) => declaration(trueDownSource, name)).join("\n")}
+    let currentSummary = {}, loadTasksPromise = null, taskLoadTarget = null, taskLoadSerial = 0, taskRenderedRevision = -1;
+    ${["loadTasks", "applyTaskPage", "taskPageURL", "normalizeSummary", "emptySummary", "safeCount"].map((name) => declaration(trueDownSource, name)).join("\n")}
   `, context);
   return { context, rendered };
 }
@@ -350,7 +352,7 @@ test("TrueDown discards a task response after leaving the task page and does not
   assert.equal(requests, 1);
 });
 
-test("TrueDown fetches a body when navigating back to a page whose validator was cached", async () => {
+test("TrueDown reuses a validator only with its retained page body", async () => {
   const calls = [];
   const harness = createTaskPageHarness(async (url, options) => {
     calls.push({ url, headers: options.headers });
@@ -361,7 +363,7 @@ test("TrueDown fetches a body when navigating back to a page whose validator was
   await vm.runInContext("currentOffset = 100; loadTasks()", harness.context);
   await vm.runInContext("currentOffset = 0; loadTasks()", harness.context);
   assert.deepEqual(harness.rendered.map((tasks) => tasks[0].id), [1, 101, 1]);
-  assert.equal(calls[2].headers["If-None-Match"], undefined);
+  assert.equal(calls[2].headers["If-None-Match"], '"page-1"');
   await vm.runInContext("loadTasks()", harness.context);
   assert.equal(calls[3].headers["If-None-Match"], '"page-1"', "unchanged visible pages retain conditional polling");
 });
@@ -381,8 +383,45 @@ test("TrueDown discards in-flight pages after search changes and coalesces refre
   resolveFirst(taskPage(1));
   await Promise.all([first, subsequent]);
   assert.deepEqual(harness.rendered.map((tasks) => tasks[0].id), [99]);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3, "forced refreshes during a read coalesce into one read after that snapshot");
   assert.match(calls[1], /search=new/);
+});
+
+test("task change waits use the displayed revision and back off failed page refreshes", async () => {
+  const calls = [], timers = [];
+  const context = vm.createContext({
+    taskChangePromise: null, taskChangeTimer: 0, taskChangeReady: false,
+    taskRenderedRevision: 3, taskPages: { revision: 5 },
+    currentPage: "tasks", document: { hidden: false }, ACTIVE_POLL_INTERVAL_MS: 2500,
+    requestJSON: async url => { calls.push(url); return { revision: 5 }; },
+    loadTasks: async () => false,
+    window: { setTimeout(fn, delay) { timers.push(delay); return 1; } },
+  });
+  vm.runInContext(declaration(trueDownSource, "watchTaskChanges"), context);
+  context.watchTaskChanges();
+  await context.taskChangePromise;
+  assert.deepEqual(calls, ["/tasks/changes?after=3"], "prefetch must not consume visible updates");
+  assert.deepEqual(timers, [2500], "a failed page read must not create a 100ms retry loop");
+  context.taskChangeTimer = 0;
+  context.document.hidden = true;
+  context.watchTaskChanges();
+  assert.equal(calls.length, 1);
+});
+
+test("return scrolling renders a retained body before slow revalidation completes", async () => {
+  let blocked = false, complete;
+  const harness = createTaskPageHarness(url => {
+    if (blocked) return new Promise(resolve => { complete = resolve; });
+    return Promise.resolve(taskPage(Number(new URLSearchParams(url.split("?")[1]).get("offset")) + 1));
+  });
+  await harness.context.loadTasks();
+  await vm.runInContext("currentOffset = 100; loadTasks()", harness.context);
+  vm.runInContext("for (const entry of taskPages.cache.values()) entry.time -= 1000; currentOffset = 0", harness.context);
+  blocked = true;
+  const pending = harness.context.loadTasks({ viewport: true });
+  assert.equal(harness.rendered.at(-1)[0].id, 1, "cached rows paint before the response");
+  complete(taskPage(1));
+  await pending;
 });
 
 test("TrueDown polling preserves pending queue and retry controls", () => {

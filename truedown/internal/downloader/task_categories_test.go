@@ -60,9 +60,13 @@ func TestCategoryPagesPreserveGlobalOrderAndPagination(t *testing.T) {
 }
 
 func BenchmarkCategoryPage100Of10000(b *testing.B) {
-	for _, field := range []string{"", "id", "file"} {
+	for _, field := range []string{"", "id", "status", "file"} {
 		b.Run("sort="+field, func(b *testing.B) {
 			m := benchmarkPageManager(10_000)
+			// Production managers populate overview/category indexes at load time.
+			for _, task := range m.tasks {
+				m.indexTaskOverviewLocked(task)
+			}
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {

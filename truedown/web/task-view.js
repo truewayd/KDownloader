@@ -1,11 +1,15 @@
 const TASK_ROW_HEIGHT = 64;
 let taskViewportFrame = 0;
 let taskViewportOffset = 0;
+let taskScrollDirection = 1;
+let taskScrollTop = 0;
 
 function resetTaskViewport() {
   cancelAnimationFrame(taskViewportFrame);
   taskViewportFrame = 0;
   currentOffset = taskViewportOffset = 0;
+  taskScrollTop = 0;
+  taskScrollDirection = 1;
   els.tasksWrap?.scrollTo({ top: 0 });
 }
 
@@ -20,7 +24,7 @@ function initTaskViewport() {
   els.tasksWrap.addEventListener("scroll", schedule, { passive: true });
   const update = () => {
     const table = els.tasksContainer.querySelector(".tasks-table");
-    if (table) updateTaskPlaceholders(table);
+    if (table) { table.taskPlaceholderLayout = ""; updateTaskPlaceholders(table); }
     schedule();
   };
   const observer = new ResizeObserver(update);
@@ -39,15 +43,28 @@ function readTaskViewport() {
   const header = els.tasksContainer.querySelector("thead")?.offsetHeight || 40;
   const first = Math.max(0, Math.floor((els.tasksWrap.scrollTop - header) / TASK_ROW_HEIGHT));
   const visible = Math.ceil(els.tasksWrap.clientHeight / TASK_ROW_HEIGHT);
+  const top = els.tasksWrap.scrollTop;
+  if (top !== taskScrollTop) taskScrollDirection = top > taskScrollTop ? 1 : -1;
+  taskScrollTop = top;
   // Keep generous overscan; ordinary small wheel movements need no network read.
   const withinLoadedWindow = first >= taskViewportOffset + (taskViewportOffset ? 10 : 0)
     && first + visible <= Math.min(taskViewportOffset + PAGE_SIZE - 10, currentTotal);
   // Returning to the loaded window must also invalidate an in-flight jump.
   const next = withinLoadedWindow ? taskViewportOffset
     : Math.min(Math.max(0, currentTotal - PAGE_SIZE), Math.max(0, Math.floor((first - 20) / 40) * 40));
-  if (next === currentOffset) return;
+  if (next === currentOffset) { prefetchTaskViewport(); return; }
   currentOffset = next;
-  refreshAndSchedule(true);
+  window.clearTimeout(pollTimer);
+  loadTasks({ viewport: true }).finally(schedulePoll);
+}
+
+function prefetchTaskViewport() {
+  if (currentPage !== "tasks" || document.hidden || currentTotal <= PAGE_SIZE || taskViewportOffset !== currentOffset) return;
+  const offset = Math.min(Math.max(0, currentTotal - PAGE_SIZE), Math.max(0, currentOffset + taskScrollDirection * 40));
+  if (offset === currentOffset) return;
+  const url = taskPageURL(offset);
+  if (taskPages.peek(url)) return;
+  void taskPages.request(url, { prefetch: true }).catch(() => {});
 }
 
 function updateTaskViewport(table) {
@@ -63,8 +80,13 @@ function updateTaskViewport(table) {
 function updateTaskPlaceholders(table) {
   const row = table.querySelector(".task-rows tr");
   if (!row) return;
+  // Progress and speed do not change fixed-row geometry. Resize/theme observers
+  // invalidate this key explicitly, before any layout reads on the hot path.
+  const layout = row.taskShape;
+  if (layout && table.taskPlaceholderLayout === layout) return;
   const bounds = row.getBoundingClientRect();
   if (!bounds.width) return;
+  table.taskPlaceholderLayout = layout;
   const shapes = [];
   // Measure the real row so column widths, responsive hiding and icon surfaces
   // stay identical. Only one 64px tile is rasterized, regardless of list length.
@@ -112,7 +134,7 @@ function updateTaskPlaceholders(table) {
   table.style.setProperty("--task-placeholder-animated", image(shimmer));
 }
 
-function reconcileTaskRows(body, tasks) {
+function reconcileTaskRows(body, tasks, epoch = "") {
   const rows = new Map(Array.from(body.children, (row) => [Number(row.dataset.taskId), row]));
   const keep = new Set(tasks.map((task) => task.id));
   for (const [id, row] of rows) if (!keep.has(id)) row.remove();
@@ -128,24 +150,34 @@ function reconcileTaskRows(body, tasks) {
         if (row.children[i].innerHTML !== cell.innerHTML) row.children[i].replaceWith(cell);
       });
       row.taskShape = shape;
+      row.taskNodes = null;
     }
+    const nodes = row.taskNodes ||= {
+      label: row.querySelector(".progress-line"), progress: row.querySelector(".task-progress"),
+      checkbox: row.querySelector("[data-select-task]"),
+      values: [".task-size", ".task-speed", ".task-remaining", ".task-created"].map(selector => row.querySelector(selector)),
+    };
+    if (body.children[index] !== row) body.insertBefore(row, body.children[index] || null);
+    nodes.checkbox.checked = selectedTaskIDs.has(task.id);
+    if (Number.isSafeInteger(task.revision) && row.taskEpoch === epoch && row.taskRevision === task.revision && row.taskRenderedShape === shape) return;
+    row.taskEpoch = epoch;
+    row.taskRevision = task.revision;
+    row.taskRenderedShape = shape;
     row.dataset.updateDownload = String(task.updateDownload === true);
     row.dataset.status = task.status;
     const progress = taskProgressLabel(task);
-    const label = row.querySelector(".progress-line");
+    const label = nodes.label;
     if (label.textContent !== progress) {
       label.textContent = progress;
     }
     label.dataset.tooltip = task.error ? formatTaskError(task) : task.progress || progress;
     if (task.error) label.dataset.tooltipKind = "card";
     else delete label.dataset.tooltipKind;
-    row.querySelector(".task-progress").value = taskProgressPercent(task);
-    for (const [selector, value] of [[".task-size", taskBytes(task.totalLength)], [".task-speed", taskSpeed(task)], [".task-remaining", taskRemaining(task)], [".task-created", taskDate(task.createdAt)]]) {
-      const node = row.querySelector(selector);
+    const percent = taskProgressPercent(task);
+    if (nodes.progress.value !== percent) nodes.progress.value = percent;
+    [taskBytes(task.totalLength), taskSpeed(task), taskRemaining(task), taskDate(task.createdAt)].forEach((value, index) => {
+      const node = nodes.values[index];
       if (node.textContent !== value) node.textContent = value;
-    }
-    const checkbox = row.querySelector("[data-select-task]");
-    checkbox.checked = selectedTaskIDs.has(task.id);
-    if (body.children[index] !== row) body.insertBefore(row, body.children[index] || null);
+    });
   });
 }

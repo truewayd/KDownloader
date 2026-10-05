@@ -109,6 +109,7 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
         "main" => match method {
             "GET" => [
                 "/tasks",
+                "/tasks/changes",
                 "/settings/file-groups",
                 "/system/info",
                 "/system/update",
@@ -513,6 +514,20 @@ pub fn finish_task_window(app: tauri::AppHandle, window: WebviewWindow) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn task_change_wait_is_main_window_only() {
+        assert!(allowed("main", "GET", "/tasks/changes"));
+        assert!(!allowed("main", "POST", "/tasks/changes"));
+        for role in [
+            "settings",
+            "new-task",
+            "task-details",
+            "task-preview",
+            "confirmation",
+        ] {
+            assert!(!allowed(role, "GET", "/tasks/changes"));
+        }
+    }
     #[test]
     fn preview_reads_and_actions_are_bound_to_the_open_task() {
         let mut target = TaskDetails {

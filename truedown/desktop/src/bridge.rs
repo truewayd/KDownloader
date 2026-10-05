@@ -314,6 +314,13 @@ impl Bridge {
     }
     pub async fn request(&self, request: Request) -> Result<Response, String> {
         request.validate()?;
+        let task_read = request.method == "GET"
+            && matches!(
+                request.path.split('?').next(),
+                Some("/tasks" | "/tasks/changes")
+            );
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_secs(if task_read { 12 } else { 365 });
         if !self.alive.load(Ordering::SeqCst) {
             return Err("Core disconnected".into());
         }
@@ -322,14 +329,16 @@ impl Bridge {
         // do not allocate another full frame after capacity has been reached.
         let (_pending, receiver) = PendingRequest::reserve(&self.pending, &self.alive, id)?;
         let data = request.into_frame(id)?;
-        let sent = write_frame(&self.input, &self.alive, &data).await;
+        let sent = tokio::time::timeout_at(deadline, write_frame(&self.input, &self.alive, &data))
+            .await
+            .map_err(|_| "Core request timed out".to_string())?;
         // Large torrent payloads need not remain allocated during resolver waits.
         drop(data);
         if let Err(error) = sent {
             self.alive.store(false, Ordering::SeqCst);
             return Err(error);
         }
-        let response = tokio::time::timeout(Duration::from_secs(365), receiver).await;
+        let response = tokio::time::timeout_at(deadline, receiver).await;
         response
             .map_err(|_| "Core request timed out".to_string())?
             .map_err(|_| "Core disconnected".to_string())?

@@ -301,7 +301,7 @@ test("returning from task details never steals focus moved during the page reque
 });
 
 test("progress polling retains every row control and changes only its progress label", () => {
-  const task = { id: 7, status: "downloading", name: "file.zip", progress: "25%" };
+  const task = { id: 7, revision: 1, status: "downloading", name: "file.zip", progress: "25%" };
   const progress = { textContent: "20%", dataset: { tooltip: "20%" } };
   const checkbox = { checked: true };
   const row = {
@@ -322,6 +322,9 @@ test("progress polling retains every row control and changes only its progress l
   assert.equal(progress.textContent, "25%");
   assert.equal(progress.dataset.tooltip, "25%");
   assert.equal(checkbox.checked, true);
+  context.reconcileTaskRows(body, [{ ...task, progress: "50%" }], "restarted-core");
+  assert.equal(progress.textContent, "50%", "a restarted core may reuse task IDs and revisions");
+  assert.equal(body.children[0], row, "restart updates values while preserving controls");
 });
 
 test("a settings read started before a mutation cannot overwrite its persisted result", async () => {

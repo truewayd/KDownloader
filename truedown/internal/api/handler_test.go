@@ -224,6 +224,16 @@ func TestTaskPageIsBoundedAndSupportsConditionalRequests(t *testing.T) {
 		t.Fatalf("unexpected page: %+v", page)
 	}
 	etag := response.Header().Get("ETag")
+	if page.RowsVersion == "" || page.OrderVersion == "" || page.Epoch == "" {
+		t.Fatal("page is missing cache versions")
+	}
+	rowsRequest := httptest.NewRequest(http.MethodGet, "/tasks?limit=2&offset=0&status=all&rowsVersion="+page.RowsVersion, nil)
+	rowsResponse := httptest.NewRecorder()
+	mux.ServeHTTP(rowsResponse, rowsRequest)
+	var unchanged downloader.TaskPage
+	if err := json.Unmarshal(rowsResponse.Body.Bytes(), &unchanged); err != nil || !unchanged.RowsUnchanged || unchanged.Tasks != nil || unchanged.Summary.Total != 3 {
+		t.Fatalf("row reuse response: %s, %v", rowsResponse.Body.String(), err)
+	}
 	if etag == "" {
 		t.Fatal("task page did not include an ETag")
 	}
@@ -288,6 +298,41 @@ func TestTaskPageIsBoundedAndSupportsConditionalRequests(t *testing.T) {
 		if invalidSortResponse.Code != http.StatusBadRequest {
 			t.Fatalf("invalid sort %s status=%d", target, invalidSortResponse.Code)
 		}
+	}
+}
+
+func TestTaskChangeEndpointValidationAndWakeup(t *testing.T) {
+	mux, manager := testHandler(t)
+	defer manager.Stop()
+	for _, after := range []string{"", "-1", "invalid", "9007199254740992"} {
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/tasks/changes?after="+after, nil))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("invalid revision %q: %d", after, response.Code)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	before := manager.PageTaskSnapshots(0, 1, "", "").Revision
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/tasks/changes?after=%d", before), nil).WithContext(ctx))
+		done <- response
+	}()
+	if _, _, err := manager.AddTask("https://example.test/wakeup", "wakeup.bin", "", nil, "", 0, downloader.Aria2Opts{}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case response := <-done:
+		var result struct {
+			Revision int64 `json:"revision"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || response.Code != http.StatusOK || result.Revision <= before {
+			t.Fatalf("change response: %d %s %v", response.Code, response.Body.String(), err)
+		}
+	case <-ctx.Done():
+		t.Fatal("task addition did not wake the API reader")
 	}
 }
 

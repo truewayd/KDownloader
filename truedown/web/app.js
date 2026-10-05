@@ -2,7 +2,6 @@ const ACTIVE_POLL_INTERVAL_MS = 2500;
 const IDLE_POLL_INTERVAL_MS = 10000;
 const PAGE_SIZE = 100;
 const MAX_SELECTED_TASKS = 1000;
-const MAX_PAGE_ETAGS = 128;
 const LEGACY_THEME_KEY = "truedown-theme";
 const DOWNLOAD_DEFAULTS_KEY = "truedown-download-defaults-v1";
 const MAX_SPEED_BPS = 2 ** 50;
@@ -80,7 +79,7 @@ const selectedTaskIDs = new Set();
 const taskStatusByID = new Map();
 const updateTaskIDs = new Set();
 const activeTaskActions = new Set();
-const pageETags = new Map();
+const taskPages = new TaskPageStore((url, options) => apiFetch(url, options));
 let trueDownToast = null;
 let pollTimer = 0;
 let searchTimer = 0;
@@ -94,8 +93,12 @@ let currentSearch = "";
 let currentSort = "status";
 let currentSortOrder = "asc";
 let loadTasksPromise = null;
-let taskRefreshRequested = false;
-let renderedTaskPageURL = "";
+let taskLoadTarget = null;
+let taskLoadSerial = 0;
+let taskChangePromise = null;
+let taskChangeTimer = 0;
+let taskChangeReady = false;
+let taskRenderedRevision = -1;
 let lastTaskRenderSignature = "";
 let modalReturnFocus = null;
 let tokenAuthEnabled = false;
@@ -279,6 +282,7 @@ function bindEvents() {
     if (document.hidden) {
       cancelDialog();
       window.clearTimeout(pollTimer);
+      stopTaskReads();
       return;
     }
     if (isNativeTaskWindow()) {
@@ -287,7 +291,7 @@ function bindEvents() {
     }
     refreshAndSchedule();
   });
-  window.addEventListener("pagehide", () => { cancelDialog(); window.clearTimeout(pollTimer); }, { once: true });
+  window.addEventListener("pagehide", () => { cancelDialog(); window.clearTimeout(pollTimer); stopTaskReads(); }, { once: true });
   window.addEventListener("hashchange", cancelDialog);
 
   els.downloadForm.addEventListener("submit", submitTask);
@@ -1000,69 +1004,37 @@ function schedulePoll() {
   window.clearTimeout(pollTimer);
   if (document.hidden || currentPage !== "tasks") return;
   const active = currentSummary.queued + currentSummary.downloading > 0;
-  pollTimer = window.setTimeout(refreshAndSchedule, active ? ACTIVE_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS);
+  pollTimer = window.setTimeout(refreshAndSchedule, taskChangeReady ? IDLE_POLL_INTERVAL_MS : active ? ACTIVE_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS);
+  watchTaskChanges();
 }
 
-async function loadTasks({ force = false } = {}) {
+async function loadTasks({ force = false, viewport = false } = {}) {
   if (currentPage !== "tasks" || document.hidden) return false;
-  if (loadTasksPromise) {
-    if (force) taskRefreshRequested = true;
+  const epoch = routeEpoch;
+  const url = taskPageURL();
+  if (taskLoadTarget?.url === url && taskLoadTarget.epoch === epoch && (!force || taskLoadTarget.force)) {
+    if (force) taskLoadTarget.refreshAgain = true;
     return loadTasksPromise;
   }
-  loadTasksPromise = (async () => {
+  if (force) taskPages.invalidate();
+  const serial = ++taskLoadSerial;
+  const current = () => serial === taskLoadSerial && epoch === routeEpoch && currentPage === "tasks" && !document.hidden && url === taskPageURL();
+  taskLoadTarget = { url, epoch, force };
+  const cached = viewport && taskPages.peek(url);
+  if (cached && !applyTaskPage(cached.page, url)) { taskLoadTarget = null; return loadTasks(); }
+  const pending = (async () => {
     try {
-      while (true) {
-        taskRefreshRequested = false;
-        if (currentPage !== "tasks" || document.hidden) return false;
-        const epoch = routeEpoch;
-        const url = taskPageURL();
-        const headers = {};
-        // Validators only save work when the corresponding body is still displayed.
-        if (!force && renderedTaskPageURL === url && pageETags.has(url)) {
-          headers["If-None-Match"] = pageETags.get(url);
-        }
-        const response = await apiFetch(url, { headers });
-        if (currentPage !== "tasks" || document.hidden) return false;
-        if (epoch !== routeEpoch || url !== taskPageURL()) continue;
-        if (response.status === 304) {
-          if (els.taskLoadStatus) els.taskLoadStatus.hidden = true;
-          if (taskRefreshRequested) { force = true; continue; }
-          restoreTaskReturnFocus();
-          return true;
-        }
-        if (!response.ok) throw new Error(await response.text());
-        const page = await response.json();
-        if (currentPage !== "tasks" || document.hidden) return false;
-        if (epoch !== routeEpoch || url !== taskPageURL()) continue;
-        if (!page || !Array.isArray(page.tasks) || !page.summary) throw new Error("任务列表响应无效");
-        if (els.taskLoadStatus) els.taskLoadStatus.hidden = true;
-        const etag = response.headers.get("ETag");
-        if (page.groups) {
-          applyFileGroups(page.groups);
-          if (currentCategory && !page.groups.groups.some((group) => group.id === currentCategory)) {
-            currentCategory = "";
-            resetTaskViewport();
-            updateTaskNavigation();
-            force = true;
-            continue;
-          }
-        }
-        if (etag) rememberPageETag(url, etag);
-        currentTotal = safeCount(page.total);
-        currentSummary = normalizeSummary(page.summary);
-        if (currentOffset >= currentTotal && currentOffset > 0) {
-          currentOffset = Math.max(0, Math.floor(Math.max(0, currentTotal - 1) / PAGE_SIZE) * PAGE_SIZE);
-          force = true;
-          continue;
-        }
-        renderTasks(page.tasks);
-        restoreTaskReturnFocus();
-        renderedTaskPageURL = url;
-        updateMetrics(currentSummary);
-        if (taskRefreshRequested) { force = true; continue; }
-        return true;
+      const entry = await (cached && Date.now() - cached.time < 500 ? cached : taskPages.request(url));
+      if (!current() || !entry) return false;
+      if (taskLoadTarget.refreshAgain) { taskLoadTarget = null; return loadTasks({ force: true }); }
+      if (!applyTaskPage(entry.page, url)) {
+        taskLoadTarget = null;
+        return loadTasks();
       }
+      prefetchTaskViewport();
+      return true;
     } catch (error) {
+      if (!current()) return false;
       console.error("loadTasks:", error);
       if (currentPage === "tasks" && els.taskLoadStatus) {
         els.taskLoadStatus.textContent = `连接暂时不可用，正在自动重试：${error.message}`;
@@ -1070,16 +1042,67 @@ async function loadTasks({ force = false } = {}) {
       }
       return false;
     } finally {
-      loadTasksPromise = null;
+      if (serial === taskLoadSerial) { loadTasksPromise = null; taskLoadTarget = null; }
     }
   })();
-  return loadTasksPromise;
+  loadTasksPromise = pending;
+  return pending;
 }
 
-function taskPageURL() {
+function applyTaskPage(page, url) {
+  if (els.taskLoadStatus) els.taskLoadStatus.hidden = true;
+  const overview = taskPages.overview || page;
+  if (overview.groups) {
+    applyFileGroups(overview.groups);
+    if (currentCategory && !overview.groups.groups.some(group => group.id === currentCategory)) {
+      currentCategory = "";
+      resetTaskViewport();
+      updateTaskNavigation();
+      return false;
+    }
+  }
+  currentTotal = safeCount(page.total);
+  currentSummary = normalizeSummary(overview.summary);
+  if (currentOffset >= currentTotal && currentOffset > 0) {
+    currentOffset = Math.max(0, currentTotal - PAGE_SIZE);
+    return false;
+  }
+  renderTasks(page.tasks, page.epoch);
+  if (Number.isSafeInteger(page.revision)) taskRenderedRevision = page.revision;
+  restoreTaskReturnFocus();
+  updateMetrics(currentSummary);
+  return true;
+}
+
+function watchTaskChanges() {
+  if (taskChangePromise || taskChangeTimer || taskRenderedRevision < 0 || currentPage !== "tasks" || document.hidden) return;
+  const after = taskRenderedRevision;
+  taskChangePromise = requestJSON(`/tasks/changes?after=${after}`).then(async result => {
+    if (!Number.isSafeInteger(result.revision) || result.revision < 0) throw new Error("Invalid task revision");
+    taskChangeReady = true;
+    if (currentPage !== "tasks" || document.hidden) return;
+    if (result.revision !== taskRenderedRevision && !await loadTasks()) taskChangeReady = false;
+  }).catch(() => { taskChangeReady = false; }).finally(() => {
+    taskChangePromise = null;
+    if (currentPage !== "tasks" || document.hidden) return;
+    // Coalesce bursts and back off failures; never spin against a stale body.
+    taskChangeTimer = window.setTimeout(() => { taskChangeTimer = 0; watchTaskChanges(); }, taskChangeReady ? 100 : ACTIVE_POLL_INTERVAL_MS);
+  });
+}
+
+function stopTaskReads() {
+  taskLoadSerial++;
+  taskLoadTarget = null;
+  loadTasksPromise = null;
+  taskPages.invalidate({ keepCache: true });
+  window.clearTimeout(taskChangeTimer);
+  taskChangeTimer = 0;
+}
+
+function taskPageURL(offset = currentOffset) {
   const params = new URLSearchParams({
     limit: String(PAGE_SIZE),
-    offset: String(currentOffset),
+    offset: String(offset),
     status: currentFilter,
     sort: currentSort,
     order: currentSortOrder,
@@ -1089,7 +1112,7 @@ function taskPageURL() {
   return `/tasks?${params}`;
 }
 
-function renderTasks(tasks) {
+function renderTasks(tasks, epoch = "") {
   const focused = document.activeElement;
   const focusKey = els.tasksContainer.contains(focused) ? taskControlKey(focused) : "";
   for (const id of taskStatusByID.keys()) {
@@ -1101,6 +1124,7 @@ function renderTasks(tasks) {
   });
   currentTasks = [...tasks];
   const signature = JSON.stringify([
+    epoch,
     currentOffset,
     currentTotal,
     currentFilter,
@@ -1159,7 +1183,7 @@ function renderTasks(tasks) {
     });
     table.dataset.sort = sortKey;
   }
-  reconcileTaskRows(table.querySelector(".task-rows"), currentTasks);
+  reconcileTaskRows(table.querySelector(".task-rows"), currentTasks, epoch);
   updateTaskViewport(table);
   syncSelectionControls();
   if (focusKey && document.activeElement !== focused) {
@@ -1177,14 +1201,6 @@ function taskControlKey(control) {
   const taskID = control.closest("[data-task-id]")?.dataset.taskId;
   if (!taskID) return "";
   return JSON.stringify([taskID, control.dataset.action || "select"]);
-}
-
-function rememberPageETag(url, etag) {
-  pageETags.delete(url);
-  pageETags.set(url, etag);
-  while (pageETags.size > MAX_PAGE_ETAGS) {
-    pageETags.delete(pageETags.keys().next().value);
-  }
 }
 
 function sortableHeading(field, label) {

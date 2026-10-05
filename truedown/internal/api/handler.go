@@ -666,6 +666,33 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		w.Write([]byte("OK"))
 	})
 
+	changeSlots := make(chan struct{}, 8)
+	mux.HandleFunc("/tasks/changes", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		after, err := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+		if err != nil || after < 0 || after > 9007199254740991 {
+			http.Error(w, "invalid task revision", http.StatusBadRequest)
+			return
+		}
+		select {
+		case changeSlots <- struct{}{}:
+			defer func() { <-changeSlots }()
+		default:
+			http.Error(w, "too many task change readers", http.StatusTooManyRequests)
+			return
+		}
+		revision, err := dm.WaitTaskChanges(r.Context(), after, 10*time.Second)
+		if err != nil {
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]int64{"revision": revision})
+	})
+
 	mux.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
@@ -710,6 +737,10 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		if notModified {
 			w.WriteHeader(http.StatusNotModified)
 			return
+		}
+		if rowsVersion := r.URL.Query().Get("rowsVersion"); rowsVersion != "" && rowsVersion == page.RowsVersion {
+			page.Tasks = nil
+			page.RowsUnchanged = true
 		}
 		writeJSON(w, http.StatusOK, page)
 	})

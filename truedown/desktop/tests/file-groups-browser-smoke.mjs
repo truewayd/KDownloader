@@ -155,11 +155,11 @@ try {
     await page.locator("#task-search").fill("Cover");
     await page.waitForFunction(() => document.querySelectorAll("tr[data-task-id]").length === 1);
     for (const cached of [true, false]) {
-      await page.waitForFunction(() => !loadTasksPromise && !taskRefreshRequested && renderedTaskPageURL === taskPageURL());
+      await page.waitForFunction(() => !loadTasksPromise && currentTasks.length === 1 && currentTasks[0].id === 7);
       const previousNotModified = taskNotModified;
       await page.locator('[data-action="details"][data-id="7"]').click();
       await page.waitForFunction(() => currentPage === "task" && taskDetailData?.id === 7 && document.querySelector("#task-detail-title").textContent === "Cover.PSD");
-      if (!cached) await page.evaluate(() => pageETags.clear());
+      if (!cached) await page.evaluate(() => taskPages.invalidate());
       const returnedTasks = page.waitForResponse(response => new URL(response.url()).pathname === "/tasks");
       await page.locator("#task-detail-back").click();
       await returnedTasks;

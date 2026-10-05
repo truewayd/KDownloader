@@ -208,6 +208,7 @@ func (m *Manager) saveFileGroupsLocked(revision uint64, normalized []FileGroup) 
 	}
 	m.revision++
 	m.structureRev++
+	m.notifyTaskChangeLocked()
 	if m.downloadRules != nil {
 		if err := m.downloadRules.reconcileProjectFilter(next.Groups); err != nil {
 			return FileGroupsSnapshot{}, fmt.Errorf("file groups saved, but resetting Dropbox filter failed: %w", err)

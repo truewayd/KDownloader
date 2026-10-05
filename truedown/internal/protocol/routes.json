@@ -66,6 +66,7 @@
   "/tasks": [
     "GET"
   ],
+  "/tasks/changes": ["GET"],
   "/tasks/detail": [
     "GET",
     "POST"

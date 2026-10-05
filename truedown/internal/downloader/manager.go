@@ -107,11 +107,13 @@ type Task struct {
 	admissionFailureRevision int64
 	overviewCategory         string
 	overviewSpeed            int64
+	listKey                  taskListKey
 }
 
 // TaskSnapshot contains only fields needed by the web UI. Request headers and
 // aria2 options can contain credentials and must not be exposed by the API.
 type TaskSnapshot struct {
+	Revision        int64     `json:"revision"`
 	UpdateDownload  bool      `json:"updateDownload,omitempty"`
 	Category        string    `json:"category"`
 	TotalLength     int64     `json:"totalLength"`
@@ -141,14 +143,18 @@ type TaskSummary struct {
 }
 
 type TaskPage struct {
-	Groups   FileGroupsSnapshot `json:"groups"`
-	Tasks    []TaskSnapshot     `json:"tasks"`
-	Summary  TaskSummary        `json:"summary"`
-	Offset   int                `json:"offset"`
-	Limit    int                `json:"limit"`
-	Total    int                `json:"total"`
-	Revision int64              `json:"revision"`
-	Version  string             `json:"-"`
+	Epoch         string             `json:"epoch"`
+	OrderVersion  string             `json:"orderVersion"`
+	RowsVersion   string             `json:"rowsVersion"`
+	RowsUnchanged bool               `json:"rowsUnchanged,omitempty"`
+	Groups        FileGroupsSnapshot `json:"groups"`
+	Tasks         []TaskSnapshot     `json:"tasks"`
+	Summary       TaskSummary        `json:"summary"`
+	Offset        int                `json:"offset"`
+	Limit         int                `json:"limit"`
+	Total         int                `json:"total"`
+	Revision      int64              `json:"revision"`
+	Version       string             `json:"-"`
 }
 
 type TaskOperationFailure struct {
@@ -260,6 +266,9 @@ type Manager struct {
 	downloadSpeed              int64
 	revision                   int64
 	structureRev               int64
+	listRevision               int64
+	listChanged                chan struct{}
+	listEpoch                  string
 	lastSuccessfulPollRevision int64
 	ariaAdmitted               map[int64]bool
 	ariaSlots                  chan struct{}
@@ -350,6 +359,7 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 	googleDriveProxy := systemProxyFunc()
 	lifecycleCtx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
+		listEpoch:         newGID(),
 		aria2Path:         aria2Path,
 		aria2Next:         config.Aria2Next,
 		aria2NextVersion:  strings.TrimSpace(config.Aria2NextVersion),
@@ -809,12 +819,12 @@ func (m *Manager) PageTaskSnapshotsFilteredIfChanged(
 	}
 	// Global overview values can change even when every visible row is unchanged.
 	version ^= uint64(m.revision) * 1099511628211
-	validator := fmt.Sprintf(`"td-%x"`, version)
+	validator := fmt.Sprintf(`"td-%s-%x"`, m.listEpoch, version)
 	if ifNoneMatch != "" && ifNoneMatch == validator {
 		return TaskPage{Version: validator}, true
 	}
 	if category != "" {
-		return m.categoryPageLocked(offset, min(limit, 200), status, search, sortField, sortOrder, category, validator), false
+		return m.versionTaskPageLocked(m.categoryPageLocked(offset, min(limit, 200), status, search, sortField, sortOrder, category, validator), sortField), false
 	}
 
 	total := len(m.tasks)
@@ -842,11 +852,11 @@ func (m *Manager) PageTaskSnapshotsFilteredIfChanged(
 	if sortField != "" {
 		if sortField == "id" {
 			m.appendTaskPageByID(&page, status, search, sortOrder == "desc")
-			return page, false
+			return m.versionTaskPageLocked(page, sortField), false
 		}
 		if sortField == "status" {
 			m.appendTaskPageByStatus(&page, status, search, sortOrder == "desc")
-			return page, false
+			return m.versionTaskPageLocked(page, sortField), false
 		}
 		ids := make([]int64, 0, total)
 		for _, id := range m.orderedIDs {
@@ -859,10 +869,10 @@ func (m *Manager) PageTaskSnapshotsFilteredIfChanged(
 			task := m.tasks[ids[index]]
 			page.Tasks = append(page.Tasks, m.snapshotTask(task))
 		}
-		return page, false
+		return m.versionTaskPageLocked(page, sortField), false
 	}
 	m.appendTaskPageByID(&page, status, search, true)
-	return page, false
+	return m.versionTaskPageLocked(page, sortField), false
 }
 
 func (m *Manager) sortTaskIDsForPage(ids []int64, field, order string) {
@@ -1190,6 +1200,7 @@ func (m *Manager) summaryLocked() TaskSummary {
 
 func (m *Manager) snapshotTask(task *Task) TaskSnapshot {
 	return TaskSnapshot{
+		Revision:       task.Revision,
 		UpdateDownload: task.UpdateDownload,
 		Category:       m.classifyTask(task), TotalLength: task.TotalLength,
 		CompletedLength: task.CompletedLength, DownloadSpeed: task.DownloadSpeed,
@@ -2326,6 +2337,7 @@ func (m *Manager) touchTaskLocked(task *Task) {
 		m.indexTaskOverviewLocked(task)
 	}
 	m.revision++
+	m.notifyTaskChangeLocked()
 	task.Revision = m.revision
 	task.UpdatedAt = time.Now()
 }
@@ -2333,6 +2345,7 @@ func (m *Manager) touchTaskLocked(task *Task) {
 // replaceTaskLocked commits a task snapshot while keeping every secondary
 // index in sync. The caller must hold m.mu and persist replacement first.
 func (m *Manager) replaceTaskLocked(task, replacement *Task) {
+	defer m.notifyTaskChangeLocked()
 	oldStatus := task.Status
 	category, speed := task.overviewCategory, task.overviewSpeed
 	if m.fingerprints[task.Fingerprint] == task.ID {
@@ -2389,6 +2402,7 @@ func (m *Manager) removeTaskLocked(id int64) bool {
 	m.statusCounts[task.Status]--
 	m.revision++
 	m.structureRev++
+	m.notifyTaskChangeLocked()
 	return true
 }
 
