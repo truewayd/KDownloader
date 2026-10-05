@@ -141,7 +141,7 @@ executable under `truedown/dist/` and the unpacked application under
 `truedown/dist/TrueDown`. Setup uses Tauri's [Windows installer support](https://v2.tauri.app/distribute/windows-installer/),
 installs for the current user, and bootstraps WebView2 when missing. Release
 downloads use `TrueDown-build-N-windows-amd64-setup.exe`; the matching ZIP and
-schema-2 JSON are published only for bridge build 94. New clients update through setup and schema-3 JSON; later releases have no Windows ZIP.
+schema-2 JSON remain in every release for old native clients. After one automatic migration, clients update only through setup and schema-3 JSON.
 `bash truedown/build-unix.sh linux amd64` (or `linux arm64`) produces a Linux package.
 `bash truedown/build-unix.sh darwin arm64` produces a macOS `.app` on Apple Silicon;
 macOS Intel builds are not supported. Install the desktop npm

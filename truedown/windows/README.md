@@ -51,8 +51,9 @@ Failed switches retain the previous working engine. To migrate from the old brow
 package, exit that version and run the installer; its old single-executable
 updater cannot install this package format. Existing portable users with an
 explicit or portable profile should keep using that same profile when launching
-the installed application. Build 94 alone includes the ZIP/schema-2 migration
-assets for old clients. Later updates use the setup executable and schema-3 JSON. Older clients that miss build 94 need one manual installation.
+the installed application. Every release retains ZIP/schema-2 migration
+assets for old native clients, including users who skip releases. After one
+automatic migration, updates use only the setup executable and schema-3 JSON.
 
 Source, runtime prerequisites and build instructions are in the repository:
 https://github.com/truewayd/KDownloader/tree/main/truedown
