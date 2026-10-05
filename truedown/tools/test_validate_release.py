@@ -20,6 +20,9 @@ from validate_release import (MAX_HEADER, MAX_NAME, MAX_TAR_HEADERS, MAX_TAR_MET
 
 class ReleaseValidationTests(unittest.TestCase):
     def setUp(self):
+        bridge = patch("validate_release.BRIDGE_BUILD", 42)
+        bridge.start()
+        self.addCleanup(bridge.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -28,6 +31,15 @@ class ReleaseValidationTests(unittest.TestCase):
             for arch in {"windows": ("amd64",), "linux": ("amd64", "arm64"), "macos": ("arm64",)}[system]:
                 self.make_package(system, arch)
         self.write_manifest()
+        installer = bytearray(128)
+        installer[:2] = b"MZ"
+        struct.pack_into("<I", installer, 60, 64)
+        installer[64:70] = b"PE\0\0\x4c\x01"
+        (self.root / "TrueDown-build-42-windows-amd64-setup.exe").write_bytes(installer)
+        installer_manifest = {**self.manifest, "schemaVersion": 3,
+                              "asset": {"name": "TrueDown-build-42-windows-amd64-setup.exe",
+                                        "size": len(installer), "sha256": hashlib.sha256(installer).hexdigest()}}
+        (self.root / "truedown-installer-update-42.json").write_text(json.dumps(installer_manifest))
 
     def make_package(self, system, arch):
         binary = bytearray(128)
@@ -95,15 +107,36 @@ class ReleaseValidationTests(unittest.TestCase):
     def test_complete_release(self):
         validate_release(self.root, 42)
 
+    def test_after_bridge_rejects_zip_and_accepts_installer_only(self):
+        with patch("validate_release.BRIDGE_BUILD", 41):
+            with self.assertRaises(ValueError):
+                validate_release(self.root, 42)
+            (self.root / "TrueDown-build-42.zip").unlink()
+            (self.root / "truedown-update-42.json").unlink()
+            validate_release(self.root, 42)
+
+    def test_missing_or_invalid_installer(self):
+        installer = self.root / "TrueDown-build-42-windows-amd64-setup.exe"
+        original = installer.read_bytes()
+        for content in (b"", b"not an installer", original[:64],
+                        original[:64] + b"PE\0\0\x64\x86" + original[70:]):
+            with self.subTest(content=content):
+                installer.write_bytes(content)
+                with self.assertRaises(ValueError):
+                    validate_release(self.root, 42)
+        installer.unlink()
+        with self.assertRaises(ValueError):
+            validate_release(self.root, 42)
+
     def test_missing_or_extra_asset(self):
         asset = self.root / "TrueDown-build-42-macos-arm64.zip"
         asset.rename(asset.with_suffix(".unexpected"))
-        with self.assertRaisesRegex(ValueError, "exactly four platform archives"):
+        with self.assertRaisesRegex(ValueError, "exactly the installer release set"):
             validate_release(self.root, 42)
 
     def test_release_rejects_retired_macos_intel_asset(self):
         self.make_package("macos", "amd64")
-        with self.assertRaisesRegex(ValueError, "exactly four platform archives"):
+        with self.assertRaisesRegex(ValueError, "exactly the installer release set"):
             validate_release(self.root, 42)
 
     def test_manifest_must_bind_windows_archive(self):

@@ -165,7 +165,7 @@ existing value name and Windows disabled state remain intact. Registrations for
 other executable locations or profiles are never overwritten.
 
 Standalone services leave program updates to their package owner. Numbered
-Windows native packages use manifest schema 2, binding archive SHA-256, platform,
+Windows native packages use manifest schema 3, binding installer SHA-256, platform,
 protocol, and the sizes/hashes of shell, core, CLI and both notice files. The
 release schema prevents legacy single-executable updaters from installing an
 incomplete native package; the first migration requires the complete new package.
@@ -184,9 +184,13 @@ new core finalizes pending state under its profile lock; the helper never rewrit
 settings after the healthy core begins serving requests. Updates restart hidden.
 Downloaded files, SQLite, configuration, bundled aria2 and NEXT stay outside the
 program replacement set. Native release scripts package all three components and
-their notices. The Windows archive manifest is schema 2; Linux retains its
+their notices. Windows uses schema 3, with schema 2 only for migration build 94; Linux retains its
 architecture-specific tarball and macOS uses Tauri's standard application bundle.
-Release publication depends on all five packages plus native UI/recovery tests.
+Windows distribution and automatic updates use a current-user NSIS setup executable; the ZIP
+exists only in bridge build 94 for old clients. Later releases omit it.
+Release publication depends on all four platform builds, seven bridge assets or five afterward
+(Windows setup/schema-3 JSON, two Linux archives and one macOS archive, plus bridge-only ZIP/schema-2 JSON),
+installer lifecycle acceptance and native UI/recovery tests.
 Each package must complete frontend startup using its own matching CLI
 and core before archiving. The aggregate validator checks all executable
 architectures, Unix permissions, native notices and Windows component hashes.

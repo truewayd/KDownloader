@@ -103,7 +103,7 @@ npm ci --prefix desktop
 pwsh -NoProfile -ExecutionPolicy Bypass -File build.ps1
 ```
 
-The Windows package is written to `truedown/dist/TrueDown`. Start `TrueDown.exe` to open the native interface. Linux builds use `bash truedown/build-unix.sh linux <amd64|arm64>` on the matching host. macOS builds use `bash truedown/build-unix.sh darwin arm64` on Apple Silicon only. See [desktop development and packaging](truedown/desktop/README.md).
+Windows users install the `TrueDown-build-N-windows-amd64-setup.exe` asset from [TrueDown releases](https://github.com/truewayd/KDownloader/releases). The current-user installer includes the core, CLI, stable aria2 and notices, creates shortcuts, and handles missing WebView2. Local builds write a `TrueDown-dev-windows-amd64-setup.exe` installer under `truedown/dist/` and the unpacked application under `truedown/dist/TrueDown`. Only bridge build 94 retains the ZIP for old-client migration; subsequent automatic updates use the setup executable and schema-3 manifest. Older clients that miss the bridge need one manual installation. Linux builds use `bash truedown/build-unix.sh linux <amd64|arm64>` on the matching host. macOS builds use `bash truedown/build-unix.sh darwin arm64` on Apple Silicon only. See [desktop development and packaging](truedown/desktop/README.md).
 
 ```text
 TrueDown --background                 Start the desktop in the tray
@@ -118,7 +118,7 @@ Use `--data-dir` or `TRUEDOWN_DATA_DIR` to select an explicit profile; connectio
 
 Windows defaults to `%LOCALAPPDATA%/TrueDown/{config,data,state,logs,cache}`. macOS uses Application Support for durable data and the standard Library Logs/Caches directories. Linux follows XDG configuration, data, state and cache directories. One versioned profile manifest owns these roles. Recognized portable profiles remain at their existing root; migration retains a backup and preserves download paths.
 
-Numbered Windows native releases update and roll back the complete shell/core/CLI and notice set. The first migration from the legacy browser package requires extracting a complete native package. Independent services and Linux/macOS installations replace the full package through their deployment owner. macOS uses ad-hoc signing unless CI publishing credentials are configured; macOS runtime acceptance has not been performed locally. See the [architecture and verification scope](docs/truedown-core-and-tauri.md).
+Numbered Windows native releases update and roll back the complete shell/core/CLI and notice set. The first migration from the legacy browser package requires exiting it and running the native installer. Independent services and Linux/macOS installations replace the full package through their deployment owner. macOS uses ad-hoc signing unless CI publishing credentials are configured; macOS runtime acceptance has not been performed locally. See the [architecture and verification scope](docs/truedown-core-and-tauri.md).
 
 For a remote listener, configure a specific interface with `TRUEDOWN_ADDR`, opt in with `TRUEDOWN_ALLOW_REMOTE=1`, enable API Key authentication, and provide `TRUEDOWN_TLS_CERT` and `TRUEDOWN_TLS_KEY`. Wildcard binds are rejected.
 

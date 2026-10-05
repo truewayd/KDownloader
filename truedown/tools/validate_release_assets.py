@@ -7,8 +7,8 @@ import sys
 
 def validate_assets(directory, assets):
     expected = {path.name: path.stat().st_size for path in Path(directory).iterdir() if path.is_file()}
-    if len(expected) != 5 or not isinstance(assets, list) or len(assets) != len(expected):
-        raise ValueError("Release must expose all five uploaded assets")
+    if len(expected) not in (5, 7) or not isinstance(assets, list) or len(assets) != len(expected):
+        raise ValueError("Release must expose all installer assets (seven for the bridge, five afterward)")
     seen = set()
     for asset in assets:
         if not isinstance(asset, dict):
@@ -64,4 +64,4 @@ if __name__ == "__main__":
     if args.release_tag:
         metadata = release_assets(metadata, args.release_tag)
     validate_assets(args.directory, metadata)
-    print("All five release assets are uploaded and match local sizes")
+    print("All installer release assets are uploaded and match local sizes")

@@ -136,23 +136,32 @@ depends on upstream platform support.
 
 ## Native packages
 
-From the repository root, `truedown/build.ps1` produces the Windows package.
+From the repository root, `truedown/build.ps1` produces the Windows NSIS setup
+executable under `truedown/dist/` and the unpacked application under
+`truedown/dist/TrueDown`. Setup uses Tauri's [Windows installer support](https://v2.tauri.app/distribute/windows-installer/),
+installs for the current user, and bootstraps WebView2 when missing. Release
+downloads use `TrueDown-build-N-windows-amd64-setup.exe`; the matching ZIP and
+schema-2 JSON are published only for bridge build 94. New clients update through setup and schema-3 JSON; later releases have no Windows ZIP.
 `bash truedown/build-unix.sh linux amd64` (or `linux arm64`) produces a Linux package.
 `bash truedown/build-unix.sh darwin arm64` produces a macOS `.app` on Apple Silicon;
 macOS Intel builds are not supported. Install the desktop npm
 dependencies first. The platform scripts use Tauri's release build and package
 the matching shell, Go core, CLI and pinned dependency notices together.
 
-Numbered Windows packages use the complete schema-2 bundle updater, with startup
+Numbered Windows packages use schema-3 installer updates, with startup
 health checks and rollback. Independent core services leave application updates
 to their package owner. Migrating from the old browser-only Windows package
-requires extracting a complete native package; its single-file updater cannot
+requires exiting it and running the installer; its single-file updater cannot
 install the new format. Linux and macOS replace the complete package manually.
 
 Release jobs accept each packaged application's frontend startup and CLI
 before archiving. All platform builds and the reusable native UI/recovery test
 matrix must succeed before publication. Archive validation checks all component
 architectures, executable modes, exact file sets, and every Windows update hash.
+Disposable hosted Windows runners also install and reinstall setup into a path
+with spaces, compare every installed file hash, accept native startup, then
+uninstall and verify that unrelated data survives. This registration-changing
+test intentionally refuses to run on a developer machine.
 Windows uses the production background launch; Linux maps its view only inside
 Xvfb because WebKitGTK can defer loading an unmapped view.
 

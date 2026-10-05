@@ -122,14 +122,25 @@ jobs:
           TRUEDOWN_COMMIT: ${{ github.sha }}
         run: node truedown/desktop/tests/package-smoke.mjs truedown/dist/TrueDown/TrueDown.exe
 
-      - name: Create release archive
-        run: Compress-Archive -Path truedown/dist/TrueDown/* -DestinationPath $env:ARTIFACT_NAME -CompressionLevel Optimal
+      - name: Accept Windows installer lifecycle
+        env:
+          TRUEDOWN_BUILD_NUMBER: ${{ needs.release-number.outputs.build_number }}
+          TRUEDOWN_COMMIT: ${{ github.sha }}
+        run: ./truedown/tools/test-windows-installer.ps1 -Installer "truedown/dist/TrueDown-build-$env:BUILD_NUMBER-windows-amd64-setup.exe" -PackageDirectory truedown/dist/TrueDown
+
+      - name: Create legacy-compatible automatic update archive
+        run: |
+          Copy-Item -LiteralPath "truedown/dist/TrueDown-build-$env:BUILD_NUMBER-windows-amd64-setup.exe" -Destination .
+          $bridge = Get-Content truedown/windows/installer-bridge.json -Raw | ConvertFrom-Json
+          if ([long]$env:BUILD_NUMBER -eq $bridge.build) {
+            Compress-Archive -Path truedown/dist/TrueDown/* -DestinationPath $env:ARTIFACT_NAME -CompressionLevel Optimal
+          }
 
       - name: Create update manifest
         run: |
-          $archive = Get-Item -LiteralPath $env:ARTIFACT_NAME
+          $archive = Get-Item -LiteralPath "TrueDown-build-$env:BUILD_NUMBER-windows-amd64-setup.exe"
           $manifest = [ordered]@{
-            schemaVersion = 2
+            schemaVersion = 3
             product = "TrueDown"
             repository = "truewayd/KDownloader"
             version = $env:RELEASE_TAG
@@ -146,15 +157,23 @@ jobs:
               sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive.FullName).Hash.ToLowerInvariant()
             }
           }
-          $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $env:UPDATE_MANIFEST -Encoding utf8NoBOM
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath "truedown-installer-update-$env:BUILD_NUMBER.json" -Encoding utf8NoBOM
+          $bridge = Get-Content truedown/windows/installer-bridge.json -Raw | ConvertFrom-Json
+          if ([long]$env:BUILD_NUMBER -eq $bridge.build) {
+            $archive = Get-Item -LiteralPath $env:ARTIFACT_NAME
+            $manifest.schemaVersion = 2
+            $manifest.asset = [ordered]@{ name = $archive.Name; size = $archive.Length; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive.FullName).Hash.ToLowerInvariant() }
+            $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $env:UPDATE_MANIFEST -Encoding utf8NoBOM
+          }
 
       - name: Upload build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: TrueDown-${{ env.RELEASE_TAG }}-windows-amd64
           path: |
-            ${{ env.ARTIFACT_NAME }}
-            ${{ env.UPDATE_MANIFEST }}
+            TrueDown-build-${{ needs.release-number.outputs.build_number }}*
+            truedown-*-update-${{ needs.release-number.outputs.build_number }}.json
+            truedown-update-${{ needs.release-number.outputs.build_number }}.json
           if-no-files-found: error
 
   build-unix:
@@ -311,7 +330,12 @@ jobs:
 
       - name: Select release notes
         shell: pwsh
-        run: ./tools/read-latest-changelog.ps1 -Product TrueDown -OutputFile release-notes.md
+        run: |
+          ./tools/read-latest-changelog.ps1 -Product TrueDown -OutputFile release-notes.md
+          $installer = "TrueDown-build-$env:BUILD_NUMBER-windows-amd64-setup.exe"
+          $download = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:RELEASE_TAG/$installer"
+          $notes = [System.IO.File]::ReadAllText("release-notes.md")
+          [System.IO.File]::WriteAllText("release-notes.md", "[Windows installer ($installer)]($download)`n`nWindows updates use the installer. Only bridge build 94 includes the legacy ZIP migration assets.`n`n$notes")
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -336,11 +360,7 @@ jobs:
           fail_on_unmatched_files: true
           draft: true
           files: |
-            release-assets/${{ env.ARTIFACT_NAME }}
-            release-assets/${{ env.UPDATE_MANIFEST }}
-            release-assets/TrueDown-build-${{ needs.release-number.outputs.build_number }}-linux-amd64.tar.gz
-            release-assets/TrueDown-build-${{ needs.release-number.outputs.build_number }}-linux-arm64.tar.gz
-            release-assets/TrueDown-build-${{ needs.release-number.outputs.build_number }}-macos-arm64.zip
+            release-assets/*
 
       - name: Publish only after uploaded assets are complete
         env:

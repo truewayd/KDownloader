@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import plistlib
+import re
 import stat
 import struct
 import tarfile
@@ -22,6 +23,7 @@ MAX_ZIP_METADATA = MAX_HEADER + 22
 MAX_TAR_METADATA = 1 << 20
 MAX_TAR_HEADERS = 128
 MAX_NAME = 1024
+BRIDGE_BUILD = json.loads((Path(__file__).resolve().parent.parent / "windows/installer-bridge.json").read_text())["build"]
 
 
 class MetadataReader:
@@ -233,20 +235,54 @@ def validate_release(directory, build):
     require(0 < build <= 9999999999999, "Release build must be positive and bounded")
     windows_name = f"TrueDown-build-{build}.zip"
     manifest_name = f"truedown-update-{build}.json"
-    packages = [(windows_name, "windows", "amd64")]
+    installer_name = f"TrueDown-build-{build}-windows-amd64-setup.exe"
+    packages = [(windows_name, "windows", "amd64")] if build == BRIDGE_BUILD else []
     for system, extension in (("linux", "tar.gz"), ("macos", "zip")):
         for arch in (("amd64", "arm64") if system == "linux" else ("arm64",)):
             packages.append((f"TrueDown-build-{build}-{system}-{arch}.{extension}", system, arch))
-    expected = {name for name, _, _ in packages} | {manifest_name}
+    installer_manifest_name = f"truedown-installer-update-{build}.json"
+    expected = {name for name, _, _ in packages} | {installer_manifest_name, installer_name}
+    if build == BRIDGE_BUILD:
+        expected.add(manifest_name)
     require({item.name for item in directory.iterdir()} == expected,
-            "Release must contain exactly four platform archives and the Windows update manifest")
+            "Release must contain exactly the installer release set; legacy ZIP assets are bridge-only")
     for name in expected:
         asset = directory / name
         require(not asset.is_symlink() and asset.is_file() and asset.stat().st_size > 0,
                 f"Missing or invalid release asset: {name}")
-    require((directory / manifest_name).stat().st_size <= 65536, "Oversized update manifest")
-    manifest = json.loads((directory / manifest_name).read_text(encoding="utf-8"),
-                          object_pairs_hook=unique_json_object)
+    installer = directory / installer_name
+    require(installer.stat().st_size <= MAX_PACKAGE, "Oversized Windows installer")
+    with installer.open("rb") as stream:
+        header = stream.read(MAX_HEADER)
+    require(len(header) >= 64 and header[:2] == b"MZ", "Invalid Windows installer PE header")
+    offset = struct.unpack_from("<I", header, 60)[0]
+    # NSIS uses an x86 bootstrap executable even for an AMD64 application.
+    require(64 <= offset <= 4096 and offset + 6 <= len(header)
+            and header[offset:offset + 6] == b"PE\0\0\x4c\x01",
+            "Invalid Windows installer bootstrap architecture")
+    require((directory / installer_manifest_name).stat().st_size <= 65536, "Oversized installer manifest")
+    installer_manifest = json.loads((directory / installer_manifest_name).read_text(encoding="utf-8"), object_pairs_hook=unique_json_object)
+    require(isinstance(installer_manifest, dict), "Invalid installer manifest")
+    files = installer_manifest.get("files")
+    require(isinstance(files, list) and len(files) == len(NATIVE_FILES), "Incomplete installer file set")
+    for name, entry in zip(NATIVE_FILES, files):
+        require(isinstance(entry, dict) and set(entry) == {"name", "size", "sha256"}
+                and entry["name"] == name and type(entry["size"]) is int and 2 < entry["size"] <= MAX_FILE
+                and isinstance(entry["sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]),
+                "Invalid installer component")
+    with installer.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    expected_manifest = {"schemaVersion": 3, "product": "TrueDown", "repository": "truewayd/KDownloader",
+                         "version": f"truedown-build-{build}", "build": build, "protocolVersion": 1,
+                         "platform": "windows-amd64", "files": files,
+                         "asset": {"name": installer_name, "size": installer.stat().st_size, "sha256": digest}}
+    require(json.dumps(installer_manifest, sort_keys=True) == json.dumps(expected_manifest, sort_keys=True),
+            "Installer manifest does not match its release")
+    manifest = None
+    if build == BRIDGE_BUILD:
+        require((directory / manifest_name).stat().st_size <= 65536, "Oversized update manifest")
+        manifest = json.loads((directory / manifest_name).read_text(encoding="utf-8"), object_pairs_hook=unique_json_object)
+        require(isinstance(manifest, dict) and manifest.get("files") == installer_manifest["files"], "Windows update manifest and installer components differ")
     for name, system, arch in packages:
         files = validate_package(directory / name, system, arch, build)
         if system == "windows":
@@ -267,4 +303,4 @@ if __name__ == "__main__":
         print(f"Validated native package {args.directory.name}")
     else:
         validate_release(args.directory, args.build)
-        print(f"Validated all six TrueDown build {args.build} release assets")
+        print(f"Validated TrueDown build {args.build} installer release assets")

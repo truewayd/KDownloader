@@ -306,6 +306,30 @@ test("release workflows pin actions and bind releases to the tested commit", asy
   assert.match(dependabot, /interval:\s*"weekly"/);
 });
 
+test("TrueDown Windows distribution includes an installer and keeps updater compatibility", async () => {
+  const [workflow, build, configSource, acceptance] = await Promise.all([
+    read(".github/workflows/publish-truedown.yml"), read("truedown/build.ps1"),
+    read("truedown/desktop/tauri.windows.conf.json"), read("truedown/tools/test-windows-installer.ps1"),
+  ]);
+  const config = JSON.parse(configSource);
+  assert.deepEqual(config.bundle.targets, ["nsis"]);
+  assert.equal(config.bundle.windows.nsis.installMode, "currentUser");
+  assert.equal(config.bundle.windows.webviewInstallMode.type, "downloadBootstrapper");
+  assert.equal(config.bundle.resources["../aria2/aria2c.exe"], "aria2c.exe");
+  assert.equal(config.bundle.resources["../windows/README.md"], "README.md");
+  assert.match(build, /tauri bundle --bundles nsis --target \$target/);
+  assert.match(build, /Remove-TreeSafely -Root \$metadata.target_directory -Path \$installerOutput/);
+  assert.match(workflow, /test-windows-installer\.ps1/);
+  assert.match(workflow, /Copy-Item -LiteralPath "truedown\/dist\/TrueDown-build-\$env:BUILD_NUMBER-windows-amd64-setup\.exe" -Destination \./);
+  assert.match(workflow, /release-assets\/\*/);
+  assert.match(workflow, /installer-bridge\.json/);
+  assert.match(workflow, /if \(\[long\]\$env:BUILD_NUMBER -eq \$bridge.build\)/);
+  assert.match(acceptance, /RUNNER_ENVIRONMENT -ne "github-hosted"/);
+  assert.match(acceptance, /Get-FileHash/);
+  assert.match(acceptance, /package-smoke\.mjs/);
+  assert.match(acceptance, /uninstall\.exe/);
+});
+
 test("TrueDown publishes all native packages only after every build succeeds", async () => {
   const workflow = await read(".github/workflows/publish-truedown.yml");
   const windows = workflow.split("  build-windows:")[1].split("  build-unix:")[0];
@@ -341,7 +365,8 @@ test("TrueDown publishes all native packages only after every build succeeds", a
   assert.match(unix, /tar -czf/);
   assert.match(unix, /zip -r/);
   assert.match(unix, /if-no-files-found: error/);
-  assert.match(windows, /schemaVersion = 2/);
+  assert.match(windows, /schemaVersion = 3/);
+  assert.match(windows, /\$manifest.schemaVersion = 2/);
   assert.match(windows, /protocolVersion = 1/);
   assert.match(windows, /NATIVE_LICENSES\.txt/);
   assert.match(windows, /package-smoke\.mjs/);
@@ -368,11 +393,7 @@ test("TrueDown publishes all native packages only after every build succeeds", a
   assert.match(publicCheck, /--asset-metadata public-assets.json/);
   assert.match(publicCheck, /releases\/\$RELEASE_ID\/assets\?per_page=100/);
   assert.doesNotMatch(workflow, /macos-15-intel|macos-amd64|os: darwin, arch: amd64/);
-  for (const suffix of ["linux-amd64.tar.gz", "linux-arm64.tar.gz", "macos-arm64.zip"]) {
-    assert.ok(publish.includes(`release-assets/TrueDown-build-\${{ needs.release-number.outputs.build_number }}-${suffix}`));
-  }
-  assert.match(publish, /release-assets\/\$\{\{ env\.ARTIFACT_NAME \}\}/);
-  assert.match(publish, /release-assets\/\$\{\{ env\.UPDATE_MANIFEST \}\}/);
+  assert.match(publish, /files: \|\r?\n\s+release-assets\/\*/);
 });
 
 test("cross-platform validation builds and starts all packages on matching native runners", async () => {

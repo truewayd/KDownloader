@@ -1,9 +1,11 @@
 # TrueDown for Windows
 
-Extract the complete package to a writable application directory and open
-`TrueDown.exe`. Keep `truedown-core.exe`, `truedown-cli.exe`, `aria2c.exe` and the
-license files beside it. Windows 10/11 and the Microsoft Edge WebView2 Evergreen
-Runtime are required. Closing the main window keeps downloads in the tray;
+Download `TrueDown-build-N-windows-amd64-setup.exe` from the release and run it.
+The installer registers TrueDown for the current user, creates shortcuts and
+installs the complete application and its dependencies. Exit TrueDown before
+reinstalling or uninstalling. Windows 10/11 and Microsoft Edge WebView2 Evergreen
+Runtime are required; setup downloads the runtime when missing, requiring an
+Internet connection. Closing the main window keeps downloads in the tray;
 use **Exit TrueDown** to stop them. Logs and About are categories in the same settings window. Settings opens
 Download and speed and retains unsaved edits. Window buttons are provided by Windows.
 
@@ -46,8 +48,11 @@ separate automatic update preference checks newer stable versions, verifies thei
 checksum and executable version, and switches an active NEXT engine only while
 idle. New profiles enable this preference; older profiles keep manual updates.
 Failed switches retain the previous working engine. To migrate from the old browser-only Windows
-package, exit that version and extract a complete native package; its old
-single-executable updater cannot install this package format.
+package, exit that version and run the installer; its old single-executable
+updater cannot install this package format. Existing portable users with an
+explicit or portable profile should keep using that same profile when launching
+the installed application. Build 94 alone includes the ZIP/schema-2 migration
+assets for old clients. Later updates use the setup executable and schema-3 JSON. Older clients that miss build 94 need one manual installation.
 
 Source, runtime prerequisites and build instructions are in the repository:
 https://github.com/truewayd/KDownloader/tree/main/truedown

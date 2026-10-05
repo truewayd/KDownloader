@@ -17,7 +17,7 @@ class UploadedAssetsTests(unittest.TestCase):
     def test_upload_completeness_and_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             assets = []
-            for index in range(5):
+            for index in range(7):
                 name = f"asset-{index}"
                 Path(directory, name).write_bytes(b"payload")
                 assets.append({"name": name, "state": "uploaded", "size": 7})
@@ -29,8 +29,8 @@ class UploadedAssetsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_public(directory, [release], "truedown-build-48", 49, assets)
             with self.assertRaises(ValueError):
-                validate_public(directory, [release], "truedown-build-48", 48, assets[:4])
-            invalid = [[], assets[:4], None, [*assets[:4], assets[0]], [*assets[:4], None]]
+                validate_public(directory, [release], "truedown-build-48", 48, assets[:6])
+            invalid = [[], assets[:6], None, [*assets[:6], assets[0]], [*assets[:6], None]]
             for field, value in [("state", "new"), ("size", 6), ("size", True), ("name", "other")]:
                 changed = copy.deepcopy(assets)
                 changed[0][field] = value
