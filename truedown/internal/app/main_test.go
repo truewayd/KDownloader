@@ -375,7 +375,9 @@ func TestBuildScriptGuardsRecursiveDeleteAndCopiesAgainstReparsePoints(t *testin
 		!strings.Contains(script, "Assert-WindowsGUISubsystem -Executable $exe") ||
 		!strings.Contains(script, "Assert-ExecutableIcon -Executable $exe -ExpectedIcon $icon") ||
 		!strings.Contains(script, "Assert-ExecutableDPIManifest -Executable $exe -ExpectedManifest $appManifest") ||
-		!strings.Contains(script, "Assert-RegularSourceFile -Root $metadata.target_directory -Path $source") {
+		!strings.Contains(script, "Assert-RegularSourceFile -Root $projectRoot -Path $source") ||
+		!strings.Contains(script, "Assert-NoReparseTree $installerPayload") ||
+		!strings.Contains(script, "Assert-RegularSourceFile -Root $metadata.target_directory -Path $installers[0].FullName") {
 		t.Fatal("build input/output paths are not constrained against reparse traversal")
 	}
 	if strings.Contains(script, "$paths = @($current)") {

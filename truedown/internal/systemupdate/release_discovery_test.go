@@ -32,8 +32,8 @@ func TestDiscoverTrueDownReleaseAssetFallback(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			var calls atomic.Int32
 			assets := []githubAsset{
-				{Name: "TrueDown-build-47.zip", Size: 1024, BrowserDownloadURL: "https://github.com/truewayd/KDownloader/releases/download/truedown-build-47/TrueDown-build-47.zip"},
-				{Name: "truedown-update-47.json", Size: 512, BrowserDownloadURL: "https://github.com/truewayd/KDownloader/releases/download/truedown-build-47/truedown-update-47.json"},
+				{Name: installerAssetName(47), Size: 1024, BrowserDownloadURL: "https://github.com/truewayd/KDownloader/releases/download/truedown-build-47/" + installerAssetName(47)},
+				{Name: "truedown-installer-update-47.json", Size: 512, BrowserDownloadURL: "https://github.com/truewayd/KDownloader/releases/download/truedown-build-47/truedown-installer-update-47.json"},
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
@@ -109,7 +109,7 @@ func TestDiscoveryDoesNotSkipIncompleteNewestRelease(t *testing.T) {
 		requests.Add(1)
 		if r.URL.Path == "/releases" {
 			_ = json.NewEncoder(w).Encode([]githubRelease{
-				{ID: 47, TagName: "truedown-build-47", Assets: []githubAsset{{Name: "TrueDown-build-47.zip", Size: 10}, {Name: "truedown-update-47.json", Size: 10}}},
+				{ID: 47, TagName: "truedown-build-47", Assets: []githubAsset{{Name: installerAssetName(47), Size: 10}, {Name: "truedown-installer-update-47.json", Size: 10}}},
 				{ID: 48, TagName: "truedown-build-48"},
 			})
 		} else {

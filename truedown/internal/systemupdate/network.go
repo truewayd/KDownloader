@@ -120,7 +120,7 @@ func (m *Manager) discoverTrueDownRelease(ctx context.Context) (*availableAppUpd
 		return nil, fmt.Errorf("TrueDown release %s has incomplete asset metadata", newest.TagName)
 	}
 	// Derive the endpoint from the configured releases API, not an untrusted URL
-	// in the response. One bounded asset page is enough for our five-file release.
+	// in the response. One bounded asset page covers the installer and bridge sets.
 	endpoint, err := url.Parse(m.trueDownReleasesURL)
 	if err != nil {
 		return nil, err
@@ -154,8 +154,8 @@ func selectTrueDownRelease(releases []githubRelease, currentBuild int64) (*avail
 		if !ok || build <= currentBuild {
 			continue
 		}
-		archiveName := fmt.Sprintf("TrueDown-build-%d.zip", build)
-		manifestName := fmt.Sprintf("truedown-update-%d.json", build)
+		archiveName := installerAssetName(build)
+		manifestName := fmt.Sprintf("truedown-installer-update-%d.json", build)
 		archive, archiveOK := findAsset(release.Assets, archiveName)
 		manifest, manifestOK := findAsset(release.Assets, manifestName)
 		if !archiveOK || !manifestOK || archive.Size <= 0 || archive.Size > maxReleaseArchiveBytes || manifest.Size <= 0 || manifest.Size > maxManifestBytes {
@@ -185,7 +185,7 @@ func (m *Manager) stageTrueDown(ctx context.Context, available *availableAppUpda
 	if err := m.fetchStrictJSON(ctx, available.ManifestURL, maxManifestBytes, available.ManifestSize, &manifest); err != nil {
 		return fmt.Errorf("download TrueDown update manifest: %w", err)
 	}
-	if manifest.SchemaVersion != 2 || manifest.Product != "TrueDown" || manifest.Repository != "truewayd/KDownloader" ||
+	if manifest.SchemaVersion != 3 || manifest.Product != "TrueDown" || manifest.Repository != "truewayd/KDownloader" ||
 		manifest.Version != available.Version || manifest.Build != available.Build || manifest.Asset.Name != available.ArchiveName ||
 		manifest.Asset.Size != available.ArchiveSize || normalizeSHA256(manifest.Asset.SHA256) == "" {
 		return fmt.Errorf("TrueDown update manifest does not match its GitHub release")
@@ -205,7 +205,7 @@ func (m *Manager) stageTrueDown(ctx context.Context, available *availableAppUpda
 	if size != manifest.Asset.Size || !strings.EqualFold(digest, manifest.Asset.SHA256) {
 		return fmt.Errorf("TrueDown update archive failed its size or SHA-256 check")
 	}
-	return m.stageNativeArchive(archivePath, available, manifest)
+	return m.stageInstaller(ctx, archivePath, available, manifest)
 }
 
 func (m *Manager) InstallNext(ctx context.Context) (Snapshot, error) {

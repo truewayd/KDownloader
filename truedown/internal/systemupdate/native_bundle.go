@@ -95,7 +95,8 @@ func inspectNativePE(path string) error {
 	return nil
 }
 
-func (m *Manager) stageNativeArchive(archivePath string, available *availableAppUpdate, manifest updateManifest) error {
+func (m *Manager) stageNativePayload(archivePath string, available *availableAppUpdate, manifest updateManifest,
+	extract func(string, string, []nativeFile) error) error {
 	if err := os.MkdirAll(m.updatesDir, 0700); err != nil {
 		return err
 	}
@@ -109,7 +110,7 @@ func (m *Manager) stageNativeArchive(archivePath string, available *availableApp
 			removeNativeStage(directory)
 		}
 	}()
-	if err := extractNativeArchive(archivePath, directory, manifest.Files); err != nil {
+	if err := extract(archivePath, directory, manifest.Files); err != nil {
 		return err
 	}
 	if err := m.recordUpdateDownload(updateDownload{Build: available.Build, Name: manifest.Asset.Name,

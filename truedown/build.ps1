@@ -319,9 +319,23 @@ try {
     $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0) { throw "Cannot locate native build output" }
     $nativeOutput = Join-Path $metadata.target_directory "$target/release"
+    $installerOutput = Join-Path $nativeOutput "bundle/nsis"
+    Remove-TreeSafely -Root $metadata.target_directory -Path $installerOutput
+    npm exec -- tauri bundle --bundles nsis --target $target
+    if ($LASTEXITCODE -ne 0) { throw "Windows installer build failed" }
+    $installers = @(Get-ChildItem -LiteralPath $installerOutput -Filter "*-setup.exe")
+    if ($installers.Count -ne 1) { throw "Expected exactly one Windows installer" }
+    Assert-RegularSourceFile -Root $metadata.target_directory -Path $installers[0].FullName
+    $installerSource = $installers[0].FullName
+    $installerPayload = Join-Path $staging "installer-payload"
+    $setupProcess = Start-Process -FilePath $installerSource -ArgumentList "/S /UPDATE /TRUEDOWN-STAGE /D=$installerPayload" -WindowStyle Hidden -PassThru
+    if (-not $setupProcess.WaitForExit(120000)) { $setupProcess.Kill(); throw "Installer payload staging timed out" }
+    if ($setupProcess.ExitCode -ne 0) { throw "Installer payload staging failed" }
+    Assert-NoReparseTree $installerPayload
+    if (@(Get-ChildItem -LiteralPath $installerPayload).Count -ne 5) { throw "Unexpected installer payload" }
     foreach ($name in @("TrueDown.exe", "truedown-core.exe", "truedown-cli.exe")) {
-      $source = Join-Path $nativeOutput $name
-      Assert-RegularSourceFile -Root $metadata.target_directory -Path $source
+      $source = Join-Path $installerPayload $name
+      Assert-RegularSourceFile -Root $projectRoot -Path $source
       [System.IO.File]::Copy($source, (Join-Path $staging $name), $false)
     }
   } finally {
@@ -339,6 +353,12 @@ try {
     Assert-RegularSourceFile -Root $projectRoot -Path $entry.Source
     [System.IO.File]::Copy($entry.Source, (Join-Path $staging $entry.Name), $false)
   }
+  foreach ($name in @("THIRD_PARTY_NOTICES.md", "NATIVE_LICENSES.txt")) {
+    if ((Get-FileHash -LiteralPath (Join-Path $installerPayload $name)).Hash -ne (Get-FileHash -LiteralPath (Join-Path $staging $name)).Hash) {
+      throw "Installer notice differs from the reviewed source: $name"
+    }
+  }
+  Remove-TreeSafely -Root $projectRoot -Path $installerPayload
   Assert-NoReparseTree $staging
   if (Test-Path -LiteralPath $dist) {
     throw "Output directory appeared while the build was staged: $dist"
@@ -346,6 +366,12 @@ try {
   [System.IO.Directory]::Move($staging, $dist)
   Assert-NoReparsePath -Root $projectRoot -Path $dist
   Assert-NoReparseTree $dist
+  $architecture = if ($target -eq "x86_64-pc-windows-msvc") { "amd64" } else { "arm64" }
+  $installerName = if ($BuildNumber -gt 0) { "TrueDown-build-$BuildNumber-windows-$architecture-setup.exe" } else { "TrueDown-dev-windows-$architecture-setup.exe" }
+  $installerPath = Join-Path $distRoot $installerName
+  Assert-NoReparsePath -Root $projectRoot -Path $installerPath
+  [System.IO.File]::Copy($installerSource, $installerPath, $true)
+  Write-Host "Installer OK -> $installerPath"
   $staging = $null
 } finally {
   if ($null -ne $staging -and (Test-Path -LiteralPath $staging)) {

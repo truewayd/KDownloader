@@ -29,7 +29,7 @@ func (entry updateDownload) valid() bool {
 		return false
 	}
 	if entry.Build > 0 {
-		return entry.Name == fmt.Sprintf("TrueDown-build-%d.zip", entry.Build)
+		return entry.Name == fmt.Sprintf("TrueDown-build-%d.zip", entry.Build) || entry.Name == installerAssetName(entry.Build)
 	}
 	return entry.Build == 0 && entry.Size <= maxEngineBytes && nextDownloadName.MatchString(entry.Name)
 }

@@ -182,7 +182,7 @@ func TestTrueDownUpdateStagesCompleteVerifiedNativeBundle(t *testing.T) {
 	if err := os.WriteFile(stablePath, []byte("stable"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	archive, nativeFiles := makeReleaseArchive(t)
+	archive, nativeFiles := makeInstallerFixture(t, 2)
 	nativePath := filepath.Join(root, "TrueDown.exe")
 	if err := os.WriteFile(nativePath, nativePayload("TrueDown.exe", 1), 0700); err != nil {
 		t.Fatal(err)
@@ -190,9 +190,9 @@ func TestTrueDownUpdateStagesCompleteVerifiedNativeBundle(t *testing.T) {
 	archiveDigest := sha256Hex(archive)
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		manifest := updateManifest{SchemaVersion: 2, Product: "TrueDown", Repository: "truewayd/KDownloader", Version: "truedown-build-12", Build: 12,
+		manifest := updateManifest{SchemaVersion: 3, Product: "TrueDown", Repository: "truewayd/KDownloader", Version: "truedown-build-12", Build: 12,
 			ProtocolVersion: 1, Platform: "windows-" + runtime.GOARCH, Files: nativeFiles}
-		manifest.Asset.Name = "TrueDown-build-12.zip"
+		manifest.Asset.Name = installerAssetName(12)
 		manifest.Asset.Size = int64(len(archive))
 		manifest.Asset.SHA256 = archiveDigest
 		manifestData, _ := json.Marshal(manifest)
@@ -202,8 +202,8 @@ func TestTrueDownUpdateStagesCompleteVerifiedNativeBundle(t *testing.T) {
 				"tag_name": "truedown-build-12", "draft": false, "prerelease": false, "unknown": "accepted",
 				"html_url": server.URL + "/release-page", "published_at": "2026-08-20T00:00:00Z",
 				"assets": []map[string]any{
-					{"name": "TrueDown-build-12.zip", "size": len(archive), "browser_download_url": server.URL + "/archive"},
-					{"name": "truedown-update-12.json", "size": len(manifestData), "browser_download_url": server.URL + "/manifest"},
+					{"name": installerAssetName(12), "size": len(archive), "browser_download_url": server.URL + "/archive"},
+					{"name": "truedown-installer-update-12.json", "size": len(manifestData), "browser_download_url": server.URL + "/manifest"},
 				},
 			}})
 		case "/manifest":

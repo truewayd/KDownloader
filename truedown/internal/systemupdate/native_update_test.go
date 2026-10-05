@@ -19,28 +19,14 @@ import (
 
 func TestNativeReleaseBindsEveryComponentToTheArchiveAndPlatform(t *testing.T) {
 	var archive bytes.Buffer
-	writer := zip.NewWriter(&archive)
-	files := []nativeFile{}
-	for _, name := range nativeNames {
-		data := nativePayload(name, 2)
-		files = append(files, nativeMetadata(name, data))
-		entry, err := writer.Create(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := entry.Write(data); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
+	data, files := makeInstallerFixture(t, 2)
+	archive.Write(data)
 	for _, mutation := range []string{"valid", "legacy-schema", "wrong-platform", "wrong-protocol", "archive-hash", "missing-cli"} {
 		t.Run(mutation, func(t *testing.T) {
 			root := t.TempDir()
-			manifest := updateManifest{SchemaVersion: 2, Product: "TrueDown", Repository: "truewayd/KDownloader", Version: "truedown-build-2", Build: 2,
+			manifest := updateManifest{SchemaVersion: 3, Product: "TrueDown", Repository: "truewayd/KDownloader", Version: "truedown-build-2", Build: 2,
 				ProtocolVersion: 1, Platform: "windows-" + runtime.GOARCH, Files: append([]nativeFile(nil), files...)}
-			manifest.Asset.Name = "TrueDown-build-2.zip"
+			manifest.Asset.Name = installerAssetName(2)
 			manifest.Asset.Size = int64(archive.Len())
 			manifest.Asset.SHA256 = fmt.Sprintf("%x", sha256.Sum256(archive.Bytes()))
 			switch mutation {
