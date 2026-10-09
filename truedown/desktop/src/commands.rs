@@ -169,11 +169,7 @@ pub async fn core_request(
         });
     }
     if path == "/system/exit" {
-        let state = core.inner().clone();
-        tauri::async_runtime::spawn(async move {
-            state.shutdown().await;
-            app.exit(0)
-        });
+        crate::lifecycle::request(&app);
         return Ok(Response {
             id: 0,
             event: String::new(),

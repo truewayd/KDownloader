@@ -17,6 +17,7 @@ pub struct Core {
     pub closing: AtomicBool,
     pub exited: AtomicBool,
     pub owned: AtomicBool,
+    pub stop_requested: Arc<tokio::sync::Notify>,
 }
 
 struct Session {
@@ -68,6 +69,7 @@ impl Core {
             closing: AtomicBool::new(false),
             exited: AtomicBool::new(false),
             owned: AtomicBool::new(false),
+            stop_requested: Arc::new(tokio::sync::Notify::new()),
         }
     }
 
@@ -118,6 +120,7 @@ impl Core {
             self.data_dir.as_deref(),
             session.attach_only,
             recovering,
+            self.stop_requested.clone(),
         )
         .await
         {

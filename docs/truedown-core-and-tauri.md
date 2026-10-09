@@ -51,6 +51,12 @@ When the shell owns the core, closing its pipe cancels the service and engine.
 When an existing service owns the profile, the Go bridge verifies its product,
 protocol and profile identity, then attaches through authenticated loopback HTTP.
 Exiting that desktop detaches without terminating the independent service.
+Tray, native command and OS exit requests share one native lifecycle coordinator:
+it marks shutdown, hides owned windows on the UI thread, then awaits core cleanup
+before allowing final process exit. Repeated requests cannot skip that cleanup.
+For an explicit API exit or update restart, an owned core sends an unsolicited
+protocol-v1 `stopping` event before service teardown. The shell reacts immediately;
+unexpected disconnects and attached-service failures do not use this event.
 Protocol version 1 is checked by both desktop and CLI. Unexpected disconnects
 allow at most three core restarts, resetting after two healthy minutes. Requests
 are never replayed automatically. An intentional HTTP/CLI exit closes the shell;

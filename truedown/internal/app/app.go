@@ -321,6 +321,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		options.desktop.ready(host)
 	}
 	reloadEngine := false
+	exitRequested := false
 
 waitForExit:
 	for {
@@ -334,14 +335,19 @@ waitForExit:
 		case <-ctx.Done():
 			break waitForExit
 		case <-lifecycleExit:
+			exitRequested = true
 			log.Printf("API: exit requested")
 			break waitForExit
 		case <-restart:
+			exitRequested = true
 			break waitForExit
 		case <-engineReload:
 			reloadEngine = true
 			break waitForExit
 		}
+	}
+	if exitRequested && options.desktop != nil && options.desktop.stopping != nil {
+		options.desktop.stopping()
 	}
 	cancelUpdates()
 	<-automaticUpdatesDone

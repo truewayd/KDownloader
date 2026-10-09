@@ -220,6 +220,7 @@ impl Bridge {
         data_dir: Option<&str>,
         attach_only: bool,
         recovering: bool,
+        stop_requested: Arc<tokio::sync::Notify>,
     ) -> Result<Arc<Self>, String> {
         let mut command = Command::new(executable);
         command.env(
@@ -296,6 +297,14 @@ impl Bridge {
                 let Ok(response) = serde_json::from_slice::<Response>(&frame) else {
                     break;
                 };
+                if consumer.owned
+                    && response.id == 0
+                    && response.event == "stopping"
+                    && response.protocol_version == 1
+                {
+                    stop_requested.notify_one();
+                    continue;
+                }
                 if let Some(sender) = consumer.pending.lock().unwrap().remove(&response.id) {
                     let result = if response.error.is_empty() {
                         Ok(response)

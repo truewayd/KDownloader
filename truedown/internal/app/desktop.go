@@ -22,8 +22,9 @@ import (
 )
 
 type desktopCallbacks struct {
-	ready  func(http.Handler)
-	attach func(string, profile.Location) error
+	ready    func(http.Handler)
+	stopping func()
+	attach   func(string, profile.Location) error
 }
 
 // RunDesktop supplies a private pipe to an owned core or a bridge to an existing
@@ -33,10 +34,14 @@ func RunDesktop(ctx context.Context, options Options, input io.ReadCloser, outpu
 	defer cancel()
 	serveDone := make(chan error, 1)
 	started := false
+	ownedBridge := desktopbridge.New(output, true)
 	options.desktop = &desktopCallbacks{
+		stopping: func() {
+			_ = ownedBridge.Send(protocol.DesktopResponse{Event: "stopping", ProtocolVersion: protocol.Version, Owned: true})
+		},
 		ready: func(handler http.Handler) {
 			started = true
-			bridge := desktopbridge.New(output, true)
+			bridge := ownedBridge
 			go func() {
 				err := bridge.Send(protocol.DesktopResponse{Event: "ready", ProtocolVersion: protocol.Version, Owned: true})
 				if err == nil {

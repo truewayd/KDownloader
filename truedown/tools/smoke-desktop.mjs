@@ -35,12 +35,15 @@ function rpc(child){
  const pending=new Map();
  let readyResolve;
  const ready=new Promise(resolve=>{readyResolve=resolve;});
+ let stoppingResolve;
+ const stopping=new Promise(resolve=>{stoppingResolve=resolve;});
  readline.createInterface({input:child.stdout}).on("line",line=>{
   const frame=JSON.parse(line);
   if(frame.event==="ready")readyResolve(frame);
+  else if(frame.event==="stopping")stoppingResolve({frame,time:performance.now()});
   else {pending.get(frame.id)?.(frame);pending.delete(frame.id);}
  });
- return {ready,send(method,path,body=""){
+ return {ready,stopping,send(method,path,body=""){
   const request={id:++id,method,path,body};
   const response=new Promise(resolve=>pending.set(request.id,resolve));
   child.stdin.write(JSON.stringify(request)+"\n");
@@ -120,6 +123,10 @@ try{
   // The shell retains its writer until the core exits. Shutdown must cancel
   // the inherited stdin read without relying on EOF from that parent.
   assert.equal(stopping.stdin.writableEnded,false);
+  const notification=await bounded(stoppingRPC.stopping);
+  assert.equal(notification.frame.protocolVersion,1);
+  assert.equal(notification.frame.owned,true);
+  console.log(`${mode}_stopping_notice_ms=${Math.round(notification.time-stopStart)}`);
   await stopped(stopping,stopStart,mode);
   await assert.rejects(fetch(endpoint+"/system/info",{signal:AbortSignal.timeout(5000)}));
  }

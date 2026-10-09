@@ -31,7 +31,15 @@ pub async fn wait_ready(window: &WebviewWindow) -> Result<(), String> {
     .map_err(|_| "Window surface initialization timed out".to_owned())?
     .map(|_| ())
     .map_err(|e| e.to_string());
-    result
+    result?;
+    if window
+        .state::<std::sync::Arc<crate::core::Core>>()
+        .closing
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return Err("TrueDown is shutting down".into());
+    }
+    Ok(())
 }
 
 #[cfg(windows)]

@@ -254,6 +254,13 @@ fn finish_single(inner: &mut Inner, token: u64, platform: Platform) -> Option<Ac
 }
 
 fn perform(app: &tauri::AppHandle, action: Action) {
+    if app
+        .state::<Arc<crate::core::Core>>()
+        .closing
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return;
+    }
     match action {
         Action::Main => crate::show_main(app),
         Action::NewTask | Action::Settings => {
@@ -325,12 +332,7 @@ pub fn menu_action(app: &tauri::AppHandle, action: &str) {
         "tray-open" => perform(app, Action::Main),
         "settings" => perform(app, Action::Settings),
         "tray-exit" => {
-            let app = app.clone();
-            let core = app.state::<Arc<crate::core::Core>>().inner().clone();
-            tauri::async_runtime::spawn(async move {
-                core.shutdown().await;
-                app.exit(0);
-            });
+            crate::lifecycle::request(app);
         }
         _ => {}
     }

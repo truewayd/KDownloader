@@ -10,6 +10,7 @@ mod core;
 mod drops;
 mod editing;
 mod frame;
+mod lifecycle;
 #[cfg(all(debug_assertions, target_os = "macos"))]
 mod macos_acceptance;
 mod menu_icons;
@@ -183,6 +184,7 @@ fn main() {
                 .build(),
         )
         .manage(core.clone())
+        .manage(lifecycle::Exit::default())
         .manage(startup)
         .manage(placement::Tracker::default())
         .manage(pickers::DirectoryPickers::default())
@@ -361,6 +363,12 @@ fn main() {
                 }
             }
             let app_handle = app.handle().clone();
+            let exit_app = app.handle().clone();
+            let exit_signal = core.stop_requested.clone();
+            tauri::async_runtime::spawn(async move {
+                exit_signal.notified().await;
+                lifecycle::request(&exit_app);
+            });
             tauri::async_runtime::spawn(async move {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -369,8 +377,7 @@ fn main() {
                     }
                     let _ = core.connect().await;
                     if core.exited.load(Ordering::SeqCst) {
-                        core.shutdown().await;
-                        app_handle.exit(0);
+                        lifecycle::request(&app_handle);
                         break;
                     }
                 }
@@ -409,14 +416,9 @@ fn main() {
         .expect("initialize TrueDown desktop");
     application.run(move |app, event| {
         if let tauri::RunEvent::ExitRequested { api, .. } = event {
-            if !core.closing.load(Ordering::SeqCst) {
+            if !app.state::<lifecycle::Exit>().complete() {
                 api.prevent_exit();
-                let core = core.clone();
-                let app = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    core.shutdown().await;
-                    app.exit(0)
-                });
+                lifecycle::request(app);
             }
         }
     });
