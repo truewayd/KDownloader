@@ -50,11 +50,14 @@ try {
     let offline = native && colorScheme === "light";
     let finishRuntimeRead;
     const runtimeReadGate = offline ? null : new Promise(resolve => { finishRuntimeRead = resolve; });
+    let finishAboutRead;
+    const aboutReadGate = new Promise(resolve => { finishAboutRead = resolve; });
     await context.route(/\/(settings\/|system\/|auth\/|modules)/, async route => {
       const endpoint = new URL(route.request().url()).pathname;
       if (!(endpoint in fixture)) throw new Error(`Unexpected settings API: ${endpoint}`);
       if (offline && route.request().method() === "GET") { await route.fulfill({ status: 503, body: "Fixture disconnected" }); return; }
       if (endpoint === "/settings/runtime" && route.request().method() === "GET") await runtimeReadGate;
+      if (endpoint === "/system/info") await aboutReadGate;
       if (endpoint === "/system/logs") { logReads++; fixture[endpoint].content += `fresh ${logReads}\\n`; }
       if (route.request().method() === "POST") {
         if (failSave) { await route.fulfill({ status: 500, body: "Fixture persistence failure" }); return; }
@@ -93,6 +96,10 @@ try {
       assert.equal(await page.locator('[data-settings-page="general"]').first().evaluate(node => node.inert), true);
       assert.equal(await page.locator('[data-settings-link="files"]').isVisible(), true, "navigation remains available during reads");
       assert.equal(await page.locator(".settings-content").getAttribute("aria-busy"), "true");
+      assert.equal(await page.locator(".settings-content > .kd-page-placeholder").isVisible(), true);
+      await page.evaluate(() => KDComponents.setPageLoading(document.querySelector(".settings-content"), true));
+      assert.equal(await page.locator(".settings-content > .kd-page-placeholder > span").count(), 4, "repeated loading keeps one placeholder structure");
+      assert.equal(await page.locator(".settings-content > .kd-page-placeholder > span").first().evaluate(node => getComputedStyle(node).animationName), colorScheme === "light" ? "none" : "kd-placeholder-pulse");
       await page.screenshot({ path: path.join(screenshots, `${name}-loading.png`) });
       finishRuntimeRead();
     }
@@ -105,6 +112,7 @@ try {
     }
     await page.waitForFunction(() => settingsReady.has("general"));
     assert.equal(await page.locator(".settings-content").getAttribute("aria-busy"), "false");
+    assert.equal(await page.locator(".settings-content > .kd-page-placeholder").isVisible(), false);
     assert.equal(await page.locator('[data-settings-page="general"]').first().isVisible(), true);
     assert.equal(await page.locator('[data-settings-page="general"]').first().evaluate(node => getComputedStyle(node).animationName), colorScheme === "light" ? "none" : "kd-settings-reveal");
     await page.evaluate(() => Promise.all(document.getAnimations().filter(animation => animation.animationName === "kd-settings-reveal").map(animation => animation.finished.catch(() => {}))));
@@ -135,6 +143,10 @@ try {
     assert.ok(await page.locator(".settings-search-result").count() >= 2);
     await page.screenshot({ path: path.join(screenshots, `${name}-search.png`) });
     await page.locator(".settings-search-result").filter({ hasText: "关于" }).first().click();
+    await page.waitForFunction(() => currentSettingsPage === "about" && document.querySelector(".settings-content").dataset.loading === "true");
+    assert.equal(await page.locator(".settings-content > .kd-page-placeholder").isVisible(), true, "About waits for system information, not only update information");
+    assert.equal(await page.locator("#about-version").isVisible(), false);
+    finishAboutRead();
     await page.waitForFunction(() => currentSettingsPage === "about" && document.querySelector(".settings-search-highlight"));
     assert.equal(await page.locator("#auto-update-truedown").isVisible(), true);
     assert.equal(await page.locator(".settings-navigation-links").isVisible(), true);

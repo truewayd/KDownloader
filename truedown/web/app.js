@@ -1010,6 +1010,7 @@ function schedulePoll() {
 
 async function loadTasks({ force = false, viewport = false } = {}) {
   if (currentPage !== "tasks" || document.hidden) return false;
+  if (els.tasksWrap.dataset.loading !== "false") KDComponents.setPageLoading(els.tasksWrap, true, { variant: "list" });
   const epoch = routeEpoch;
   const url = taskPageURL();
   if (taskLoadTarget?.url === url && taskLoadTarget.epoch === epoch && (!force || taskLoadTarget.force)) {
@@ -1067,6 +1068,7 @@ function applyTaskPage(page, url) {
     currentOffset = Math.max(0, currentTotal - PAGE_SIZE);
     return false;
   }
+  KDComponents.setPageLoading(els.tasksWrap, false, { variant: "list" });
   renderTasks(page.tasks, page.epoch);
   if (Number.isSafeInteger(page.revision)) taskRenderedRevision = page.revision;
   restoreTaskReturnFocus();

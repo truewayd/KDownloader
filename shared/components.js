@@ -1111,6 +1111,22 @@
     }
   }
 
+  function setPageLoading(root, loading, { variant = "fields" } = {}) {
+    let placeholder = [...root.children].find(child => child.classList.contains("kd-page-placeholder"));
+    if (!placeholder) {
+      placeholder = root.ownerDocument.createElement("div");
+      placeholder.className = "kd-page-placeholder";
+      root.prepend(placeholder);
+    }
+    placeholder.setAttribute("aria-hidden", "true");
+    placeholder.dataset.variant = variant === "list" ? "list" : "fields";
+    if (!placeholder.childElementCount) {
+      for (let index = 0; index < 4; index++) placeholder.append(root.ownerDocument.createElement("span"));
+    }
+    root.dataset.loading = String(Boolean(loading));
+    root.setAttribute("aria-busy", String(Boolean(loading)));
+  }
+
   function createProgress({ root, fill, track, label } = {}) {
     const hide = () => {
       root?.classList.add("kd-hidden");
@@ -1141,6 +1157,7 @@
     ensureActionElement,
     ensureLinksDialogElement,
     setBusyState,
+    setPageLoading,
     setIconButton,
     setSegmentedValue,
     withBusyButton,

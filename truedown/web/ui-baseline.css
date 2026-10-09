@@ -177,6 +177,29 @@ input[type="checkbox"]:not(.kd-switch):focus-visible { outline: 2px solid var(--
 @media (forced-colors: active) {
   .kd-tooltip, .kd-tooltip[data-kind="card"] { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
 }
+/* First-read placeholders affect page content only, never the native window. */
+.kd-page-placeholder { display: none; max-width: 880px; gap: 24px; padding: 16px 0; }
+[data-loading="true"] > .kd-page-placeholder { display: grid; }
+.kd-page-placeholder > span { display: block; height: 48px; border-radius: 12px; background: var(--kd-surface-raised); animation: kd-placeholder-pulse 1400ms ease-in-out infinite alternate; }
+.kd-page-placeholder > span:first-child { width: 40%; height: 20px; }
+.kd-page-placeholder > span:last-child { width: 72%; }
+.kd-page-placeholder[data-variant="list"] { max-width: none; gap: 12px; padding: 16px; }
+.kd-page-placeholder[data-variant="list"] > span { width: 100%; height: 64px; border-radius: var(--kd-item-radius); }
+#tasks-wrap[data-loading="true"] > .tasks-container,
+.task-detail-scroll[data-loading="true"] > :not(.kd-page-placeholder),
+#download-form .modal-body[data-loading="true"] > :not(.kd-page-placeholder) { display: none; }
+.settings-content[data-loading="false"] > .settings-section:not([hidden]),
+.task-detail-scroll[data-loading="false"] > :not(.kd-page-placeholder),
+#download-form .modal-body[data-loading="false"] > :not(.kd-page-placeholder) { animation: kd-settings-reveal 180ms ease-out; }
+@keyframes kd-placeholder-pulse { from { opacity: .45; } to { opacity: 1; } }
+@keyframes kd-settings-reveal { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .kd-page-placeholder > span,
+  .settings-content[data-loading="false"] > .settings-section:not([hidden]),
+  .task-detail-scroll[data-loading="false"] > :not(.kd-page-placeholder),
+  #download-form .modal-body[data-loading="false"] > :not(.kd-page-placeholder) { animation: none; }
+}
+@media (forced-colors: active) { .kd-page-placeholder > span { background: GrayText; } }
 /* Editable fields and keyboard focus retain boundaries; ordinary surfaces do not. */
 @media (forced-colors: active) {
   .kd-button, .kd-icon-button { border: 1px solid ButtonText; }

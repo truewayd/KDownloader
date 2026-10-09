@@ -65,6 +65,8 @@ The site action scripts are `actions.js`, `paw_actions.js`, and `coomerfans_acti
 
 ## Shared UI Rules
 
+- Reuse the canonical component core before adding UI implementations. When related components differ in style or behavior, derive explicit variants through parameters, states or scoped styles; do not create a separate implementation. Preserve intentional layout, dimensions, visual hierarchy and interaction differences rather than merging blindly. Consolidate duplicated component behavior when touching the affected UI. Page loading placeholders and readiness state use `KDComponents.setPageLoading`; their content transitions must never replace native window animations.
+
 - Native extension-page confirmation dialogs use `KDUI.confirmAction` from the canonical component runtime with localized labels; browser dialogs must not bypass shared visuals and keyboard behavior. Busy helpers own native-control `aria-busy`/`aria-disabled` and temporary accessible labels. Light/dark select, disabled, focus, and readable status tokens must stay consistent across extension pages and TrueDown.
 - The popup retains its 360px width and scrolls its content inside the Chrome popup height limit. Settings must render successful persisted normalization back into their controls; success or failure feedback must not immediately be replaced by idle text.
 

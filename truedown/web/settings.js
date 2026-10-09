@@ -92,8 +92,7 @@ async function loadSettingsPage() {
   document.querySelectorAll("[data-settings-page]").forEach((panel) => {
     panel.hidden = panel.dataset.settingsPage !== page;
   });
-  content.dataset.loading = String(!settingsRendered.has(page));
-  content.ariaBusy = content.dataset.loading;
+  KDComponents.setPageLoading(content, !settingsRendered.has(page));
   document.querySelectorAll("[data-settings-link]").forEach((link) => {
     if (link.dataset.settingsLink === page) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
@@ -102,12 +101,12 @@ async function loadSettingsPage() {
   els.settingsResetBtn.hidden = page === "logs";
   els.settingsSaveStatus.textContent = settingsMessages.get(page) || "";
   if (page === "logs") { loadApplicationLog(); }
-  if (page === "about") { loadAbout(); }
+  if (page === "about" && settingsReady.has(page)) { loadAbout(); }
   if (["engine", "about"].includes(page)) scheduleSystemUpdateRefresh();
   if (settingsReady.has(page)) {
     if (page === "files" && fileGroupsNeedsSync) scheduleFileGroupsSync();
     initializeSettingsCategory(page);
-    content.dataset.loading = content.ariaBusy = "false";
+    KDComponents.setPageLoading(content, false);
     els.settingsLoadStatus.textContent = "";
     els.settingsResetBtn.disabled = false;
     if (page === "files") focusFileGroupRoute();
@@ -121,7 +120,7 @@ async function loadSettingsPage() {
     if (!settingsLoads.has(page)) {
       const loaders = {
         logs: () => {},
-        about: () => loadSystemUpdateState(),
+        about: () => Promise.all([loadAbout(true), loadSystemUpdateState()]),
         general: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings()]),
         files: () => Promise.all([loadServerTaskDefaults(), loadFileGroupsEditor()]),
         application: () => Promise.all([loadStartupSettings(), loadTraySettings(), loadStorageLocation(), loadAuthSettings()]),
@@ -135,7 +134,7 @@ async function loadSettingsPage() {
     settingsReady.add(page);
     if (epoch !== routeEpoch || currentPage !== "settings" || currentSettingsPage !== page) return;
     initializeSettingsCategory(page);
-    content.dataset.loading = content.ariaBusy = "false";
+    KDComponents.setPageLoading(content, false);
 
     els.settingsLoadStatus.textContent = "";
     els.settingsResetBtn.disabled = false;

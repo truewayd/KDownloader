@@ -137,15 +137,7 @@
 .settings-content > .settings-section { display: grid; align-content: start; gap: 24px; max-width: 880px; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .settings-content > .settings-section:not([hidden]) { margin-bottom: 24px; }
 .settings-content > .settings-section:not(:has(~ .settings-section:not([hidden]))) { margin-bottom: 0; }
-.settings-content[data-loading="true"] > .settings-section { opacity: 0; pointer-events: none; }
-.settings-content[data-loading="false"] > .settings-section:not([hidden]) { animation: kd-settings-reveal 180ms ease-out; }
-@keyframes kd-settings-reveal {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .settings-content[data-loading="false"] > .settings-section:not([hidden]) { animation: none; }
-}
+.settings-content[data-loading="true"] > .settings-section { display: none; opacity: 0; pointer-events: none; }
 .settings-content .settings-section-heading { margin: 0; }
 #settings-general-title, #settings-file-title, #settings-application-title, #settings-update-title { display: none; }
 .settings-section-heading h3 { margin: 0; font-size: var(--kd-font-section); font-weight: 600; line-height: 1.5; }

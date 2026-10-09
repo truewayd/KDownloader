@@ -85,6 +85,8 @@ async function initNativeTaskForm() {
     nativeTaskFormConfigured = true;
   }
   els.downloadForm.inert = true;
+  const body = els.downloadForm.querySelector(".modal-body");
+  KDComponents.setPageLoading(body, !nativeTaskFormReady && body.dataset.loading !== "false");
   KDComponents.setBusyState(els.submitTaskBtn, true);
   showModalMsg("正在读取下载默认值…");
   nativeTaskFormLoad = (async () => {
@@ -93,8 +95,10 @@ async function initNativeTaskForm() {
       await refreshNativeTaskPreferences();
       if (nativeTaskPreferences.disposed) return;
       nativeTaskFormReady = true;
+      KDComponents.setPageLoading(body, false);
       showModalMsg("");
     } catch (error) {
+      KDComponents.setPageLoading(body, false);
       showModalMsg(`读取默认值失败，正在自动重试：${error.message}`, true);
     } finally {
       nativeTaskFormLoad = null;

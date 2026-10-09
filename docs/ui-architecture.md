@@ -42,6 +42,7 @@ semantics.
 - toast lifecycle;
 - asynchronous native confirmation dialogs for extension-owned pages;
 - progress rendering;
+- page loading structure and busy state, with field and list variants;
 - segmented-control state;
 - icon accessibility normalization;
 - the injected action control; and
@@ -58,6 +59,23 @@ canonical component helpers through `KDUI`. TrueDown calls `KDComponents`
 directly.
 
 ## Component boundaries
+
+### Reuse and derived variants
+
+Related controls share the canonical behavior first, then derive intentional style
+or interaction differences through explicit options, states and scoped styles.
+Do not duplicate a component to change its appearance, or erase intentional
+layout, dimensions and hierarchy merely to merge implementations.
+
+`KDComponents.setPageLoading` owns one idempotent placeholder and `aria-busy`
+state. TrueDown settings, new-download defaults and task details use its field
+variant; the initial task list uses its list variant. Their appearance and shared
+content reveal live in `ui-baseline.css`, including reduced-motion behavior.
+Category headers, retry messages, navigation and existing drafts remain owned
+by their pages. Background refreshes retain already loaded content. The virtual
+list retains its measured row placeholders, and file preview retains byte-read
+progress: those provide layout and progress information specific to their jobs.
+None of these content effects replaces a native window transition.
 
 ### Caption tooltip composition
 

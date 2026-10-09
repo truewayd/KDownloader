@@ -15,7 +15,7 @@ function control(value = "") {
   const attributes = new Map();
   const listeners = new Map();
   return {
-    value, files: [], inert: false, textContent: "", isConnected: true,
+    value, files: [], inert: false, textContent: "", isConnected: true, dataset: {},
     classList: { contains: () => true, toggle() {}, add() {} },
     setAttribute(name, value) { attributes.set(name, String(value)); },
     removeAttribute(name) { attributes.delete(name); },
@@ -25,7 +25,10 @@ function control(value = "") {
     focus() {},
   };
 }
-const busyComponents = { setBusyState(button, busy) { button.setAttribute("aria-busy", busy); } };
+const busyComponents = {
+  setBusyState(button, busy) { button.setAttribute("aria-busy", busy); },
+  setPageLoading(root, loading) { root.dataset.loading = String(loading); root.setAttribute("aria-busy", loading); },
+};
 
 test("desktop add action opens the unified native form without reading preferences in the main window", async () => {
   const opened = [];

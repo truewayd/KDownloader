@@ -58,8 +58,15 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 800 }, colorScheme: width === 1200 ? "light" : "dark", reducedMotion: reducedMotion ? "reduce" : "no-preference" });
     const page = await context.newPage(), errors = [];
     page.on("pageerror", error => errors.push(error.message));
+    let finishInitialRead;
+    pendingReads = new Promise(resolve => { finishInitialRead = resolve; });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
+    await page.waitForFunction(() => document.querySelector('#tasks-wrap .kd-page-placeholder')?.childElementCount === 4);
+    assert.equal(await page.locator("#tasks-wrap .empty-state").isVisible(), false, "an unread task list must not claim it is empty");
+    assert.equal(await page.locator('#tasks-wrap .kd-page-placeholder[data-variant="list"]').isVisible(), true);
+    finishInitialRead(); pendingReads = null;
     await page.waitForFunction(() => currentTotal === 2400);
+    assert.equal(await page.locator("#tasks-wrap .kd-page-placeholder").isVisible(), false);
     if (width === 1200) {
       let release;
       blockedOffset = 0;

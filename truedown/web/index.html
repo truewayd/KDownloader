@@ -114,7 +114,7 @@
           <button class="kd-icon-button" id="batch-clear-btn" type="button" aria-label="取消选择" data-tooltip="取消选择"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-close"></use></svg></button>
         </div>
 
-        <div class="table-scroll" id="tasks-wrap" tabindex="0" aria-label="任务列表，滚动查看全部任务">
+        <div class="table-scroll" id="tasks-wrap" tabindex="0" aria-label="任务列表，滚动查看全部任务" data-loading="true" aria-busy="true">
           <div id="tasks-container" class="tasks-container">
             <div class="empty-state">
               <img class="empty-illustration" src="/empty-downloads.png" width="192" height="192" alt="" aria-hidden="true" draggable="false">
@@ -143,6 +143,7 @@
       <header class="settings-category-header"><h2 id="settings-category-title">下载与网络</h2><button class="kd-icon-button" id="settings-reset-btn" type="button" data-tooltip="恢复当前分类默认设置" aria-label="恢复当前分类默认设置"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-reset"></use></svg></button></header>
       <p class="hint" id="settings-save-status" role="status" data-kd-notice="error"></p>
         <p class="hint" id="settings-load-status" role="status" data-kd-notice="info"></p>
+        <div class="kd-page-placeholder" aria-hidden="true"></div>
         <section class="settings-section log-page" id="logs-page" data-settings-page="logs" hidden aria-labelledby="settings-application-log-title">
             <h1 class="visually-hidden" id="settings-application-log-title" tabindex="-1">应用日志</h1>
             <div class="application-log-toolbar">
@@ -518,6 +519,7 @@
   </nav>
   <p class="hint" id="task-detail-status" role="status"></p>
   <div class="task-detail-scroll">
+    <div class="kd-page-placeholder" aria-hidden="true"></div>
     <section id="task-info-panel" aria-labelledby="task-info-tab">
       <dl class="task-info-grid" id="task-info-grid"></dl>
       <div class="task-detail-progress-row"><progress id="task-detail-progress" max="100" aria-label="下载进度"></progress><span id="task-detail-percent" class="kd-selectable"></span></div>
@@ -566,6 +568,7 @@
         </div>
 
         <div class="modal-body">
+          <div class="kd-page-placeholder" aria-hidden="true"></div>
           <div class="field">
             <label for="m-link">下载链接或 Magnet</label>
             <textarea id="m-link" class="kd-input link-list-field" rows="2" placeholder="https://example.com/file.zip&#10;magnet:?xt=urn:btih:..."></textarea>

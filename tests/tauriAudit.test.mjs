@@ -18,6 +18,7 @@ test("settings loaded after navigation initialize once on return and retain late
   const context = vm.createContext({
     currentSettingsPage: "general", currentPage: "settings", routeEpoch: 1,
     settingsReady: new Set(), settingsRendered: new Set(), settingsLoads: new Map(), settingsMessages: new Map(),
+    KDComponents: { setPageLoading(root, loading) { root.dataset.loading = root.ariaBusy = String(loading); } },
     cancelReadRetry() {}, scheduleReadRetry() {},
     EDITABLE_SETTINGS_PAGES: new Set(["general"]),
     els: Object.fromEntries(["settingsFooter", "settingsSaveStatus", "settingsReloadBtn", "settingsSaveBtn", "settingsResetBtn", "settingsLoadStatus"].map(id => [id, { dataset: {} }])),

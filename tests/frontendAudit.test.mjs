@@ -284,7 +284,8 @@ function createTaskPageHarness(fetchPage) {
   const rendered = [];
   const context = vm.createContext({
     apiFetch: fetchPage,
-    els: { taskLoadStatus: { hidden: true, textContent: "" } },
+    els: { taskLoadStatus: { hidden: true, textContent: "" }, tasksWrap: { dataset: {} } },
+    KDComponents: { setPageLoading(root, loading) { root.dataset.loading = String(loading); } },
     currentPage: "tasks", routeEpoch: 1, document: { hidden: false },
     console: { error() {} },
     URLSearchParams,

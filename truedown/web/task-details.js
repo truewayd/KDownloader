@@ -135,6 +135,8 @@ function showTaskDetails(id, tab) {
   taskDetailID = id;
   taskDetailTab = tab === "settings" ? "settings" : "info";
   taskDetailData = null;
+  const content = document.querySelector(".task-detail-scroll");
+  KDComponents.setPageLoading(content, true);
   syncTaskSettingsBusy();
   document.getElementById("task-detail-title").textContent = "\u4efb\u52a1\u4fe1\u606f";
   document.getElementById("task-info-grid").replaceChildren();
@@ -175,6 +177,8 @@ async function loadTaskDetails() {
     taskDetailData = detail;
     taskStatusByID.set(id, detail.status);
     renderTaskDetails(detail);
+    const content = document.querySelector(".task-detail-scroll");
+    KDComponents.setPageLoading(content, false);
     document.getElementById("task-detail-status").textContent = "";
   } catch (error) {
     if (!current() || error.name === "AbortError") return;

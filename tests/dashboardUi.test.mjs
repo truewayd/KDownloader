@@ -181,6 +181,7 @@ test("settings navigation stays immediate and a late category read never overwri
   fields.btClientIdentity = control();
   const context = vm.createContext({
     els: fields, currentPage: "settings", currentSettingsPage: "general", routeEpoch: 1,
+    KDComponents: { setPageLoading(root, loading) { root.dataset.loading = root.ariaBusy = String(loading); } },
     settingsLoads: new Map(), settingsReady: new Set(), settingsRendered: new Set(), settingsMessages: new Map(),
     cancelReadRetry() {}, scheduleReadRetry() {},
     EDITABLE_SETTINGS_PAGES: new Set(["general", "engine"]),

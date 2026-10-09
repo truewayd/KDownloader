@@ -1,11 +1,11 @@
-async function loadAbout() {
+async function loadAbout(initial = false) {
   const epoch = routeEpoch;
   try {
     const [info, update, state] = await Promise.all([
       requestJSON("/system/info"), requestJSON("/system/update"),
       window.__TAURI__?.core?.invoke ? invokeNative("desktop_state") : Promise.resolve(null),
     ]);
-    if (currentPage !== "settings" || currentSettingsPage !== "about" || routeEpoch !== epoch) return;
+    if (initial !== true && (currentPage !== "settings" || currentSettingsPage !== "about" || routeEpoch !== epoch)) return;
     document.getElementById("about-version").textContent = info.productVersion || info.version;
     document.getElementById("about-build").textContent = `${info.buildNumber} / ${String(info.commit || "").slice(0, 12)}`;
     document.getElementById("about-engine").textContent = `${update.engine?.active === "next" ? "Aria2 Next" : "aria2"} ${update.engine?.activeVersion || ""}`;
@@ -13,6 +13,7 @@ async function loadAbout() {
     document.getElementById("about-status").textContent = "";
     cancelReadRetry("about");
   } catch (error) {
+    if (initial === true) throw error;
     if (currentPage === "settings" && currentSettingsPage === "about" && routeEpoch === epoch) {
       document.getElementById("about-status").textContent = `读取失败，正在自动重试：${error.message}`;
       scheduleReadRetry("about", loadAbout, () => currentPage === "settings" && currentSettingsPage === "about" && routeEpoch === epoch);
