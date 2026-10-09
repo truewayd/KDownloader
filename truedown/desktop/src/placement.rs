@@ -31,6 +31,16 @@ impl From<&Monitor> for WorkArea {
 #[derive(Default)]
 pub struct Tracker {
     areas: Mutex<HashMap<String, WorkArea>>,
+    minimums: Mutex<HashMap<String, (LogicalSize<f64>, f64)>>,
+}
+
+// A replacement native shell has no constraints, even though its document
+// and logical label survived. Never reuse the retired shell's cache.
+#[cfg(windows)]
+pub fn forget_minimum(app: &tauri::AppHandle, label: &str) {
+    if let Ok(mut minimums) = app.state::<Tracker>().minimums.lock() {
+        minimums.remove(label);
+    }
 }
 
 impl Tracker {
@@ -131,10 +141,24 @@ fn fit_on_main_thread(window: &Window, center: bool) {
     let native_size = |size: (f64, f64)| {
         LogicalSize::new((size.0 - offset.0).max(1.0), (size.1 - offset.1).max(1.0))
     };
-    let _ = window.set_min_size(Some(native_size(minimum)));
+    let minimum = (native_size(minimum), scale);
+    let tracker = window.try_state::<Tracker>();
+    let minimum_changed = tracker.as_ref().is_none_or(|tracker| {
+        tracker
+            .minimums
+            .lock()
+            .map_or(true, |values| values.get(window.label()) != Some(&minimum))
+    });
+    if minimum_changed && window.set_min_size(Some(minimum.0)).is_ok() {
+        if let Some(tracker) = tracker.as_ref() {
+            if let Ok(mut values) = tracker.minimums.lock() {
+                values.insert(window.label().to_owned(), minimum);
+            }
+        }
+    }
     // Tao also resizes when setting minimums. Restore the measured client size
     // even when fitting did not shrink it, or each call adds a title-bar inset.
-    if size != requested || offset != (0.0, 0.0) {
+    if size != requested || (minimum_changed && offset != (0.0, 0.0)) {
         let _ = window.set_size(native_size(size));
     }
     let width = ((size.0 + frame.0) * target_scale).ceil() as i32;

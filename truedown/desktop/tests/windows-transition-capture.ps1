@@ -1,7 +1,8 @@
 param(
   [Parameter(Mandatory = $true)][int]$ProcessId,
   [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]+$')][string]$WindowHandle,
-  [Parameter(Mandatory = $true)][string]$OutputDirectory
+  [Parameter(Mandatory = $true)][string]$OutputDirectory,
+  [ValidateRange(72, 180)][int]$FrameCount = 72
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
@@ -18,17 +19,17 @@ public static class TrueDownTransitionCapture {
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
   [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr value);
-  public static void Capture(IntPtr hwnd, uint expectedPid, string directory) {
+  public static void Capture(IntPtr hwnd, uint expectedPid, string directory, int count) {
     uint pid; GetWindowThreadProcessId(hwnd, out pid);
     if (pid != expectedPid) throw new InvalidOperationException("Foreign capture window");
     var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
-    var frames = new Bitmap[72];
+    var frames = new Bitmap[count];
     var times = new long[frames.Length];
     try {
       RECT rect;
       if (!GetWindowRect(hwnd, out rect)) throw new InvalidOperationException("Missing capture window");
       int width = rect.right - rect.left, height = rect.bottom - rect.top;
-      if (width < 1 || height < 1 || width > 2400 || height > 1800) throw new InvalidOperationException("Invalid capture bounds");
+      if (width < 1 || height < 1 || width > 8192 || height > 8192) throw new InvalidOperationException("Invalid capture bounds");
       // A bounded crop keeps screen readback below a full high-DPI frame.
       rect.left += Math.Max(0, (width - 600) / 2);
       width = Math.Min(width, 600); height = Math.Min(height, 420);
@@ -54,4 +55,4 @@ public static class TrueDownTransitionCapture {
   }
 }
 '@
-[TrueDownTransitionCapture]::Capture([IntPtr]::new([Convert]::ToInt64($WindowHandle, 16)), [uint32]$ProcessId, $OutputDirectory)
+[TrueDownTransitionCapture]::Capture([IntPtr]::new([Convert]::ToInt64($WindowHandle, 16)), [uint32]$ProcessId, $OutputDirectory, $FrameCount)

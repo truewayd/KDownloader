@@ -100,6 +100,19 @@ test("material failure permits a solid surface, while a disposed document never 
   }
 });
 
+test("every native platform acknowledges readiness with a solid fallback", async () => {
+  for (const platform of ["windows", "macos", "linux"]) {
+    const app = appearance(platform);
+    const ready = app.ready();
+    app.calls[0].resolve(false);
+    await setImmediate();
+    assert.equal(app.dataset.material, "solid");
+    assert.equal(app.calls[1].command, "surface_ready");
+    app.calls[1].resolve();
+    await ready;
+  }
+});
+
 test("closing a page releases material listeners and ignores an in-flight result", async () => {
   const app = appearance();
   app.change(darkQuery, true);

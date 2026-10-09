@@ -130,12 +130,16 @@ fn apply(window: &WebviewWindow, enabled: bool, dark: bool) -> bool {
                 0,
             ) != 0
         };
-        if enabled
+        let use_mica = enabled
             && transparent
             && contrast_available
-            && contrast.dwFlags & HCF_HIGHCONTRASTON == 0
-            && window_vibrancy::apply_mica(window, Some(dark)).is_ok()
-        {
+            && contrast.dwFlags & HCF_HIGHCONTRASTON == 0;
+        // Focus notifications must not reapply an unchanged backdrop during
+        // DWM's opening transition. A new HWND still needs its own attributes.
+        if use_mica && mica_matches(window, dark) {
+            return true;
+        }
+        if use_mica && window_vibrancy::apply_mica(window, Some(dark)).is_ok() {
             // Confirmations keep the standard OS caption, so they do not pass
             // through our custom frame's caption-only extension.
             if window.label().starts_with("confirmation-") {
@@ -189,4 +193,32 @@ fn apply(window: &WebviewWindow, enabled: bool, dark: bool) -> bool {
     #[cfg(target_os = "linux")]
     let _ = (window, enabled);
     false
+}
+
+#[cfg(windows)]
+fn mica_matches(window: &WebviewWindow, dark: bool) -> bool {
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmGetWindowAttribute, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE,
+    };
+    let Ok(handle) = window.hwnd() else {
+        return false;
+    };
+    let mut backdrop: i32 = 0;
+    let mut current_dark: i32 = 0;
+    unsafe {
+        DwmGetWindowAttribute(
+            handle.0,
+            DWMWA_SYSTEMBACKDROP_TYPE as u32,
+            (&mut backdrop as *mut i32).cast(),
+            4,
+        ) == 0
+            && DwmGetWindowAttribute(
+                handle.0,
+                DWMWA_USE_IMMERSIVE_DARK_MODE as u32,
+                (&mut current_dark as *mut i32).cast(),
+                4,
+            ) == 0
+            && backdrop == 2
+            && current_dark == i32::from(dark)
+    }
 }

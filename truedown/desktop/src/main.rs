@@ -37,21 +37,62 @@ use tauri::{
 use tokio::sync::Mutex;
 
 fn show_main(app: &tauri::AppHandle) {
-    if app.state::<windows::Windows>().suppress {
+    if app.state::<windows::Windows>().suppress
+        || app.state::<Arc<Core>>().closing.load(Ordering::SeqCst)
+    {
         return;
     }
-    if let Some(window) = app.get_webview_window("main") {
-        tauri::async_runtime::spawn(async move {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<windows::Windows>();
+        let _creation = state.creation.lock().await;
+        #[cfg(windows)]
+        let recovered = match window_shell::recover(&app, "main").await {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("Cannot restore main window: {error}");
+                return;
+            }
+        };
+        let existing = app.get_webview_window("main");
+        #[cfg(windows)]
+        let existing = recovered.clone().or(existing);
+        if let Some(window) = existing {
             if let Err(error) = appearance::wait_ready(&window).await {
                 eprintln!("Cannot show main window: {error}");
+                return;
+            }
+            #[cfg(windows)]
+            let window = if recovered.is_none()
+                && window.is_visible().ok() == Some(false)
+                && window.is_minimized().ok() == Some(false)
+                && window.is_maximized().ok() == Some(false)
+            {
+                let Some(icon) = app
+                    .default_window_icon()
+                    .map(|icon| icon.clone().to_owned())
+                else {
+                    return;
+                };
+                match window_shell::renew(window, icon).await {
+                    Ok(window) => window,
+                    Err(error) => {
+                        eprintln!("Cannot renew main window: {error}");
+                        return;
+                    }
+                }
+            } else {
+                window
+            };
+            if app.state::<Arc<Core>>().closing.load(Ordering::SeqCst) {
                 return;
             }
             placement::fit(&window.as_ref().window(), false);
             let _ = window.show();
             let _ = window.unminimize();
             let _ = window.set_focus();
-        });
-    }
+        }
+    });
 }
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
