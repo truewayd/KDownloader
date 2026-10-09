@@ -5,6 +5,7 @@
 - An owned core notifies the shell before explicit API exit or update restart; unexpected failures retain recovery behavior.
 - This release also restores ordinary hidden main windows through retained-WebView native shell renewal, preserves native window capabilities, and avoids redundant geometry/material writes.
 - Shared loading placeholders cover initial task lists, settings, task details and new-download defaults, including reduced motion and About readiness.
+- Raise the Go build baseline to 1.26.9 to include the October standard-library security fixes required by native dependency auditing.
 
 ## Verification
 
