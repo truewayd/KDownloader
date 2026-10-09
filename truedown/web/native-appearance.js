@@ -33,5 +33,13 @@ if (window.__TRUEDOWN_PLATFORM__) {
     for (const media of [transparency, contrast, colorScheme]) media.removeEventListener("change", updateMaterial);
     window.removeEventListener("focus", updateMaterial);
   }, { once: true });
-  updateMaterial();
+  window.__TRUEDOWN_MATERIAL_READY__ = updateMaterial();
+  // Hidden WebViews may suspend animation frames. DOM readiness plus the
+  // settled native material is the show barrier, independent of focus/paint.
+  document.addEventListener("DOMContentLoaded", async () => {
+    await window.__TRUEDOWN_MATERIAL_READY__;
+    if (disposed || !["/", "/index.html", "/task-preview.html"].includes(location.pathname)) return;
+    try { await window.__TAURI__.core.invoke("surface_ready"); }
+    catch (error) { console.error("surface_ready", error); }
+  }, { once: true });
 }

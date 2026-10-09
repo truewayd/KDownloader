@@ -55,6 +55,7 @@ pub fn preview_command_allowed(command: &str) -> bool {
             | "frame_title"
             | "frame_tooltip"
             | "apply_material"
+            | "surface_ready"
     )
 }
 
@@ -356,6 +357,7 @@ async fn open_auxiliary_locked(
             .emit("truedown:settings-page", page)
             .map_err(|error| error.to_string())?;
     }
+    crate::appearance::wait_ready(&window).await?;
     if !state.suppress {
         crate::placement::fit(&window.as_ref().window(), false);
         window

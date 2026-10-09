@@ -44,6 +44,7 @@
     panel.classList.add("measuring");
     const height = Math.max(144, Math.min(420, Math.ceil(panel.getBoundingClientRect().height) + 2));
     panel.classList.remove("measuring");
+    await window.__TRUEDOWN_MATERIAL_READY__;
     await invoke("confirmation_ready", { height });
     initialized = true; window.__popupActive = true;
     } catch (error) { console.error("confirmation_init", error); document.getElementById("message").textContent = "无法打开确认窗口，请关闭后重试。"; }

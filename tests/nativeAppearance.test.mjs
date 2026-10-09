@@ -10,7 +10,7 @@ const contrastQuery = "(forced-colors: active)";
 const transparencyQuery = "(prefers-reduced-transparency: reduce)";
 
 function appearance(platform = "windows", dark = false) {
-  const calls = [], queries = new Map(), events = new Map(), dataset = {};
+  const calls = [], queries = new Map(), events = new Map(), documentEvents = new Map(), dataset = {};
   const window = {
     __TRUEDOWN_PLATFORM__: platform,
     __TAURI__: { core: { invoke(command, args) {
@@ -21,7 +21,9 @@ function appearance(platform = "windows", dark = false) {
   };
   vm.runInNewContext(source, {
     window,
-    document: { documentElement: { dataset } },
+    document: { documentElement: { dataset }, addEventListener(name, listener) { documentEvents.set(name, listener); } },
+    location: { pathname: "/index.html" },
+    console,
     matchMedia(query) {
       const media = { matches: query === darkQuery && dark, listeners: [] };
       media.addEventListener = (_, listener) => media.listeners.push(listener);
@@ -31,6 +33,7 @@ function appearance(platform = "windows", dark = false) {
     },
   });
   return { calls, dataset, queries,
+    ready() { return documentEvents.get("DOMContentLoaded")(); },
     change(query, matches) {
       const media = queries.get(query);
       media.matches = matches;
@@ -60,6 +63,40 @@ test("native material follows the web color scheme while browser dashboards stay
     app.calls[1].resolve(true);
     await setImmediate();
     assert.equal(app.dataset.material, "native");
+  }
+});
+
+test("a working surface stays hidden until material initialization settles, including coalesced changes", async () => {
+  const app = appearance();
+  const ready = app.ready();
+  app.change(darkQuery, true);
+  assert.equal(app.calls.length, 1);
+  app.calls[0].resolve(true);
+  await setImmediate();
+  assert.equal(app.calls.length, 2);
+  assert.equal(app.calls[1].command, "apply_material");
+  app.calls[1].resolve(true);
+  await setImmediate();
+  assert.equal(app.dataset.material, "native");
+  assert.equal(app.calls[2].command, "surface_ready");
+  app.calls[2].resolve();
+  await ready;
+});
+
+test("material failure permits a solid surface, while a disposed document never acknowledges readiness", async () => {
+  for (const disposed of [false, true]) {
+    const app = appearance();
+    const ready = app.ready();
+    if (disposed) app.dispose();
+    app.calls[0].reject(new Error("Unavailable"));
+    await setImmediate();
+    if (disposed) assert.equal(app.calls.length, 1);
+    else {
+      assert.equal(app.dataset.material, "solid");
+      assert.equal(app.calls[1].command, "surface_ready");
+      app.calls[1].resolve();
+    }
+    await ready;
   }
 });
 

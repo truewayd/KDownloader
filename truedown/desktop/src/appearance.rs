@@ -1,4 +1,38 @@
-use tauri::WebviewWindow;
+use tauri::{Manager, WebviewWindow};
+
+#[derive(Default)]
+pub struct Surfaces(tokio::sync::watch::Sender<std::collections::HashSet<String>>);
+
+fn surface_role(label: &str) -> bool {
+    matches!(
+        label,
+        "main" | "settings" | "new-task" | "task-details" | "task-preview"
+    )
+}
+
+#[tauri::command]
+pub fn surface_ready(window: WebviewWindow) -> Result<(), String> {
+    if !surface_role(window.label()) {
+        return Err("This window cannot acknowledge a working surface".into());
+    }
+    window.state::<Surfaces>().0.send_modify(|ready| {
+        ready.insert(window.label().to_owned());
+    });
+    Ok(())
+}
+
+pub async fn wait_ready(window: &WebviewWindow) -> Result<(), String> {
+    let mut ready = window.state::<Surfaces>().0.subscribe();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        ready.wait_for(|labels| labels.contains(window.label())),
+    )
+    .await
+    .map_err(|_| "Window surface initialization timed out".to_owned())?
+    .map(|_| ())
+    .map_err(|e| e.to_string());
+    result
+}
 
 #[cfg(windows)]
 #[derive(Default)]

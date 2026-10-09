@@ -41,10 +41,16 @@ fn show_main(app: &tauri::AppHandle) {
         return;
     }
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        placement::fit(&window.as_ref().window(), false);
-        let _ = window.set_focus();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = appearance::wait_ready(&window).await {
+                eprintln!("Cannot show main window: {error}");
+                return;
+            }
+            placement::fit(&window.as_ref().window(), false);
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        });
     }
 }
 fn main() {
@@ -211,11 +217,13 @@ fn main() {
                 frame::frame_tooltip,
                 pickers::choose_download_directory,
                 appearance::apply_material,
+                appearance::surface_ready,
                 update::desktop_ready
             ];
             handler(invoke)
         })
         .setup(move |app| {
+            app.manage(appearance::Surfaces::default());
             #[cfg(windows)]
             app.manage(appearance::Materials::default());
             #[cfg(windows)]
@@ -260,8 +268,15 @@ fn main() {
                 .build()?;
                 frame::install(&window).map_err(std::io::Error::other)?;
                 placement::fit(&window.as_ref().window(), true);
-                if config.visible && !app.state::<windows::Windows>().suppress {
-                    window.show()?;
+                if config.visible && !background && !app.state::<windows::Windows>().suppress {
+                    tauri::async_runtime::spawn(async move {
+                        match appearance::wait_ready(&window).await {
+                            Ok(()) => {
+                                let _ = window.show();
+                            }
+                            Err(error) => eprintln!("Cannot show main window: {error}"),
+                        }
+                    });
                 }
             }
             let item = |id, text, icon| {
