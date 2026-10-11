@@ -9,7 +9,7 @@ import (
 )
 
 func TestUpdateCleanupVerifiesPayloadAndOwnsTaskRemoval(t *testing.T) {
-	for _, scenario := range []string{"success", "record-removed", "payload-missing", "checksum", "active", "overlap", "foreign-file", "control-directory"} {
+	for _, scenario := range []string{"success", "record-removed", "payload-missing", "checksum", "active", "overlap", "foreign-file", "control-directory", "ordinary-task"} {
 		t.Run(scenario, func(t *testing.T) {
 			base := t.TempDir()
 			root := filepath.Join(base, "updates")
@@ -23,7 +23,7 @@ func TestUpdateCleanupVerifiesPayloadAndOwnsTaskRemoval(t *testing.T) {
 			}
 			defer m.Stop()
 			name := "TrueDown-build-42.zip"
-			task, _, err := m.addTaskWithModule("https://example.test/update", name, folder, nil, "", 0, Aria2Opts{}, "")
+			task, _, err := m.addUpdateTask("https://example.test/update", name, folder, Aria2Opts{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -44,6 +44,10 @@ func TestUpdateCleanupVerifiesPayloadAndOwnsTaskRemoval(t *testing.T) {
 				t.Fatal(err)
 			}
 			switch scenario {
+			case "ordinary-task":
+				if err := m.setTask(task.ID, func(current *Task) { current.UpdateDownload = false }); err != nil {
+					t.Fatal(err)
+				}
 			case "record-removed":
 				if !m.DeleteTask(task.ID) {
 					t.Fatal("remove record")
@@ -78,7 +82,7 @@ func TestUpdateCleanupVerifiesPayloadAndOwnsTaskRemoval(t *testing.T) {
 				}
 			}
 			err = m.CleanupUpdateDownloads(root, name, digest, int64(len(payload)))
-			blocked := scenario == "checksum" || scenario == "active" || scenario == "overlap" || scenario == "control-directory"
+			blocked := scenario == "checksum" || scenario == "active" || scenario == "overlap" || scenario == "control-directory" || scenario == "ordinary-task"
 			if blocked {
 				if err == nil {
 					t.Fatal("unsafe cleanup succeeded")

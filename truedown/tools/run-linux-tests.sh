@@ -51,3 +51,4 @@ run_package protocol "$repo_root/internal/protocol"
 run_package downloader "$repo_root/internal/downloader" 1
 run_package safefile "$repo_root/internal/safefile"
 run_package systemupdate "$repo_root/internal/systemupdate"
+run_package updatecache "$repo_root/internal/updatecache"

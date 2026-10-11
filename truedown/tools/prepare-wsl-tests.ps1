@@ -29,7 +29,8 @@ $outputs = @(
   @{ Package = "./internal/protocol"; Path = (Join-Path $testRoot "protocol.test"); Test = $true },
   @{ Package = "./internal/downloader"; Path = (Join-Path $testRoot "downloader.test"); Test = $true },
   @{ Package = "./internal/safefile"; Path = (Join-Path $testRoot "safefile.test"); Test = $true },
-  @{ Package = "./internal/systemupdate"; Path = (Join-Path $testRoot "systemupdate.test"); Test = $true }
+  @{ Package = "./internal/systemupdate"; Path = (Join-Path $testRoot "systemupdate.test"); Test = $true },
+  @{ Package = "./internal/updatecache"; Path = (Join-Path $testRoot "updatecache.test"); Test = $true }
 )
 
 foreach ($output in $outputs) {

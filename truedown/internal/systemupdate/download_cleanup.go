@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"truedown/internal/safefile"
 )
@@ -93,6 +94,7 @@ func (m *Manager) recordUpdateDownload(entry updateDownload) error {
 }
 
 func (m *Manager) cleanupUpdateDownloads() {
+	defer m.cleanupUpdateCache()
 	if m.cleanupAsset == nil {
 		return
 	}
@@ -108,6 +110,10 @@ func (m *Manager) cleanupUpdateDownloads() {
 		directory := m.enginesDir
 		m.mu.RLock()
 		eligible := m.state.NextEngine != nil && m.state.NextEngine.File == entry.Name && m.state.NextEngine.SHA256 == entry.SHA256
+		if entry.Build == 0 && m.state.NextEngine != nil {
+			version := strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(entry.Name, "aria2-next-"), "-windows-x86_64.exe"), "-windows-arm64.exe")
+			eligible = eligible || compareEngineVersions(m.state.NextEngine.Version, version) > 0
+		}
 		if entry.Build > 0 {
 			directory = m.updatesDir
 			eligible = !m.programUpdatesDisabled && m.nativeExecutable != "" && m.currentBuild >= entry.Build

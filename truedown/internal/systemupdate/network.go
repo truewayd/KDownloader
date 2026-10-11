@@ -396,7 +396,6 @@ func (m *Manager) RunAutomatic(ctx context.Context, canApply func() bool) <-chan
 			return
 		case <-initial.C:
 		}
-		m.cleanupOldUpdateHelpers()
 		m.cleanupUpdateDownloads()
 		checkTicker := time.NewTicker(12 * time.Hour)
 		applyTicker := time.NewTicker(30 * time.Second)

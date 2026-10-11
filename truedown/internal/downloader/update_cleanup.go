@@ -93,6 +93,9 @@ func (m *Manager) CleanupUpdateDownloads(directory, name, digest string, size in
 func (m *Manager) cleanupUpdateOutput(root *os.Root, directory, folder, name, digest string, size int64, task *Task) error {
 	id := int64(0)
 	if task != nil {
+		if !task.UpdateDownload {
+			return fmt.Errorf("ordinary download task %d is not updater-owned", task.ID)
+		}
 		if task.Status != StatusDone {
 			return fmt.Errorf("update task %d is not completed", task.ID)
 		}

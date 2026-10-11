@@ -32,8 +32,45 @@ have been committed; the installed executable and previous engine remain.
 Cleanup failures are logged and retried after startup and every 30 seconds.
 A bounded `state/truedown.update-downloads.json` journal keeps this work durable
 without changing the update settings format understood by rollback binaries.
-Only downloads verified by this version have cleanup receipts; older untracked
-packages are not swept by filename or age.
+Only verified downloads have cleanup receipts; older untracked download packages
+are not swept by filename or age. Cleanup also requires any surviving task record
+to carry the private updater-owned flag. Ordinary tasks, their outputs and resume
+data are never eligible, even if their names and bytes match an update package.
+
+## Cache retention
+
+The updater reclaims its own storage only. It never scans the user's download
+directory or runs ordinary task-cache maintenance. No new setting or cleanup API
+accepts a caller-supplied deletion path.
+
+- Program and NEXT maintenance runs after update operations, at startup and on
+  the existing 30-second maintenance tick. An unfinished native transaction,
+  active update or launched apply helper prevents pruning.
+- Unreferenced native staging directories, helper/transaction files and temporary download copies become
+  eligible after 24 hours. Stages accept only the fixed five application files;
+  foreign files, nested directories and links block removal. The pending stage
+  is always retained. The existing single `.previous` backup set remains for
+  recovery; it does not accumulate one set per release.
+- NEXT retains the selected candidate, the running engine and the recorded
+  previous engine. Other versioned binaries become eligible after 24 hours.
+  Unfinished verified-download receipts protect their installed binary until
+  package cleanup can be retried, including receipts superseded by a newer NEXT.
+- Executable modules reclaim verified update downloads and their queue records
+  after successful activation, and retry on startup or a subsequent update check.
+  Their signed installed manifests act as durable receipts. Startup, before any
+  module process is admitted, retains the selected and previous selected versions
+  (newest older version for pre-governance installs), and prunes older versions
+  after 24 hours. A separate `previous.json` preserves old-host compatibility.
+  Newer unactivated candidates
+  remain for diagnosis/retry. Runtime activation never removes old executables
+  that running artifact work may still reference.
+- Startup also reclaims old embedded-module digest directories and abandoned
+  module install/copy stages after 24 hours. The currently bundled digest stays.
+
+Pruning is bounded, nonrecursive and rejects directory aliases. Locked files or
+unexpected contents are logged and preserved for a later maintenance/startup
+attempt. Failed or paused update downloads without a successful installation
+remain available; this policy does not silently discard user-controlled tasks.
 
 ## Platform locations
 

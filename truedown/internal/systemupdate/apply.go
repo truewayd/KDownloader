@@ -56,28 +56,6 @@ func (m *Manager) recordUpdateError(updateErr error) {
 	_ = m.persistLocked()
 }
 
-func (m *Manager) cleanupOldUpdateHelpers() {
-	directory := m.updatesDir
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if entry.Type().IsRegular() && updateHelperPattern.MatchString(entry.Name()) {
-			_ = os.Remove(filepath.Join(directory, entry.Name()))
-		}
-		if entry.Type().IsRegular() && nativeHelperPattern.MatchString(entry.Name()) {
-			info, err := entry.Info()
-			if err == nil && m.now().Sub(info.ModTime()) > 24*time.Hour {
-				// Never reclaim the recovery helper named by an unfinished marker.
-				if _, err := os.Lstat(filepath.Join(m.baseDir, nativeMarkerName)); os.IsNotExist(err) {
-					_ = os.Remove(filepath.Join(directory, entry.Name()))
-				}
-			}
-		}
-	}
-}
-
 func (m *Manager) pendingUpdatePathLocked(pending *pendingAppUpdate) (string, error) {
 	if pending == nil || filepath.Base(pending.File) != pending.File || pending.File == "." || pending.File == "" {
 		return "", fmt.Errorf("invalid staged TrueDown update metadata")

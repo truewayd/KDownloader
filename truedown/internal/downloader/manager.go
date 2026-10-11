@@ -427,6 +427,7 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 	sort.Slice(m.orderedIDs, func(i, j int) bool { return m.orderedIDs[i] < m.orderedIDs[j] })
 	m.structureRev = m.revision
 	m.nextID.Store(maxID)
+	m.cleanupModuleCache(true)
 	m.wg.Add(1)
 	go m.persistenceWriter()
 	return m, nil

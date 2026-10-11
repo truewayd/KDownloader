@@ -178,6 +178,7 @@ func (m *Manager) updateExecutable(ctx context.Context, id string) (string, erro
 		}
 	}
 	if version == current {
+		m.cleanupModuleCache(false)
 		return current, nil
 	}
 	base := "https://github.com/truewayd/KDownloader/releases/download/" + url.PathEscape(prefix+version) + "/"
@@ -215,6 +216,7 @@ func (m *Manager) updateExecutable(ctx context.Context, id string) (string, erro
 	if err := m.activateExecutable(ctx, id, installed, version); err != nil {
 		return "", err
 	}
+	m.cleanupModuleCache(false)
 	return version, nil
 }
 
@@ -229,6 +231,19 @@ func (m *Manager) activateExecutable(ctx context.Context, id, installed, version
 	retireModule(process)
 	if !healthy {
 		return modulehost.ErrPackage
+	}
+	// Keep rollback retention separate so older hosts can still decode active.json.
+	root := m.executableRoot(id)
+	if raw, err := safefile.ReadFile(filepath.Join(root, "active.json"), 4096); err == nil {
+		var previous moduleActive
+		if modulehost.Decode(raw, &previous) != nil || !modulehost.Newer(version, previous.Version) {
+			return modulehost.ErrPackage
+		}
+		if err := safefile.WriteFile(filepath.Join(root, "previous.json"), raw, 0600); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 	pointer, _ := json.Marshal(moduleActive{Version: version})
 	if err := safefile.WriteFile(filepath.Join(m.executableRoot(id), "active.json"), pointer, 0600); err != nil {
