@@ -238,6 +238,12 @@ export const UTIL = {
       try {
         const u = new URL(urlStr);
         if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
+        if (/^(?:www\.)?mega\.(?:nz|co\.nz)$/i.test(u.hostname) && !u.hash
+            && /^\/(?:file|folder)\/[^/]+%23/i.test(u.pathname)) {
+          const separator = u.pathname.toLowerCase().indexOf('%23');
+          u.hash = u.pathname.slice(separator + 3);
+          u.pathname = u.pathname.slice(0, separator);
+        }
         const normalizedUrl = u.toString();
         if (seen.has(normalizedUrl)) continue;
         seen.add(normalizedUrl);

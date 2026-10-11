@@ -143,6 +143,13 @@ test('extracts all HTTP links without dropping query strings or MEGA keys', () =
   ]);
 });
 
+test('MEGA extraction retains modern and legacy keys and decodes only MEGA hash separators', () => {
+  assert.deepEqual(util.extractExternalLinks('https://mega.nz/file/id%23key https://mega.nz/folder/id&#35;key/file/child https://mega.nz/#!id!key https://mega.nz/#F!id!key https://example.test/file/id%23key'), [
+    'https://mega.nz/file/id#key', 'https://mega.nz/folder/id#key/file/child', 'https://mega.nz/#!id!key', 'https://mega.nz/#F!id!key', 'https://example.test/file/id%23key',
+  ]);
+  assert.deepEqual(util.extractExternalLinks('https://user%23tag@mega.nz/file/id%23key?x=1'), ['https://user%23tag@mega.nz/file/id?x=1#key']);
+});
+
 test('external-link scanning bounds candidate memory on a 16 MiB token', () => {
   const oversizedToken = `https://example.invalid/${'x'.repeat(16 * 1024 * 1024)}`;
   assert.deepEqual(
