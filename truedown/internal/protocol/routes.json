@@ -2,6 +2,7 @@
   "/system/info": [
     "GET"
   ],
+  "/system/download-issues": ["GET"],
   "/system/storage": [
     "GET"
   ],

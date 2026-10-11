@@ -2,6 +2,9 @@
 import {
   loadBackendConfig,
   saveBackendConfig,
+  probeAutoResolve,
+  loadLinkHandlingConfig,
+  saveLinkHandlingConfig,
   loadDownloadRulesConfig,
   saveDownloadRulesConfig,
   loadExternalLinkFilterConfig,
@@ -20,6 +23,7 @@ import {
   respondWith,
 } from "../messageHelpers.js";
 import { syncDownloadRulesToTrueDown } from "../truedown.js";
+import { writeLinkRecords } from "../linkHistory.js";
 
 async function restoreSettingsDefaults() {
   const configs = await restoreDefaultConfigs();
@@ -55,6 +59,18 @@ function withoutGistSecret(config) {
 
 export function createConfigHandlers() {
   return {
+    "links.getConfig": ({ sender, sendResponse }) => {
+      requireExtensionPage(sender, "Link settings");
+      return respondWith(sendResponse, loadLinkHandlingConfig(), config => ({ config }));
+    },
+    "links.setConfig": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "Link settings");
+      return respondWith(sendResponse, saveLinkHandlingConfig(message.config || {}), config => ({ config }));
+    },
+    "links.markExtracted": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "Link history");
+      return respondWith(sendResponse, writeLinkRecords(message.links, message.remove === true ? 'remove' : 'manual'), result => result);
+    },
     "backend.getConfig": ({ sender, sendResponse }) =>
       respondWith(sendResponse, loadBackendConfig(), (config) => ({
         config: isExtensionPageSender(sender) ? config : withoutBackendSecrets(config),
@@ -63,6 +79,11 @@ export function createConfigHandlers() {
     "backend.setConfig": ({ message, sender, sendResponse }) => {
       requireExtensionPage(sender, "Backend configuration");
       return respondWith(sendResponse, saveBackendConfig(message.config || {}), (config) => ({ config }));
+    },
+
+    "backend.probeAutoResolve": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "Backend capability detection");
+      return respondWith(sendResponse, probeAutoResolve(message.config || {}), (capabilities) => ({ capabilities }));
     },
 
     "downloadRules.getConfig": ({ sendResponse }) =>

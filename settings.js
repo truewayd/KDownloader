@@ -109,6 +109,10 @@ function setBackendType(type) {
 
 function updateBackendVisibility() {
   const enabled = !!$("backend-enabled")?.checked;
+  if ($("backend-auto-resolve")) {
+    $("backend-auto-resolve").disabled = !enabled || backendType !== "abdm";
+    if (!enabled || backendType !== "abdm") $("backend-auto-resolve").checked = false;
+  }
   $("backend-details")?.classList.toggle("kd-hidden", !enabled);
   $("abdm-fields")?.classList.toggle("kd-hidden", !enabled || backendType !== "abdm");
   $("gopeed-fields")?.classList.toggle("kd-hidden", !enabled || backendType !== "gopeed");
@@ -155,6 +159,7 @@ function renderBackendConfig(config) {
   setValue("backend-retry-count", config.retryCount);
   setValue("backend-file-limit", config.perPostFileLimit);
   setValue("backend-api-key", config.apiKey);
+  setValue("backend-auto-resolve", config.autoResolve);
   setValue("gopeed-protocol", config.gopeedProtocol);
   setValue("gopeed-host", config.gopeedHost);
   setValue("gopeed-port", config.gopeedPort);
@@ -162,10 +167,11 @@ function renderBackendConfig(config) {
   updateBackendVisibility();
 }
 
-async function saveBackend() {
+function backendFormConfig() {
   const apiKey = backendApiKeyValue();
   const config = {
     enabled: !!$("backend-enabled")?.checked,
+    autoResolve: !!$("backend-auto-resolve")?.checked,
     backendType,
     protocol: $("backend-protocol")?.value === "https" ? "https" : "http",
     host: loopbackHostValue("backend-host"),
@@ -179,7 +185,11 @@ async function saveBackend() {
     gopeedPort: numberValue("gopeed-port", 9999, 1, 65535),
     gopeedToken: headerSecretValue("gopeed-token"),
   };
-  const response = await sendMessage({ action: "backend.setConfig", config });
+  return config;
+}
+
+async function saveBackend() {
+  const response = await sendMessage({ action: "backend.setConfig", config: backendFormConfig() }, 12000, { retries: 0 });
   renderBackendConfig(response.config);
 }
 
@@ -366,6 +376,7 @@ async function loadAll() {
       loadWatch(generation),
       loadGist(generation),
       loadCreators(generation),
+      loadLinkHandling(generation),
     ]);
     if (!isCurrentLoad(generation)) return false;
     settingsLoaded = true;
@@ -396,6 +407,7 @@ async function saveAll() {
         saveWatch(),
         saveGist(),
         saveCreators(),
+        saveLinkHandling(),
       ]);
       const failure = results.find((result) => result.status === 'rejected');
       if (failure) throw failure.reason;
@@ -434,6 +446,35 @@ async function restoreDefaults(button) {
   });
 }
 
+async function loadLinkHandling(generation) {
+  const { config } = await sendMessage({ action: 'links.getConfig' });
+  if (!isCurrentLoad(generation)) return;
+  setValue('dm-links-mode', config.dmMode);
+  setValue('links-skip-extracted', config.skipExtracted);
+}
+
+async function saveLinkHandling() {
+  const { config } = await sendMessage({ action: 'links.setConfig', config: {
+    dmMode: $('dm-links-mode').value, skipExtracted: $('links-skip-extracted').checked,
+  } });
+  setValue('dm-links-mode', config.dmMode);
+  setValue('links-skip-extracted', config.skipExtracted);
+}
+
+async function editLinkHistory(button, remove) {
+  const input = $('link-history-input');
+  const original = input.value;
+  const links = original.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+  if (!links.length) return;
+  await withBusyButton(button, async () => {
+    try {
+      const result = await sendMessage({ action: 'links.markExtracted', links, remove });
+      showToast(t('linkHistoryUpdated', String(result.count)));
+      if (input.value === original && result.count === new Set(links).size) input.value = '';
+    } catch (error) { showToast(error.message, 'error'); }
+  });
+}
+
 async function updateCreatorCache(host, labelId) {
   const btn = host === "coomer.st" ? $("creators-update-coomer") : $("creators-update-kemono");
   await withBusyButton(btn, async () => {
@@ -458,6 +499,36 @@ function bindEvents() {
   $("backend-type-abdm")?.addEventListener("click", () => setBackendType("abdm"));
   $("backend-type-gopeed")?.addEventListener("click", () => setBackendType("gopeed"));
   $("backend-enabled")?.addEventListener("change", updateBackendVisibility);
+  $('link-history-mark')?.addEventListener('click', event => editLinkHistory(event.currentTarget, false));
+  $('link-history-remove')?.addEventListener('click', event => editLinkHistory(event.currentTarget, true));
+  let probeGeneration = 0;
+  const invalidateProbe = () => {
+    probeGeneration++;
+    $("backend-auto-resolve").checked = false;
+    updateBackendVisibility();
+  };
+  for (const id of ["backend-host", "backend-port", "backend-protocol", "backend-api-key", "backend-enabled"]) {
+    $(id)?.addEventListener("input", invalidateProbe);
+  }
+  for (const id of ["backend-type-abdm", "backend-type-gopeed"]) $(id)?.addEventListener("click", invalidateProbe);
+  $("backend-auto-resolve")?.addEventListener("change", async () => {
+    const control = $("backend-auto-resolve");
+    const generation = ++probeGeneration;
+    const loadGeneration = settingsLoadGeneration;
+    if (!control.checked) return;
+    control.checked = false;
+    control.disabled = true;
+    control.setAttribute("aria-busy", "true");
+    try {
+      await sendMessage({ action: "backend.probeAutoResolve", config: backendFormConfig() }, 10000, { retries: 0 });
+      if (generation === probeGeneration && loadGeneration === settingsLoadGeneration) control.checked = true;
+    } catch (error) {
+      if (generation === probeGeneration) showToast(error.message, "error");
+    } finally {
+      control.removeAttribute("aria-busy");
+      updateBackendVisibility();
+    }
+  });
   $("download-filter-enabled")?.addEventListener("change", updateDownloadFilterVisibility);
   $("external-link-filter-mode")?.addEventListener("change", updateExternalLinkFilterVisibility);
   $("save-settings")?.addEventListener("click", saveAll);

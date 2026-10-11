@@ -372,6 +372,45 @@ export async function dispatchExternalLinksTextTask(entries, context = {}) {
   };
 }
 
+// Only backend-confirmed links leave the manual list. Never send site cookies.
+export async function resolveExternalLinks(externalLinks) {
+  const backend = await loadBackendConfig();
+  const links = [...new Set(Array.isArray(externalLinks) ? externalLinks : [])];
+  const dispatchedExternalLinks = [];
+  const attemptedExternalLinks = [];
+  if (!backend.enabled || !backend.autoResolve || backend.backendType !== 'abdm') {
+    return { externalLinks: links, dispatchedExternalLinks, attemptedExternalLinks };
+  }
+  const remaining = [];
+  for (const link of links) {
+    let supported = false;
+    try {
+      const url = new URL(link);
+      supported = url.protocol === 'https:' && !url.username && !url.password && !url.port
+        && ['drive.google.com', 'docs.google.com', 'dropbox.com', 'www.dropbox.com'].includes(url.hostname);
+    } catch { /* Preserve unrecognized links for existing frontend validation. */ }
+    if (!supported) { remaining.push(link); continue; }
+    attemptedExternalLinks.push(link);
+    try {
+      const response = await fetchWithTimeout(`${backend.protocol}://${backend.host}:${backend.port}/integrations/kdownloader/v1/resolve`, {
+        method: 'POST', credentials: 'omit', redirect: 'error',
+        headers: { 'Content-Type': 'application/json', ...(backend.apiKey ? { 'X-Api-Key': backend.apiKey } : {}) },
+        body: JSON.stringify({ link }),
+      }, 29000);
+      if (!response.ok) throw new Error('Resolver unavailable');
+      const result = JSON.parse(await readLimitedResponseText(response, 128 * 1024, 'Link resolution'));
+      if (result.protocol !== 'kdownloader.resolve' || result.version !== 1 || result.link !== link
+          || result.accepted !== true || !['google-drive', 'dropbox'].includes(result.module)
+          || !Array.isArray(result.taskIds)
+          || !(result.taskIds.some(id => Number.isSafeInteger(id) && id > 0) || result.filtered > 0)) {
+        throw new Error('Link was not accepted');
+      }
+      dispatchedExternalLinks.push(link);
+    } catch { remaining.push(link); }
+  }
+  return { externalLinks: remaining, dispatchedExternalLinks, attemptedExternalLinks };
+}
+
 export async function dispatchTextDownloadTask(text, context = {}) {
   const task = UTIL.buildTextDownloadTask(text, context.fileName, context.type);
   if (!task) return { success: true, skipped: true, results: [] };

@@ -7,6 +7,7 @@ mod commands;
 mod confirmations;
 mod context_menus;
 mod core;
+mod download_notifications;
 mod drops;
 mod editing;
 mod frame;
@@ -363,6 +364,7 @@ fn main() {
                 }
             }
             let app_handle = app.handle().clone();
+            download_notifications::start(app.handle(), core.clone());
             let exit_app = app.handle().clone();
             let exit_signal = core.stop_requested.clone();
             tauri::async_runtime::spawn(async move {

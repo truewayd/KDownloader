@@ -46,7 +46,7 @@ const utilUrl = asModuleUrl(`
   const UTIL = {
     hasUnpairedSurrogate() { return false; },
     normalizeCreatorFetchMode() { return globalThis.__acceptedCreatorMode || "default"; },
-    extractExternalLinks() { return []; },
+    extractExternalLinks(text) { return String(text || '').split(String.fromCharCode(10)).filter(line => line.startsWith('https://')); },
     extractPostExternalLinks(post) { return post?.content ? [post.content] : []; },
     filterExternalLinks(links) { return links; },
   };
@@ -60,6 +60,9 @@ const networkUrl = asModuleUrl(`
   export async function readLimitedResponseText(response) { return response.text(); }
 `);
 const downloadUrl = asModuleUrl(`
+  export async function resolveExternalLinks(externalLinks) {
+    return { externalLinks, dispatchedExternalLinks: [], attemptedExternalLinks: [] };
+  }
   export async function startFullDownload(_service, _userId, postId, _path, senderUrl) {
     globalThis.__acceptedStartCalls++;
     globalThis.__acceptedDownloadOrigins?.push(senderUrl);
@@ -83,7 +86,7 @@ const downloadUrl = asModuleUrl(`
 `);
 const pawchiveUrl = asModuleUrl(`
   export async function fetchAllPawchiveCreatorPosts() { return globalThis.__acceptedPawPosts || []; }
-  export async function fetchPawchiveDms() { return { url: "", messages: [] }; }
+  export async function fetchPawchiveDms() { return { url: "https://pawchive.pw/patreon/user/creator/dms", messages: globalThis.__acceptedDms || [] }; }
   export async function fetchPawchiveCreatorPage() { return globalThis.__acceptedPawPosts || []; }
   export function formatPawchiveDmsText() { return "empty"; }
   export function isCompletePawchivePost() { return true; }
@@ -136,7 +139,14 @@ const fallbackUrl = asModuleUrl(`
   export async function takeNativeFallback() { return globalThis.__acceptedPendingFallback || null; }
 `);
 const configUrl = asModuleUrl(`
+  export async function loadLinkHandlingConfig() { return globalThis.__acceptedLinkConfig || { dmMode: 'off', skipExtracted: true }; }
   export async function loadExternalLinkFilterConfig() { return { mode: "disabled" }; }
+`);
+
+const linkHistoryUrl = asModuleUrl(`
+  export function completeLinkKey(value) { return value; }
+  export async function readLinkRecords() { return globalThis.__acceptedLinkRecords || {}; }
+  export async function writeLinkRecords() { return { count: 0 }; }
 `);
 
 const handlerSource = (await readFile(
@@ -152,6 +162,7 @@ const handlerSource = (await readFile(
   .replace(/from\s+["']\.\.\/progress\.js["']/, `from "${progressUrl}"`)
   .replace(/from\s+["']\.\.\/messageHelpers\.js["']/, `from "${helpersUrl}"`)
   .replace(/from\s+["']\.\.\/nativeFallback\.js["']/, `from "${fallbackUrl}"`)
+  .replace(/from\s+["']\.\.\/linkHistory\.js["']/, `from "${linkHistoryUrl}"`)
   .replace(/from\s+["']\.\.\/config\.js["']/, `from "${configUrl}"`);
 const handlerInternals = await import(asModuleUrl(handlerSource
   .replace(
@@ -180,6 +191,31 @@ const {
   projectCreatorPost,
   projectDownloadResultForBroadcast,
 } = handlerInternals;
+
+test('a page with no new posts still extracts new DM links using shared records', async () => {
+  const known = 'https://drive.google.com/file/d/known/view';
+  const fresh = 'https://www.dropbox.com/s/id/fresh.zip';
+  globalThis.__acceptedLinkConfig = { dmMode: 'new', skipExtracted: true };
+  globalThis.__acceptedLinkRecords = { [known]: { status: 'failed' } };
+  globalThis.__acceptedDms = [{ text: known }, { text: fresh }];
+  globalThis.__acceptedPawPosts = [];
+  let entries;
+  let received;
+  const declared = new Promise(resolve => { received = resolve; });
+  globalThis.__acceptedLinkDispatch = value => { entries = value; received(); return { success: true }; };
+  try {
+    createDownloadHandlers()['creator.pageFetch']({
+      message: { service: 'patreon', userId: 'creator', requestId: 'dm:' + crypto.randomUUID() },
+      sender: { url: 'https://pawchive.pw/patreon/user/creator', tab: { id: 20 } },
+      sendResponse(value) { assert.equal(value.accepted, true); },
+    });
+    await declared;
+    assert.deepEqual(entries.map(entry => entry.url), [fresh]);
+  } finally {
+    globalThis.__acceptedLinkConfig = null; globalThis.__acceptedLinkRecords = null;
+    globalThis.__acceptedDms = null; globalThis.__acceptedLinkDispatch = null;
+  }
+});
 
 test("retrying an accepted startDownload request id starts only once", async () => {
   const handler = createDownloadHandlers().startDownload;

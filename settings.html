@@ -87,6 +87,11 @@
               <input id="gopeed-token" type="password" class="kd-input" maxlength="4096" autocomplete="off" spellcheck="false">
             </label>
           </div>
+          <label class="field field-inline">
+            <input type="checkbox" id="backend-auto-resolve" class="kd-toggle">
+            <span data-i18n="autoResolveLabel">Automatically resolve cloud links</span>
+          </label>
+          <p class="field-help" data-i18n="autoResolveHelp">Checks backend support before enabling. Unhandled links remain available for manual download.</p>
           <div class="backend-config backend-batching">
             <label class="field">
               <span data-i18n="concurrency">Concurrency</span>
@@ -144,6 +149,27 @@
             <span data-i18n="externalLinkFilterDomains">Blocked domains (one per line)</span>
             <textarea id="external-link-filter-blacklist" class="kd-input" rows="4" maxlength="8192" spellcheck="false" placeholder="patreon.com"></textarea>
           </label>
+          <label class="field">
+            <span data-i18n="dmLinksMode">Include Pawchive DM links when fetching a page or creator</span>
+            <select id="dm-links-mode" class="kd-select">
+              <option value="off" data-i18n="dmLinksOff">Do not read DMs</option>
+              <option value="extract" data-i18n="dmLinksExtract">Extract all DM links to TXT</option>
+              <option value="new" data-i18n="dmLinksNew">Process only links not previously extracted</option>
+            </select>
+          </label>
+          <label class="field field-inline">
+            <input id="links-skip-extracted" type="checkbox" class="kd-toggle">
+            <span data-i18n="linksSkipExtracted">Skip previously extracted links in posts</span>
+          </label>
+          <p class="field-help" data-i18n="linkHistoryHelp">Posts and DMs share local records. Backend attempts, including failures, are recorded. Keyless MEGA links remain in TXT and are never marked as extracted.</p>
+          <label class="field">
+            <span data-i18n="linkHistoryInput">Complete links to mark as extracted (one per line)</span>
+            <textarea id="link-history-input" class="kd-input" rows="4" maxlength="65536" spellcheck="false"></textarea>
+          </label>
+          <div class="field field-inline">
+            <button id="link-history-mark" type="button" class="kd-button" data-i18n="linkHistoryMark">Mark as extracted</button>
+            <button id="link-history-remove" type="button" class="kd-button" data-i18n="linkHistoryRemove">Allow these links to be processed again</button>
+          </div>
         </div>
       </article>
 

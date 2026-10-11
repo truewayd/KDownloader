@@ -30,6 +30,17 @@ const configSource = (await readFile(path.join(root, 'background', 'config.js'),
 const util = (await import(utilUrl)).default;
 const config = await import(asModuleUrl(configSource));
 
+test('export places confirmed backend links last without losing keys or duplicates', () => {
+  const cloud = 'https://drive.google.com/file/d/example/view';
+  const manual = 'https://mega.nz/file/example';
+  const text = util.buildExternalLinksText([
+    { url: cloud }, { url: manual }, { url: cloud, dispatched: true },
+  ]);
+  assert.equal(text.split(cloud).length, 2);
+  assert.ok(text.indexOf(manual) < text.indexOf('--------------------'));
+  assert.ok(text.indexOf('--------------------') < text.indexOf(cloud));
+});
+
 beforeEach(() => {
   for (const key of Object.keys(stored)) delete stored[key];
 });

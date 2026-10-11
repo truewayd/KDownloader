@@ -410,11 +410,15 @@ func (m *Manager) AddWithModules(
 		return ModuleAddResult{}, false, nil
 	}
 	info := module.info()
-	return module.resolve(ctx, m, moduleResolveRequest{
+	result, handled, err := module.resolve(ctx, m, moduleResolveRequest{
 		Link: link, Name: name, Folder: folder, Headers: headers,
 		DownloadPage: downloadPage, QueueID: queueID, Opts: opts,
 		Options: options[info.ID],
 	})
+	if err != nil && (ctx.Err() == nil || ctx.Err() == context.DeadlineExceeded) {
+		m.recordModuleIssue(info.ID)
+	}
+	return result, handled, err
 }
 
 func (m *Manager) installedModuleID(link string) string {

@@ -269,6 +269,7 @@ type Manager struct {
 	listRevision               int64
 	listChanged                chan struct{}
 	listEpoch                  string
+	downloadIssues             DownloadIssues
 	lastSuccessfulPollRevision int64
 	ariaAdmitted               map[int64]bool
 	ariaSlots                  chan struct{}
@@ -2290,6 +2291,7 @@ func (m *Manager) setTask(id int64, update func(*Task)) error {
 	}
 	oldStatus := task.Status
 	update(task)
+	m.recordStatusIssueLocked(task, oldStatus)
 	if oldStatus != task.Status {
 		m.statusCounts[oldStatus]--
 		m.statusCounts[task.Status]++
@@ -2306,7 +2308,9 @@ func (m *Manager) setStatusLocked(task *Task, status Status) {
 		return
 	}
 	m.statusCounts[task.Status]--
+	oldStatus := task.Status
 	task.Status = status
+	m.recordStatusIssueLocked(task, oldStatus)
 	m.statusCounts[status]++
 	m.structureRev++
 }
@@ -2363,6 +2367,7 @@ func (m *Manager) replaceTaskLocked(task, replacement *Task) {
 
 	oldGID := task.GID
 	*task = *cloneTask(replacement)
+	m.recordStatusIssueLocked(task, oldStatus)
 	task.overviewCategory, task.overviewSpeed = category, speed
 	m.indexTaskOverviewLocked(task)
 	if oldGID != task.GID {

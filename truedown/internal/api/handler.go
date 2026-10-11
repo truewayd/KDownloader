@@ -130,6 +130,7 @@ type engineSelectionReq struct {
 }
 
 func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, updateServices ...UpdateService) {
+	registerKDownloader(mux, dm)
 	registerTaskDefaults(mux, dm)
 	registerTaskDetails(mux, dm)
 	registerFileGroups(mux, dm)

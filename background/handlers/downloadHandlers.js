@@ -4,6 +4,7 @@ import UTIL from "../util.js";
 import { handleAPIRequest, readLimitedResponseText } from "../network.js";
 import {
   dispatchExternalLinksTextTask,
+  resolveExternalLinks,
   dispatchTextDownloadTask,
   startCoomerFansDownload,
   startFullDownload,
@@ -46,7 +47,8 @@ import {
   NATIVE_FALLBACK_LIMITS,
   takeNativeFallback,
 } from "../nativeFallback.js";
-import { loadExternalLinkFilterConfig } from "../config.js";
+import { loadExternalLinkFilterConfig, loadLinkHandlingConfig } from "../config.js";
+import { completeLinkKey, readLinkRecords, writeLinkRecords } from "../linkHistory.js";
 
 const DOWNLOAD_CONTENT_HOSTS = [...API.HOSTS, API.COOMERFANS_HOST, PAW.HOST];
 const MAX_BATCH_EXTERNAL_LINKS = 5000;
@@ -118,6 +120,55 @@ function isPawRequest(item, senderUrl) {
 }
 
 async function runSingleDownload(item, sender, tabId) {
+  const result = await runSiteDownload(item, sender, tabId);
+  if (result && !result.incomplete && !result.cancelled && result.externalLinks?.length) {
+    try { Object.assign(result, await processExternalLinks(result.externalLinks)); }
+    catch {
+      result.success = false;
+      result.error = 'External link processing failed; the original links remain available';
+    }
+  }
+  return result;
+}
+
+let linkProcessingQueue = Promise.resolve();
+function processExternalLinks(links, options = {}) {
+  const run = linkProcessingQueue.then(async () => {
+    const config = await loadLinkHandlingConfig();
+    const unique = [...new Set(links)].slice(0, MAX_BATCH_EXTERNAL_LINKS);
+    const previous = options.all ? {} : await readLinkRecords(unique);
+    const pending = options.all || (!config.skipExtracted && !options.onlyNew)
+      ? unique : unique.filter(link => !previous[completeLinkKey(link)]);
+    const result = options.extractOnly
+      ? { externalLinks: pending, dispatchedExternalLinks: [], attemptedExternalLinks: [] }
+      : await resolveExternalLinks(pending);
+    const accepted = new Set(result.dispatchedExternalLinks);
+    await writeLinkRecords(result.dispatchedExternalLinks, 'accepted');
+    await writeLinkRecords((result.attemptedExternalLinks || []).filter(link => !accepted.has(link)), 'failed');
+    return result;
+  });
+  linkProcessingQueue = run.catch(() => undefined);
+  return run;
+}
+
+async function collectSupplementalDms(accumulator, scope) {
+  if (!isPawOrigin(scope.origin) || !scope.service || !scope.userId) return;
+  const config = await loadLinkHandlingConfig();
+  if (config.dmMode === 'off') return;
+  const { url, messages } = await fetchPawchiveDms(scope.service, scope.userId);
+  const filter = await loadExternalLinkFilterConfig();
+  const links = UTIL.filterExternalLinks(UTIL.extractExternalLinks(messages.map(message => message.text || '').join('\n')), filter);
+  const result = await processExternalLinks(links, {
+    all: config.dmMode === 'extract', extractOnly: config.dmMode === 'extract', onlyNew: config.dmMode === 'new',
+  });
+  collectExternalLinkEntries(accumulator, { ...scope, postUrl: url }, result, scope.origin);
+}
+
+async function recordExportedLinks(entries) {
+  await writeLinkRecords(entries.map(entry => typeof entry === 'string' ? entry : entry.url));
+}
+
+async function runSiteDownload(item, sender, tabId) {
   const senderUrl = getSenderUrl(sender);
   if (isPawRequest(item, senderUrl)) {
     return startPawchiveDownload(item.service, item.userId, item.postId, tabId, item.postData, item.requestId);
@@ -381,12 +432,20 @@ function isHashlessMegaUrl(url) {
 function collectExternalLinkEntries(accumulator, item, result, senderUrl) {
   if (!result || !Array.isArray(result.externalLinks)) return;
   const sourceUrl = normalizedHttpUrl(itemPostUrl(item, senderUrl));
-  for (const value of result.externalLinks) {
+  const dispatched = new Set(result.dispatchedExternalLinks || []);
+  for (const value of [...result.externalLinks, ...dispatched]) {
     if (accumulator.entries.length >= MAX_BATCH_EXTERNAL_LINKS) break;
     const url = normalizedHttpUrl(value);
-    if (!url || accumulator.outputLinks.has(url)) continue;
+    if (!url) continue;
+    if (accumulator.outputLinks.has(url)) {
+      if (dispatched.has(value)) {
+        const existing = accumulator.entries.find(entry => entry.url === url);
+        if (existing) existing.dispatched = true;
+      }
+      continue;
+    }
     if (!appendExternalTextLink(accumulator, url)) continue;
-    const entry = { url };
+    const entry = { url, ...(dispatched.has(value) ? { dispatched: true } : {}) };
     if (sourceUrl && isHashlessMegaUrl(url)
         && !accumulator.outputLinks.has(sourceUrl)
         && appendExternalTextLink(accumulator, sourceUrl)) {
@@ -434,7 +493,10 @@ async function runLinksOnlyBatch(items, sender, scope = {}) {
     for (const item of items) {
       try {
         const links = await extractItemExternalLinks(item, filterConfig);
-        collectExternalLinkEntries(externalLinkEntries, item, { externalLinks: links }, getSenderUrl(sender));
+        const resolved = await processExternalLinks(links, {
+          extractOnly: item.site === 'pawchive' && item.postData?.has_full === false,
+        });
+        collectExternalLinkEntries(externalLinkEntries, item, resolved, getSenderUrl(sender));
         updateAcked(batchId, 1);
         successful++;
       } catch (error) {
@@ -446,12 +508,17 @@ async function runLinksOnlyBatch(items, sender, scope = {}) {
       await delay(200);
     }
 
+    let dmError;
+    try { await collectSupplementalDms(externalLinkEntries, scope); }
+    catch (error) { dmError = error; }
     const linkResult = await dispatchExternalLinksTextTask(externalLinkEntries.entries, {
       fileName: scope.linksFileName,
     });
     if (!linkResult.success && !linkResult.skipped) {
       throw new Error(linkResult.error || "External links TXT download failed");
     }
+    if (linkResult.success) await recordExportedLinks(externalLinkEntries.entries);
+    if (dmError) throw dmError;
     return { success: successful === total, totalCount: total, successCount: successful };
   } finally {
     completeBatch(batchId);
@@ -495,7 +562,7 @@ async function runDownloadBatch(items, sender, scope = {}) {
   registerBatch(batchId, total);
   try {
     broadcastBatchProgress(progressScope, 0, total, tabId);
-    if (total === 0) return { success: true, totalCount: 0, successCount: 0 };
+    // Even an already-downloaded page may have new DM links.
 
     for (const item of items) {
       try {
@@ -575,6 +642,10 @@ async function runDownloadBatch(items, sender, scope = {}) {
         }
       }
     }
+    if (scope.aggregateExternalLinks === true) {
+      try { await collectSupplementalDms(externalLinkEntries, scope); }
+      catch (error) { historyError ||= error; }
+    }
     if (scope.aggregateExternalLinks === true && externalLinkEntries.entries.length > 0) {
       const linkResult = await dispatchExternalLinksTextTask(externalLinkEntries.entries, {
         fileName: scope.linksFileName,
@@ -587,6 +658,7 @@ async function runDownloadBatch(items, sender, scope = {}) {
       if (!linkResult.success && !linkResult.skipped) {
         throw new Error(linkResult.error || "External links TXT download failed");
       }
+      if (linkResult.success) await recordExportedLinks(externalLinkEntries.entries);
     }
     if (historyError) throw historyError;
     return { success: successful === total, totalCount: total, successCount: successful };
@@ -1004,6 +1076,7 @@ async function runPawchiveDmsFetch(service, userId, sender, scope) {
       type: "pawchive_dms_txt",
     });
     if (!result.success) throw new Error(result.error || "Pawchive DMs TXT download failed");
+    await writeLinkRecords(UTIL.extractExternalLinks(messages.map(message => message.text || '').join('\n')));
     updateAcked(batchId, 1);
     updateProcessed(batchId, 1);
     broadcastBatchProgress(scope, 1, 1, tabId);
@@ -1274,6 +1347,11 @@ export function createDownloadHandlers() {
               result.success = false;
               result.error = "Downloads were dispatched, but saving download history failed";
             }
+          }
+          try { await writeLinkRecords(result?.externalLinks || []); }
+          catch {
+            result.success = false;
+            result.error = 'Saving external link history failed; the original links remain available';
           }
           broadcastComplete(item, result, tabId);
         } catch (err) {

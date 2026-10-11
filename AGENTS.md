@@ -88,20 +88,26 @@ The site action scripts are `actions.js`, `paw_actions.js`, and `coomerfans_acti
 ## Popup And Settings Behavior
 
 - Popup defaults to Pawchive Site Search and supports Pawchive, Kemono, Coomer, and CoomerFans URL shapes from `popup/search.js`.
-- Creator Fetch exposes non-persistent `default`, `full`, `links`, and Pawchive-only `dms` modes. Links and DMs modes may run without a media backend and declare their TXT directly through `chrome.downloads`; DMs scrape only the creator's fixed Pawchive `/dms` HTML page and export published dates, text, and links without history writes.
+- Creator Fetch exposes non-persistent `default`, `full`, `links`, and Pawchive-only `dms` modes. Links and DMs modes may run without a media backend and declare their TXT directly through `chrome.downloads`; DMs scrape only the creator's fixed Pawchive `/dms` HTML page and export published dates, text, and links without post-history writes. Complete exported links participate in the separate shared link ledger.
 - Popup shows Creator Fetch and History by default; Search Cache and Gist panels are visibility-controlled by their settings. Destructive history maintenance remains in settings.
 - Popup global progress is hidden when `total <= 0` and visible only for active work.
 - Settings uses RPCs for every persisted setting. Do not write `chrome.storage` directly from page scripts. Restore defaults preserves IndexedDB history and `pawchiveWatches`.
 
 ## Storage And Configuration
 
-Current durable keys are `backendConfig`, `backendSecrets`, `downloadRulesConfig`, `externalLinkFilterConfig`, `watchConfig`, `gistConfig`, `gistSecrets`, `creatorsOverrideEnabled`, `pawchiveWatches`, `pawchiveWatchIcons`, and lightweight progress/revision signals. Backend and Gist tokens live only in the local secret keys and are omitted from sync storage. Download history is IndexedDB; pending native fallback tasks use session storage.
+- Automatic cloud-link resolution is opt-in and requires an authenticated capability probe at `/integrations/kdownloader/v1/capabilities`; dispatch uses the separate versioned `/integrations/kdownloader/v1/resolve` contract, never ABDM fields. Unclaimed/failed links return to manual handling. TXT exports put backend-confirmed links in a separated final section without claiming completed downloads. `linkHandlingConfig` controls supplemental Pawchive DM extraction and shared link deduplication; the separate local `KDownloaderExternalLinks` IndexedDB records complete link identities and extraction/dispatch attempts (including failure). Keyless/incomplete MEGA links are never recorded. Settings may mark/unmark bounded complete links; restoring defaults preserves the ledger. Post history retains its existing two namespaces and version-3 database.
+
+Current durable keys are `backendConfig`, `backendSecrets`, `downloadRulesConfig`, `externalLinkFilterConfig`, `linkHandlingConfig`, `watchConfig`, `gistConfig`, `gistSecrets`, `creatorsOverrideEnabled`, `pawchiveWatches`, `pawchiveWatchIcons`, and lightweight progress/revision signals. Backend and Gist tokens live only in the local secret keys and are omitted from sync storage. Download history and the separate complete-link ledger use IndexedDB; pending native fallback tasks use session storage.
 
 Download rules are stored in sync storage as `{ enabled, excludedExtensions, syncToTrueDown }`. They configure the default choice and suffix list for optional TrueDown Dropbox expansion; they do not filter ordinary KDownloader media tasks. Values are lowercase dot-prefixed suffixes and matching is case-insensitive against normalized filenames, then URL paths. The default selectable list is `.psd`, `.clip`, `.sai`, `.sai2`, `.kra`, `.xcf`, `.procreate`, `.afphoto`, `.afdesign`, `.blend`; TrueDown synchronization is enabled by default and occurs only when the settings page saves the rules.
 
 Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps avatar data outside exports. A manual add establishes the current profile update baseline before notifications are enabled. Scheduled checks aggregate updates/failures and preserve baselines on failure.
 
 ## TrueDown Runtime
+
+
+- Download-issue counters increment at new error transitions and module-resolution failures; `/system/download-issues` exposes only bounded counters and a core epoch. The native shell polls independently of WebView visibility, suppresses historical replay and hidden acceptance notifications, coalesces bursts, and uses one profile-scoped Windows toast tag/group with silent replacements. Linux updates its retained notification; macOS receives rate-limited summaries. Cancellation and intentional pause are not failures. No WebView notification permission or arbitrary notification IPC is granted.
+
 
 - Desktop exit paths share one lifecycle coordinator. Hide owned windows before disconnecting the core, reject reopening during shutdown, and allow final process exit only after cleanup completes; repeated exit requests must not bypass cleanup. An owned core sends the private `stopping` event before an explicit API exit or update restart. Unexpected disconnects and attached-service failures retain recovery/error behavior. Keep this lifecycle cross-platform and do not delay exit for a custom animation.
 

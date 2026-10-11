@@ -74,6 +74,34 @@ const testChrome = {
 globalThis.chrome = testChrome;
 globalThis.fetch = (...args) => globalThis.__fetchImplementation(...args);
 const download = await import(asModuleUrl(downloadSource));
+
+test('automatic cloud resolution keeps failures manual and forwards no site credentials', async () => {
+  globalThis.__backendConfig = { enabled: true, autoResolve: true, backendType: 'abdm', protocol: 'http', host: '127.0.0.1', port: 15151, apiKey: 'k'.repeat(32) };
+  const accepted = 'https://drive.google.com/file/d/accepted/view';
+  const failed = 'https://www.dropbox.com/s/id/failed.zip';
+  const manual = 'https://mega.nz/file/no-key';
+  const calls = [];
+  globalThis.__fetchImplementation = async (url, options) => {
+    calls.push({ url, options });
+    const { link } = JSON.parse(options.body);
+    return new Response(JSON.stringify({ protocol: 'kdownloader.resolve', version: 1, link, accepted: link === accepted, module: 'google-drive', taskIds: link === accepted ? [1] : [] }));
+  };
+  const result = await download.resolveExternalLinks([accepted, failed, manual, accepted]);
+  assert.deepEqual(result.externalLinks, [failed, manual]);
+  assert.deepEqual(result.dispatchedExternalLinks, [accepted]);
+  assert.equal(calls.length, 2);
+  for (const call of calls) {
+    assert.ok(call.url.endsWith('/integrations/kdownloader/v1/resolve'));
+    assert.equal(call.options.credentials, 'omit');
+    assert.equal(call.options.redirect, 'error');
+    assert.deepEqual(Object.keys(JSON.parse(call.options.body)), ['link']);
+    assert.equal(call.options.headers.Cookie, undefined);
+    assert.equal(call.options.headers.Referer, undefined);
+  }
+  globalThis.__backendConfig.backendType = 'gopeed';
+  assert.deepEqual((await download.resolveExternalLinks([accepted])).externalLinks, [accepted]);
+  assert.equal(calls.length, 2);
+});
 const downloadInternals = await import(asModuleUrl(
   downloadSource
   .replace('class TaskQueue', 'export class TaskQueue')

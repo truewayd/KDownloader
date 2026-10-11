@@ -183,7 +183,7 @@
     "message": "Per-post file limit"
   },
   "downloadRulesTitle": {
-    "message": "Dropbox parsing filter"
+    "message": "Download and link handling"
   },
   "downloadFilterEnable": {
     "message": "Apply this filter by default when expanding Dropbox folders"
@@ -629,6 +629,20 @@
   "downloadBatchFailedMessage": {
     "message": "The batch could not finish fetching posts or saving its results. Please retry."
   },
+  "autoResolveLabel": { "message": "Automatically resolve cloud links" },
+  "dmLinksMode": { "message": "Include Pawchive DM links when fetching a page or creator" },
+  "dmLinksOff": { "message": "Do not read DMs" },
+  "dmLinksExtract": { "message": "Extract all DM links to TXT" },
+  "dmLinksNew": { "message": "Process only links not previously extracted" },
+  "linksSkipExtracted": { "message": "Skip previously extracted links in posts" },
+  "linkHistoryHelp": { "message": "Posts and DMs share local records. Backend attempts, including failures, are recorded. New links use automatic resolution when enabled. Keyless MEGA links remain in TXT and are never marked as extracted. Resetting settings preserves these records." },
+  "linkHistoryInput": { "message": "Complete links to mark as extracted (one per line)" },
+  "linkHistoryMark": { "message": "Mark as extracted" },
+  "linkHistoryRemove": { "message": "Allow these links to be processed again" },
+  "linkHistoryUpdated": { "message": "Updated $1 complete links. Incomplete or invalid links were not recorded." },
+  "autoResolveHelp": { "message": "Checks backend support before enabling. Google Drive and Dropbox links are resolved by the backend; unhandled links remain available for manual download." },
+  "autoResolveUnavailable": { "message": "This backend does not support automatic link resolution, has no enabled cloud modules, or is unavailable." },
+  "autoResolveTextSection": { "message": "Sent to backend for automatic resolution (not a download completion guarantee)" },
   "historyImportFinalizing": {
     "message": "Finalizing history import..."
   }

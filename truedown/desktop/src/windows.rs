@@ -148,6 +148,7 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
                 "/settings/startup",
                 "/modules",
                 "/auth/settings",
+                "/modules/update",
             ]
             .contains(&path),
             "POST" => [
@@ -160,6 +161,7 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
                 "/settings/startup",
                 "/modules",
                 "/modules/package",
+                "/modules/update",
                 "/auth/settings",
                 "/system/open-downloads",
                 "/system/engine/next",

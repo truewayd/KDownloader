@@ -325,6 +325,25 @@ function createChromeMock() {
   };
 }
 
+test('external link ledger shares post and DM identities, preserves failure state and excludes keyless MEGA', async () => {
+  globalThis.indexedDB = new FakeIndexedDB();
+  const ledger = await import('../background/linkHistory.js');
+  const complete = 'https://mega.nz/file/example#' + 'a'.repeat(43);
+  const incomplete = 'https://mega.nz/file/example';
+  const cloud = 'https://drive.google.com/file/d/example/view';
+  assert.equal(ledger.completeLinkKey(incomplete), '');
+  assert.equal(ledger.completeLinkKey(complete), complete);
+  assert.equal(ledger.completeLinkKey('https://user:secret@example.com/file'), '');
+  assert.deepEqual(await ledger.writeLinkRecords([complete, incomplete, cloud], 'failed'), { count: 2 });
+  await ledger.writeLinkRecords([cloud], 'extracted');
+  const records = await ledger.readLinkRecords([complete, incomplete, cloud]);
+  assert.equal(records[cloud].status, 'failed');
+  assert.equal(records[complete].status, 'failed');
+  assert.equal(records[incomplete], undefined);
+  await ledger.writeLinkRecords([cloud], 'remove');
+  assert.equal((await ledger.readLinkRecords([cloud]))[cloud], undefined);
+});
+
 async function loadDBModule() {
   globalThis.indexedDB = new FakeIndexedDB();
   globalThis.IDBKeyRange = FakeKeyRange;

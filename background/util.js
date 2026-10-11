@@ -302,6 +302,7 @@ export const UTIL = {
 
   buildExternalLinksText: (entries) => {
     const links = new Set();
+    const dispatched = new Set();
     // Reserve the final newline that is appended to every non-empty file.
     let bytes = 1;
     const addLink = (value) => {
@@ -328,6 +329,7 @@ export const UTIL = {
       if (!/^https?:$/i.test(parsed.protocol)) continue;
       const url = parsed.toString();
       addLink(url);
+      if (entry && typeof entry === 'object' && entry.dispatched === true) dispatched.add(url);
 
       try {
         const host = parsed.hostname.toLowerCase();
@@ -344,7 +346,14 @@ export const UTIL = {
     }
 
     const sorted = Array.from(links).sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
-    return sorted.length > 0 ? `${sorted.join('\n')}\n` : '';
+    const manual = sorted.filter(url => !dispatched.has(url));
+    const sent = sorted.filter(url => dispatched.has(url));
+    const heading = globalThis.chrome?.i18n?.getMessage('autoResolveTextSection')
+      || 'Sent to backend for automatic resolution (not a download completion guarantee)';
+    const text = (manual.length ? `${manual.join('\n')}\n` : '')
+      + (sent.length ? `\n--------------------\n${heading}\n${sent.join('\n')}\n` : '');
+    if (utf8ByteLength(text) > MAX_TEXT_DOWNLOAD_BYTES) throw new Error('External links TXT exceeds the 8 MiB safety limit');
+    return text;
   },
 
   buildExternalLinksTextTask: (entries, fileName = 'external-links.txt') => {

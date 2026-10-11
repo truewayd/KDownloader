@@ -48,6 +48,8 @@ export const BACKEND_CONFIG_KEY = "backendConfig";
 export const BACKEND_SECRETS_KEY = "backendSecrets";
 export const DOWNLOAD_RULES_CONFIG_KEY = "downloadRulesConfig";
 export const EXTERNAL_LINK_FILTER_CONFIG_KEY = "externalLinkFilterConfig";
+export const LINK_HANDLING_CONFIG_KEY = "linkHandlingConfig";
+export const LINK_HISTORY_DB = "KDownloaderExternalLinks";
 export const GIST_CONFIG_KEY = "gistConfig";
 export const GIST_SECRETS_KEY = "gistSecrets";
 

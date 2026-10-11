@@ -515,6 +515,7 @@ test("settings keep save success and failure visible after the busy state ends",
     saveWatch: async () => {},
     saveGist: async () => {},
     saveCreators: async () => {},
+    saveLinkHandling: async () => {},
     showToast: (message) => { status.textContent = message; },
     console: { error() {} },
   });

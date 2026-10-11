@@ -489,7 +489,7 @@ func loopbackListener(listenAddresses []string) bool {
 }
 
 func isAPIPath(path string) bool {
-	return path == "/ping" || path == "/add" || path == "/queues" || path == "/start-headless-download" || path == "/start-bt-download" ||
+	return path == "/integrations/kdownloader/v1/capabilities" || path == "/integrations/kdownloader/v1/resolve" || path == "/ping" || path == "/add" || path == "/queues" || path == "/start-headless-download" || path == "/start-bt-download" ||
 		path == "/tasks" || path == "/modules" || strings.HasPrefix(path, "/modules/") || strings.HasPrefix(path, "/settings/") ||
 		strings.HasPrefix(path, "/auth/") || strings.HasPrefix(path, "/tasks/") ||
 		strings.HasPrefix(path, "/queue/") || strings.HasPrefix(path, "/system/")

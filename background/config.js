@@ -6,6 +6,7 @@ import {
   DOWNLOAD_RULES_CONFIG_KEY,
   DEFAULT_EXCLUDED_EXTENSIONS,
   EXTERNAL_LINK_FILTER_CONFIG_KEY,
+  LINK_HANDLING_CONFIG_KEY,
   DEFAULT_EXTERNAL_LINK_BLACKLIST,
   GIST_CONFIG_KEY,
   GIST_SECRETS_KEY,
@@ -121,13 +122,31 @@ async function writeWatchConfig(cfg) {
 export function getDefaultBackendConfig() {
   // Default per-post batch limit reduced to 100 because most posts have fewer files.
   // Larger batch downloads (many posts) are still supported by batching across posts.
-  return { enabled: false, backendType: 'abdm', host: '127.0.0.1', port: 15151, retryCount: 3, protocol: 'http', concurrency: 3, perPostFileLimit: 100, apiKey: '', gopeedHost: '127.0.0.1', gopeedPort: 9999, gopeedToken: '', gopeedProtocol: 'http' };
+  return { enabled: false, autoResolve: false, backendType: 'abdm', host: '127.0.0.1', port: 15151, retryCount: 3, protocol: 'http', concurrency: 3, perPostFileLimit: 100, apiKey: '', gopeedHost: '127.0.0.1', gopeedPort: 9999, gopeedToken: '', gopeedProtocol: 'http' };
+}
+
+export function getDefaultLinkHandlingConfig() { return { dmMode: 'off', skipExtracted: true }; }
+
+export async function loadLinkHandlingConfig() {
+  const stored = (await chrome.storage.sync.get(LINK_HANDLING_CONFIG_KEY))[LINK_HANDLING_CONFIG_KEY] || {};
+  return { dmMode: ['extract', 'new'].includes(stored.dmMode) ? stored.dmMode : 'off', skipExtracted: stored.skipExtracted !== false };
+}
+
+export function saveLinkHandlingConfig(value) {
+  return withConfigMutation(async () => {
+    const current = await loadLinkHandlingConfig();
+    const input = { ...current, ...value };
+    const config = { dmMode: ['extract', 'new'].includes(input.dmMode) ? input.dmMode : 'off', skipExtracted: input.skipExtracted !== false };
+    await chrome.storage.sync.set({ [LINK_HANDLING_CONFIG_KEY]: config });
+    return config;
+  });
 }
 
 function normalizeBackendConfig(cfg, fallback = getDefaultBackendConfig()) {
   const value = cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? cfg : {};
   return {
     enabled: typeof value.enabled === 'boolean' ? value.enabled : fallback.enabled,
+    autoResolve: value.autoResolve === true && value.enabled === true && value.backendType !== 'gopeed',
     backendType: value.backendType === 'gopeed' ? 'gopeed' : 'abdm',
     host: normalizedBackendHost(value.host, fallback.host),
     port: boundedInteger(value.port, fallback.port, 1, 65535),
@@ -182,6 +201,40 @@ export function saveBackendConfig(cfg) {
   return withConfigMutation(() => writeBackendConfig(cfg));
 }
 
+export async function probeAutoResolve(config) {
+  const backend = normalizeBackendConfig(config);
+  const unavailable = () => new Error(globalThis.chrome?.i18n?.getMessage('autoResolveUnavailable')
+    || 'This backend does not support automatic link resolution, or is unavailable.');
+  if (!backend.enabled || backend.backendType !== 'abdm') throw unavailable();
+  try {
+    const response = await fetch(`${backend.protocol}://${backend.host}:${backend.port}/integrations/kdownloader/v1/capabilities`, {
+      headers: backend.apiKey ? { 'X-Api-Key': backend.apiKey } : {},
+      credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok || !response.body) throw unavailable();
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = '', bytes = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > 16384) throw unavailable();
+        text += decoder.decode(value, { stream: true });
+      }
+      text += decoder.decode();
+    } finally { await reader.cancel(); }
+    const result = JSON.parse(text);
+    if (result.protocol !== 'kdownloader.resolve' || result.version !== 1
+        || result.resolve !== true || !Array.isArray(result.modules)
+        || !result.modules.some(module => ['dropbox', 'google-drive'].includes(module.id) && module.enabled === true)) {
+      throw unavailable();
+    }
+    return result;
+  } catch { throw unavailable(); }
+}
+
 async function writeBackendConfig(cfg) {
   const current = await readBackendConfig();
   const input = cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? { ...cfg } : {};
@@ -192,6 +245,8 @@ async function writeBackendConfig(cfg) {
     input.gopeedToken = validatedHeaderSecret(input.gopeedToken, 'Gopeed token');
   }
   const next = normalizeBackendConfig({ ...current, ...input }, current);
+  // Validate the normalized destination before persisting the opt-in.
+  if (next.autoResolve) await probeAutoResolve(next);
   const publicConfig = { ...next };
   delete publicConfig.apiKey;
   delete publicConfig.gopeedToken;
@@ -263,6 +318,7 @@ async function writeDefaultConfigs() {
     backend: getDefaultBackendConfig(),
     downloadRules: getDefaultDownloadRulesConfig(),
     externalLinkFilter: getDefaultExternalLinkFilterConfig(),
+    linkHandling: getDefaultLinkHandlingConfig(),
     watch: getDefaultWatchConfig(),
     gist: getDefaultGistConfig(),
   };
@@ -279,6 +335,7 @@ async function writeDefaultConfigs() {
     [BACKEND_CONFIG_KEY]: publicBackend,
     [DOWNLOAD_RULES_CONFIG_KEY]: configs.downloadRules,
     [EXTERNAL_LINK_FILTER_CONFIG_KEY]: configs.externalLinkFilter,
+    [LINK_HANDLING_CONFIG_KEY]: configs.linkHandling,
     [WATCH_CONFIG_KEY]: configs.watch,
     [GIST_CONFIG_KEY]: publicGist,
   });

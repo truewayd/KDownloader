@@ -183,7 +183,7 @@
     "message": "单帖文件上限"
   },
   "downloadRulesTitle": {
-    "message": "Dropbox 解析过滤器"
+    "message": "下载与链接处理"
   },
   "downloadFilterEnable": {
     "message": "展开 Dropbox 目录时默认应用此过滤器"
@@ -629,6 +629,20 @@
   "downloadBatchFailedMessage": {
     "message": "批量抓取未能完成帖子获取或结果保存，请重试。"
   },
+  "autoResolveLabel": { "message": "自动解析下载" },
+  "dmLinksMode": { "message": "抓取页面或创作者时同时处理 Pawchive DM 链接" },
+  "dmLinksOff": { "message": "不读取 DM" },
+  "dmLinksExtract": { "message": "提取全部 DM 链接到 TXT" },
+  "dmLinksNew": { "message": "仅处理未提取过的链接" },
+  "linksSkipExtracted": { "message": "跳过帖子中已提取过的链接" },
+  "linkHistoryHelp": { "message": "帖子和 DM 共用本地记录。派发成功或失败均记录；未处理链接在开启自动解析后交给后端。没有密钥的 MEGA 链接继续保留在 TXT，不标记为已提取。恢复设置默认值不会清空记录。" },
+  "linkHistoryInput": { "message": "标记为已提取的完整链接（每行一个）" },
+  "linkHistoryMark": { "message": "标记为已提取" },
+  "linkHistoryRemove": { "message": "允许这些链接重新处理" },
+  "linkHistoryUpdated": { "message": "已更新 $1 条完整链接；不完整或无效链接未记录。" },
+  "autoResolveHelp": { "message": "开启前检测后端能力。Google Drive、Dropbox 链接交由后端解析，未接管的链接仍可手动下载。" },
+  "autoResolveUnavailable": { "message": "当前后端不支持自动解析、没有启用网盘模块，或暂时无法连接。" },
+  "autoResolveTextSection": { "message": "已交由后端自动解析（不代表文件已下载完成）" },
   "historyImportFinalizing": {
     "message": "正在完成历史记录导入…"
   }

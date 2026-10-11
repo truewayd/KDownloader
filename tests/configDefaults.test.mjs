@@ -24,6 +24,7 @@ globalThis.chrome = {
 
 const {
   getDefaultBackendConfig,
+  getDefaultLinkHandlingConfig,
   getDefaultDownloadRulesConfig,
   getDefaultExternalLinkFilterConfig,
   getDefaultGistConfig,
@@ -32,6 +33,7 @@ const {
   loadGistConfig,
   restoreDefaultConfigs,
   saveBackendConfig,
+  probeAutoResolve,
   saveGistConfig,
 } = await import("../background/config.js");
 
@@ -45,6 +47,25 @@ function useMemoryStorage(t, initial = {}) {
   }
   return data;
 }
+
+test('auto resolution requires an authenticated versioned capability handshake before saving', async (t) => {
+  const data = useMemoryStorage(t);
+  const config = { enabled: true, autoResolve: true, apiKey: 'a'.repeat(32) };
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    calls++;
+    assert.ok(url.endsWith('/integrations/kdownloader/v1/capabilities'));
+    assert.equal(options.credentials, 'omit');
+    assert.equal(options.headers['X-Api-Key'], config.apiKey);
+    return new Response('{}');
+  });
+  await assert.rejects(saveBackendConfig(config), /does not support/);
+  assert.equal(data.sync.backendConfig, undefined);
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ protocol: 'kdownloader.resolve', version: 1, resolve: true, modules: [{ id: 'dropbox', enabled: true }] })));
+  assert.equal((await saveBackendConfig(config)).autoResolve, true);
+  await assert.rejects(probeAutoResolve({ ...config, backendType: 'gopeed' }), /does not support/);
+  assert.equal(calls, 1);
+});
 
 test("concurrent partial backend and Gist saves preserve each other's fields and secrets", async (t) => {
   const data = useMemoryStorage(t);
@@ -162,6 +183,7 @@ test("default config restoration batches every sync value into one write", async
     backend: getDefaultBackendConfig(),
     downloadRules: getDefaultDownloadRulesConfig(),
     externalLinkFilter: getDefaultExternalLinkFilterConfig(),
+    linkHandling: getDefaultLinkHandlingConfig(),
     watch: getDefaultWatchConfig(),
     gist: getDefaultGistConfig(),
   });
@@ -171,6 +193,7 @@ test("default config restoration batches every sync value into one write", async
     "downloadRulesConfig",
     "externalLinkFilterConfig",
     "gistConfig",
+    "linkHandlingConfig",
     "watchConfig",
   ]);
 });
