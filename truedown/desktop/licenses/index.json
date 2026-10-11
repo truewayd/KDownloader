@@ -377,5 +377,22 @@
         "source": "https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md"
       }
     ]
+  },
+  "mac-notification-sys@0.6.15": {
+    "revision": "deb559683962d314a7693478476bf8d052efa84e",
+    "repository": "https://github.com/h4llow3En/mac-notification-sys",
+    "sourceRepository": "https://github.com/h4llow3En/mac-notification-sys",
+    "files": [
+      {
+        "file": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1.txt",
+        "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+        "source": "https://raw.githubusercontent.com/h4llow3En/mac-notification-sys/deb559683962d314a7693478476bf8d052efa84e/LICENSE-Apache"
+      },
+      {
+        "file": "1299b4d9d15e9d67e4ac0e7d47ae9404887ca3cf0764aadeec7588d5a6e8e0cc.txt",
+        "sha256": "1299b4d9d15e9d67e4ac0e7d47ae9404887ca3cf0764aadeec7588d5a6e8e0cc",
+        "source": "https://raw.githubusercontent.com/h4llow3En/mac-notification-sys/deb559683962d314a7693478476bf8d052efa84e/LICENSE-MIT"
+      }
+    ]
   }
 }
