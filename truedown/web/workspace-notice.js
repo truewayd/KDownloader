@@ -1,8 +1,38 @@
 // One compact status surface; update work stays owned by the core.
 let workspaceNoticeTarget = "about";
 let workspaceUpdateReadFailed = false;
+let workspaceDownloadLimitBps = 0;
+let workspaceLimitRead = null;
+
+// Read separately from editable settings so sidebar refreshes cannot replace drafts.
+function refreshWorkspaceLimit() {
+  if (workspaceLimitRead) return workspaceLimitRead;
+  workspaceLimitRead = (async () => {
+    try {
+      const value = await requestJSON("/settings/runtime");
+      workspaceDownloadLimitBps = normalizeServerRuntimeSettings(value).globalDownloadLimitBps;
+    } catch {
+      workspaceDownloadLimitBps = 0;
+    } finally {
+      workspaceLimitRead = null;
+      renderWorkspaceLimit();
+    }
+  })();
+  return workspaceLimitRead;
+}
+
+function renderWorkspaceLimit() {
+  const button = document.getElementById("workspace-limit-action");
+  if (!button) return;
+  button.hidden = currentSummary.downloading <= 0 || workspaceDownloadLimitBps <= 0;
+  const label = `全局限速 ${taskDownloadedBytes(workspaceDownloadLimitBps)}/s`;
+  document.getElementById("workspace-limit-label").textContent = label;
+  button.dataset.tooltip = `${label}，点击调整下载速度限制`;
+  button.setAttribute("aria-label", button.dataset.tooltip);
+}
 
 function renderWorkspaceNotice() {
+  renderWorkspaceLimit();
   const host = document.getElementById("workspace-notice");
   if (!host) return;
   const state = systemUpdateState;
@@ -89,6 +119,11 @@ function renderWorkspaceNotice() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("workspace-limit-action")?.addEventListener("click", () => {
+    if (nativeWindowRole === "main") {
+      invokeNative("open_auxiliary", { kind: "settings" }).catch(error => showToast(error.message, "error"));
+    } else location.hash = "settings/general";
+  });
   document.getElementById("workspace-notice-action")?.addEventListener("click", () => {
     if (workspaceNoticeTarget === "tasks") {
       currentCategory = "";

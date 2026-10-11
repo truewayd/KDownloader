@@ -10,6 +10,8 @@ const assets = new URL("../../web/", import.meta.url);
 const screenshots = await fs.mkdtemp(path.join(os.tmpdir(), "truedown-notice-"));
 const idle = { trueDown: { supported: true, autoUpdate: true }, engine: {} };
 let state = idle, fail = false, reads = 0, restarts = 0;
+let limit = 0, runtimeFail = false;
+let summary = {};
 const server = http.createServer(async (request, response) => {
   const name = new URL(request.url, "http://localhost").pathname;
   if (name === "/system/update") {
@@ -18,12 +20,16 @@ const server = http.createServer(async (request, response) => {
     response.end(JSON.stringify(state)); return;
   }
   if (name === "/system/update/restart") { restarts++; response.end("{}"); return; }
-  if (name === "/tasks") { response.end(JSON.stringify({ tasks: [], total: 0, summary: {} })); return; }
+  if (name === "/tasks") { response.end(JSON.stringify({ tasks: [], total: 0, summary })); return; }
+  if (name === "/settings/runtime") {
+    if (runtimeFail) { response.writeHead(503).end("offline"); return; }
+    response.end(JSON.stringify({ globalDownloadLimitBps: limit, concurrentDownloads: 3 })); return;
+  }
   if (name.startsWith("/settings/")) { response.end("{}"); return; }
   const file = name.slice(1) || "index.html";
-  if (!/^[a-z0-9-]+\.(html|js|css|svg)$/.test(file)) { response.writeHead(404).end(); return; }
+  if (!/^[a-z0-9-]+\.(html|js|css|svg|png)$/.test(file)) { response.writeHead(404).end(); return; }
   try {
-    response.setHeader("Content-Type", { html: "text/html", js: "text/javascript", css: "text/css", svg: "image/svg+xml" }[file.split(".").at(-1)]);
+    response.setHeader("Content-Type", { html: "text/html", js: "text/javascript", css: "text/css", svg: "image/svg+xml", png: "image/png" }[file.split(".").at(-1)]);
     response.end(await readUIFixtureAsset(file, assets));
   } catch { response.writeHead(404).end(); }
 });
@@ -56,6 +62,45 @@ try {
     assert.equal(await page.locator("#workspace-traffic").isVisible(), false);
     assert.equal(await page.locator("#workspace-speed").textContent(), "0 B/s");
     assert.equal(await page.locator("#exit-truedown-btn").count(), 0);
+    summary = { downloading: 2, downloadSpeed: 1048576, error: 0 };
+    limit = 2 * 1048576;
+    await page.evaluate(() => { refreshAndSchedule(true); scheduleSystemUpdateRefresh(true); });
+    await page.waitForFunction(() => !document.getElementById("workspace-limit-action").hidden);
+    assert.equal(await page.locator("#workspace-speed").textContent(), "1.0 MiB/s");
+    assert.equal(await page.locator("#workspace-limit-label").textContent(), "全局限速 2.0 MiB/s");
+    assert.equal(await page.locator("#workspace-traffic").isVisible(), true, "limit supplements live speed");
+    await page.locator("#workspace-limit-action").focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await page.evaluate(() => calls.filter(call => call.command === "open_auxiliary").at(-1).args.kind), "settings");
+    await page.screenshot({ path: path.join(screenshots, `${colorScheme}-limit.png`) });
+    await page.locator(".sidebar-toggle").click();
+    assert.equal(await page.locator("#workspace-limit-action").isVisible(), true);
+    assert.match(await page.locator("#workspace-limit-action").getAttribute("aria-label"), /2.0 MiB\/s/);
+    assert.equal(await page.locator("#workspace-speed").isVisible(), true);
+    await page.setViewportSize({ width: 390, height: 700 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: path.join(screenshots, `${colorScheme}-limit-narrow.png`) });
+    await page.setViewportSize({ width: 1080, height: 760 });
+    await page.locator(".sidebar-toggle").click();
+    limit = 4 * 1048576;
+    await page.evaluate(() => scheduleSystemUpdateRefresh(true));
+    await page.waitForFunction(() => document.getElementById("workspace-limit-label").textContent.includes("4.0 MiB/s"));
+    runtimeFail = true;
+    await page.evaluate(() => scheduleSystemUpdateRefresh(true));
+    await page.waitForFunction(() => document.getElementById("workspace-limit-action").hidden);
+    assert.equal(await page.locator("#workspace-traffic").isVisible(), true);
+    assert.equal(await page.evaluate(() => workspaceUpdateReadFailed), false, "runtime failure is independent of updater state");
+    runtimeFail = false;
+    limit = 0;
+    await page.evaluate(() => scheduleSystemUpdateRefresh(true));
+    await page.waitForFunction(() => workspaceLimitRead === null);
+    assert.equal(await page.locator("#workspace-limit-action").isVisible(), false);
+    limit = 2 * 1048576;
+    summary = {};
+    await page.evaluate(() => { refreshAndSchedule(true); scheduleSystemUpdateRefresh(true); });
+    await page.waitForFunction(() => currentSummary.downloading === 0 && workspaceDownloadLimitBps > 0);
+    assert.equal(await page.locator("#workspace-limit-action").isVisible(), false, "idle configured limits stay hidden");
+    limit = 0;
     // The real polling path must see progress even with an empty, filtered list.
     await page.locator("#task-search").fill("unrelated file");
     state = { ...idle, busy: "truedown", download: { taskId: 91, status: "downloading", totalLength: 10485760, completedLength: 4194304, downloadSpeed: 1048576 } };

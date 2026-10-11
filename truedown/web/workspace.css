@@ -51,6 +51,8 @@
 .sidebar-collapsed #workspace-speed { white-space: normal; line-height: 1.15; text-align: center; }
 .workspace-notice { min-width: 0; }
 .workspace-notice .sidebar-action { width: 100%; text-align: left; }
+#workspace-limit-action { min-width: 0; width: 100%; text-align: left; }
+#workspace-limit-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notice-copy { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; line-height: 1.4; white-space: nowrap; }
 #workspace-notice-title { overflow: hidden; text-overflow: ellipsis; }
 .notice-copy small { margin-left: auto; flex-shrink: 0; color: var(--kd-muted); font-size: 11px; font-variant-numeric: tabular-nums; }

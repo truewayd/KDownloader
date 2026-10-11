@@ -17,7 +17,11 @@ function scheduleSystemUpdateRefresh(immediate = false) {
   if (systemUpdateDisposed || document.hidden || (!sidebar && (currentPage !== "settings" || !["engine", "about"].includes(currentSettingsPage)))) return;
   const epoch = routeEpoch;
   systemUpdateTimer = setTimeout(async () => {
-    try { if (!updatePreferenceSaving && epoch === routeEpoch) await loadSystemUpdateState(); }
+    try {
+      if (!updatePreferenceSaving && epoch === routeEpoch) {
+        await Promise.all([loadSystemUpdateState(), sidebar ? refreshWorkspaceLimit() : Promise.resolve()]);
+      }
+    }
     catch {
       if (!systemUpdateDisposed && !document.hidden && epoch === routeEpoch) {
         systemUpdateFailures++; workspaceUpdateReadFailed = true; renderWorkspaceNotice();
