@@ -9,7 +9,15 @@ import (
 )
 
 func openPreviewFile(path string) (*os.File, func(), error) {
-	release, err := lockPathOpenTarget(path)
+	return openGuardedFile(path, true)
+}
+
+func openArtifactFile(path string) (*os.File, func(), error) {
+	return openGuardedFile(path, false)
+}
+
+func openGuardedFile(path string, launch bool) (*os.File, func(), error) {
+	release, err := lockLocalFile(path, launch)
 	if err != nil {
 		return nil, nil, err
 	}

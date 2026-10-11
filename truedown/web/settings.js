@@ -949,7 +949,8 @@ function renderResolverModules() {
 		heading.append(name, version);
 		const description = document.createElement("p");
 		description.textContent = module.id === "google-drive" ? "解析公开文件、文件夹和 Google 文档。"
-			: module.id === "dropbox" ? "下载共享文件，或将文件夹展开为独立任务。" : module.description;
+			: module.id === "dropbox" ? "下载共享文件，或将文件夹展开为独立任务。"
+			: module.id === "mega" ? "下载公开文件并验证完整性；下载期间需预留约两倍文件空间。" : module.description;
 		copy.append(heading, description);
 		if (module.updateError) {
 			const error = document.createElement("p");
@@ -972,8 +973,8 @@ function renderResolverModules() {
 		update.type = "button";
 		update.className = "kd-button secondary compact";
 		update.dataset.moduleUpdate = module.id;
-		update.setAttribute("aria-label", `导入 ${module.name} 组件更新包`);
-		update.textContent = "导入更新";
+		update.setAttribute("aria-label", module.id === "mega" ? `检查 ${module.name} 模块更新` : `导入 ${module.name} 组件更新包`);
+		update.textContent = module.id === "mega" ? "检查更新" : "导入更新";
 		actions.append(toggle, update);
 		if (module.source === "updated" || module.updateError) {
 			const reset = document.createElement("button");
@@ -1006,6 +1007,12 @@ async function onModuleAction(event) {
 	invalidateSettingRead("modules");
 	try {
 		if (button.dataset.moduleUpdate) {
+			if (id === "mega") {
+				await requestJSON("/modules/update", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+				moduleUpdatePending = true;
+				showToast("正在检查模块更新；如有新版，下载进度会显示在任务列表中。");
+				return;
+			}
 			await importModuleUpdate(id);
 			return;
 		}
@@ -1115,7 +1122,18 @@ function replaceResolverModule(value) {
 	resolverModules = resolverModules.map((module) => module.id === normalized.id ? normalized : module);
 }
 
+let moduleUpdatePending = false;
 async function loadSystemUpdateState() {
+	if (moduleUpdatePending && !document.hidden && !systemUpdateDisposed) {
+		try {
+			const update = await requestJSON("/modules/update");
+			if (!update.running) {
+				moduleUpdatePending = false;
+				await loadResolverModules();
+				showToast(update.error ? "模块更新失败，已保留原版本。" : `MEGA 模块已就绪：v${stringValue(update.version)}`, update.error ? "error" : "success");
+			}
+		} catch { /* The existing visible-page refresh retries this read. */ }
+	}
   const epoch = routeEpoch;
   await readSettingSnapshot("engine", "/system/update", (value) => {
     if (systemUpdateDisposed || document.hidden || epoch !== routeEpoch) return;

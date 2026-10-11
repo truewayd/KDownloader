@@ -26,6 +26,10 @@ func dataFileExtension(path string) bool {
 }
 
 func lockPathOpenTarget(path string) (func(), error) {
+	return lockLocalFile(path, true)
+}
+
+func lockLocalFile(path string, launch bool) (func(), error) {
 	volume := filepath.VolumeName(path)
 	if len(path) > 32768 || len(volume) != 2 || volume[1] != ':' || !filepath.IsAbs(path) || filepath.Clean(path) != path || strings.ContainsRune(path, 0) {
 		return nil, fmt.Errorf("open only an absolute local drive path")
@@ -85,7 +89,7 @@ func lockPathOpenTarget(path string) (func(), error) {
 			return nil, fmt.Errorf("open target has a non-directory parent")
 		}
 		if index == len(paths)-1 && !directory {
-			if !dataFileExtension(path) {
+			if launch && !dataFileExtension(path) {
 				release()
 				return nil, fmt.Errorf("this file type cannot be launched from TrueDown; open its download directory instead")
 			}
@@ -100,7 +104,7 @@ func lockPathOpenTarget(path string) (func(), error) {
 				release()
 				return nil, err
 			}
-			if (read >= 2 && (string(header[:2]) == "MZ" || string(header[:2]) == "#!")) || (read == 4 && string(header[:]) == "\x7fELF") {
+			if launch && ((read >= 2 && (string(header[:2]) == "MZ" || string(header[:2]) == "#!")) || (read == 4 && string(header[:]) == "\x7fELF")) {
 				release()
 				return nil, fmt.Errorf("executable content cannot be launched from TrueDown; open its download directory instead")
 			}

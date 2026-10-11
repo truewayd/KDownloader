@@ -44,7 +44,8 @@ try {
       "/system/info": { product: "TrueDown", productVersion: "1.5.0", version: "truedown-build-42", buildNumber: "42", commit: "a".repeat(40) },
       "/system/logs": { content: "entry\n".repeat(300), updatedAt: "2026-09-08T05:35:34Z" },
       "/system/update": { trueDown: { version: "truedown-build-42", build: 42, supported: true, autoUpdate: true, lastCheckedAt: "2026-09-08T05:35:34Z" }, engine: { preference: "stable", active: "stable", activeVersion: "1.37.0", stableVersion: "1.37.0", nextInstalled: true, nextInstalledVersion: "2.7.2" } },
-      "/modules": { modules: ["google-drive", "dropbox"].map(id => ({ id, name: id === "dropbox" ? "Dropbox" : "Google Drive", version: "1.0.0", installed: true, source: "baseline" })) },
+      "/modules": { modules: ["google-drive", "dropbox", "mega"].map(id => ({ id, name: id === "dropbox" ? "Dropbox" : id === "mega" ? "MEGA" : "Google Drive", version: "1.0.0", installed: true, source: "baseline" })) },
+      "/modules/update": { running: false, version: "1.0.1" },
     };
     let failSave = false, logReads = 0;
     let offline = native && colorScheme === "light";
@@ -62,6 +63,16 @@ try {
       if (route.request().method() === "POST") {
         if (failSave) { await route.fulfill({ status: 500, body: "Fixture persistence failure" }); return; }
         const value = route.request().postDataJSON();
+        if (endpoint === "/modules") {
+          const saved = fixture[endpoint].modules.find(module => module.id === value.id);
+          Object.assign(saved, value);
+          await route.fulfill({ contentType: "application/json", body: JSON.stringify(saved) }); return;
+        }
+        if (endpoint === "/modules/update") {
+          assert.deepEqual(value, { id: "mega" });
+          Object.assign(fixture["/modules"].modules.find(module => module.id === "mega"), { version: "1.0.1", source: "updated" });
+          await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify(fixture[endpoint]) }); return;
+        }
         fixture[endpoint] = endpoint === "/settings/task-defaults" ? { revision: fixture[endpoint].revision + 1, values: value.values }
           : endpoint === "/settings/startup" ? { ...fixture[endpoint], ...value } : value;
       }
@@ -365,7 +376,11 @@ try {
         await page.waitForFunction(() => downloadSettings.extra === "--min-split-size=2M" && !document.querySelector("#settings-form").inert);
         assert.equal(fixture["/settings/task-defaults"].values.extra, "--min-split-size=2M");
         assert.equal(await page.locator("#check-truedown-update-btn").isVisible(), false);
-        assert.equal(await page.locator(".module-card-icon use").count(), 2);
+        assert.equal(await page.locator(".module-card-icon use").count(), 3);
+        assert.equal(await page.locator('[data-module-update="mega"]').textContent(), "检查更新");
+        const moduleUpdate = page.waitForResponse(response => new URL(response.url()).pathname === "/modules/update" && response.request().method() === "POST");
+        await page.locator('[data-module-update="mega"]').click();
+        assert.equal((await moduleUpdate).status(), 202);
         await page.locator('[data-module-toggle="dropbox"]').click();
         await page.waitForFunction(() => document.querySelector('[data-module-toggle="dropbox"]').getAttribute("aria-checked") === "false");
         assert.equal(await page.locator('[data-module-toggle="dropbox"]').getAttribute("aria-checked"), "false");

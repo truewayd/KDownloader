@@ -66,6 +66,7 @@ func initialTaskState(opts Aria2Opts) (Status, string) {
 
 // ManagerConfig describes capabilities of the engine selected by TrueDown.
 type ManagerConfig struct {
+	ModuleDirectory  string
 	Paths            profile.Paths
 	Aria2Next        bool
 	Aria2NextVersion string
@@ -239,21 +240,25 @@ type ariaRPC interface {
 }
 
 type Manager struct {
-	aria2Path        string
-	aria2Next        bool
-	aria2NextVersion string
-	ariaStateDir     string
-	logDir           string
-	defaultDir       string
-	store            *recordStore
-	downloadRules    *downloadRulesStore
-	runtimeSettings  *runtimeSettingsStore
-	taskDefaults     *taskDefaultsStore
-	fileGroups       FileGroupsSnapshot
-	fileGroupsPath   string
-	fileGroupIndex   map[string]string
-	modules          *moduleRegistry
-	trackerResearch  *trackerResearchModule
+	moduleDirectory   string
+	moduleUpdateMu    sync.Mutex
+	moduleUpdateState ModuleUpdateState
+	artifacts         *artifactTransfers
+	aria2Path         string
+	aria2Next         bool
+	aria2NextVersion  string
+	ariaStateDir      string
+	logDir            string
+	defaultDir        string
+	store             *recordStore
+	downloadRules     *downloadRulesStore
+	runtimeSettings   *runtimeSettingsStore
+	taskDefaults      *taskDefaultsStore
+	fileGroups        FileGroupsSnapshot
+	fileGroupsPath    string
+	fileGroupIndex    map[string]string
+	modules           *moduleRegistry
+	trackerResearch   *trackerResearchModule
 
 	mu                         sync.RWMutex
 	tasks                      map[int64]*Task
@@ -360,6 +365,8 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 	googleDriveProxy := systemProxyFunc()
 	lifecycleCtx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
+		moduleDirectory:   config.ModuleDirectory,
+		artifacts:         newArtifactTransfers(lifecycleCtx),
 		listEpoch:         newGID(),
 		aria2Path:         aria2Path,
 		aria2Next:         config.Aria2Next,
@@ -470,10 +477,15 @@ func (m *Manager) Start() error {
 
 func (m *Manager) Stop() {
 	m.stopOnce.Do(func() {
+		m.moduleUpdateMu.Lock()
 		if m.cancel != nil {
 			m.cancel()
 		}
+		m.moduleUpdateMu.Unlock()
 		close(m.done)
+		if m.artifacts != nil {
+			m.artifacts.close()
+		}
 		m.wg.Wait()
 		gracefulTimeout := 4 * time.Second
 		if m.rpc != nil {
@@ -1373,6 +1385,23 @@ func (m *Manager) changeQueuePauseState(pause bool) TaskOperationResult {
 		}
 		return result
 	}
+	if m.artifacts != nil {
+		for _, id := range ids {
+			m.mu.RLock()
+			task := m.tasks[id]
+			gid := ""
+			if task != nil {
+				gid = task.GID
+			}
+			m.mu.RUnlock()
+			if _, controlErr := m.artifacts.control(gid, pause); controlErr != nil {
+				result.fail(id, controlErr)
+			}
+		}
+		if len(result.Failed) > 0 {
+			return result
+		}
+	}
 	updates := make([]*Task, 0, len(ids))
 	resubmit := make([]int64, 0)
 	m.mu.Lock()
@@ -1449,6 +1478,11 @@ func (m *Manager) changePauseState(ids []int64, pause bool) TaskOperationResult 
 	missingGIDs := make(map[int64]bool)
 	var missingMu sync.Mutex
 	errorsByID := runRPCOperations(targets, 8, func(target rpcTarget) error {
+		if m.artifacts != nil {
+			if handled, err := m.artifacts.control(target.gid, pause); handled {
+				return err
+			}
+		}
 		if m.rpc == nil {
 			return fmt.Errorf("aria2 is not running")
 		}
@@ -1561,6 +1595,11 @@ func (m *Manager) removeTasks(ids []int64, allowActive bool) TaskOperationResult
 	partialPaths := make(map[int64]string)
 	var partialPathsMu sync.Mutex
 	errorsByID := runRPCOperations(targets, 8, func(target rpcTarget) error {
+		if m.artifacts != nil {
+			if err := m.artifacts.retire(target.gid); err != nil {
+				return err
+			}
+		}
 		if m.rpc == nil {
 			if active[target.id] {
 				return fmt.Errorf("aria2 is not running")
@@ -1619,6 +1658,12 @@ func (m *Manager) removeTasks(ids []int64, allowActive bool) TaskOperationResult
 		if errorsByID[target.id] != nil {
 			continue
 		}
+		if m.isArtifactTask(target.task) {
+			if err := m.artifacts.remove(target.task); err != nil {
+				errorsByID[target.id] = err
+			}
+			continue
+		}
 		path, shouldRemove := partialPaths[target.id]
 		if !shouldRemove {
 			continue
@@ -1675,12 +1720,21 @@ func (m *Manager) ClearDone() int {
 	defer m.opMu.Unlock()
 	m.mu.RLock()
 	ids := make([]int64, 0, m.statusCounts[StatusDone])
+	var artifacts []*Task
 	for id, task := range m.tasks {
 		if task.Status == StatusDone {
 			ids = append(ids, id)
+			if m.isArtifactTask(task) {
+				artifacts = append(artifacts, cloneTask(task))
+			}
 		}
 	}
 	m.mu.RUnlock()
+	for _, task := range artifacts {
+		if err := m.artifacts.remove(task); err != nil {
+			log.Printf("artifact task %d cleanup failed", task.ID)
+		}
+	}
 	if err := m.store.DeleteBatch(ids); err != nil {
 		log.Printf("clear completed records from database: %v", err)
 		return 0
@@ -1917,6 +1971,7 @@ func (m *Manager) submit(item submission) bool {
 	}
 	preparedProxy := ""
 	preparedLink := ""
+	var preparedArtifact *artifactPlan
 	var preparedHeaders map[string]string
 	if module := m.modules.module(snapshot.ModuleID); module != nil {
 		prepareContext, cancel := context.WithTimeout(m.lifecycleCtx, 5*time.Minute)
@@ -1949,23 +2004,44 @@ func (m *Manager) submit(item submission) bool {
 		preparedLink = prepared.Link
 		preparedHeaders = prepared.Headers
 		preparedProxy = prepared.ProxyURL
+		preparedArtifact = prepared.Artifact
 	}
 	if item.discardPartial {
-		if stalePartialPath == "" && snapshot.OutputName == "" && stalePathErr != nil {
-			m.failTask(snapshot.ID, fmt.Errorf("download engine became unavailable while locating stale partial data; restart TrueDown: %w", stalePathErr))
-			return false
+		if preparedArtifact != nil {
+			if err := m.artifacts.remove(snapshot); err != nil {
+				m.failTask(snapshot.ID, err)
+				return false
+			}
+		} else {
+			if stalePartialPath == "" && snapshot.OutputName == "" && stalePathErr != nil {
+				m.failTask(snapshot.ID, fmt.Errorf("download engine became unavailable while locating stale partial data; restart TrueDown: %w", stalePathErr))
+				return false
+			}
+			if err := m.removeOwnedPartialFiles(snapshot, stalePartialPath); err != nil {
+				m.failTask(snapshot.ID, fmt.Errorf("discard stale HTTP partial data: %w", err))
+				return false
+			}
+			log.Printf("task %d discarded unusable HTTP partial data; restarting from zero", snapshot.ID)
 		}
-		if err := m.removeOwnedPartialFiles(snapshot, stalePartialPath); err != nil {
-			m.failTask(snapshot.ID, fmt.Errorf("discard stale HTTP partial data: %w", err))
-			return false
-		}
-		log.Printf("task %d discarded unusable HTTP partial data; restarting from zero", snapshot.ID)
 	}
-	if !isBitTorrent {
+	if !isBitTorrent && preparedArtifact == nil {
 		var err error
 		snapshot, err = m.prepareHTTPOutput(snapshot.ID, item.recheck)
 		if err != nil {
 			m.failTask(snapshot.ID, err)
+			return false
+		}
+	}
+	if preparedArtifact != nil {
+		snapshot.DownloadPage = ""
+		if err := m.setTask(snapshot.ID, func(task *Task) { task.TransferState = transferResume }); err != nil {
+			m.failTask(snapshot.ID, err)
+			return false
+		}
+		var err error
+		snapshot, err = m.artifacts.prepare(snapshot, *preparedArtifact)
+		if err != nil {
+			m.failTask(item.id, err)
 			return false
 		}
 	}
@@ -2149,6 +2225,24 @@ func (m *Manager) applyStatuses(statuses []ariaStatus) {
 func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision int64) {
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
+	if m.artifacts != nil {
+		current := make([]ariaStatus, 0, len(statuses))
+		indices := make([]int, 0, len(statuses))
+		m.mu.RLock()
+		for i, state := range statuses {
+			if task := m.tasks[m.gids[state.GID]]; task != nil && task.GID == state.GID &&
+				(task.PreviousGID == "" || task.PreviousGID != task.GID) && (pollRevision < 0 || task.Revision <= pollRevision) {
+				current = append(current, state)
+				indices = append(indices, i)
+			}
+		}
+		m.mu.RUnlock()
+		// Only current attempts may start a module writer.
+		m.artifacts.filter(current)
+		for i, index := range indices {
+			statuses[index] = current[i]
+		}
+	}
 	updates := make([]*Task, 0, len(statuses))
 	diagnosticLogs := make([]string, 0)
 	statesByGID := make(map[string]ariaStatus, len(statuses))
@@ -2222,6 +2316,11 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 			m.releaseAriaSlotLocked(task.ID)
 		}
 		nextProgress := formatProgress(state)
+		if m.artifacts != nil {
+			if progress := m.artifacts.progress(task.GID); progress != "" {
+				nextProgress = progress
+			}
+		}
 		if state.Bittorrent != nil && oldProgress != nextProgress {
 			speed, _ := strconv.ParseInt(state.DownloadSpeed, 10, 64)
 			if speed <= 0 {
@@ -2279,6 +2378,12 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 	}
 	if err := m.store.UpdateBatch(updates); err != nil {
 		log.Printf("persist %d task statuses: %v", len(updates), err)
+	} else if m.artifacts != nil {
+		for _, task := range updates {
+			if task.Status == StatusDone {
+				m.artifacts.completed(task)
+			}
+		}
 	}
 }
 

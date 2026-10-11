@@ -34,3 +34,5 @@ func openPreviewFile(path string) (*os.File, func(), error) {
 	}
 	return os.NewFile(uintptr(fd), path), func() {}, nil
 }
+
+func openArtifactFile(path string) (*os.File, func(), error) { return openPreviewFile(path) }

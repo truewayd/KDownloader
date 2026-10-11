@@ -1,0 +1,68 @@
+name: Publish independent MEGA module
+
+on:
+  push:
+    tags: ["truedown-module-mega-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Independent module version (major.minor.patch)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-mega-module
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: truedown/go.mod
+          cache-dependency-path: truedown/go.sum
+      - name: Test module and protocol
+        working-directory: truedown
+        run: go test -race ./internal/modulehost ./modules/mega/...
+      - name: Build and sign four independent binaries
+        working-directory: truedown
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          TRUEDOWN_MODULE_SIGNING_KEY: ${{ secrets.TRUEDOWN_MODULE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          version="${REQUESTED_VERSION:-${REF_NAME#truedown-module-mega-v}}"
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ -n "$TRUEDOWN_MODULE_SIGNING_KEY" ]]
+          mkdir -p ../dist/mega-release
+          go build -o ../dist/module-sign ./modules/tools/sign
+          for target in windows/amd64 linux/amd64 linux/arm64 darwin/arm64; do
+            os="${target%/*}"; arch="${target#*/}"; stem="mega-$os-$arch"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.version=$version" -o "../dist/mega-release/$stem.bin" ./modules/mega
+            ../dist/module-sign sign "../dist/mega-release/$stem.bin" mega "$version" "$os" "$arch" ../dist/module-manifest
+            cp ../dist/module-manifest/executable.json "../dist/mega-release/$stem.json"
+            cp ../dist/module-manifest/executable.sig "../dist/mega-release/$stem.sig"
+          done
+          cp ../LICENSE ../dist/mega-release/LICENSE
+          cp "$(go env GOROOT)/LICENSE" ../dist/mega-release/GO-LICENSE
+          printf 'MODULE_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+      - name: Publish immutable module release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="truedown-module-mega-v$MODULE_VERSION"
+          gh release create "$tag" dist/mega-release/* --target "$GITHUB_SHA" --draft --title "MEGA module $MODULE_VERSION" --notes "Independent pure-Go MEGA module. aria2 owns file transfer and resume; this module owns metadata, decryption and integrity verification."
+          gh release view "$tag" --json assets --jq '.assets | length == 14' | grep -qx true
+          gh release edit "$tag" --draft=false --latest=false

@@ -1,0 +1,7 @@
+{
+  "megacmdReference": "6505327a5a7a0e94f26f611f83b024aeeb63582c",
+  "sdkReference": "8775533fe50255723c45ab8abf4e14285a592d51",
+  "megajsReference": "32e4fa102b8a3afdd9e907877da285fea63e85e0",
+  "runtimeDependencies": [],
+  "implementation": "Go public-link protocol; reference projects are not bundled"
+}

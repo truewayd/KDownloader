@@ -31,6 +31,8 @@ truedown/desktop/gen/
 !truedown/docs/context-menus.md
 !truedown/docs/preview-security.md
 !truedown/docs/task-list-performance.md
+!truedown/docs/mega-download-module.md
+truedown/internal/modulebundle/assets/*.bin
 !truedown/unix/README.md
 !truedown/windows/README.md
 !truedown/desktop/README.md

@@ -71,6 +71,7 @@ type remoteMetadata struct {
 }
 
 type modulePreparation struct {
+	Artifact *artifactPlan
 	Link     string
 	Headers  map[string]string
 	ProxyURL string
@@ -242,6 +243,9 @@ func (registry *moduleRegistry) installPackage(raw json.RawMessage) (ModuleInfo,
 		return ModuleInfo{}, &ValidationError{Message: "invalid resolver component package"}
 	}
 	id := strings.TrimSpace(identity.ID)
+	if id == "mega" {
+		return ModuleInfo{}, &ValidationError{Message: "executable modules require a signed executable update"}
+	}
 	registry.writeMu.Lock()
 	defer registry.writeMu.Unlock()
 
@@ -370,7 +374,18 @@ func (registry *moduleRegistry) selectModule(link string, options map[string]jso
 
 // Modules returns every resolver, its embedded baseline, and active package.
 func (m *Manager) Modules() []ModuleInfo {
-	return m.modules.list()
+	infos := m.modules.list()
+	for i := range infos {
+		if infos[i].ID == "mega" {
+			if _, version, err := m.activeExecutable("mega"); err == nil {
+				infos[i].Version = version
+				infos[i].Source = "updated"
+			} else if !os.IsNotExist(err) {
+				infos[i].UpdateError = "Installed executable update is invalid; using the bundled version"
+			}
+		}
+	}
+	return infos
 }
 
 // SetModuleInstalled changes only new-link routing. Existing tasks retain their
@@ -388,6 +403,16 @@ func (m *Manager) InstallModulePackage(raw json.RawMessage) (ModuleInfo, error) 
 // ResetModulePackage removes an independent update and immediately restores
 // the baseline embedded in the current TrueDown binary.
 func (m *Manager) ResetModulePackage(id string) (ModuleInfo, error) {
+	if id == "mega" {
+		m.moduleUpdateMu.Lock()
+		defer m.moduleUpdateMu.Unlock()
+		if m.moduleUpdateState.Running {
+			return ModuleInfo{}, fmt.Errorf("module update is running")
+		}
+		if err := removeComponentPackage(filepath.Join(m.executableRoot(id), "active.json")); err != nil {
+			return ModuleInfo{}, err
+		}
+	}
 	return m.modules.resetPackage(id)
 }
 

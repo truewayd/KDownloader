@@ -404,6 +404,28 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+	mux.HandleFunc("/modules/update", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, dm.ModuleUpdateStatus())
+		case http.MethodPost:
+			var request struct {
+				ID string `json:"id"`
+			}
+			if !decodeJSONRequest(w, r, 4096, &request) {
+				return
+			}
+			if err := dm.StartModuleUpdate(request.ID); err != nil {
+				http.Error(w, "module update could not start", http.StatusBadRequest)
+				return
+			}
+			writeJSON(w, http.StatusAccepted, dm.ModuleUpdateStatus())
+		default:
+			w.Header().Set("Allow", "GET, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 
 	mux.HandleFunc("/start-headless-download", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

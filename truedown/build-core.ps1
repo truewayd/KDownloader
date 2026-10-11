@@ -26,6 +26,17 @@ foreach ($name in $outputNames) {
 }
 Push-Location $projectRoot
 try {
+  foreach ($relative in @('internal', 'internal/modulebundle', 'internal/modulebundle/assets', 'internal/modulebundle/assets/mega-windows-amd64.bin')) {
+    $candidate = Join-Path $projectRoot $relative
+    if (Test-Path -LiteralPath $candidate) {
+      $item = Get-Item -LiteralPath $candidate -Force
+      if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or ($relative.EndsWith('.bin') -and $item.PSIsContainer)) {
+        throw "Refusing unsafe module output: $candidate"
+      }
+    }
+  }
+  & go build -trimpath -ldflags '-s -w -X main.version=0.1.0' -o (Join-Path $projectRoot 'internal/modulebundle/assets/mega-windows-amd64.bin') ./modules/mega
+  if ($LASTEXITCODE -ne 0) { throw 'MEGA baseline build failed' }
   & go build -trimpath -o (Join-Path $outputRoot "truedown-core.exe") ./cmd/truedown-core
   if ($LASTEXITCODE -ne 0) { throw "Core build failed" }
   # Windows paths are case-insensitive: truedown.exe would collide with TrueDown.exe.
