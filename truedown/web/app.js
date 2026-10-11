@@ -442,7 +442,19 @@ function configureTaskForm() {
   els.modalTitle.textContent = "新建下载任务";
   els.submitTaskBtn.textContent = "开始下载";
   els.mLink.rows = 3;
-  els.mLink.placeholder = "https://example.com/file.zip\nmagnet:?xt=urn:btih:...\n每行一个链接";
+  els.mLink.placeholder = "https://example.com/file.zip\nmagnet:?xt=urn:btih:...\n可粘贴含多个链接的文字，自动提取并去重";
+  els.mLink.onpaste = () => {
+    setTimeout(() => {
+      if (els.downloadForm.inert) return;
+      try {
+        const links = parseLinks(els.mLink.value);
+        if (!links.length) return;
+        els.mLink.value = links.join("\n");
+        els.mLink.dispatchEvent(new Event("input", { bubbles: true }));
+        showModalMsg(`已识别 ${links.length} 个链接，请确认后开始下载。`);
+      } catch (error) { showModalMsg(error.message, true); }
+    }, 0);
+  };
   els.mName.disabled = false;
   els.mName.placeholder = "单个 HTTP(S) 任务可指定；多个链接自动命名";
   els.mFolder.placeholder = downloadSettings.folder || "留空使用默认下载目录";
@@ -1496,11 +1508,21 @@ function lines(key) {
 }
 
 function parseLinks(value) {
-  const links = value.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (typeof value !== "string" || value.length > 65536) throw new Error("链接内容不能超过 65536 个字符");
+  const links = value.match(/(?:https?:\/\/|magnet:\?)[^\s<>"`\u3002\uff0c\uff1b\u201c\u201d]+/gi) || [];
+  if (value.trim() && !links.length) throw new Error("未识别到 HTTP(S) 或 BitTorrent Magnet 链接");
   if (links.length > 5000) throw new Error("单次最多添加 5000 个链接");
   const unique = [];
   const seen = new Set();
-  for (const link of links) {
+  const standalone = new Set(value.split(/\r?\n/).map(line => line.trim()));
+  for (let link of links) {
+    if (!standalone.has(link)) {
+      link = link.replace(/[.,;!'\u2019]+$/, "");
+      for (const [open, close] of [["(", ")"], ["[", "]"], ["{", "}"]]) {
+        let excess = link.split(close).length - link.split(open).length;
+        while (excess-- > 0 && link.endsWith(close)) link = link.slice(0, -1);
+      }
+    }
     let parsed;
     try {
       parsed = new URL(link);
@@ -1514,6 +1536,13 @@ function parseLinks(value) {
     });
     if ((!isHTTP && !isMagnet) || parsed.username || parsed.password) {
       throw new Error(`仅支持不含凭据的 HTTP(S) 或 BitTorrent Magnet 链接：${link}`);
+    }
+    // Encoded hash separators in copied MEGA URLs still carry the decryption key.
+    if (/^(?:www\.)?mega\.(?:nz|co\.nz)$/i.test(parsed.hostname) && !parsed.hash
+      && /^\/(?:file|folder)\/[^/]+%23/i.test(parsed.pathname)) {
+      const separator = parsed.pathname.toLowerCase().indexOf("%23");
+      parsed.hash = parsed.pathname.slice(separator + 3);
+      parsed.pathname = parsed.pathname.slice(0, separator);
     }
     const normalized = parsed.toString();
     if (!seen.has(normalized)) {

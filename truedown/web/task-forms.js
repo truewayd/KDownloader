@@ -113,19 +113,39 @@ async function initNativeTaskForm() {
 }
 
 let taskClipboardPending = false;
+let taskClipboardRequested = false;
+let taskClipboardValue = null;
+let taskSourceRevision = 0;
+document.addEventListener("input", (event) => {
+  if (event.target === els.mLink) {
+    taskClipboardValue = null;
+    taskSourceRevision++;
+  }
+});
+document.addEventListener("submit", (event) => {
+  if (event.target === els.downloadForm) taskClipboardValue = null;
+}, true);
 async function fillTaskClipboard() {
-  if (!nativeTaskFormReady || nativeTaskPreferences.disposed || taskClipboardPending) return;
+  if (!nativeTaskFormReady || nativeTaskPreferences.disposed) return;
+  if (taskClipboardPending) { taskClipboardRequested = true; return; }
   taskClipboardPending = true;
+  taskClipboardRequested = false;
   const source = els.mLink.value, file = els.mTorrentFile.files?.[0];
+  const revision = taskSourceRevision;
   try {
     const links = await invokeNative("take_task_clipboard");
     if (nativeTaskPreferences.disposed || els.downloadForm.inert || readingNativeDrop || applyingDrop
-      || source.trim() || file || els.mLink.value !== source || els.mTorrentFile.files?.[0] !== file
+      || (source.trim() && source !== taskClipboardValue) || file || taskSourceRevision !== revision
+      || els.mLink.value !== source || els.mTorrentFile.files?.[0] !== file
       || !Array.isArray(links) || !links.length) return;
     els.mLink.value = parseLinks(links.join("\n")).join("\n");
+    taskClipboardValue = els.mLink.value;
     showModalMsg(`已从剪贴板识别 ${links.length} 个链接，请确认后开始下载。`);
   } catch { /* Unavailable clipboard access must not prevent manual entry. */ }
-  finally { taskClipboardPending = false; }
+  finally {
+    taskClipboardPending = false;
+    if (taskClipboardRequested) await fillTaskClipboard();
+  }
 }
 
 async function finishNativeTaskForm(message) {

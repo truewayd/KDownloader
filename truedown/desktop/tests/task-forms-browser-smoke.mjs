@@ -48,6 +48,11 @@ try {
               window.pendingDroppedTorrent = null;
               return value;
             }
+            if (command === "take_task_clipboard") {
+              const links = window.pendingClipboard || [];
+              window.pendingClipboard = [];
+              return links;
+            }
             if (command !== "core_request") return;
             const { path, method } = args.request;
             if (method === "GET" && window.preferencesOffline) throw Error("Fixture disconnected");
@@ -71,6 +76,24 @@ try {
       await page.evaluate(() => { window.preferencesOffline = false; });
       await page.waitForFunction(() => nativeTaskFormReady);
       assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/offline-draft.zip");
+      assert.equal(await page.evaluate(() => nativeCalls.filter(call => call.args?.request?.method === "POST").length), 0);
+      await page.locator("#m-link").fill("");
+      await page.evaluate(async () => {
+        pendingClipboard = ['https://example.test/first']; await fillTaskClipboard();
+        pendingClipboard = ['https://example.test/second']; await fillTaskClipboard();
+      });
+      assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/second");
+      await page.locator("#m-link").fill("https://example.test/edited");
+      await page.evaluate(async () => {
+        pendingClipboard = ['https://example.test/third']; await fillTaskClipboard();
+      });
+      assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/edited");
+      await page.evaluate(() => {
+        els.mLink.dispatchEvent(new Event('paste', { bubbles: true }));
+        els.mLink.value = 'Download: https://mega.nz/file/id%23key https://mega.nz/file/id#key';
+        els.mLink.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await page.waitForFunction(() => els.mLink.value === 'https://mega.nz/file/id#key');
       assert.equal(await page.evaluate(() => nativeCalls.filter(call => call.args?.request?.method === "POST").length), 0);
       await assertToastPlacement(page);
       assert.equal(await page.title(), "新建下载");

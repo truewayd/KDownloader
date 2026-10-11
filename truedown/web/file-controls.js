@@ -103,6 +103,7 @@ async function applyDroppedSource({ file = null, links = [] }) {
       els.mTorrentFile.files = transfer.files;
     }
     els.mLink.value = links.join("\n");
+    els.mLink.dispatchEvent(new Event("input", { bubbles: true }));
     updateTorrentSelection();
     showModalMsg(file ? "已导入种子，请确认下载目录后开始下载" : "已填入链接，请确认下载选项后开始下载");
     (file ? els.mFolder : els.mLink).focus();

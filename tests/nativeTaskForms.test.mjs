@@ -221,12 +221,12 @@ function preferencesContext(requestJSON) {
   return { context, events };
 }
 
-test("clipboard tasks fill only an empty form and never replace a concurrent edit or start downloads", async () => {
+test("clipboard refresh replaces automatic fill but preserves edits and torrent drafts", async () => {
   let resolve;
   const fields = { mLink: control(), mTorrentFile: { files: [] }, downloadForm: { inert: false } };
   const context = vm.createContext({
     nativeTaskFormReady: true, nativeTaskPreferences: { disposed: false }, taskClipboardPending: false,
-    readingNativeDrop: false, applyingDrop: false, els: fields,
+    readingNativeDrop: false, applyingDrop: false, els: fields, taskSourceRevision: 0, taskClipboardValue: null,
     invokeNative: command => { assert.equal(command, "take_task_clipboard"); return new Promise(done => { resolve = done; }); },
     parseLinks: text => text.split("\n"), showModalMsg() {},
   });
@@ -239,7 +239,42 @@ test("clipboard tasks fill only an empty form and never replace a concurrent edi
   pending = context.fillTaskClipboard(); resolve(["https://example.test/clipboard"]); await pending;
   assert.equal(fields.mLink.value, "https://example.test/clipboard");
   pending = context.fillTaskClipboard(); resolve(["https://example.test/next"]); await pending;
-  assert.equal(fields.mLink.value, "https://example.test/clipboard");
+  assert.equal(fields.mLink.value, "https://example.test/next");
+  context.taskClipboardValue = null;
+  pending = context.fillTaskClipboard(); resolve(["https://example.test/new"]); await pending;
+  assert.equal(fields.mLink.value, "https://example.test/next", "editing then restoring the same text still owns the draft");
+  fields.mLink.value = "";
+  fields.mTorrentFile.files = [{}];
+  pending = context.fillTaskClipboard(); resolve(["https://example.test/new"]); await pending;
+  assert.equal(fields.mLink.value, "");
+  fields.mTorrentFile.files = [];
+  pending = context.fillTaskClipboard(); context.taskSourceRevision++; resolve(["https://example.test/new"]); await pending;
+  assert.equal(fields.mLink.value, "", "concurrent input is protected even if its final value is unchanged");
+  const deliveries = [];
+  context.invokeNative = () => new Promise(done => deliveries.push(done));
+  pending = context.fillTaskClipboard();
+  await context.fillTaskClipboard();
+  deliveries.shift()(["https://example.test/older"]);
+  await new Promise(done => setImmediate(done));
+  assert.equal(deliveries.length, 1, "a reopen arriving during consumption must drain the next snapshot");
+  deliveries.shift()(["https://example.test/latest"]);
+  await pending;
+  assert.equal(fields.mLink.value, "https://example.test/latest");
+});
+
+test("task links extract prose, preserve MEGA keys and reject credential-bearing URLs", () => {
+  const context = vm.createContext({ URL });
+  vm.runInContext(declarations("parseLinks"), context);
+  assert.deepEqual(Array.from(context.parseLinks('Download [file](https://example.test/a_(b)) https://example.test/a_(b)\nhttps://mega.nz/file/id%23key https://mega.nz/folder/id#key/file/child https://mega.nz/#!id!key https://mega.nz/#F!id!key')), [
+    'https://example.test/a_(b)', 'https://mega.nz/file/id#key', 'https://mega.nz/folder/id#key/file/child', 'https://mega.nz/#!id!key', 'https://mega.nz/#F!id!key',
+  ]);
+  assert.throws(() => context.parseLinks('https://user:secret@example.test/a'));
+  assert.throws(() => context.parseLinks('magnet:?dn=missing-topic'));
+  assert.throws(() => context.parseLinks('x'.repeat(65537)));
+  assert.deepEqual(Array.from(context.parseLinks('https://example.test/a!\nhttps://example.test/a)\nhttps://mega.nz/file/id%23key?x=1')), [
+    'https://example.test/a!', 'https://example.test/a)', 'https://mega.nz/file/id?x=1#key',
+  ]);
+  assert.deepEqual(Array.from(context.parseLinks('Download: https://example.test/a' + ')'.repeat(50000))), ['https://example.test/a']);
 });
 
 test("native form activation updates enabled modules and untouched rules while retaining explicit drafts", async () => {

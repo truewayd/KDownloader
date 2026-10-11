@@ -9,8 +9,46 @@ fn parse(text: &str) -> Vec<String> {
         return Vec::new();
     }
     let mut links = Vec::new();
-    for token in text.split_whitespace().take(5000) {
-        let token = token.trim_matches(|c| matches!(c, '<' | '>' | '"' | '\''));
+    let standalone: std::collections::HashSet<&str> = text.lines().map(str::trim).collect();
+    for token in text
+        .split(|c: char| {
+            c.is_whitespace()
+                || matches!(
+                    c,
+                    '<' | '>'
+                        | '"'
+                        | '`'
+                        | '\u{3002}'
+                        | '\u{ff0c}'
+                        | '\u{ff1b}'
+                        | '\u{201c}'
+                        | '\u{201d}'
+                )
+        })
+        .take(20000)
+    {
+        let lower = token.to_ascii_lowercase();
+        let Some(start) = ["https://", "http://", "magnet:?"]
+            .iter()
+            .filter_map(|scheme| lower.find(scheme))
+            .min()
+        else {
+            continue;
+        };
+        let mut token = &token[start..];
+        if !standalone.contains(token) {
+            token = token.trim_end_matches(['.', ',', ';', '!', '\'', '\u{2019}']);
+            for (open, close) in [('(', ')'), ('[', ']'), ('{', '}')] {
+                let mut excess = token
+                    .matches(close)
+                    .count()
+                    .saturating_sub(token.matches(open).count());
+                while excess > 0 && token.ends_with(close) {
+                    token = &token[..token.len() - 1];
+                    excess -= 1;
+                }
+            }
+        }
         let Ok(url) = tauri::Url::parse(token) else {
             continue;
         };
@@ -27,6 +65,9 @@ fn parse(text: &str) -> Vec<String> {
             let value = url.to_string();
             if !links.contains(&value) {
                 links.push(value);
+                if links.len() >= 5000 {
+                    break;
+                }
             }
         }
     }
@@ -79,5 +120,17 @@ mod tests {
         assert_eq!(parse("magnet:?xt=urn:btih:abc").len(), 1);
         assert!(parse("magnet:?dn=abc").is_empty());
         assert!(parse(&"x".repeat(65537)).is_empty());
+        assert_eq!(
+            parse("https://example.test/download?token=abc!\nhttps://example.test/a)"),
+            vec![
+                "https://example.test/download?token=abc!",
+                "https://example.test/a)"
+            ]
+        );
+        assert_eq!(parse("[download](https://example.test/a_(b)) \u{94fe}\u{63a5}\u{ff1a}https://mega.nz/file/id#key\u{3002}"), vec!["https://example.test/a_(b)", "https://mega.nz/file/id#key"]);
+        assert_eq!(
+            parse("https://mega.nz/#!id!key https://mega.nz/#F!folder!key"),
+            vec!["https://mega.nz/#!id!key", "https://mega.nz/#F!folder!key"]
+        );
     }
 }
