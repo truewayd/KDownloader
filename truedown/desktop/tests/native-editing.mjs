@@ -12,8 +12,8 @@ export async function nativeEditingDocumentReady(evaluate) {
     throw error;
   }
 }
-export async function acceptNativeEditing(evaluate, until, chooseMenu, { concurrentMenuSelection = false } = {}) {
-  await evaluate(`${fixture}; return installNativeEditingAcceptance()`);
+export async function acceptNativeEditing(evaluate, until, chooseMenu, { concurrentMenuSelection = false, keyboardMenu = false } = {}) {
+  await evaluate(`${fixture}; return installNativeEditingAcceptance({keyboardMenu:${keyboardMenu === true}})`);
   let failure;
   try {
     for (const action of ['copy', 'paste', 'undo', 'redo', 'cut', 'paste', 'select-all']) {

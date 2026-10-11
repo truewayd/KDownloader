@@ -71,7 +71,9 @@ try {
   assert.equal(JSON.parse(info.body).product, "TrueDown");
   phase = "native editor and clipboard delivery";
   const editingCaller = await command("GET", "/window");
-  await acceptNativeEditing(evaluate, until, action => chooseWebDriverEditingMenu(command, evaluate, until, editingCaller, action));
+  // WebDriver switches native focus to the popup. Use the keyboard menu path,
+  // which permits focus transfer; mouse menus correctly dismiss on caller blur.
+  await acceptNativeEditing(evaluate, until, action => chooseWebDriverEditingMenu(command, evaluate, until, editingCaller, action), { keyboardMenu: true });
   phase = "native windows and settings";
   for (const kind of ["settings", "logs", "about", "new-task"]) await evaluate("return window.__TAURI__.core.invoke('open_auxiliary',{kind:arguments[0]})", [kind]);
   const handles = await until(async () => { const handles = await command("GET", "/window/handles"); return handles.length === 3 && handles; });

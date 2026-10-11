@@ -124,18 +124,19 @@ test("editing readiness retries replaced initial documents but propagates other 
 test("native editing acceptance rejects acknowledgments without delivery and never reports returned data", async () => {
   const source = await readFile(new URL("../truedown/desktop/tests/native-editing.js", import.meta.url), "utf8");
   const controls = [];
+  const menuEvents = [];
   let response = null;
   const original = async () => { if (response instanceof Error) throw response; return response; };
   const context = vm.createContext({
     window: { invokeNative: original },
     crypto: { randomUUID: () => "fixture-unique-id" },
-    MouseEvent: class {},
+    MouseEvent: class { constructor(type, options) { this.type = type; Object.assign(this, options); } },
     document: {
       activeElement: null,
       body: { append() {} },
       createElement() {
         const control = { value: "", style: {}, setAttribute() {}, setSelectionRange() {},
-          focus() {}, select() {}, dispatchEvent() {}, remove() { this.removed = true; } };
+          focus() {}, select() {}, dispatchEvent(event) { menuEvents.push(event); }, remove() { this.removed = true; } };
         controls.push(control);
         return control;
       },
@@ -146,6 +147,7 @@ test("native editing acceptance rejects acknowledgments without delivery and nev
   context.installNativeEditingAcceptance();
   const fixture = context.window.__nativeEditing;
   await fixture.start("paste");
+  assert.equal(menuEvents.at(-1).button, 2, "mouse-menu acceptance remains the default");
   await context.window.invokeNative("edit_action", { action: "paste" });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(fixture.ready("paste"), false, "unit response alone cannot prove native delivery");
@@ -167,6 +169,12 @@ test("native editing acceptance rejects acknowledgments without delivery and nev
   assert.equal(context.window.invokeNative, original);
   assert.equal(context.window.__nativeEditing, undefined);
   assert.ok(controls.every(control => control.removed));
+  context.installNativeEditingAcceptance({ keyboardMenu: true });
+  await context.window.__nativeEditing.start("paste");
+  assert.equal(menuEvents.at(-1).button, 0);
+  assert.equal(menuEvents.at(-1).clientX, 0);
+  assert.equal(menuEvents.at(-1).clientY, 0);
+  context.window.__nativeEditing.cleanup();
 });
 
 function toastFixture() {

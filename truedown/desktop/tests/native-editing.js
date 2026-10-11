@@ -1,5 +1,5 @@
 // Loaded only by acceptance drivers. Never return editor or clipboard text.
-function installNativeEditingAcceptance() {
+function installNativeEditingAcceptance({ keyboardMenu = false } = {}) {
   if (window.__nativeEditing) throw new Error('Editing fixture already installed');
   const original = window.invokeNative;
   const previousFocus = document.activeElement;
@@ -54,7 +54,8 @@ function installNativeEditingAcceptance() {
         await window.invokeNative('edit_action', { action });
       } else {
         input.dispatchEvent(new MouseEvent('contextmenu', {
-          bubbles: true, cancelable: true, button: 2, clientX: 20, clientY: 20,
+          bubbles: true, cancelable: true, button: keyboardMenu ? 0 : 2,
+          clientX: keyboardMenu ? 0 : 20, clientY: keyboardMenu ? 0 : 20,
         }));
         // The native driver chooses the action in the separate popup WebView.
       }
