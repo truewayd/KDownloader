@@ -84,6 +84,7 @@
     document.body.append(list);
     list.showPopover?.();
     const rect = select.getBoundingClientRect();
+    current.anchor = rect;
     const margin = 8, gap = 4;
     const below = window.innerHeight - rect.bottom - margin - gap;
     const above = rect.top - margin - gap;
@@ -163,7 +164,12 @@
     }
   }, true);
   document.addEventListener("focusin", (event) => { if (current && event.target !== current.select) close(); });
-  document.addEventListener("scroll", (event) => { if (current && !current.list.contains(event.target)) close(); }, true);
+  document.addEventListener("scroll", (event) => {
+    if (!current || current.list.contains(event.target)) return;
+    // Focus can queue a scroll event before the picker opens at its new anchor.
+    const rect = current.select.getBoundingClientRect();
+    if (["top", "left", "width", "height"].some(key => rect[key] !== current.anchor[key])) close();
+  }, true);
   document.addEventListener("visibilitychange", close);
   document.addEventListener("change", (event) => { if (current?.select === event.target) close(); });
   document.addEventListener("reset", close);

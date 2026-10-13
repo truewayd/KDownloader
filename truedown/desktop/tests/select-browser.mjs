@@ -80,6 +80,28 @@ try {
     await select.press("F4");
     assert.equal(await select.inputValue(), "e");
     assert.equal(await list.count(), 0);
+    await page.evaluate(() => {
+      const form = document.querySelector("form");
+      const scroller = document.createElement("div");
+      scroller.id = "picker-scroll";
+      Object.assign(scroller.style, { height: "96px", overflow: "auto" });
+      form.before(scroller);
+      const space = document.createElement("div");
+      space.style.height = "600px";
+      scroller.append(form, space);
+      document.querySelector("#choice").style.position = "static";
+    });
+    await select.focus();
+    await select.press("Home");
+    await page.locator("#picker-scroll").evaluate(node => node.dispatchEvent(new Event("scroll")));
+    assert.equal(await list.isVisible(), true, "a queued focus scroll keeps a picker at the same anchor");
+    await select.press("ArrowDown");
+    await select.press("Enter");
+    assert.equal(await select.inputValue(), "d", "late scroll events cannot discard keyboard selection");
+    await select.press("Home");
+    await page.locator("#picker-scroll").evaluate(node => { node.scrollTop += 24; });
+    await list.waitFor({ state: "detached" });
+    assert.equal(await select.inputValue(), "d", "actual anchor movement dismisses without committing");
     assert.deepEqual(errors, []);
     console.log(`${colorScheme}: custom picker values, cancellation, focus, disabled states and viewport bounds OK`);
     await page.close();
