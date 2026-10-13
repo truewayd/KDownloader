@@ -26,12 +26,22 @@ function renderOpenSourceNotices() {
   const host = document.getElementById("open-source-projects");
   if (!host || host.childElementCount || !window.TrueDownOpenSource) return;
   for (const project of window.TrueDownOpenSource.projects) {
-    const entry = document.createElement("div");
+    const entry = document.createElement("li");
+    entry.className = "open-source-project";
     const link = document.createElement("a");
     link.href = project.url;
     link.textContent = project.name;
-    link.className = "kd-selectable";
+    link.className = "open-source-project-link kd-selectable";
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.classList.add("icon");
+    icon.setAttribute("aria-hidden", "true");
+    icon.setAttribute("focusable", "false");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", "/icons.svg#icon-external-link");
+    icon.append(use);
+    link.append(icon);
     const license = document.createElement("span");
+    license.className = "open-source-project-license kd-selectable";
     license.textContent = project.license;
     const usage = document.createElement("p");
     usage.className = "hint";

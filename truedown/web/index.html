@@ -18,6 +18,7 @@
   <script src="/open-source.js" defer></script>
   <script src="/native-license-notices.js" defer></script>
   <link rel="stylesheet" href="/workspace.css">
+  <link rel="stylesheet" href="/about.css">
   <link rel="stylesheet" href="/native-appearance.css">
   <script src="/native-appearance.js" defer></script>
   <link rel="stylesheet" href="/native-frame.css">
@@ -164,8 +165,10 @@
             <pre class="application-log-output" id="application-log-output" tabindex="0" aria-label="TrueDown 最新应用日志">尚未读取应用日志。</pre>
           </section>
 <section class="settings-section settings-about" data-settings-page="about" hidden aria-labelledby="settings-about-title">
-          <header class="about-brand"><img src="/truedown-logo.svg" width="48" height="48" alt=""><div><h2 id="settings-about-title">TrueDown</h2><p class="hint">轻量下载管理器</p></div></header>
-          <dl class="storage-locations" aria-label="版本信息"><dt>程序版本</dt><dd id="about-version">正在读取…</dd><dt>构建编号</dt><dd id="about-build">正在读取…</dd><dt>下载内核</dt><dd id="about-engine">正在读取…</dd><dt>服务连接</dt><dd id="about-connection">正在读取…</dd></dl>
+          <div class="about-overview">
+            <header class="about-brand"><img src="/truedown-logo.svg" width="48" height="48" alt=""><div><h2 id="settings-about-title">TrueDown</h2><p class="hint">轻量下载管理器</p></div></header>
+            <dl class="storage-locations about-version-info" aria-label="版本信息"><dt>程序版本</dt><dd class="kd-selectable" id="about-version">正在读取…</dd><dt>构建编号</dt><dd class="kd-selectable" id="about-build">正在读取…</dd><dt>下载内核</dt><dd class="kd-selectable" id="about-engine">正在读取…</dd><dt>服务连接</dt><dd class="kd-selectable" id="about-connection">正在读取…</dd></dl>
+          </div>
           <p class="hint" id="about-status" role="status"></p>
 <article class="update-card">
                 <div class="update-card-copy">
@@ -185,10 +188,11 @@
                   <button class="kd-button primary compact" id="restart-truedown-update-btn" type="button" hidden>重启并更新</button>
                 </div>
               </article>
-          <h3>开源项目与许可证</h3>
-          <p class="hint">感谢以下开源项目。协议或行为参考的采用方式见各项说明。</p>
-          <div id="open-source-projects" class="open-source-projects"></div>
-          <details id="open-source-licenses"><summary>查看完整许可证与第三方声明</summary><pre class="license-notices kd-selectable" id="license-notices" tabindex="0"></pre></details>
+          <section class="about-open-source" aria-labelledby="open-source-title">
+            <div class="settings-section-heading"><h3 id="open-source-title">开源项目与参考</h3><p class="hint">感谢以下项目。运行依赖、协议与行为参考的具体用途见各项说明。</p></div>
+            <ul id="open-source-projects" class="open-source-projects" role="list"></ul>
+            <details id="open-source-licenses"><summary>完整许可证与第三方声明</summary><pre class="license-notices kd-selectable" id="license-notices" tabindex="0" aria-label="完整许可证与第三方声明"></pre></details>
+          </section>
         </section>
         <section class="settings-section" data-settings-page="application" aria-labelledby="settings-application-title" hidden>
           <div class="settings-section-heading"><h3 id="settings-application-title">应用与连接</h3></div>

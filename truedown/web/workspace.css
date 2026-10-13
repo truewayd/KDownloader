@@ -120,8 +120,6 @@
 .settings-search-result:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -2px; }
 .settings-search-highlight { outline: 2px solid var(--kd-focus); outline-offset: 4px; border-radius: var(--kd-control-radius); scroll-margin: 20px; }
 .settings-content { background: var(--kd-bg); }
-.settings-about .about-brand { display: flex; align-items: center; gap: 16px; }
-.settings-about h2, .settings-about p { margin: 0; }
 .log-follow { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
 .settings-content:has([data-settings-page="logs"]:not([hidden])) { display: flex; flex-direction: column; overflow: hidden; }
 .settings-content > .settings-section.log-page { display: flex; flex: 1; min-height: 0; max-width: none; padding: 0; }
@@ -153,7 +151,6 @@
 .settings-section-heading > .kd-notice { margin-top: 12px; }
 .settings-content .kd-notice .hint { margin: 0; }
 .settings-section-heading:has(> h3:only-child:is(#settings-general-title, #settings-file-title, #settings-application-title, #settings-update-title)) { display: none; }
-.settings-about > .update-card,
 .settings-content > .settings-section:not(:has(.settings-group)):not(.log-page):not(.settings-about) { padding: 16px; border: 1px solid var(--kd-border); border-radius: var(--kd-radius); background: transparent; }
 .settings-content > .settings-section:not(:has(.settings-group)):not(.log-page):not(.settings-about) { gap: 16px; }
 .settings-group > * + * { margin-top: 16px; }
