@@ -111,6 +111,12 @@ try {
     await open("#edit", 399, 399);
     const bounds = await page.getByRole("menu").boundingBox();
     assert.ok(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= 400 && bounds.y + bounds.height <= 400);
+    await page.evaluate(() => { window.dispatchEvent(new Event("resize")); window.dispatchEvent(new Event("resize")); });
+    assert.equal(await page.getByRole("menu").count(), 1, "unchanged viewport notifications preserve an open menu");
+    await page.setViewportSize({ width: 420, height: 400 });
+    await page.waitForFunction(() => !document.querySelector('[role="menu"]'));
+    await page.setViewportSize({ width: 400, height: 400 });
+    await open("#edit");
     await page.locator("#blank").click();
     assert.equal(await page.getByRole("menu").count(), 0);
     await page.evaluate(() => window.getSelection().removeAllRanges());
@@ -176,6 +182,8 @@ try {
   assert.equal(await native.evaluate(() => calls.at(-1).command), "context_menu_key");
   await native.evaluate(() => window.dispatchEvent(new Event('blur')));
   assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'context_menu_cancel').length), 0, 'native activation checks own mouse-menu cancellation');
+  await native.evaluate(() => { window.dispatchEvent(new Event("resize")); window.dispatchEvent(new Event("resize")); });
+  assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'context_menu_cancel').length), 0, "delayed unchanged WebKit resize must not cancel a native request");
   await native.evaluate(() => answerMenu('pause'));
   await native.waitForFunction(() => clicked === 1);
   await native.evaluate(() => { clicked = 0; });
@@ -211,6 +219,18 @@ try {
     await native.waitForFunction(before => errors.length === before + 1, before, { timeout: 2000 });
     assert.equal(await native.evaluate(() => errors.at(-1)), `Failed: ${command}`, "action errors remain visible after the menu closes");
   }
+  await openNative();
+  const beforeResize = await native.evaluate(() => calls.filter(call => call.command === "context_menu_cancel").length);
+  await native.evaluate(() => {
+    Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: devicePixelRatio + 1 });
+    window.dispatchEvent(new Event("resize"));
+  });
+  assert.equal(await native.evaluate(() => calls.filter(call => call.command === "context_menu_cancel").length), beforeResize + 1, "scale changes cancel stale native geometry");
+  await openNative();
+  await native.setViewportSize({ width: 1200, height: 800 });
+  await native.waitForFunction(before => calls.filter(call => call.command === "context_menu_cancel").length === before + 2, beforeResize);
+  await native.evaluate(() => answerMenu("pause"));
+  assert.equal(await native.evaluate(() => clicked), 0, "a resized native menu cannot deliver a stale action");
   await native.close();
   console.log('native bridge: separate window dispatch, caller blur, stale rows and request-scoped cancellation passed');
   const renderer = await browser.newPage();

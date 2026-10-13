@@ -73,7 +73,12 @@ try {
   const editingCaller = await command("GET", "/window");
   // WebDriver switches native focus to the popup. Use the keyboard menu path,
   // which permits focus transfer; mouse menus correctly dismiss on caller blur.
-  await acceptNativeEditing(evaluate, until, action => chooseWebDriverEditingMenu(command, evaluate, until, editingCaller, action), { keyboardMenu: true });
+  await acceptNativeEditing(evaluate, until, async action => {
+    // GTK can deliver a delayed resize after mapping with unchanged geometry.
+    // Exercise that notification while the caller's real menu request is open.
+    await evaluate("window.dispatchEvent(new Event('resize')); return true");
+    await chooseWebDriverEditingMenu(command, evaluate, until, editingCaller, action);
+  }, { keyboardMenu: true });
   phase = "native windows and settings";
   for (const kind of ["settings", "logs", "about", "new-task"]) await evaluate("return window.__TAURI__.core.invoke('open_auxiliary',{kind:arguments[0]})", [kind]);
   const handles = await until(async () => { const handles = await command("GET", "/window/handles"); return handles.length === 3 && handles; });

@@ -132,6 +132,7 @@
     const topLayer = typeof menu.showPopover === "function";
     if (topLayer) menu.setAttribute("popover", "manual");
     const context = { menu, target, input, row, taskID: row?.dataset.taskId, group, groupID: group?.dataset.taskCategory, route: location.hash, focus: input || group || (target.isContentEditable ? target : document.activeElement),
+      viewport: { width: innerWidth, height: innerHeight, scale: devicePixelRatio },
       selection: input && typeof input.selectionStart === "number" ? [input.selectionStart, input.selectionEnd, input.selectionDirection] : null,
       ranges: selection ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index).cloneRange()) : [] };
     if (window.__TAURI__?.core?.invoke) {
@@ -220,6 +221,11 @@
   };
   const pointerdown = event => { if (current && !current.menu.contains(event.target)) close(false); };
   const invalidate = () => close(false);
+  // WebKit may deliver a delayed resize after mapping without changing geometry.
+  // It must not cancel a menu opened against the already-current viewport.
+  const resize = () => {
+    if (current && (current.viewport.width !== innerWidth || current.viewport.height !== innerHeight || current.viewport.scale !== devicePixelRatio)) invalidate();
+  };
   const visibility = () => { if (document.hidden) invalidate(); };
   // Restoring an editor selection can scroll that editor after the popup opens.
   const scroll = event => { if (current && event.target !== current.input && !current.menu.contains(event.target)) invalidate(); };
@@ -229,7 +235,7 @@
   document.addEventListener("scroll", scroll, true);
   document.addEventListener("visibilitychange", visibility);
   window.addEventListener("hashchange", invalidate);
-  window.addEventListener("resize", invalidate);
+  window.addEventListener("resize", resize);
   // Native menus own OS activation checks. WebView focus can move into a
   // non-activating popup while its caller remains the foreground window.
   const blur = () => { if (!current?.native) invalidate(); };
@@ -242,7 +248,7 @@
     document.removeEventListener("scroll", scroll, true);
     document.removeEventListener("visibilitychange", visibility);
     window.removeEventListener("hashchange", invalidate);
-    window.removeEventListener("resize", invalidate);
+    window.removeEventListener("resize", resize);
     window.removeEventListener("blur", blur);
   }, { once: true });
 })();
