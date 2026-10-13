@@ -29,7 +29,11 @@ health verification and the update helper clears its transaction marker.
 Staging, an interrupted update or a rollback never authorizes cleanup. NEXT's
 download is cleaned after its verified executable and installation metadata
 have been committed; the installed executable and previous engine remain.
-Cleanup failures are logged and retried after startup and every 30 seconds.
+Cleanup failures are retried after startup and every 30 seconds. Identical
+failures across candidate directories are consolidated into one log line with
+a candidate count. Within one process, a retained receipt is logged again only
+when its failure reason changes; successful cleanup clears that suppression.
+A checksum mismatch still preserves the output and the receipt for later retry.
 A bounded `state/truedown.update-downloads.json` journal keeps this work durable
 without changing the update settings format understood by rollback binaries.
 Only verified downloads have cleanup receipts; older untracked download packages

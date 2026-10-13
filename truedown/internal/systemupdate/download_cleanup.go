@@ -106,6 +106,10 @@ func (m *Manager) cleanupUpdateDownloads() {
 		return
 	}
 	remaining := make([]updateDownload, 0, len(entries))
+	if m.cleanupFailures == nil {
+		m.cleanupFailures = map[updateDownload]string{}
+	}
+	currentFailures := map[updateDownload]string{}
 	for _, entry := range entries {
 		directory := m.enginesDir
 		m.mu.RLock()
@@ -134,10 +138,15 @@ func (m *Manager) cleanupUpdateDownloads() {
 			continue
 		}
 		if err := m.cleanupAsset(directory, entry.Name, entry.SHA256, entry.Size); err != nil {
-			log.Printf("clean installed update download %s: %v", entry.Name, err)
+			reason := strings.ReplaceAll(err.Error(), "\n", "; ")
+			if m.cleanupFailures[entry] != reason {
+				log.Printf("clean installed update download %s: %s", entry.Name, reason)
+			}
+			currentFailures[entry] = reason
 			remaining = append(remaining, entry)
 		}
 	}
+	m.cleanupFailures = currentFailures
 	if len(remaining) != len(entries) {
 		if err := m.writeUpdateDownloads(remaining); err != nil {
 			log.Printf("persist update download cleanup: %v", err)

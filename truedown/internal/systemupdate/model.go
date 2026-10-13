@@ -184,9 +184,10 @@ type availableNextUpdate struct {
 }
 
 type Manager struct {
-	mu        sync.RWMutex
-	applyMu   sync.Mutex
-	cleanupMu sync.Mutex
+	mu              sync.RWMutex
+	applyMu         sync.Mutex
+	cleanupMu       sync.Mutex
+	cleanupFailures map[updateDownload]string
 
 	baseDir                string
 	updatesDir             string

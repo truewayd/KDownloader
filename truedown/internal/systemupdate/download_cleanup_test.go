@@ -1,12 +1,70 @@
 package systemupdate
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestCleanupLogsOnlyChangedFailuresAndRetainsRetries(t *testing.T) {
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	defer log.SetOutput(previous)
+	reason := "checksum changed; preserving it"
+	calls := 0
+	m := newTestManager(t, t.TempDir(), "aria2.exe", Options{
+		DownloadAsset: func(context.Context, string, string, string, int64, func(DownloadProgress)) (string, error) {
+			return "", nil
+		},
+		CleanupAsset: func(string, string, string, int64) error {
+			calls++
+			if reason != "" {
+				return fmt.Errorf("%s", reason)
+			}
+			return nil
+		},
+	})
+	m.currentBuild, m.nativeExecutable, m.programUpdatesDisabled = 42, "TrueDown.exe", false
+	receipt := updateDownload{Build: 42, Name: "TrueDown-build-42.zip", SHA256: sha256Hex([]byte("archive")), Size: 7}
+	if err := m.recordUpdateDownload(receipt); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		m.cleanupUpdateDownloads()
+	}
+	if calls != 3 || strings.Count(output.String(), "clean installed update download") != 1 {
+		t.Fatal("unchanged error repeated or retry was skipped", calls, output.String())
+	}
+	entries, err := m.readUpdateDownloads()
+	if err != nil || len(entries) != 1 {
+		t.Fatal("failed receipt lost", err)
+	}
+	reason = "file locked"
+	m.cleanupUpdateDownloads()
+	if strings.Count(output.String(), "clean installed update download") != 2 {
+		t.Fatal("new reason was not logged")
+	}
+	reason = ""
+	m.cleanupUpdateDownloads()
+	entries, err = m.readUpdateDownloads()
+	if err != nil || len(entries) != 0 || len(m.cleanupFailures) != 0 {
+		t.Fatal("successful cleanup not reset", err)
+	}
+	if err := m.recordUpdateDownload(receipt); err != nil {
+		t.Fatal(err)
+	}
+	reason = "file locked"
+	m.cleanupUpdateDownloads()
+	if strings.Count(output.String(), "clean installed update download") != 3 {
+		t.Fatal("a new failed cleanup was suppressed")
+	}
+}
 
 func TestUpdateCleanupSurvivesRestartAndWaitsForHealthyInstallation(t *testing.T) {
 	root := t.TempDir()

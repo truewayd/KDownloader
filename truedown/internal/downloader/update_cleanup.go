@@ -3,11 +3,11 @@ package downloader
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -87,7 +87,31 @@ func (m *Manager) CleanupUpdateDownloads(directory, name, digest string, size in
 			failures = append(failures, err)
 		}
 	}
-	return errors.Join(failures...)
+	if len(failures) == 0 {
+		return nil
+	}
+	return &updateCleanupFailures{failures}
+}
+
+type updateCleanupFailures struct{ failures []error }
+
+func (e *updateCleanupFailures) Unwrap() []error { return e.failures }
+func (e *updateCleanupFailures) Error() string {
+	counts := map[string]int{}
+	for _, err := range e.failures {
+		counts[strings.ReplaceAll(err.Error(), "\n", "; ")]++
+	}
+	reasons := make([]string, 0, len(counts))
+	for reason := range counts {
+		reasons = append(reasons, reason)
+	}
+	sort.Strings(reasons)
+	for index, reason := range reasons {
+		if counts[reason] > 1 {
+			reasons[index] = fmt.Sprintf("%s (%d candidates)", reason, counts[reason])
+		}
+	}
+	return strings.Join(reasons, "; ")
 }
 
 func (m *Manager) cleanupUpdateOutput(root *os.Root, directory, folder, name, digest string, size int64, task *Task) error {

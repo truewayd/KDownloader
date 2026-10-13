@@ -5,8 +5,49 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestUpdateCleanupConsolidatesRepeatedChecksumFailures(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "updates")
+	m, err := NewManager("unused", filepath.Join(base, "downloads"), filepath.Join(base, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	name := "TrueDown-build-42.zip"
+	want := []byte("good")
+	digest := fmt.Sprintf("%x", sha256.Sum256(want))
+	var files []string
+	for index := range 4 {
+		task, _, err := m.addUpdateTask(fmt.Sprintf("https://example.test/update/%d", index), name, filepath.Join(root, fmt.Sprintf("download-%d", index)), Aria2Opts{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(task.Folder, 0700); err != nil {
+			t.Fatal(err)
+		}
+		file := filepath.Join(task.Folder, name)
+		files = append(files, file)
+		if err := os.WriteFile(file, []byte("evil"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.setTask(task.ID, func(current *Task) { current.Status = StatusDone }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err = m.CleanupUpdateDownloads(root, name, digest, int64(len(want)))
+	if err == nil || strings.Contains(err.Error(), "\n") || strings.Count(err.Error(), "checksum changed") != 1 || !strings.Contains(err.Error(), "4 candidates") {
+		t.Fatal("repeated cleanup error not consolidated", err)
+	}
+	for _, file := range files {
+		if data, err := os.ReadFile(file); err != nil || string(data) != "evil" {
+			t.Fatal("changed output was removed", err)
+		}
+	}
+}
 
 func TestUpdateCleanupVerifiesPayloadAndOwnsTaskRemoval(t *testing.T) {
 	for _, scenario := range []string{"success", "record-removed", "payload-missing", "checksum", "active", "overlap", "foreign-file", "control-directory", "ordinary-task"} {
