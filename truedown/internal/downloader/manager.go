@@ -45,12 +45,14 @@ const (
 type Aria2Opts struct {
 	// Admission intent is not part of persisted options or duplicate identity.
 	startPaused bool
-	ProxyMode   string   `json:"proxyMode,omitempty"`
-	Connections int      `json:"connections"`
-	MaxSpeedBps int      `json:"maxSpeedBps"`
-	MaxTries    int      `json:"maxTries"`
-	RetryWait   int      `json:"retryWait"`
-	ExtraArgs   []string `json:"extraArgs"`
+	// Replaying an accepted browser import must not restart an existing task.
+	preserveExisting bool
+	ProxyMode        string   `json:"proxyMode,omitempty"`
+	Connections      int      `json:"connections"`
+	MaxSpeedBps      int      `json:"maxSpeedBps"`
+	MaxTries         int      `json:"maxTries"`
+	RetryWait        int      `json:"retryWait"`
+	ExtraArgs        []string `json:"extraArgs"`
 }
 
 func (opts Aria2Opts) WithStartPaused(paused bool) Aria2Opts {
@@ -287,6 +289,8 @@ type Manager struct {
 	admissionMu sync.Mutex
 	admissions  []admission
 	dbWake      chan struct{}
+	importMu    sync.Mutex
+	importWake  chan struct{}
 
 	pendingMu    sync.Mutex
 	pending      []submission
@@ -401,6 +405,7 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		openPath:          systemOpenPath,
 		wake:              make(chan struct{}, 1),
 		dbWake:            make(chan struct{}, 1),
+		importWake:        make(chan struct{}, 1),
 		done:              make(chan struct{}),
 		lifecycleCtx:      lifecycleCtx,
 		cancel:            cancel,
@@ -431,8 +436,9 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 	m.structureRev = m.revision
 	m.nextID.Store(maxID)
 	m.cleanupModuleCache(true)
-	m.wg.Add(1)
+	m.wg.Add(2)
 	go m.persistenceWriter()
+	go m.browserImportWorker()
 	return m, nil
 }
 
@@ -476,17 +482,20 @@ func (m *Manager) Start() error {
 	for _, item := range submissions {
 		m.enqueue(item)
 	}
+	m.wakeBrowserImports()
 	return nil
 }
 
 func (m *Manager) Stop() {
 	m.stopOnce.Do(func() {
+		m.importMu.Lock()
 		m.moduleUpdateMu.Lock()
 		if m.cancel != nil {
 			m.cancel()
 		}
 		m.moduleUpdateMu.Unlock()
 		close(m.done)
+		m.importMu.Unlock()
 		if client, ok := m.rpc.(*ariaClient); ok && client.collections != nil {
 			client.collections.close()
 		}
@@ -591,6 +600,13 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 	fingerprint := hex.EncodeToString(fingerprintBytes[:])
 
 	m.mu.Lock()
+	if identity.Opts.preserveExisting {
+		if id, ok := m.fingerprints[fingerprint]; ok {
+			result := cloneTask(m.tasks[id])
+			m.mu.Unlock()
+			return result, true, nil
+		}
+	}
 	if task := m.findModuleResumeLocked(identity, fingerprint); task != nil {
 		removeGID := firstNonEmptyString(task.PreviousGID, task.GID)
 		proposed := cloneTask(task)

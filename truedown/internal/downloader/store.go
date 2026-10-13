@@ -53,6 +53,12 @@ func openRecordStore(path string) (*recordStore, error) {
 			module_id TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_download_records_status ON download_records(status)`,
+		`CREATE TABLE IF NOT EXISTS browser_imports (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			fingerprint TEXT NOT NULL UNIQUE,
+			request_json TEXT NOT NULL,
+			next_item INTEGER NOT NULL DEFAULT 0
+		)`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
@@ -152,7 +158,7 @@ func migrateRecordStore(db *sqliteConn) error {
 			return fmt.Errorf("upgrade download retry retirement: %w", err)
 		}
 	}
-	if _, err := db.Exec(`PRAGMA user_version=7`); err != nil {
+	if _, err := db.Exec(`PRAGMA user_version=8`); err != nil {
 		return fmt.Errorf("record download database version: %w", err)
 	}
 	return nil

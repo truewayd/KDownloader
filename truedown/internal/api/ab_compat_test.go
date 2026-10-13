@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 	"truedown/internal/downloader"
 )
 
@@ -31,12 +32,25 @@ func TestABRequestsPreserveNamesAndInitialState(t *testing.T) {
 			if response.Code != http.StatusOK {
 				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 			}
-			tasks := manager.ListTasks()
+			tasks := waitForImportedTasks(t, manager, 1)
 			if len(tasks) != 1 || tasks[0].Name != tc.filename || tasks[0].Status != tc.status {
 				t.Fatalf("tasks=%+v", tasks)
 			}
 		})
 	}
+}
+
+func waitForImportedTasks(t *testing.T, manager *downloader.Manager, count int) []*downloader.Task {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if tasks := manager.ListTasks(); len(tasks) == count {
+			return tasks
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("accepted browser import was not processed")
+	return nil
 }
 
 func TestABUnsupportedRequestsHaveNoSideEffects(t *testing.T) {

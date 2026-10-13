@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -171,27 +172,20 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 				return
 			}
 		}
-		opts := downloader.Aria2Opts{}.WithStartPaused(req.Options.SilentAdd && !req.Options.SilentStart)
+		items := make([]downloader.BrowserImportItem, len(req.Items))
 		for index, item := range req.Items {
-			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(6 * time.Minute))
-			_, handled, err := dm.AddWithModules(
-				r.Context(), item.Link, item.SuggestedName, "", item.Headers,
-				item.DownloadPage, 0, opts, nil,
-			)
-			if err == nil && !handled {
-				_, _, err = dm.AddTask(
-					item.Link, item.SuggestedName, "", item.Headers,
-					item.DownloadPage, 0, opts,
-				)
+			items[index] = downloader.BrowserImportItem{Link: item.Link, Name: item.SuggestedName, Headers: item.Headers, DownloadPage: item.DownloadPage}
+		}
+		if err := dm.AcceptBrowserImport(r.Context(), items, req.Options.SilentAdd && !req.Options.SilentStart); err != nil {
+			status := http.StatusInternalServerError
+			if downloader.IsValidationError(err) {
+				status = http.StatusBadRequest
 			}
-			if err != nil {
-				if downloader.IsValidationError(err) {
-					http.Error(w, fmt.Sprintf("invalid item %d: %v", index, err), http.StatusBadRequest)
-					return
-				}
-				http.Error(w, "failed to create download task", http.StatusInternalServerError)
-				return
+			if errors.Is(err, downloader.ErrBrowserImportBusy) {
+				status = http.StatusServiceUnavailable
 			}
+			http.Error(w, "could not accept browser import", status)
+			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Write([]byte("OK"))

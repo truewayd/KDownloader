@@ -44,6 +44,8 @@ Do not edit `dist/` by hand. It is generated and ignored.
 - `background/creators.js` owns the Kemono/Coomer creator cache and enable flag. The injected cache bridge must honor enable/disable changes immediately, resynchronize after bfcache restoration, and reject stale XHR and IndexedDB completions after request reuse or page cleanup. `background/watch.js` owns Pawchive Watch only and bounds high-concurrency checks.
 - Remove exports only after `rg`/`git grep` confirms there are no runtime, test, or build references.
 
+- KDownloader's ABDM file requests explicitly send `downloadSource.type=http` and `startDownload=true`; typed ABDM requests otherwise default to paused. TrueDown `/add` acknowledges only a synchronous durable inbox commit, bounded to 64 pending jobs/16 MiB with 1 MiB/256 items per job. The manager resolves accepted imports independently of browser cancellation and replays unfinished cursors after restart; duplicate replay preserves existing task status. SQLite schema 8 adds this private inbox. Accepted import acknowledgement is not successful resolution or download completion; failures reach bounded download-issue notifications.
+
 ## Content Script Order
 
 Keep `manifest.json` injection order stable. The current order is:

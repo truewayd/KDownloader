@@ -782,7 +782,7 @@ func TestABBrowserIntegrationPingAndAdd(t *testing.T) {
 	if response.Code != http.StatusOK || response.Body.String() != "OK" {
 		t.Fatalf("add status=%d body=%q", response.Code, response.Body.String())
 	}
-	tasks := manager.ListTasks()
+	tasks := waitForImportedTasks(t, manager, 1)
 	if len(tasks) != 1 || tasks[0].Link != "https://example.test/file.bin" || tasks[0].Name != "saved.bin" ||
 		tasks[0].DownloadPage != "https://example.test/post" || tasks[0].Headers["Referer"] != "https://example.test/post" {
 		t.Fatalf("unexpected imported task: %+v", tasks)
