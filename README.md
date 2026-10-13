@@ -32,7 +32,7 @@ KDownloader is a dependency-free Chrome Manifest V3 extension for discovering, c
 - Tracks download history in IndexedDB with paged export and chunked, duplicate-safe import.
 - Watches Pawchive creators for updates and supports manual or scheduled checks.
 - Dispatches to loopback-only AB-compatible or Gopeed backends, with an explicit Chrome-download fallback after total failure.
-- Includes a Dropbox-expansion filter synchronized to TrueDown, external-link filtering, creator search caches, and optional GitHub Gist sync.
+- Includes a folder-expansion suffix filter synchronized to TrueDown for MEGA, Dropbox and Google Drive, external-link filtering, creator search caches, and optional GitHub Gist sync.
 - Keeps backend and Gist secrets in local-only extension storage.
 
 ### Build and load
@@ -79,6 +79,8 @@ TrueDown combines a Go download core with a Tauri desktop for Windows, Linux and
 - Ships Dropbox and Google Drive with embedded resolver-component baselines; each can be enabled independently or hot-updated from a bounded declarative package without replacing TrueDown.
 - Keeps component protocol profiles under the TrueDown data directory, reports their version and SHA-256 digest, and can immediately restore the embedded baseline from the dashboard.
 - Resolves public Google Drive files, large-file confirmation pages, recursive folders, and Docs/Sheets/Slides exports without a Google Developer API key.
+- Resolves public MEGA files and folders with an independent Go module. Folder mode generates a verified local ZIP or independent files with their hierarchy; aria2 owns ciphertext transfer and resume. Expanded MEGA, Dropbox and Google Drive files share one user suffix filter, including the chosen Google document export extension.
+- Lists open-source dependencies and protocol references in About with pinned links and complete licenses, including the native dependency inventory generated during packaging.
 - Persists the aria2 simultaneous-download limit, defaults it to 3, and applies changes immediately.
 - Bounds queue admission, request sizes, batch operations, filenames, folders, headers, and aria2 options.
 - Supports optional API Key authentication and requires authentication plus TLS for non-loopback listeners.
