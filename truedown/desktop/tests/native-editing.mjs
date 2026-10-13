@@ -45,6 +45,16 @@ export async function acceptNativeEditing(evaluate, until, chooseMenu, { concurr
 export async function chooseWebDriverEditingMenu(command, evaluate, until, caller, action) {
   const popup = await until(async () => (await command('GET', '/window/handles')).find(handle => handle !== caller));
   try {
+    // WebDriver enumerates hidden WebViews before native menu readiness. Switching
+    // to one steals caller focus and makes context_menu_ready reject and close it.
+    // Observe native visibility from the caller before transferring driver focus.
+    await until(() => evaluate(`
+      const callerLabel = window.__TAURI__.window.getCurrentWindow().label;
+      for (const entry of await window.__TAURI__.window.getAllWindows()) {
+        if (entry.label.startsWith('context-menu-' + callerLabel + '-') && await entry.isVisible()) return true;
+      }
+      return false;
+    `));
     await command('POST', '/window', { handle: popup });
     // Rendering buttons precedes native readiness. An early click is rejected
     // by the caller-bound IPC gate and must never be retried as an editor action.

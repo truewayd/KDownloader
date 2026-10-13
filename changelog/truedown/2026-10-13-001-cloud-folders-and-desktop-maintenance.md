@@ -6,10 +6,11 @@
 - Consolidate repeated update-cleanup failures while retaining the regular retry schedule, changed files and durable cleanup receipts.
 - Build the versioned MEGA baseline before clean-checkout Go and NEXT tests. Native packaging uses the same build entry point.
 - Reuse completed private ciphertext members when resuming a folder with NEXT, which rejects re-admission of an existing file without its completed control file. ZIP publication still requires every member's MAC verification.
+- Wait for native menu visibility before WebDriver transfers focus during Linux editing acceptance, preserving the caller's focus while the popup initializes.
 
 ## Verification
 
-- Node contracts: 409 passed, one existing skip. Python migration: 13 passed. Shared UI and icons checks and extension packaging passed.
+- Node contracts: 410 passed, one existing skip. Python migration: 13 passed. Shared UI and icons checks and extension packaging passed.
 - Full Go tests and vet, real aria2 artifact/collection pause-resume-removal tests, Rust formatting, 51 native unit tests plus one dependency test, and clippy passed locally.
 - Tooltip browser checks passed at 100/125/150/200% scale. Settings and About passed six viewport/theme combinations.
 - A clean source snapshot reproduced the missing bundled MEGA baseline. Preparing the baseline fixed the same test in that snapshot.

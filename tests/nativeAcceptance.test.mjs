@@ -17,6 +17,7 @@ test("WebDriver menu destruction restores its caller without repeating an editor
       selected = body.handle;
     };
     const evaluate = async script => {
+      if (script.includes("getAllWindows")) { assert.equal(selected, "caller"); return true; }
       assert.equal(selected, "popup");
       if (!script.includes("node.click()")) {
         if (scenario === "readiness-error") throw new Error(closingError);
@@ -46,6 +47,7 @@ test("editing drivers wait for native readiness even after menu buttons render",
     dataset: { action: "copy" }, click() { clicks++; visible = false; },
   }] } });
   const evaluate = async (script, args = []) => {
+    if (script.includes("getAllWindows")) return true;
     context.args = args;
     const result = vm.runInContext(`(function(){${script}}).apply(null,args)`, context);
     if (!script.includes("node.click()")) {
@@ -63,6 +65,42 @@ test("editing drivers wait for native readiness even after menu buttons render",
     evaluate, until, "caller", "copy");
   assert.equal(readinessPolls, 2);
   assert.equal(clicks, 1);
+});
+
+test("WebDriver waits in the caller while a menu WebView is hidden", async () => {
+  let selected = "caller", nativeVisible = false, open = true, polls = 0, clicks = 0;
+  const context = vm.createContext({ window: { __TAURI__: { window: {
+    getCurrentWindow: () => ({ label: "main" }),
+    getAllWindows: async () => [
+      { label: "main", isVisible: async () => true },
+      { label: "context-menu-settings-1", isVisible: async () => true },
+      { label: "context-menu-main-2", isVisible: async () => nativeVisible },
+    ],
+  } } } });
+  const command = async (method, route, body) => {
+    if (method === "GET") return open ? ["caller", "popup"] : ["caller"];
+    if (body.handle === "popup") assert.ok(nativeVisible, "hidden popup focus would invalidate its caller");
+    selected = body.handle;
+  };
+  const evaluate = async script => {
+    if (script.includes("getAllWindows")) {
+      assert.equal(selected, "caller");
+      const result = await vm.runInContext(`(async()=>{${script}})()`, context);
+      if (++polls === 2) nativeVisible = true;
+      return result;
+    }
+    assert.equal(selected, "popup");
+    if (script.includes("node.click()")) { clicks++; open = false; }
+    return true;
+  };
+  const until = async check => {
+    for (let i = 0; i < 4; i++) { const value = await check(); if (value) return value; }
+    throw new Error("deadline exceeded");
+  };
+  await chooseWebDriverEditingMenu(command, evaluate, until, "caller", "copy");
+  assert.equal(polls, 3);
+  assert.equal(clicks, 1);
+  assert.equal(selected, "caller");
 });
 
 test("native editing cleanup does not replace the original failure", async () => {
