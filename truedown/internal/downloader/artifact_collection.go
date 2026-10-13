@@ -134,7 +134,8 @@ func (c *collectionTransports) run(ctx context.Context, job *collectionTransport
 			child.Folder, child.OutputName, child.Link = job.directory, modulehost.CiphertextName(index), prepared.URL
 			digest := sha256.Sum256([]byte(job.task.GID + ":" + strconv.Itoa(index)))
 			child.GID = hex.EncodeToString(digest[:8])
-			if _, _, err := inspectHTTPOutput(child); err != nil {
+			outputExists, controlExists, err := inspectHTTPOutput(child)
+			if err != nil {
 				return err
 			}
 			options := map[string]any{}
@@ -158,6 +159,21 @@ func (c *collectionTransports) run(ctx context.Context, job *collectionTransport
 			if job.paused {
 				job.mu.Unlock()
 				continue
+			}
+			if outputExists && !controlExists {
+				info, err := os.Lstat(filepath.Join(child.Folder, child.OutputName))
+				if err != nil || !info.Mode().IsRegular() {
+					job.mu.Unlock()
+					return fmt.Errorf("collection member output changed")
+				}
+				if info.Size() == entry.Size {
+					// The private journal binds this completed ciphertext to the
+					// immutable collection. NEXT refuses re-admitting an existing
+					// file without a control file. Reuse it; every member still
+					// passes module MAC verification before ZIP publication.
+					job.mu.Unlock()
+					break
+				}
 			}
 			if entry.Size == 0 {
 				file, err := os.OpenFile(filepath.Join(child.Folder, child.OutputName), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)

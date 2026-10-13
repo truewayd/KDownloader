@@ -84,6 +84,7 @@ func runArtifactTestHelper() {
 			if len(options.Data) > 0 {
 				_ = json.Unmarshal(options.Data, &prepared)
 				prepared.Data = options.Data
+				prepared.URL += "/" + prepared.Name
 			}
 			value = prepared
 		case "list":

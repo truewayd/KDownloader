@@ -27,7 +27,11 @@ func TestAriaCollectionRestartPauseAndRemoval(t *testing.T) {
 		encrypted[i] ^= 0xaa
 	}
 	var resumed atomic.Bool
+	var firstMemberRequests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/fixture.bin" {
+			firstMemberRequests.Add(1)
+		}
 		if value := r.Header.Get("Range"); value != "" && !strings.HasPrefix(value, "bytes=0-") {
 			resumed.Store(true)
 		}
@@ -76,6 +80,10 @@ func TestAriaCollectionRestartPauseAndRemoval(t *testing.T) {
 		t.Fatal("ZIP published before all members were verified")
 	}
 	m.Stop()
+	completedRequests := firstMemberRequests.Load()
+	if completedRequests == 0 {
+		t.Fatal("first collection member was not transferred")
+	}
 	m = newManager()
 	if err := m.ResumeTask(task.ID); err != nil {
 		t.Fatal(err)
@@ -84,6 +92,9 @@ func TestAriaCollectionRestartPauseAndRemoval(t *testing.T) {
 	current, _ = m.GetTask(task.ID)
 	if !resumed.Load() {
 		t.Fatal("collection restart did not resume a member with Range")
+	}
+	if firstMemberRequests.Load() != completedRequests {
+		t.Fatal("collection restart downloaded an already completed member")
 	}
 	archivePath := filepath.Join(current.Folder, current.OutputName)
 	archive, err := zip.OpenReader(archivePath)
