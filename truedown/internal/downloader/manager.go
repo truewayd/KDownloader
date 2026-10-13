@@ -48,12 +48,13 @@ type Aria2Opts struct {
 	startPaused bool
 	// Replaying an accepted browser import must not restart an existing task.
 	preserveExisting bool
-	ProxyMode        string   `json:"proxyMode,omitempty"`
-	Connections      int      `json:"connections"`
-	MaxSpeedBps      int      `json:"maxSpeedBps"`
-	MaxTries         int      `json:"maxTries"`
-	RetryWait        int      `json:"retryWait"`
-	ExtraArgs        []string `json:"extraArgs"`
+	ProxyMode        string        `json:"proxyMode,omitempty"`
+	Connections      int           `json:"connections"`
+	MaxSpeedBps      int           `json:"maxSpeedBps"`
+	MaxTries         int           `json:"maxTries"`
+	RetryWait        int           `json:"retryWait"`
+	ExtraArgs        []string      `json:"extraArgs"`
+	Media            *MediaOptions `json:"media,omitempty"`
 }
 
 func (opts Aria2Opts) WithStartPaused(paused bool) Aria2Opts {
@@ -98,6 +99,7 @@ type Task struct {
 	TotalLength     int64             `json:"-"`
 	CompletedLength int64             `json:"-"`
 	DownloadSpeed   int64             `json:"-"`
+	Media           *MediaProgress    `json:"-"`
 
 	Fingerprint   string `json:"-"`
 	RequestJSON   string `json:"-"`
@@ -118,22 +120,24 @@ type Task struct {
 // TaskSnapshot contains only fields needed by the web UI. Request headers and
 // aria2 options can contain credentials and must not be exposed by the API.
 type TaskSnapshot struct {
-	Revision        int64     `json:"revision"`
-	UpdateDownload  bool      `json:"updateDownload,omitempty"`
-	Category        string    `json:"category"`
-	TotalLength     int64     `json:"totalLength"`
-	CompletedLength int64     `json:"completedLength,omitempty"`
-	DownloadSpeed   int64     `json:"downloadSpeed"`
-	ID              int64     `json:"id"`
-	Name            string    `json:"name"`
-	Link            string    `json:"link"`
-	Folder          string    `json:"folder"`
-	OutputName      string    `json:"outputName,omitempty"`
-	Status          Status    `json:"status"`
-	Progress        string    `json:"progress"`
-	Error           string    `json:"error,omitempty"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	Revision            int64          `json:"revision"`
+	UpdateDownload      bool           `json:"updateDownload,omitempty"`
+	Category            string         `json:"category"`
+	TotalLength         int64          `json:"totalLength"`
+	CompletedLength     int64          `json:"completedLength,omitempty"`
+	DownloadSpeed       int64          `json:"downloadSpeed"`
+	ID                  int64          `json:"id"`
+	Name                string         `json:"name"`
+	Link                string         `json:"link"`
+	Folder              string         `json:"folder"`
+	OutputName          string         `json:"outputName,omitempty"`
+	Status              Status         `json:"status"`
+	Progress            string         `json:"progress"`
+	Error               string         `json:"error,omitempty"`
+	CreatedAt           time.Time      `json:"createdAt"`
+	UpdatedAt           time.Time      `json:"updatedAt"`
+	Media               *MediaProgress `json:"media,omitempty"`
+	RequiresMediaEngine bool           `json:"requiresMediaEngine,omitempty"`
 }
 
 type TaskSummary struct {
@@ -576,6 +580,9 @@ func waitForManagedCommand(command *exec.Cmd, done <-chan error, gracefulTimeout
 // AddTask records the request and returns immediately. Persistence and aria2
 // admission run asynchronously behind a bounded aria2 backlog window.
 func (m *Manager) AddTask(link, name, folder string, headers map[string]string, downloadPage string, queueID int, opts Aria2Opts) (*Task, bool, error) {
+	if opts.Media != nil {
+		return m.addTaskWithModule(link, name, folder, headers, downloadPage, queueID, opts, "")
+	}
 	return m.addTaskWithModule(link, name, folder, headers, downloadPage, queueID, opts, m.installedModuleID(link))
 }
 
@@ -620,7 +627,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		proposed := cloneTask(task)
 		proposed.PreviousGID = removeGID
 		proposed.GID = m.newGIDLocked()
-		if m.keepHTTPRetryGID(task) && task.Link == identity.Link {
+		if m.keepRetryGID(task) && task.Link == identity.Link {
 			proposed.GID = task.GID
 		}
 		proposed.Fingerprint = fingerprint
@@ -659,7 +666,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 	}
 	if id, ok := m.fingerprints[fingerprint]; ok {
 		task := m.tasks[id]
-		shouldRecheck := task.Status == StatusDone || task.Status == StatusError
+		shouldRecheck := task.Status == StatusError || (task.Status == StatusDone && !isMediaTask(task))
 		if !shouldRecheck {
 			result := cloneTask(task)
 			m.mu.Unlock()
@@ -669,7 +676,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		proposed := cloneTask(task)
 		proposed.PreviousGID = removeGID
 		proposed.GID = m.newGIDLocked()
-		if m.keepHTTPRetryGID(task) {
+		if m.keepRetryGID(task) {
 			proposed.GID = task.GID
 		}
 		proposed.Status = StatusQueued
@@ -727,8 +734,16 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		TransferState:  transferPending,
 	}
 	task.Status, task.Progress = initialTaskState(identity.Opts)
+	if m.requiresMediaEngine(task) {
+		task.Progress = "Waiting for a NEXT 3 engine with native media support"
+		m.downloadIssues.EngineRequired++
+	}
 	m.touchTaskLocked(task)
-	if identity.BitTorrent == nil {
+	if identity.Opts.Media != nil {
+		if task.Name == "" {
+			task.Name = displayName(task.Link)
+		}
+	} else if identity.BitTorrent == nil {
 		if task.Name != "" {
 			task.OutputName = m.resolveOutputNameLocked(task.Folder, task.Name, task.ID)
 		} else {
@@ -1256,6 +1271,8 @@ func (m *Manager) snapshotTask(task *Task) TaskSnapshot {
 		ID: task.ID, Name: task.Name, Link: task.Link, Folder: task.Folder,
 		OutputName: task.OutputName, Status: task.Status, Progress: task.Progress,
 		Error: task.Error, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt,
+		Media:               cloneMediaProgress(task.Media),
+		RequiresMediaEngine: m.requiresMediaEngine(task),
 	}
 }
 
@@ -1293,7 +1310,7 @@ func (m *Manager) RequeueTasks(ids []int64) TaskOperationResult {
 		originals[id] = cloneTask(task)
 		task.TransferState = m.retryTransferState(task)
 		discardPartials[id] = task.TransferState == transferRestart
-		if m.keepHTTPRetryGID(task) {
+		if m.keepRetryGID(task) {
 			task.PreviousGID = firstNonEmptyString(task.PreviousGID, task.GID)
 			removeGIDs[id] = task.PreviousGID
 			task.admissionFailureStatus, task.admissionFailureRevision = "", 0
@@ -1701,7 +1718,7 @@ func (m *Manager) removeTasks(ids []int64, allowActive bool) TaskOperationResult
 			continue
 		}
 		path, shouldRemove := partialPaths[target.id]
-		if !shouldRemove {
+		if !shouldRemove || isMediaTask(target.task) {
 			continue
 		}
 		if err := removePartialFiles(target.task, path); err != nil {
@@ -1977,6 +1994,11 @@ func (m *Manager) submit(item submission) bool {
 	if snapshot.Status != StatusQueued && snapshot.Status != StatusPaused {
 		return false
 	}
+	if m.requiresMediaEngine(snapshot) {
+		// The durable status retains the caller's start/pause intent. A future
+		// compatible engine replays admission through the normal startup path.
+		return false
+	}
 	if err := m.validateEngineOptions(snapshot.Opts); err != nil {
 		m.failTask(snapshot.ID, err)
 		return false
@@ -2002,7 +2024,7 @@ func (m *Manager) submit(item submission) bool {
 			stalePathErr = err
 		}
 	}
-	if item.removeGID != "" {
+	if item.removeGID != "" && !(isMediaTask(snapshot) && item.removeGID == snapshot.GID) {
 		if err := m.rpc.removeResult(item.removeGID); err != nil && !isGIDNotFound(err) {
 			m.failTask(snapshot.ID, fmt.Errorf("retire previous download before retry: %w", err))
 			return false
@@ -2069,7 +2091,7 @@ func (m *Manager) submit(item submission) bool {
 			log.Printf("task %d discarded unusable HTTP partial data; restarting from zero", snapshot.ID)
 		}
 	}
-	if !isBitTorrent && preparedArtifact == nil {
+	if !isBitTorrent && preparedArtifact == nil && !isMediaTask(snapshot) {
 		var err error
 		snapshot, err = m.prepareHTTPOutput(snapshot.ID, item.recheck)
 		if err != nil {
@@ -2118,8 +2140,19 @@ func (m *Manager) submit(item submission) bool {
 	if preparedProxy != "" && snapshot.Opts.ProxyMode == "" {
 		options["https-proxy"] = preparedProxy
 	}
-	attachedToNativeTorrent := false
-	if m.aria2Next {
+	attachedToNative := false
+	if isMediaTask(snapshot) {
+		var deferred bool
+		var err error
+		attachedToNative, deferred, err = m.attachNativeMedia(snapshot, options)
+		if deferred {
+			return false
+		}
+		if err != nil {
+			m.failAdmission(snapshot, fmt.Errorf("restore native media task: %w", err))
+			return false
+		}
+	} else if m.aria2Next {
 		if state, err := m.rpc.status(snapshot.GID); err == nil && state.Bittorrent != nil &&
 			(state.Status == "active" || state.Status == "waiting" || state.Status == "paused" || state.Status == "complete") {
 			var restoreErr error
@@ -2132,10 +2165,10 @@ func (m *Manager) submit(item submission) bool {
 				m.failAdmission(snapshot, fmt.Errorf("restore native torrent pause state: %w", restoreErr))
 				return false
 			}
-			attachedToNativeTorrent = true
+			attachedToNative = true
 		}
 	}
-	if !attachedToNativeTorrent {
+	if !attachedToNative {
 		var addErr error
 		if isBitTorrent && identity.BitTorrent.Kind == "file" {
 			if torrentRPC, ok := m.rpc.(torrentAddRPC); ok {
@@ -2158,10 +2191,11 @@ func (m *Manager) submit(item submission) bool {
 		return false
 	}
 	m.ariaAdmitted[task.ID] = true
+	task.PreviousGID = ""
 	if task.Status == StatusPaused {
 		task.Progress = "Paused by aria2"
 	} else if task.Status == StatusQueued {
-		if attachedToNativeTorrent {
+		if attachedToNative && !isMediaTask(task) {
 			task.Progress = "Restored by Aria2 Next; checking local torrent data"
 		} else {
 			task.Progress = "Accepted by aria2"
@@ -2348,6 +2382,8 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 		}
 		oldStatus, oldProgress, oldError, oldOutput := task.Status, task.Progress, task.Error, task.OutputName
 		oldTransferState := task.TransferState
+		oldMedia := cloneMediaProgress(task.Media)
+		task.Media = mediaProgress(state.Media)
 		task.admissionFailureStatus, task.admissionFailureRevision = "", 0
 		oldTotalLength := task.TotalLength
 		oldCompleted, oldSpeed := task.CompletedLength, task.DownloadSpeed
@@ -2356,6 +2392,9 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 			m.releaseAriaSlotLocked(task.ID)
 		}
 		nextProgress := formatProgress(state)
+		if task.Media != nil {
+			nextProgress = formatMediaProgress(task.Media)
+		}
 		if m.artifacts != nil {
 			if progress := m.artifacts.progress(task.GID); progress != "" {
 				nextProgress = progress
@@ -2377,7 +2416,7 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 				task.Error = "aria2 error code " + state.ErrorCode
 			}
 			var identity requestIdentity
-			isHTTP := json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.BitTorrent == nil
+			isHTTP := !isMediaTask(task) && json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.BitTorrent == nil
 			if isHTTP && (state.ErrorCode == "8" || state.ErrorCode == "10" || requiresCleanHTTPRestart(task.Error)) {
 				task.TransferState = transferRestart
 			}
@@ -2393,7 +2432,13 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 				diagnosticLogs = append(diagnosticLogs, fmt.Sprintf("task %d HTTP byte-range resume state no longer matches the remote object; retry will discard only this task's partial file and restart from zero", task.ID))
 			}
 		}
-		if task.OutputName == "" && len(state.Files) > 0 && state.Files[0].Path != "" {
+		if isMediaTask(task) && task.Status == StatusError {
+			task.Error = "Native media download failed"
+			if task.Media != nil && task.Media.ErrorCode != "" {
+				task.Error += ": " + task.Media.ErrorCode
+			}
+		}
+		if task.OutputName == "" && (!isMediaTask(task) || task.Status == StatusDone) && len(state.Files) > 0 && state.Files[0].Path != "" {
 			task.OutputName = taskOutputRootName(task.Folder, state.Files[0].Path)
 			m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID
 		}
@@ -2407,7 +2452,7 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 		if task.Status != StatusDownloading {
 			task.DownloadSpeed = 0
 		}
-		if oldStatus != task.Status || oldProgress != task.Progress || oldError != task.Error || oldOutput != task.OutputName || oldTotalLength != task.TotalLength || oldCompleted != task.CompletedLength || oldSpeed != task.DownloadSpeed || oldTransferState != task.TransferState {
+		if oldStatus != task.Status || oldProgress != task.Progress || oldError != task.Error || oldOutput != task.OutputName || oldTotalLength != task.TotalLength || oldCompleted != task.CompletedLength || oldSpeed != task.DownloadSpeed || oldTransferState != task.TransferState || !sameMediaProgress(oldMedia, task.Media) {
 			m.touchTaskLocked(task)
 			updates = append(updates, snapshotTaskUpdate(task))
 		}
@@ -2909,6 +2954,9 @@ func validateRequest(identity requestIdentity) error {
 		return &ValidationError{Message: fmt.Sprintf(format, args...)}
 	}
 	if identity.BitTorrent != nil {
+		if identity.Opts.Media != nil {
+			return invalid("media options cannot be used with BitTorrent")
+		}
 		if err := validateBitTorrentIdentity(identity); err != nil {
 			return invalid("invalid BitTorrent source: %v", err)
 		}
@@ -3577,6 +3625,11 @@ func cloneTask(task *Task) *Task {
 		clone.Headers[key] = value
 	}
 	clone.Opts.ExtraArgs = append([]string(nil), task.Opts.ExtraArgs...)
+	if task.Opts.Media != nil {
+		media := *task.Opts.Media
+		clone.Opts.Media = &media
+	}
+	clone.Media = cloneMediaProgress(task.Media)
 	return &clone
 }
 

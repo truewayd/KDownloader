@@ -140,10 +140,11 @@ func (m *Manager) LiveTaskDetails(ctx context.Context, id int64) (TaskDetails, e
 	}
 	detail := m.taskDetails(task)
 	gid, state, fingerprint, engine := task.GID, task.Status, task.Fingerprint, m.rpc
+	media := isMediaTask(task)
 	m.mu.RUnlock()
 	detail.Transfer = &TaskTransfer{}
 	rpc, supported := engine.(taskTransferRPC)
-	if !supported || gid == "" || state == StatusDone || state == StatusError {
+	if !supported || media || gid == "" || state == StatusDone || state == StatusError {
 		return detail, nil
 	}
 	if m.detailReads.Add(1) > 4 {

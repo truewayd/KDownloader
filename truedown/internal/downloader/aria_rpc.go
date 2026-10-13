@@ -18,6 +18,8 @@ type ariaClient struct {
 	http               *http.Client
 	nextID             atomic.Uint64
 	filenameResolution atomic.Bool
+	mediaSupport       atomic.Bool
+	probeSupport       atomic.Bool
 	collections        *collectionTransports
 }
 
@@ -68,6 +70,7 @@ type ariaStatus struct {
 		Path string `json:"path"`
 	} `json:"files"`
 	Bittorrent *ariaBitTorrentStatus `json:"bittorrent,omitempty"`
+	Media      *ariaMediaStatus      `json:"media,omitempty"`
 }
 
 func newAriaClient(port int, secret string) *ariaClient {
@@ -158,6 +161,7 @@ func (c *ariaClient) ready() error {
 	var version struct {
 		Version          string   `json:"version"`
 		DownloadFeatures []string `json:"downloadFeatures"`
+		MediaFeatures    []string `json:"mediaFeatures"`
 	}
 	if err := c.call("aria2.getVersion", nil, &version); err != nil {
 		return err
@@ -172,13 +176,50 @@ func (c *ariaClient) ready() error {
 	// NEXT 3 no longer advertises downloadFeatures. Older engines retain the
 	// feature flag as a fallback when method discovery is unavailable.
 	var methods []string
+	var retry, finish, probe bool
 	if err := c.call("system.listMethods", nil, &methods); err == nil {
 		supported = false
 		for _, method := range methods {
 			supported = supported || method == "aria2.resolveFilename"
+			retry = retry || method == "aria2.retryMedia"
+			finish = finish || method == "aria2.finishMedia"
+			probe = probe || method == "aria2.probe"
 		}
 	}
 	c.filenameResolution.Store(supported)
+	var scopedHeaders, structuredErrors bool
+	for _, feature := range version.MediaFeatures {
+		scopedHeaders = scopedHeaders || feature == "request-contexts"
+		structuredErrors = structuredErrors || feature == "structured-errors"
+	}
+	c.mediaSupport.Store(retry && finish && scopedHeaders && structuredErrors)
+	c.probeSupport.Store(probe)
+	return nil
+}
+
+func (c *ariaClient) capabilities() EngineCapabilities {
+	return EngineCapabilities{Media: c.mediaSupport.Load(), Probe: c.probeSupport.Load()}
+}
+
+func (c *ariaClient) retryMedia(gid string, options map[string]any) error {
+	var result string
+	if err := c.call("aria2.retryMedia", []any{gid, options}, &result); err != nil {
+		return err
+	}
+	if result != gid {
+		return fmt.Errorf("aria2 returned an unexpected media GID")
+	}
+	return nil
+}
+
+func (c *ariaClient) finishMedia(gid string) error {
+	var result string
+	if err := c.call("aria2.finishMedia", []any{gid}, &result); err != nil {
+		return err
+	}
+	if result != gid {
+		return fmt.Errorf("aria2 returned an unexpected media GID")
+	}
 	return nil
 }
 
@@ -329,7 +370,7 @@ func (c *ariaClient) status(gid string) (ariaStatus, error) {
 	return c.nativeStatus(gid)
 }
 func (c *ariaClient) nativeStatus(gid string) (ariaStatus, error) {
-	keys := []string{"gid", "status", "files", "bittorrent", "followedBy", "following", "totalLength", "completedLength", "downloadSpeed", "connections", "errorCode"}
+	keys := []string{"gid", "status", "files", "bittorrent", "media", "followedBy", "following", "totalLength", "completedLength", "downloadSpeed", "connections", "errorCode"}
 	var status ariaStatus
 	err := c.call("aria2.tellStatus", []any{gid, keys}, &status)
 	return status, err
@@ -361,7 +402,7 @@ func (c *ariaClient) shutdown() error {
 }
 
 func (c *ariaClient) statuses() ([]ariaStatus, error) {
-	keys := []string{"gid", "status", "totalLength", "completedLength", "downloadSpeed", "uploadSpeed", "connections", "numSeeders", "errorCode", "errorMessage", "files", "bittorrent", "followedBy", "following"}
+	keys := []string{"gid", "status", "totalLength", "completedLength", "downloadSpeed", "uploadSpeed", "connections", "numSeeders", "errorCode", "errorMessage", "files", "bittorrent", "media", "followedBy", "following"}
 	var active, waiting, stopped []ariaStatus
 	if err := c.call("aria2.tellActive", []any{keys}, &active); err != nil {
 		return nil, err

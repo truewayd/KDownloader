@@ -427,6 +427,9 @@ func (m *Manager) AddWithModules(
 	opts Aria2Opts,
 	options map[string]json.RawMessage,
 ) (ModuleAddResult, bool, error) {
+	if opts.Media != nil {
+		return ModuleAddResult{}, false, m.validateEngineOptions(opts)
+	}
 	module, err := m.modules.selectModule(link, options)
 	if err != nil {
 		return ModuleAddResult{}, false, err

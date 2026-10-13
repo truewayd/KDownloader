@@ -17,7 +17,7 @@ Unreleased main-branch behavior is not treated as a release contract.
 | Update discovery | Accept both `Aria2 Next version` and `aria2-next version` banners; retain executable/SHA-256 validation. |
 | Checkpoint options | NEXT 3 uses `state-save-interval=1`; older engines retain HTTP auto-save 5s and supported BT resume-save 1s. Reject retired range and task-level checkpoint overrides. |
 | Windows shutdown | NEXT 3 uses authenticated shutdown RPC; CTRL_BREAK does not checkpoint. Stable/NEXT 2 retain the hidden interrupt helper. |
-| Ordinary HTTP | NEXT 3 receives `media=file` until explicit media admission is supported; downloading a playlist does not silently change task semantics. |
+| Ordinary HTTP | NEXT 3 receives `media=file`; downloading a playlist does not silently change task semantics. Explicit media tasks select `hls` or `dash`. |
 | BitTorrent identity | Align the previously missed 2.6.7 global `bt-user-agent` and `bt-peer-id-prefix` options. Persist, hot-apply and restore through runtime settings; gate engine arguments and RPC options to NEXT 2.6.7+. Keep HTTP identity independent. |
 | Diagnostics / native IPC / browser API | No new native commands or supported URL protocols. The existing runtime-settings endpoint accepts optional `btUserAgent` and `btPeerIdPrefix`; partial updates preserve omitted fields. |
 
@@ -43,6 +43,43 @@ local cleanup. Completed outputs and foreign files are preserved. Module
 artifacts and updater caches remain separate TrueDown-owned resources.
 Production code never opens or walks the engine checkpoint database/directory.
 
+## Native HLS/DASH
+
+Media execution requires NEXT 3 plus discovered `retryMedia`/`finishMedia` RPCs
+and native `request-contexts`/`structured-errors` capabilities. The form exposes
+HLS/DASH, MP4/MKV, and an optional live recording limit of 0–604800 seconds.
+The untyped TrueDown headless extension accepts
+`opts.media:{protocol:"dash",format:"mkv",recordTime:0}`; this is not an ABDM
+DASH contract. ABDM HLS uses its existing `downloadSource.type:"hls"` or `/add`
+item type and preserves suggested-name, headers, and initial pause semantics.
+
+Known media requests are durably accepted even with an older engine. They keep
+their queued/paused intent and expose `requiresMediaEngine:true`; ordinary files
+in the same browser batch continue normally. No media RPC or file download is
+attempted until a compatible engine is selected and the core restarts. Native
+notifications report a separate bounded `engineRequired` counter, without
+calling this a download failure. Waiting tasks can be paused or removed. This
+does not auto-install/switch engines or accept unknown protocols/options.
+
+NEXT selects the best tracks, resolves manifests and segment addresses, scopes
+credentials by origin, transfers and caches fragments, and muxes/publishes the
+output. TrueDown passes the original name as a title hint and observes the
+published filename; it does not guess or reserve a remuxed container path.
+Failed media uses `retryMedia` with the same GID. Pausing/restarting retains
+native cache. Removal uses native cancellation/result retirement, with no
+TrueDown media-cache traversal or partial-file deletion. Completed files remain.
+Completion means native publication has finished. Duplicate completed media
+stays completed rather than starting an HTTP conditional refresh.
+
+Snapshots expose bounded media state, duration, received bytes and structured
+error codes, excluding manifests, tracks and raw engine errors. Live tasks show
+recorded duration rather than a fictitious percentage. `finish-media` on the
+existing task batch route ends a live recording and waits for native completion;
+if pause is still settling, the manager waits before asking NEXT to finish it.
+`GET /engine/capabilities` is read-only and native access is limited to new-task.
+DRM-protected media remains unsupported. Arbitrary track selection, captured
+browser manifests, and cross-origin credential contexts are not exposed yet.
+
 The BT identity change was announced in
 [issue 40](https://github.com/AnInsomniacy/aria2-next/issues/40)
 and verified against released
@@ -56,7 +93,7 @@ libtorrent settings, not per-download `header` or legacy `peer-agent` options.
 From the repository root on Windows x64:
 
 ```powershell
-pwsh -NoProfile -File truedown/tools/test-next-engine.ps1
+pwsh -NoProfile -File truedown/tools/test-next-engine.ps1 -FFmpegPath C:\Tools\ffmpeg.exe
 ```
 
 The script fetches the reviewed 3.0.0 binary, verifies its pinned SHA-256 before
@@ -74,6 +111,10 @@ refresh, filename resolution without network activity or task creation, and
 BT identity startup, hot update, restart persistence and default restoration
 via the real engine's global-option RPC. NEXT 3 also verifies that pause retains
 native state and removal retires it without deleting an unrelated temporary file.
+FFmpeg/ffprobe are developer-only fixture/oracle tools, never a production
+download stack. Media acceptance generates HLS and DASH, verifies decoded video
+frame hashes and audio/video tracks, retained cache across retries/restart,
+paused live finalization, native deletion, and cross-origin credential isolation.
 Stable-engine tests retain legacy control-file corruption coverage. Native UI,
 external service availability, live BitTorrent swarms and unpublished engine
 versions are outside this compatibility acceptance.

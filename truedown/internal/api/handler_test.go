@@ -795,7 +795,7 @@ func TestABBrowserIntegrationRejectsUnsupportedAndMalformedItems(t *testing.T) {
 
 	for _, body := range []string{
 		`{"items":[],"options":{"silentAdd":false,"silentStart":false}}`,
-		`{"items":[{"link":"https://example.test/stream.m3u8","type":"hls"}],"options":{}}`,
+		`{"items":[{"link":"https://example.test/stream.mpd","type":"dash"}],"options":{}}`,
 		`{"items":[{"link":"file:///etc/passwd","type":"http"}],"options":{}}`,
 		`{"items":[{"link":"https://example.test/file","type":"http","unknown":true}],"options":{}}`,
 	} {

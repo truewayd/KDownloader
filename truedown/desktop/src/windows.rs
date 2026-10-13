@@ -193,6 +193,7 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
         },
         "new-task" => match method {
             "GET" => [
+                "/engine/capabilities",
                 "/settings/task-defaults",
                 "/settings/download-rules",
                 "/modules",
@@ -623,6 +624,10 @@ mod tests {
         }
         assert!(!allowed("batch-task", "POST", "/start-headless-download"));
         let window = "new-task";
+        assert!(allowed(window, "GET", "/engine/capabilities"));
+        for role in ["main", "settings", "task-details", "task-preview"] {
+            assert!(!allowed(role, "GET", "/engine/capabilities"));
+        }
         assert!(allowed(window, "GET", "/settings/task-defaults"));
         assert!(allowed(window, "POST", "/start-headless-download"));
         assert!(allowed(window, "POST", "/start-bt-download"));

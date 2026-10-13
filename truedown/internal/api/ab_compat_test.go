@@ -18,6 +18,7 @@ func TestABRequestsPreserveNamesAndInitialState(t *testing.T) {
 		{"silent add", "/add", `{"items":[{"type":"http","link":"https://example.test/file","suggestedName":"paused.bin"}],"options":{"silentAdd":true,"silentStart":false}}`, "paused.bin", downloader.StatusPaused},
 		{"silent start", "/add", `{"items":[{"type":"http","link":"https://example.test/file","suggestedName":"started.bin"}],"options":{"silentAdd":true,"silentStart":true}}`, "started.bin", downloader.StatusQueued},
 		{"typed default", "/start-headless-download", `{"downloadSource":{"type":"http","link":"https://example.test/file","suggestedName":"suggested.bin"},"folder":null,"name":null,"queueId":null,"categoryId":null}`, "suggested.bin", downloader.StatusPaused},
+		{"typed media waits", "/start-headless-download", `{"downloadSource":{"type":"hls","link":"https://example.test/stream.m3u8","suggestedName":"Video"}}`, "Video", downloader.StatusPaused},
 		{"typed start", "/start-headless-download", `{"downloadSource":{"type":"http","link":"https://example.test/file","suggestedName":"suggested.bin"},"name":"explicit.bin","startDownload":true,"startQueue":false}`, "explicit.bin", downloader.StatusQueued},
 		{"legacy default", "/start-headless-download", `{"downloadSource":{"link":"https://example.test/file"},"name":"legacy.bin","queueId":0}`, "legacy.bin", downloader.StatusQueued},
 		{"legacy explicit pause", "/start-headless-download", `{"downloadSource":{"link":"https://example.test/file"},"name":"paused.bin","startDownload":false}`, "paused.bin", downloader.StatusPaused},
@@ -55,7 +56,7 @@ func waitForImportedTasks(t *testing.T, manager *downloader.Manager, count int) 
 
 func TestABUnsupportedRequestsHaveNoSideEffects(t *testing.T) {
 	for _, tc := range []struct{ path, body string }{
-		{"/start-headless-download", `{"downloadSource":{"type":"hls","link":"https://example.test/stream.m3u8"}}`},
+		{"/start-headless-download", `{"downloadSource":{"type":"unknown-media","link":"https://example.test/stream.m3u8"}}`},
 		{"/start-headless-download", `{"downloadSource":{"type":"http","link":"https://example.test/file"},"queueId":1}`},
 		{"/start-headless-download", `{"downloadSource":{"type":"http","link":"https://example.test/file"},"categoryId":1}`},
 		{"/start-headless-download", `{"downloadSource":{"link":"https://example.test/file"},"startQueue":true}`},
@@ -66,6 +67,7 @@ func TestABUnsupportedRequestsHaveNoSideEffects(t *testing.T) {
 		{"/add", `[null]`},
 	} {
 		mux, manager := testHandler(t)
+		t.Cleanup(manager.Stop)
 		request := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()

@@ -28,6 +28,9 @@ func (m *Manager) keepHTTPRetryGID(task *Task) bool {
 }
 
 func (m *Manager) retryTransferState(task *Task) string {
+	if isMediaTask(task) {
+		return transferResume
+	}
 	var identity requestIdentity
 	if m.usesNext3() && task.Status == StatusError && !m.isArtifactTask(task) &&
 		json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.BitTorrent == nil {

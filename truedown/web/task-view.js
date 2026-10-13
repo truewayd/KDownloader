@@ -173,8 +173,7 @@ function reconcileTaskRows(body, tasks, epoch = "") {
     label.dataset.tooltip = task.error ? formatTaskError(task) : task.progress || progress;
     if (task.error) label.dataset.tooltipKind = "card";
     else delete label.dataset.tooltipKind;
-    const percent = taskProgressPercent(task);
-    if (nodes.progress.value !== percent) nodes.progress.value = percent;
+    renderTaskProgress(nodes.progress, task);
     [taskBytes(task.totalLength), taskSpeed(task), taskRemaining(task), taskDate(task.createdAt)].forEach((value, index) => {
       const node = nodes.values[index];
       if (node.textContent !== value) node.textContent = value;

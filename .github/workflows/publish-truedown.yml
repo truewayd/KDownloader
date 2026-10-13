@@ -113,6 +113,9 @@ jobs:
         working-directory: truedown
         run: go vet ./...
 
+      - name: Prepare media test oracle
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg --no-progress --yes }
       - name: Accept reviewed NEXT engine
         run: ./truedown/tools/test-next-engine.ps1
 

@@ -1,5 +1,6 @@
 param(
   [string]$EnginePath = "",
+  [string]$FFmpegPath = "",
   [ValidateSet('3.0.0', '2.8.3')][string]$Version = '3.0.0'
 )
 
@@ -14,7 +15,7 @@ $expectedHash = @{
 $temporaryRoot = $null
 if ($EnginePath) { $EnginePath = [IO.Path]::GetFullPath($EnginePath) }
 $saved = @{}
-foreach ($key in @('TRUEDOWN_INTEGRATION', 'TRUEDOWN_ARIA2_PATH', 'TRUEDOWN_ARIA2_NEXT_VERSION')) {
+foreach ($key in @('TRUEDOWN_INTEGRATION', 'TRUEDOWN_ARIA2_PATH', 'TRUEDOWN_ARIA2_NEXT_VERSION', 'TRUEDOWN_FFMPEG_PATH')) {
   $saved[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
 }
 Push-Location (Join-Path $PSScriptRoot '..')
@@ -32,6 +33,10 @@ try {
   $env:TRUEDOWN_INTEGRATION = '1'
   $env:TRUEDOWN_ARIA2_PATH = $EnginePath
   $env:TRUEDOWN_ARIA2_NEXT_VERSION = $version
+  if ($FFmpegPath) { $env:TRUEDOWN_FFMPEG_PATH = [IO.Path]::GetFullPath($FFmpegPath) }
+  if ($version -eq '3.0.0' -and -not $env:TRUEDOWN_FFMPEG_PATH -and -not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+    throw 'NEXT 3 media acceptance requires developer FFmpeg and ffprobe; pass -FFmpegPath'
+  }
   node tools/prepare-mega-module.mjs
   if ($LASTEXITCODE -ne 0) { throw "MEGA baseline preparation failed" }
   go test ./internal/downloader ./internal/systemupdate ./internal/api -count=1 -timeout=5m

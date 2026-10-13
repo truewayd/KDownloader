@@ -167,7 +167,7 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			return
 		}
 		for index, item := range req.Items {
-			if item.Type != "http" {
+			if item.Type != "http" && item.Type != "hls" {
 				http.Error(w, fmt.Sprintf("item %d uses unsupported download type %q", index, item.Type), http.StatusBadRequest)
 				return
 			}
@@ -175,6 +175,9 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		items := make([]downloader.BrowserImportItem, len(req.Items))
 		for index, item := range req.Items {
 			items[index] = downloader.BrowserImportItem{Link: item.Link, Name: item.SuggestedName, Headers: item.Headers, DownloadPage: item.DownloadPage}
+			if item.Type == "hls" {
+				items[index].Media = &downloader.MediaOptions{Protocol: "hls"}
+			}
 		}
 		if err := dm.AcceptBrowserImport(r.Context(), items, req.Options.SilentAdd && !req.Options.SilentStart); err != nil {
 			status := http.StatusInternalServerError
@@ -189,6 +192,16 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Write([]byte("OK"))
+	})
+
+	mux.HandleFunc("/engine/capabilities", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusOK, dm.EngineCapabilities())
 	})
 
 	// TrueDown has a global admission queue, but no ABDM named queues.
@@ -435,7 +448,7 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			http.Error(w, "downloadSource.link is required", http.StatusBadRequest)
 			return
 		}
-		if req.DownloadSource.Type != "" && req.DownloadSource.Type != "http" {
+		if req.DownloadSource.Type != "" && req.DownloadSource.Type != "http" && req.DownloadSource.Type != "hls" {
 			http.Error(w, "unsupported downloadSource.type", http.StatusBadRequest)
 			return
 		}
@@ -453,6 +466,18 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		if req.UseDefaults {
 			req.Folder, req.DownloadSource.DownloadPage, req.DownloadSource.Headers, opts = dm.ApplyTaskDefaults(
 				req.Folder, req.DownloadSource.DownloadPage, req.DownloadSource.Headers, req.Opts)
+		}
+		if req.DownloadSource.Type == "hls" {
+			if opts.Media != nil && opts.Media.Protocol != "hls" {
+				http.Error(w, "conflicting media protocol", http.StatusBadRequest)
+				return
+			}
+			if opts.Media == nil {
+				opts.Media = &downloader.MediaOptions{Protocol: "hls"}
+			}
+		} else if req.DownloadSource.Type == "http" && opts.Media != nil {
+			http.Error(w, "HTTP source cannot set media options", http.StatusBadRequest)
+			return
 		}
 		// Typed ABDM requests default to paused. Legacy TrueDown clients retain auto-start.
 		paused := req.DownloadSource.Type != ""
@@ -789,6 +814,8 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			result = dm.PauseTasks(req.IDs)
 		case "resume":
 			result = dm.ResumeTasks(req.IDs)
+		case "finish-media":
+			result = dm.FinishMediaTasks(req.IDs)
 		case "remove":
 			result = dm.RemoveTasks(req.IDs)
 		case "requeue", "requeue-errors":

@@ -36,6 +36,7 @@
   <script src="/settings-search.js" defer></script>
   <script src="/workspace.js" defer></script>
   <script src="/app.js" defer></script>
+  <script src="/media-controls.js" defer></script>
   <script src="/task-forms.js" defer></script>
   <script src="/context-menu.js" defer></script>
   <script src="/popup-preload.js" defer></script>
@@ -623,6 +624,15 @@
             <summary><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-chevron-right"></use></svg>高级选项</summary>
             <div class="advanced-body">
               <p class="hint">仅覆盖本次下载。留空的选项会沿用设置中的默认值。</p>
+              <div class="field">
+                <label for="m-media">下载类型</label>
+                <select class="kd-select" id="m-media"><option value="">普通文件</option><option value="hls" disabled>HLS 视频</option><option value="dash" disabled>DASH 视频</option></select>
+                <p class="hint" id="media-capability-status">媒体下载需要 NEXT 3。</p>
+              </div>
+              <div class="form-grid" id="media-options" hidden>
+                <div class="field"><label for="m-media-format">封装格式</label><select class="kd-select" id="m-media-format"><option value="mp4">MP4</option><option value="mkv">MKV</option></select></div>
+                <div class="field"><label for="m-media-time">直播录制上限（秒）</label><input class="kd-input" id="m-media-time" type="number" min="0" max="604800" value="0"><p class="hint">0 表示手动结束；在任务详情中结束并保存。</p></div>
+              </div>
               <div class="form-grid">
                 <div class="field"><label for="m-referer">来源页面（Referer）</label><input class="kd-input" id="m-referer" type="url" placeholder="选填，HTTP 参考源页面"></div>
                 <div class="field"><label for="m-queueid">队列 ID</label><input class="kd-input" id="m-queueid" type="number" min="0" max="1000000" placeholder="选填"></div>

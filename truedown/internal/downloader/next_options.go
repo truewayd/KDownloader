@@ -24,10 +24,19 @@ func (m *Manager) engineTaskOptions(task *Task, recheck, restart, torrent bool) 
 			options["allow-overwrite"] = "true"
 		}
 	}
+	if isMediaTask(task) {
+		mediaEngineOptions(task, options)
+	}
 	return options
 }
 
 func (m *Manager) validateEngineOptions(opts Aria2Opts) error {
+	if err := m.validateMediaOptions(opts.Media); err != nil {
+		return err
+	}
+	if err := validateMediaExtraArgs(opts); err != nil {
+		return err
+	}
 	if !m.aria2Next || !aria2NextVersionAtLeast(m.aria2NextVersion, 3, 0, 0) {
 		return nil
 	}

@@ -60,6 +60,7 @@ try {
             if (path === "/settings/task-defaults" && method === "GET") body = { revision: 1, values: {} };
             else if (path === "/settings/download-rules" && method === "GET") body = window.nativeTestPreferences.rules;
             else if (path === "/modules" && method === "GET") body = window.nativeTestPreferences.modules;
+            else if (path === "/engine/capabilities" && method === "GET") body = { media: true, probe: false };
             else if (path === "/start-headless-download" && method === "POST") body = "OK 1";
             else throw Error(`Unexpected native form request: ${method} ${path}`);
             return { status: 200, owned: true, body: typeof body === "string" ? body : JSON.stringify(body), headers: {} };
@@ -189,10 +190,20 @@ try {
       await page.waitForFunction(() => document.querySelector("#overlay .modal-body").scrollTop > 0);
       await page.locator("#overlay .advanced-options summary").focus();
       await page.keyboard.press("Tab");
-      assert.equal(await page.evaluate(() => document.activeElement.matches("input, textarea, select") && Boolean(document.activeElement.closest(".advanced-body"))), true);
+      assert.equal(await page.evaluate(() => document.activeElement.matches('input, textarea, select, button[role="combobox"]') && Boolean(document.activeElement.closest(".advanced-body"))), true);
       await page.keyboard.press("End");
+      await page.waitForFunction(() => mediaCapabilities.media);
+      await page.waitForFunction(() => !document.querySelector('#m-media option[value="hls"]').disabled);
+      await page.locator("#m-media").focus();
+      await page.keyboard.press("Home"); await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter");
+      assert.equal(await page.locator("#m-media").inputValue(), "hls");
+      assert.equal(await page.locator("#media-options").isVisible(), true);
+      await page.locator("#m-media-time").fill("30");
       await page.locator("#submit-task-btn").click();
       await page.waitForFunction(() => nativeCalls.some(({ command }) => command === "finish_task_window"));
+      const mediaRequest = await page.evaluate(() => JSON.parse(nativeCalls.find(call => call.args?.request?.path === "/start-headless-download").args.request.body).opts.media);
+      assert.deepEqual(mediaRequest, { protocol: "hls", format: "mp4", recordTime: 30 });
+      await page.locator("#m-media").focus(); await page.keyboard.press("Home"); await page.keyboard.press("Enter");
       assert.equal(await page.locator("#m-link").inputValue(), "");
       assert.equal(await page.evaluate(() => nativeCalls.some(({ command, args }) => command === "core_request" && args.request.path.startsWith("/tasks"))), false);
       if (role === "new-task") {

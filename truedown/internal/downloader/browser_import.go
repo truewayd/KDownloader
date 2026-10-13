@@ -24,6 +24,7 @@ type BrowserImportItem struct {
 	Name         string            `json:"name"`
 	Headers      map[string]string `json:"headers"`
 	DownloadPage string            `json:"downloadPage"`
+	Media        *MediaOptions     `json:"media,omitempty"`
 }
 
 type browserImportRequest struct {
@@ -44,7 +45,11 @@ func (m *Manager) AcceptBrowserImport(ctx context.Context, items []BrowserImport
 		return &ValidationError{Message: "browser imports require 1 to 256 items"}
 	}
 	for _, item := range items {
-		identity := normalizeRequest(item.Link, item.Name, "", m.defaultDir, item.Headers, item.DownloadPage, 0, Aria2Opts{})
+		opts := Aria2Opts{Media: item.Media}
+		if err := m.validateEngineOptions(opts); err != nil {
+			return err
+		}
+		identity := normalizeRequest(item.Link, item.Name, "", m.defaultDir, item.Headers, item.DownloadPage, 0, opts)
 		if err := validateRequest(identity); err != nil {
 			return err
 		}
@@ -114,7 +119,7 @@ func (m *Manager) processBrowserImport(entry *browserImport) error {
 		}
 		item := entry.request.Items[index]
 		ctx, cancel := context.WithTimeout(m.lifecycleCtx, 6*time.Minute)
-		opts := Aria2Opts{startPaused: entry.request.Paused, preserveExisting: true}
+		opts := Aria2Opts{startPaused: entry.request.Paused, preserveExisting: true, Media: item.Media}
 		result, handled, err := m.AddWithModules(ctx, item.Link, item.Name, "", item.Headers, item.DownloadPage, 0, opts, nil)
 		if err == nil && !handled {
 			var task *Task

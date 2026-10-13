@@ -41,6 +41,10 @@ jobs:
         with:
           go-version-file: truedown/go.mod
           cache: false
+      - name: Prepare media test oracle
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg --no-progress --yes }
       - name: Accept reviewed NEXT engine
         shell: pwsh
         run: ./truedown/tools/test-next-engine.ps1

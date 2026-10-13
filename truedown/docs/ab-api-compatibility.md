@@ -26,7 +26,7 @@ No upstream implementation was copied.
 | `POST /start-headless-download` | Accepts `downloadSource.type:"http"`, `suggestedName`, nullable optional folder/name/IDs, and explicit `startDownload`. Explicit name wins. Typed ABDM requests default to paused, matching upstream. Untyped TrueDown requests retain auto-start unless explicitly disabled. Existing `OK <id>` and module/duplicate response extensions remain. |
 | `GET /queues` | Returns `[]`: TrueDown has no ABDM named queue objects. The global pause/resume controls remain available through TrueDown's own API. This HTTP integration route is not granted to native WebViews. |
 | Queue/category selection | Non-null `categoryId`, `startQueue:true`, and nonzero queue IDs in typed ABDM requests fail before creating tasks. Untyped legacy TrueDown `queueId` retains its existing aria2 insertion-position meaning. |
-| HLS | Explicit `type:"hls"` fails before task creation. aria2 HTTP downloads do not implement playlist assembly. |
+| HLS | Explicit `type:"hls"` on `/add` and headless requests is durably accepted with its suggested title, headers and typed/silent pause intent. It delegates to NEXT 3 native media when supported; older engines leave a visible task waiting for a compatible engine, notify the user, and still handle ordinary HTTP items in mixed batches. |
 | API Key | Uses `X-Api-Key`; existing host/origin and request-size checks remain. |
 | Native Messaging | ABDM's browser native host/CLI protocol is product-specific and is not impersonated. Configure the official extension to use HTTP for TrueDown. |
 
@@ -51,5 +51,5 @@ explicitly. Omitting the start flag in a typed ABDM request intentionally pauses
 the task, whereas the untyped legacy TrueDown extension remains compatible.
 
 Future named queues/scheduling, category mapping, interactive external imports,
-HLS assembly and a TrueDown-specific native messaging host need separate product
+and a TrueDown-specific native messaging host need separate product
 and engine work. They are not enabled by merely accepting new JSON fields.

@@ -46,6 +46,7 @@ async function refreshNativeTaskPreferences() {
       applyTaskDefaults(defaults);
       downloadRules = normalizeServerDownloadRules(rules);
       resolverModules = normalizeResolverModules(modules);
+      if (typeof refreshMediaCapabilities === "function") refreshMediaCapabilities();
 
     }
   })();

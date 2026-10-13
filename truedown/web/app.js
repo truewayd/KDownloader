@@ -438,6 +438,7 @@ async function openModal() {
 }
 
 function configureTaskForm() {
+	if (typeof refreshMediaCapabilities === "function" && !isNativeTaskWindow()) refreshMediaCapabilities();
 	els.mTorrentFile.value = "";
 	els.mTorrentFile.disabled = false;
   if (typeof updateTorrentSelection === "function") updateTorrentSelection();
@@ -655,6 +656,15 @@ async function submitTask(event) {
 	moduleOptions: buildModuleOptions(),
   };
 
+  try {
+    const media = typeof selectedMediaOptions === "function" ? selectedMediaOptions() : null;
+    if (media) {
+      if (torrentFile || links.some(isBitTorrentLink)) throw new Error("媒体下载只接受 HTTP(S) 链接");
+      sharedBody.opts.media = media;
+      sharedBody.moduleOptions = {};
+    }
+  } catch (error) { showModalMsg(error.message, true); return; }
+
   setSubmitting(true);
   try {
     if (torrentFile) {
@@ -778,6 +788,7 @@ async function onTaskAction(event) {
     }
     if (action === "pause") await runTaskAction("pause", id, "任务已暂停。");
     if (action === "resume") await runTaskAction("resume", id, "任务已继续。");
+    if (action === "finish-media") await runTaskAction("finish-media", id, "正在结束录制并保存文件，请等待完成。");
     if (action === "preview") await invokeNative("open_task_preview", { id });
     if (action === "open-file") {
       await requestText(`/tasks/open-file?id=${encodeURIComponent(id)}`, { method: "POST" });

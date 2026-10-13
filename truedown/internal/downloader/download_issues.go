@@ -2,10 +2,11 @@ package downloader
 
 // Only counters cross the notification boundary: no URLs, credentials or raw errors.
 type DownloadIssues struct {
-	Epoch       string `json:"epoch"`
-	Downloads   uint64 `json:"downloads"`
-	Dropbox     uint64 `json:"dropbox"`
-	GoogleDrive uint64 `json:"googleDrive"`
+	Epoch          string `json:"epoch"`
+	Downloads      uint64 `json:"downloads"`
+	Dropbox        uint64 `json:"dropbox"`
+	GoogleDrive    uint64 `json:"googleDrive"`
+	EngineRequired uint64 `json:"engineRequired"`
 }
 
 func (m *Manager) DownloadIssues() DownloadIssues {

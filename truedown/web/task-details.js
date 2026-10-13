@@ -77,15 +77,32 @@ function taskBytes(value) {
 function taskDownloadedBytes(value) { return value === 0 ? "0 B" : taskBytes(value); }
 function taskProgressPercent(task) {
   if (task.status === "done") return 100;
+  if (task.media) return task.media.live || !(task.media.duration > 0) ? 0 : Math.max(0, Math.min(100, 100 * task.media.progress));
   const percent = task.totalLength > 0 && Number.isFinite(task.completedLength) ? 100 * task.completedLength / task.totalLength : parseFloat(task.progress);
   return Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0;
 }
+function renderTaskProgress(control, task) {
+  if (task.status !== "done" && task.media && (task.media.live || !(task.media.duration > 0))) {
+    control.removeAttribute("value");
+    return;
+  }
+  const percent = taskProgressPercent(task);
+  if (control.value !== percent || !control.hasAttribute("value")) control.value = percent;
+}
 function taskProgressLabel(task) {
+  if (task.requiresMediaEngine) return task.status === "paused" ? "需要 NEXT 3 · 保持暂停" : "等待 NEXT 3";
   if (task.error) return "\u4e0b\u8f7d\u5931\u8d25";
+  if (task.media && task.status !== "done") {
+    const states = { probing: "分析媒体", finalizing: "正在封装", recording: "正在录制", paused: "已暂停", "awaiting-selection": "等待选择" };
+    if (task.media.live) return `${states[task.media.state] || "直播"} · ${Math.floor(task.media.completedDuration / 1000)} 秒`;
+    if (states[task.media.state]) return states[task.media.state];
+    if (!(task.media.duration > 0)) return "等待媒体信息";
+  }
   return task.status === "queued" ? "\u7b49\u5f85\u4e0b\u8f7d" : `${taskProgressPercent(task).toFixed(1)}%`;
 }
 function taskSpeed(task) { return task.status === "downloading" && task.downloadSpeed > 0 ? `${taskBytes(task.downloadSpeed)}/s` : "\u2014"; }
 function taskRemaining(task) {
+  if (task.media && task.status !== "done") return "\u2014";
   if (task.status !== "downloading" || !(task.downloadSpeed > 0) || !(task.totalLength > task.completedLength)) return "\u2014";
   const seconds = Math.ceil((task.totalLength - task.completedLength) / task.downloadSpeed);
   return seconds < 60 ? `${seconds} \u79d2` : seconds < 3600 ? `${Math.ceil(seconds / 60)} \u5206\u949f` : `${(seconds / 3600).toFixed(1)} \u5c0f\u65f6`;
@@ -196,6 +213,8 @@ function renderTaskDetails(task) {
   document.getElementById("task-detail-title").textContent = task.outputName || task.name || `\u4efb\u52a1 #${task.id}`;
   document.title = document.getElementById("task-detail-title").textContent;
   const facts = [
+    ...(task.requiresMediaEngine ? [["引擎要求", "任务已保存，尚未开始。请在设置中启用支持媒体下载的 NEXT 3。"]] : []),
+    ...(task.media ? [["媒体类型", `${task.media.protocol.toUpperCase()}${task.media.live ? " · 直播" : ""}`], ["已接收分片", taskDownloadedBytes(task.media.downloadedLength)]] : []),
     ...(task.updateDownload ? [["任务用途", "应用更新 · 下载完成后由更新服务校验，安装状态请在设置中查看"]] : []),
     ["\u6587\u4ef6\u540d", task.outputName || task.name],
     ["\u72b6\u6001", statusMeta[task.status]?.label], ["\u6587\u4ef6\u5927\u5c0f", taskBytes(task.totalLength)],
@@ -211,7 +230,7 @@ function renderTaskDetails(task) {
   ]);
   renderTaskTransfer(task.transfer, task.status);
   document.getElementById("task-detail-percent").textContent = taskProgressLabel(task);
-  document.getElementById("task-detail-progress").value = taskProgressPercent(task);
+  renderTaskProgress(document.getElementById("task-detail-progress"), task);
   renderTaskDetailActions(task);
   renderTaskSettings(task);
 }
@@ -229,7 +248,8 @@ function renderTaskFacts(id, facts) {
 
 function renderTaskDetailActions(task) {
   const actions = document.getElementById("task-detail-actions");
-  const shape = JSON.stringify([task.id, task.status, task.link]);
+  const canFinish = task.media?.live && ["downloading", "paused", "queued"].includes(task.status) && task.media.state !== "finalizing";
+  const shape = JSON.stringify([task.id, task.status, task.link, canFinish]);
   if (actions.dataset.status !== shape) {
     const focused = actions.contains(document.activeElement) ? document.activeElement.dataset.action : null;
     actions.innerHTML = `<button class="text-button icon-only" type="button" data-action="copy-link" data-link="${esc(task.link)}" aria-label="\u590d\u5236\u94fe\u63a5" data-tooltip="\u590d\u5236\u94fe\u63a5">${iconMarkup("copy")}</button>` + actionButton("open-folder", task.id, "\u6253\u5f00\u76ee\u5f55", false, "folder-open")
@@ -240,6 +260,12 @@ function renderTaskDetailActions(task) {
     const label = document.createElement("span");
     label.textContent = primary.getAttribute("aria-label");
     primary.append(label);
+    if (canFinish) {
+      actions.insertAdjacentHTML("beforeend", actionButton("finish-media", task.id, "结束录制并保存", false, "check"));
+      const finish = actions.lastElementChild;
+      finish.className = "kd-button secondary compact";
+      const text = document.createElement("span"); text.textContent = "结束录制并保存"; finish.append(text);
+    }
     if (focused) (actions.querySelector(`[data-action="${focused}"]`) || actions.querySelector("button"))?.focus({ preventScroll: true });
   }
 }

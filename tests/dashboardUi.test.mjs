@@ -315,7 +315,7 @@ test("progress polling retains every row control and changes only its progress l
     document: { createElement() { assert.fail("progress-only refresh must not parse replacement HTML"); } },
     currentOffset: 0, selectedTaskIDs: new Set([7]),
     taskCategoryMeta: () => ({ label: "Other", icon: "file" }), taskProgressLabel: task => task.progress,
-    taskProgressPercent: () => 25, taskBytes: () => "-", taskSpeed: () => "-", taskRemaining: () => "-", taskDate: () => "-",
+    renderTaskProgress: control => { control.value = 25; }, taskBytes: () => "-", taskSpeed: () => "-", taskRemaining: () => "-", taskDate: () => "-",
   });
   vm.runInContext(declaration("reconcileTaskRows"), context);
   context.reconcileTaskRows(body, [task]);
