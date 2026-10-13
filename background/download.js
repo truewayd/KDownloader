@@ -206,10 +206,12 @@ class TaskQueue {
         if (taskCookie) downloadHeaders.Cookie = taskCookie;
         const filePayload = {
           downloadSource: {
+            type: 'http',
             link: task.url,
             headers: downloadHeaders
           },
           name: task.fileName,
+          startDownload: true,
           queueId: 0,
         };
 

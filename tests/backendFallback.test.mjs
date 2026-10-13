@@ -231,6 +231,8 @@ test('does not forward a site cookie to another supported media family', async (
 
   assert.equal(result.success, true);
   assert.equal(backendPayload.downloadSource.link, 'https://coomer.st/data/media.jpg');
+  assert.equal(backendPayload.downloadSource.type, 'http');
+  assert.equal(backendPayload.startDownload, true);
   assert.equal('Cookie' in backendPayload.downloadSource.headers, false);
   assert.equal('Origin' in backendPayload.downloadSource.headers, false);
   assert.equal('Referer' in backendPayload.downloadSource.headers, false);
