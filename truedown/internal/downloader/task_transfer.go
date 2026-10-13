@@ -59,6 +59,11 @@ type taskTransferRPC interface {
 }
 
 func (c *ariaClient) transfer(ctx context.Context, gid string) (ariaTransferStatus, []ariaTransferServer, bool, error) {
+	if c.collections != nil {
+		if state, found := c.collections.state(gid); found {
+			return ariaTransferStatus{GID: gid, Status: state.Status, TotalLength: state.TotalLength, CompletedLength: state.CompletedLength, DownloadSpeed: state.DownloadSpeed, Connections: state.Connections}, nil, false, nil
+		}
+	}
 	keys := []string{"gid", "status", "totalLength", "completedLength", "downloadSpeed", "connections", "bitfield", "numPieces", "pieceLength"}
 	var status ariaTransferStatus
 	if err := c.callContext(ctx, "aria2.tellStatus", []any{gid, keys}, &status); err != nil {

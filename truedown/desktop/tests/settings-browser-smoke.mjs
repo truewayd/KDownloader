@@ -30,7 +30,7 @@ try {
     const fixture = {
       "/settings/task-defaults": { revision: 1, values: {} },
       "/settings/runtime": { concurrentDownloads: 3, globalDownloadLimitBps: 0 },
-      "/settings/download-rules": { enabled: true, filterMode: "project", dropboxMode: "direct", excludedExtensions: null },
+      "/settings/download-rules": { enabled: true, filterMode: "project", dropboxMode: "direct", megaMode: "archive", excludedExtensions: null },
       "/settings/file-groups": { revision: 1, groups: [
         { id: "image", name: "图片", icon: "image", extensions: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".heic", ".heif", ".bmp", ".tif", ".tiff", ".svg", ".ico"], directory: "Pictures" },
         { id: "archive", name: "压缩包", icon: "archive", extensions: [".zip", ".7z", ".rar", ".tar.gz"], directory: "Archives" },
@@ -231,7 +231,11 @@ try {
       }
       if (category === "engine") {
         assert.equal(await page.locator('#dropbox-settings').evaluate(node => node.closest('[data-module-id]')?.dataset.moduleId), "dropbox");
-        assert.equal(await page.locator('#cfg-filter-mode').isDisabled(), true, "archive mode preserves but disables filtering");
+        assert.equal(await page.locator('#mega-settings').evaluate(node => node.closest('[data-module-id]')?.dataset.moduleId), "mega");
+        assert.equal(await page.locator('#cfg-filter-mode').isDisabled(), false, "shared filter remains editable for Drive and future expansions");
+        await page.locator('#cfg-mega-mode').selectOption("expand");
+        await page.waitForFunction(() => downloadRules.megaMode === "expand" && !document.querySelector("#settings-form").inert);
+        assert.equal(fixture["/settings/download-rules"].megaMode, "expand");
         await page.locator('#cfg-dropbox-mode').selectOption("expand");
         await page.waitForFunction(() => downloadRules.dropboxMode === "expand" && !document.querySelector("#settings-form").inert);
         assert.equal(await page.locator('#cfg-filter-mode').inputValue(), "project");
@@ -385,7 +389,7 @@ try {
         await page.waitForFunction(() => document.querySelector('[data-module-toggle="dropbox"]').getAttribute("aria-checked") === "false");
         assert.equal(await page.locator('[data-module-toggle="dropbox"]').getAttribute("aria-checked"), "false");
         assert.equal(await page.locator("#cfg-dropbox-mode").isDisabled(), true);
-        assert.equal(await page.locator("#dropbox-suffix-editor input").first().isDisabled(), true);
+        assert.equal(await page.locator("#dropbox-suffix-editor input").first().isEnabled(), true, "Dropbox disable does not disable the shared filter");
         await page.locator('[data-module-toggle="dropbox"]').click();
         await page.waitForFunction(() => document.querySelector('[data-module-toggle="dropbox"]').getAttribute("aria-checked") === "true");
         assert.equal(await page.locator("#cfg-dropbox-mode").isEnabled(), true);

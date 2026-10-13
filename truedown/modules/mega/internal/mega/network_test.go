@@ -134,6 +134,11 @@ func TestLivePublicFile(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	c := NewClient()
+	if proxy := os.Getenv("TRUEDOWN_MEGA_TEST_HTTP_PROXY"); proxy != "" {
+		if err := c.SetProxy(proxy); err != nil {
+			t.Fatal(err)
+		}
+	}
 	metadata, err := c.Resolve(ctx, link)
 	if err != nil {
 		t.Fatal(err)
@@ -160,6 +165,11 @@ func TestLiveHTTPRangeCompatibility(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	c := NewClient()
+	if proxy := os.Getenv("TRUEDOWN_MEGA_TEST_HTTP_PROXY"); proxy != "" {
+		if err := c.SetProxy(proxy); err != nil {
+			t.Fatal(err)
+		}
+	}
 	metadata, err := c.Resolve(ctx, link)
 	if err != nil {
 		t.Fatal(err)

@@ -700,6 +700,7 @@ func TestDownloadRulesEndpointPersistsAndValidatesConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer manager.Stop()
 	mux := http.NewServeMux()
 	Register(mux, manager, &testTokenAuth{})
 
@@ -709,18 +710,19 @@ func TestDownloadRulesEndpointPersistsAndValidatesConfig(t *testing.T) {
 	if getResponse.Code != http.StatusOK || !strings.Contains(getResponse.Body.String(), `"enabled":true`) ||
 		!strings.Contains(getResponse.Body.String(), `"filterMode":"project"`) ||
 		!strings.Contains(getResponse.Body.String(), `"dropboxMode":"direct"`) ||
+		!strings.Contains(getResponse.Body.String(), `"megaMode":"archive"`) ||
 		!strings.Contains(getResponse.Body.String(), `"excludedExtensions":null`) {
 		t.Fatalf("default rules status=%d body=%s", getResponse.Code, getResponse.Body.String())
 	}
 
 	post := httptest.NewRequest(http.MethodPost, "/settings/download-rules", strings.NewReader(
-		`{"enabled":true,"excludedExtensions":[".PSD",".clip",".psd"],"dropboxMode":"expand"}`,
+		`{"enabled":true,"excludedExtensions":[".PSD",".clip",".psd"],"dropboxMode":"expand","megaMode":"expand"}`,
 	))
 	post.Header.Set("Content-Type", "application/json")
 	postResponse := httptest.NewRecorder()
 	mux.ServeHTTP(postResponse, post)
 	if postResponse.Code != http.StatusOK || postResponse.Body.String() !=
-		"{\"enabled\":true,\"excludedExtensions\":[\".psd\",\".clip\"],\"dropboxMode\":\"expand\",\"filterMode\":\"custom\"}\n" {
+		"{\"enabled\":true,\"excludedExtensions\":[\".psd\",\".clip\"],\"dropboxMode\":\"expand\",\"megaMode\":\"expand\",\"filterMode\":\"custom\"}\n" {
 		t.Fatalf("save rules status=%d body=%s", postResponse.Code, postResponse.Body.String())
 	}
 	legacy := httptest.NewRequest(http.MethodPost, "/settings/download-rules", strings.NewReader(
@@ -729,12 +731,13 @@ func TestDownloadRulesEndpointPersistsAndValidatesConfig(t *testing.T) {
 	legacy.Header.Set("Content-Type", "application/json")
 	legacyResponse := httptest.NewRecorder()
 	mux.ServeHTTP(legacyResponse, legacy)
-	if legacyResponse.Code != http.StatusOK || !strings.Contains(legacyResponse.Body.String(), `"dropboxMode":"expand"`) {
-		t.Fatalf("legacy filter update reset Dropbox mode: status=%d body=%s", legacyResponse.Code, legacyResponse.Body.String())
+	if legacyResponse.Code != http.StatusOK || !strings.Contains(legacyResponse.Body.String(), `"dropboxMode":"expand"`) || !strings.Contains(legacyResponse.Body.String(), `"megaMode":"expand"`) {
+		t.Fatalf("legacy filter update reset a provider mode: status=%d body=%s", legacyResponse.Code, legacyResponse.Body.String())
 	}
 	for _, body := range []string{
 		`{"enabled":true,"excludedExtensions":["../psd"]}`,
 		`{"enabled":true,"excludedExtensions":[],"dropboxMode":"archive"}`,
+		`{"enabled":true,"excludedExtensions":[],"megaMode":"direct"}`,
 		`{"filterMode":"unknown"}`,
 		`{"filterMode":""}`,
 		`{"enabled":true,"excludedExtensions":[],"unknown":true}`,
@@ -754,7 +757,7 @@ func TestDownloadRulesEndpointPersistsAndValidatesConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reloaded.Stop()
-	if rules := reloaded.DownloadRules(); !rules.Enabled || rules.DropboxMode != downloader.DropboxModeExpand || len(rules.ExcludedExtensions) != 2 ||
+	if rules := reloaded.DownloadRules(); !rules.Enabled || rules.DropboxMode != downloader.DropboxModeExpand || rules.MegaMode != downloader.MegaModeExpand || len(rules.ExcludedExtensions) != 2 ||
 		rules.ExcludedExtensions[0] != ".psd" || rules.ExcludedExtensions[1] != ".clip" {
 		t.Fatalf("reloaded rules=%+v", rules)
 	}

@@ -88,7 +88,7 @@ func (module *googleDriveResolverModule) info() ModuleInfo {
 	return ModuleInfo{
 		ID: GoogleDriveModuleID, Name: "Google Drive", Version: module.version, BuiltIn: true,
 		Description:  "解析公开文件、确认页、Google 文档导出和递归共享目录。",
-		Capabilities: []string{"file", "folder", "native-export", "resume"},
+		Capabilities: []string{"file", "folder", "folder-filter", "native-export", "resume"},
 	}
 }
 
@@ -361,6 +361,8 @@ func resolveGoogleDriveFolder(
 		rootName = "Google Drive"
 	}
 	requests := make([]taskAddRequest, 0, len(files))
+	excluded := m.folderSuffixFilter()
+	filtered := 0
 	for _, file := range files {
 		name := sanitizeModulePathComponent(file.Name)
 		if name == "" {
@@ -369,6 +371,10 @@ func resolveGoogleDriveFolder(
 		extension := googleNativeExtension(file.NativeType, options)
 		if extension != "" && !strings.HasSuffix(strings.ToLower(name), strings.ToLower(extension)) {
 			name += extension
+		}
+		if dropboxFileExcluded(name, "", excluded) {
+			filtered++
+			continue
 		}
 		targetFolder := filepath.Join(identity.Folder, rootName)
 		if len(file.Relative) > 0 {
@@ -387,6 +393,7 @@ func resolveGoogleDriveFolder(
 	}
 	result := ModuleAddResult{
 		ModuleID: GoogleDriveModuleID, Tasks: make([]*Task, 0, len(added)), Collection: true,
+		Filtered: filtered,
 	}
 	for _, item := range added {
 		result.Tasks = append(result.Tasks, item.Task)

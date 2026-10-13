@@ -13,11 +13,13 @@ import (
 	"truedown/modules/mega/internal/mega"
 )
 
-var version = "0.1.0"
+var version = "0.2.0"
 
 type service struct {
-	ctx    context.Context
-	client *mega.Client
+	ctx          context.Context
+	client       *mega.Client
+	listedSource string
+	listed       modulehost.ArtifactCollection
 }
 
 func publicError(err error) string {
@@ -57,13 +59,50 @@ func (s *service) handle(method string, body json.RawMessage) (any, string) {
 		if modulehost.Decode(body, &request) != nil || request.Protocol != modulehost.ProtocolVersion {
 			return nil, "unsupported"
 		}
-		return modulehost.Hello{Protocol: 1, ModuleID: "mega", Version: version, Capabilities: []string{"public-file", "aria2-artifact-v1"}}, ""
+		return modulehost.Hello{Protocol: 1, ModuleID: "mega", Version: version, Capabilities: []string{"public-file", "public-folder-v1", "folder-zip-v1", "aria2-artifact-v1"}}, ""
+	case "list":
+		var request struct {
+			Source string `json:"source"`
+			Proxy  string `json:"proxy"`
+			Offset int    `json:"offset"`
+			Limit  int    `json:"limit"`
+		}
+		if modulehost.Decode(body, &request) != nil || request.Offset < 0 || request.Limit < 1 || request.Limit > 100 {
+			return nil, "invalid_request"
+		}
+		if s.listedSource != request.Source {
+			if request.Offset != 0 {
+				return nil, "invalid_request"
+			}
+			if err := s.client.SetProxy(request.Proxy); err != nil {
+				return nil, "invalid_request"
+			}
+			source, err := mega.ParseSource(request.Source)
+			if err != nil {
+				return nil, publicError(err)
+			}
+			s.listed, err = s.client.ListFolder(s.ctx, source)
+			if err != nil {
+				return nil, publicError(err)
+			}
+			s.listedSource = request.Source
+		}
+		if request.Offset > len(s.listed.Entries) {
+			return nil, "invalid_request"
+		}
+		end := min(request.Offset+request.Limit, len(s.listed.Entries))
+		next := end
+		if next == len(s.listed.Entries) {
+			next = -1
+		}
+		return modulehost.CollectionPage{Name: s.listed.Name, Entries: s.listed.Entries[request.Offset:end], Total: len(s.listed.Entries), Next: next}, ""
 	case "transform":
 		return transform(s.ctx, body)
 	case "prepare", "resolve":
 		var request struct {
-			Source string  `json:"source"`
-			Proxy  *string `json:"proxy,omitempty"`
+			Source string          `json:"source"`
+			Proxy  *string         `json:"proxy,omitempty"`
+			Data   json.RawMessage `json:"data,omitempty"`
 		}
 		if modulehost.Decode(body, &request) != nil {
 			return nil, "invalid_request"
@@ -73,18 +112,18 @@ func (s *service) handle(method string, body json.RawMessage) (any, string) {
 				return nil, "invalid_request"
 			}
 		}
-		link, err := mega.ParseLink(request.Source)
+		source, err := mega.ParseSource(request.Source)
 		if err != nil {
 			return nil, publicError(err)
 		}
-		metadata, err := s.client.Resolve(s.ctx, link)
+		metadata, data, err := s.client.ResolveFile(s.ctx, source, request.Data)
 		if err != nil {
 			return nil, publicError(err)
 		}
 		if method == "resolve" {
 			return metadata, ""
 		}
-		return modulehost.PreparedArtifact{Name: metadata.Name, Size: metadata.Size, URL: metadata.URL}, ""
+		return modulehost.PreparedArtifact{Name: metadata.Name, Size: metadata.Size, URL: metadata.URL, Data: data}, ""
 	case "shutdown":
 		var request struct{}
 		if modulehost.Decode(body, &request) != nil {

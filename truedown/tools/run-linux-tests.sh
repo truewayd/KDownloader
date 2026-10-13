@@ -52,3 +52,6 @@ run_package downloader "$repo_root/internal/downloader" 1
 run_package safefile "$repo_root/internal/safefile"
 run_package systemupdate "$repo_root/internal/systemupdate"
 run_package updatecache "$repo_root/internal/updatecache"
+run_package modulehost "$repo_root/internal/modulehost"
+run_package mega-module "$repo_root/modules/mega"
+run_package mega-crypto "$repo_root/modules/mega/internal/mega"

@@ -18,6 +18,7 @@ type ariaClient struct {
 	http               *http.Client
 	nextID             atomic.Uint64
 	filenameResolution atomic.Bool
+	collections        *collectionTransports
 }
 
 type ariaRPCError struct {
@@ -190,6 +191,15 @@ func (c *ariaClient) resolveFilename(ctx context.Context, url, disposition strin
 }
 
 func (c *ariaClient) addURI(t *Task, options map[string]any) error {
+	if c.collections != nil {
+		if handled, err := c.collections.add(t, options); handled {
+			return err
+		}
+	}
+	return c.nativeAddURI(t, options)
+}
+
+func (c *ariaClient) nativeAddURI(t *Task, options map[string]any) error {
 	params := []any{[]string{t.Link}, options}
 	if t.QueueID > 0 {
 		params = append(params, t.QueueID)
@@ -216,23 +226,50 @@ func (c *ariaClient) addTorrent(t *Task, torrent string, options map[string]any)
 }
 
 func (c *ariaClient) pause(gid string) error {
+	if c.collections != nil {
+		if handled, err := c.collections.control(gid, true); handled {
+			return err
+		}
+	}
+	return c.nativePause(gid)
+}
+func (c *ariaClient) nativePause(gid string) error {
 	var result string
 	return c.call("aria2.pause", []any{gid}, &result)
 }
 
 func (c *ariaClient) unpause(gid string) error {
+	if c.collections != nil {
+		if handled, err := c.collections.control(gid, false); handled {
+			return err
+		}
+	}
+	return c.nativeUnpause(gid)
+}
+func (c *ariaClient) nativeUnpause(gid string) error {
 	var result string
 	return c.call("aria2.unpause", []any{gid}, &result)
 }
 
 func (c *ariaClient) pauseAll() error {
+	if c.collections != nil {
+		if err := c.collections.controlAll(true); err != nil {
+			return err
+		}
+	}
 	var result string
 	return c.call("aria2.pauseAll", nil, &result)
 }
 
 func (c *ariaClient) unpauseAll() error {
 	var result string
-	return c.call("aria2.unpauseAll", nil, &result)
+	if err := c.call("aria2.unpauseAll", nil, &result); err != nil {
+		return err
+	}
+	if c.collections != nil {
+		return c.collections.controlAll(false)
+	}
+	return nil
 }
 
 func (c *ariaClient) changeGlobalOptions(options map[string]string) error {
@@ -241,23 +278,65 @@ func (c *ariaClient) changeGlobalOptions(options map[string]string) error {
 }
 
 func (c *ariaClient) changeOptions(gid string, options map[string]string) error {
+	if c.collections != nil {
+		if job := c.collections.job(gid); job != nil {
+			job.mu.Lock()
+			defer job.mu.Unlock()
+			if job.child != "" {
+				if err := c.nativeChangeOptions(job.child, options); err != nil {
+					return err
+				}
+			}
+			for key, value := range options {
+				job.options[key] = value
+			}
+			return nil
+		}
+	}
+	return c.nativeChangeOptions(gid, options)
+}
+func (c *ariaClient) nativeChangeOptions(gid string, options map[string]string) error {
 	var result string
 	return c.call("aria2.changeOption", []any{gid, options}, &result)
 }
 
 func (c *ariaClient) forceRemove(gid string) error {
+	if c.collections != nil && c.collections.job(gid) != nil {
+		return c.collections.retire(gid, true)
+	}
+	return c.nativeForceRemove(gid)
+}
+func (c *ariaClient) nativeForceRemove(gid string) error {
 	var result string
 	return c.call("aria2.forceRemove", []any{gid}, &result)
 }
 
 func (c *ariaClient) status(gid string) (ariaStatus, error) {
-	keys := []string{"gid", "status", "files", "bittorrent", "followedBy", "following"}
+	if c.collections != nil {
+		if state, found := c.collections.state(gid); found {
+			return state, nil
+		}
+	}
+	return c.nativeStatus(gid)
+}
+func (c *ariaClient) nativeStatus(gid string) (ariaStatus, error) {
+	keys := []string{"gid", "status", "files", "bittorrent", "followedBy", "following", "totalLength", "completedLength", "downloadSpeed", "connections", "errorCode"}
 	var status ariaStatus
 	err := c.call("aria2.tellStatus", []any{gid, keys}, &status)
 	return status, err
 }
 
 func (c *ariaClient) removeResult(gid string) error {
+	if c.collections != nil && c.collections.job(gid) != nil {
+		if err := c.collections.retire(gid, true); err != nil {
+			return err
+		}
+		c.collections.forget(gid)
+		return nil
+	}
+	return c.nativeRemoveResult(gid)
+}
+func (c *ariaClient) nativeRemoveResult(gid string) error {
 	var result string
 	return c.call("aria2.removeDownloadResult", []any{gid}, &result)
 }
@@ -294,6 +373,9 @@ func (c *ariaClient) statuses() ([]ariaStatus, error) {
 	result = append(result, active...)
 	result = append(result, waiting...)
 	result = append(result, stopped...)
+	if c.collections != nil {
+		result = c.collections.merge(result)
+	}
 	return result, nil
 }
 

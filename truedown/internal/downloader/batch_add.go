@@ -16,6 +16,7 @@ type taskAddRequest struct {
 	QueueID      int
 	Opts         Aria2Opts
 	ModuleID     string
+	ModuleData   json.RawMessage
 }
 
 type taskAddResult struct {
@@ -42,6 +43,7 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 			request.DownloadPage, request.QueueID, request.Opts,
 		)
 		identity.ModuleID = request.ModuleID
+		identity.ModuleData = request.ModuleData
 		if err := validateRequest(identity); err != nil {
 			return nil, err
 		}
@@ -143,9 +145,9 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 
 	for _, index := range fallback {
 		request := prepared[index].request
-		task, duplicate, err := m.addTaskWithModule(
+		task, duplicate, err := m.addModuleTask(
 			request.Link, request.Name, request.Folder, request.Headers,
-			request.DownloadPage, request.QueueID, request.Opts, request.ModuleID,
+			request.DownloadPage, request.QueueID, request.Opts, request.ModuleID, request.ModuleData, nil,
 		)
 		if err != nil {
 			return nil, err

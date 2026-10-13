@@ -18,7 +18,11 @@ import (
 	"truedown/internal/safefile"
 )
 
-type artifactPlan struct{ Executable, Source string }
+type artifactPlan struct {
+	Executable, Source, Proxy string
+	Data                      json.RawMessage
+	Collection                *modulehost.ArtifactCollection
+}
 type artifactJournal struct {
 	Schema   int                          `json:"schema"`
 	Identity string                       `json:"identity"`
@@ -37,12 +41,13 @@ type artifactJob struct {
 	done      chan struct{}
 }
 type artifactTransfers struct {
-	mu     sync.Mutex
-	jobs   map[string]*artifactJob
-	ctx    context.Context
-	wg     sync.WaitGroup
-	closed bool
-	slots  chan struct{}
+	mu         sync.Mutex
+	jobs       map[string]*artifactJob
+	ctx        context.Context
+	wg         sync.WaitGroup
+	closed     bool
+	slots      chan struct{}
+	transports *collectionTransports
 }
 
 func newArtifactTransfers(ctx context.Context) *artifactTransfers {
@@ -51,6 +56,14 @@ func newArtifactTransfers(ctx context.Context) *artifactTransfers {
 
 func artifactIdentity(task *Task) string {
 	sum := sha256.Sum256([]byte(task.ModuleID + "\x00" + task.Link))
+	var identity requestIdentity
+	if json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && (len(identity.ModuleData) > 0 || identity.Collection != nil) {
+		data, _ := json.Marshal(struct {
+			Data       json.RawMessage
+			Collection *modulehost.ArtifactCollection
+		}{identity.ModuleData, identity.Collection})
+		sum = sha256.Sum256(append([]byte(task.ModuleID+"\x00"+task.Link+"\x00"), data...))
+	}
 	return hex.EncodeToString(sum[:])
 }
 func artifactDirectory(task *Task) string {
@@ -144,6 +157,10 @@ func (a *artifactTransfers) filter(states []ariaStatus) []ariaStatus {
 			state.DownloadSpeed = "0"
 		case "complete":
 			state.Status = "complete"
+			if job.journal.Verified != nil {
+				state.TotalLength = strconv.FormatInt(job.journal.Verified.Size, 10)
+				state.CompletedLength = state.TotalLength
+			}
 		case "error":
 			state.Status = "error"
 			state.ErrorCode = "module"
@@ -238,12 +255,12 @@ func (a *artifactTransfers) transform(ctx context.Context, job *artifactJob) err
 		return err
 	}
 	var verified modulehost.VerifiedArtifact
-	err = client.Call(ctx, "transform", map[string]any{"source": job.plan.Source, "size": job.task.TotalLength}, &verified)
+	err = client.Call(ctx, "transform", map[string]any{"source": job.plan.Source, "size": job.task.TotalLength, "data": job.plan.Data, "collection": job.plan.Collection}, &verified)
 	retireModule(client)
 	if err != nil {
 		return err
 	}
-	if verified.Size != job.task.TotalLength || len(verified.SHA256) != 64 {
+	if verified.Size < 0 || (job.plan.Collection == nil && verified.Size != job.task.TotalLength) || (job.plan.Collection != nil && (verified.Size < job.task.TotalLength || verified.Size > job.task.TotalLength+64*1024*1024)) || len(verified.SHA256) != 64 {
 		return fmt.Errorf("invalid verified artifact")
 	}
 	actual, err := artifactHash(payload, verified.Size)
@@ -343,6 +360,11 @@ func (a *artifactTransfers) progress(gid string) string {
 }
 
 func (a *artifactTransfers) retire(gid string) error {
+	if a.transports != nil {
+		if err := a.transports.retire(gid, true); err != nil {
+			return err
+		}
+	}
 	a.mu.Lock()
 	job := a.jobs[gid]
 	if job == nil {
@@ -380,7 +402,20 @@ func (a *artifactTransfers) remove(task *Task) error {
 	if modulehost.Decode(raw, &journal) != nil || journal.Identity != artifactIdentity(task) || journal.Output != filepath.Join(task.Folder, task.OutputName) {
 		return fmt.Errorf("artifact ownership mismatch")
 	}
-	for _, name := range []string{"ciphertext", "ciphertext.aria2", "payload", "state.json"} {
+	names := []string{"ciphertext", "ciphertext.aria2", "payload", "state.json"}
+	var identity requestIdentity
+	if json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.Collection != nil {
+		if _, err := modulehost.ValidateCollection(identity.Collection); err != nil {
+			return err
+		}
+		for index, entry := range identity.Collection.Entries {
+			if !entry.Directory {
+				name := modulehost.CiphertextName(index)
+				names = append(names, name, name+".aria2")
+			}
+		}
+	}
+	for _, name := range names {
 		if err := safefile.RemoveFile(filepath.Join(directory, name)); err != nil {
 			return err
 		}
@@ -416,7 +451,16 @@ func (a *artifactTransfers) completed(task *Task) {
 	}
 	directory := job.directory
 	a.mu.Unlock()
-	for _, name := range []string{"ciphertext", "ciphertext.aria2"} {
+	names := []string{"ciphertext", "ciphertext.aria2"}
+	if job.plan.Collection != nil {
+		for index, entry := range job.plan.Collection.Entries {
+			if !entry.Directory {
+				name := modulehost.CiphertextName(index)
+				names = append(names, name, name+".aria2")
+			}
+		}
+	}
+	for _, name := range names {
 		if err := safefile.RemoveFile(filepath.Join(directory, name)); err != nil {
 			return
 		}
@@ -424,4 +468,7 @@ func (a *artifactTransfers) completed(task *Task) {
 	a.mu.Lock()
 	delete(a.jobs, task.GID)
 	a.mu.Unlock()
+	if a.transports != nil {
+		a.transports.forget(task.GID)
+	}
 }

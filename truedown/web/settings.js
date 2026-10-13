@@ -335,6 +335,7 @@ async function saveDownloadSettings(event) {
         body: JSON.stringify({
           enabled: els.cfgFilterMode.value !== "off", filterMode: els.cfgFilterMode.value,
           dropboxMode: els.cfgDropboxMode.value,
+          megaMode: els.cfgMegaMode.value,
           excludedExtensions: readDropboxCustomSuffixes(),
         }),
       }));
@@ -707,6 +708,7 @@ function normalizeServerDownloadRules(value) {
     excludedExtensions: rules.filterMode && rules.filterMode !== "custom" && rules.excludedExtensions == null
       ? null : normalizeExcludedExtensions(rules.excludedExtensions, DEFAULT_EXCLUDED_EXTENSIONS),
     dropboxMode: rules.dropboxMode === "expand" ? "expand" : "direct",
+    megaMode: rules.megaMode === "expand" ? "expand" : "archive",
   };
 }
 
@@ -732,6 +734,7 @@ function changeDropboxFilterMode() {
 
 function renderDropboxFilter(rules) {
   els.cfgDropboxMode.value = rules.dropboxMode;
+  els.cfgMegaMode.value = rules.megaMode;
   els.cfgFilterMode.value = rules.filterMode;
   dropboxCustomSuffixes = rules.excludedExtensions === null ? null : [...rules.excludedExtensions];
   renderDropboxSuffixEditor();
@@ -754,9 +757,6 @@ function renderDropboxSuffixEditor(preserveCustomDraft = false) {
     ? "目录展开时不过滤文件。"
     : mode === "project" ? (project ? `与“${project.name}”分组同步；修改分组后缀后，后续目录展开立即使用新规则。` : "正在读取工程分组…")
       : "自定义规则独立于工程分组，忽略大小写；支持 .tar.gz，可逐块编辑、添加或删除。仅用于目录展开。";
-  const unavailable = !resolverModules.find(module => module.id === "dropbox")?.installed;
-  if (unavailable) document.getElementById("dropbox-filter-hint").textContent = "Dropbox 模块已停用；启用后可编辑目录与过滤选项，已有偏好会保留。";
-  else if (els.cfgDropboxMode.value !== "expand") document.getElementById("dropbox-filter-hint").textContent = "下载压缩包时不使用文件过滤；切换为独立文件后会沿用已保存的过滤选择。";
   const host = document.getElementById("dropbox-suffix-editor");
   if (mode !== "custom") { host.replaceChildren(); host.dataset.mode = mode; renderDropboxAvailability(); return; }
   if (preserveCustomDraft && host.dataset.mode === "custom" && host.firstElementChild) { renderDropboxAvailability(); return; }
@@ -776,9 +776,7 @@ function renderDropboxSuffixEditor(preserveCustomDraft = false) {
 
 function renderDropboxAvailability() {
   document.getElementById("dropbox-settings").disabled = !resolverModules.find(module => module.id === "dropbox")?.installed || pendingResolverModuleActions.has("dropbox");
-  const direct = els.cfgDropboxMode.value !== "expand";
-  els.cfgFilterMode.disabled = direct;
-  document.querySelectorAll("#dropbox-suffix-editor input, #dropbox-suffix-editor button").forEach(control => { control.disabled = direct; });
+  document.getElementById("mega-settings").disabled = !resolverModules.find(module => module.id === "mega")?.installed || pendingResolverModuleActions.has("mega");
 }
 
 async function loadServerDownloadRules() {
@@ -919,7 +917,9 @@ function isModuleInstalled(id) {
 function renderResolverModules() {
 	if (!els.moduleList) return;
 	const dropboxSettings = document.getElementById("dropbox-settings");
+	const megaSettings = document.getElementById("mega-settings");
 	dropboxSettings.remove();
+	megaSettings.remove();
 	els.moduleList.replaceChildren();
 	if (!resolverModules.length) {
 		const empty = document.createElement("p");
@@ -927,6 +927,7 @@ function renderResolverModules() {
 		empty.textContent = "没有可用的解析模块。";
 		els.moduleList.append(empty);
 		els.moduleList.append(dropboxSettings);
+		els.moduleList.append(megaSettings);
 		renderDropboxSuffixEditor(true);
 		return;
 	}
@@ -950,7 +951,7 @@ function renderResolverModules() {
 		const description = document.createElement("p");
 		description.textContent = module.id === "google-drive" ? "解析公开文件、文件夹和 Google 文档。"
 			: module.id === "dropbox" ? "下载共享文件，或将文件夹展开为独立任务。"
-			: module.id === "mega" ? "下载公开文件并验证完整性；下载期间需预留约两倍文件空间。" : module.description;
+			: module.id === "mega" ? "下载公开文件；目录可生成 ZIP 或展开为独立文件，完成前校验完整性。需预留约两倍内容大小的空间。" : module.description;
 		copy.append(heading, description);
 		if (module.updateError) {
 			const error = document.createElement("p");
@@ -990,10 +991,12 @@ function renderResolverModules() {
 		}
 		card.append(icon, copy, actions);
 		if (module.id === "dropbox") card.append(dropboxSettings);
+		if (module.id === "mega") card.append(megaSettings);
 		KDComponents.prepareNotices(card);
 		els.moduleList.append(card);
 	}
 	if (!dropboxSettings.isConnected) els.moduleList.append(dropboxSettings);
+	if (!megaSettings.isConnected) els.moduleList.append(megaSettings);
 	renderDropboxSuffixEditor(true);
 }
 

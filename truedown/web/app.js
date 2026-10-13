@@ -13,6 +13,7 @@ const DEFAULT_DOWNLOAD_RULES = Object.freeze({
   filterMode: "project",
   excludedExtensions: null,
   dropboxMode: "direct",
+  megaMode: "archive",
 });
 const DEFAULT_RUNTIME_SETTINGS = Object.freeze({
   concurrentDownloads: 3,
@@ -109,6 +110,7 @@ let downloadRules = {
   enabled: DEFAULT_DOWNLOAD_RULES.enabled,
   excludedExtensions: DEFAULT_DOWNLOAD_RULES.excludedExtensions,
   dropboxMode: DEFAULT_DOWNLOAD_RULES.dropboxMode,
+  megaMode: DEFAULT_DOWNLOAD_RULES.megaMode,
 };
 let runtimeSettings = { ...DEFAULT_RUNTIME_SETTINGS };
 let trackerResearchSettings = { ...DEFAULT_TRACKER_RESEARCH_SETTINGS };
@@ -153,6 +155,7 @@ function cacheElements() {
 	"cfg-allocation",
 	"cfg-check-integrity",
 	"cfg-dropbox-mode",
+	"cfg-mega-mode",
     "cfg-extra",
     "cfg-filter-mode",
     "cfg-folder",
@@ -469,6 +472,10 @@ function buildModuleOptions() {
     applyFilter: downloadRules.dropboxMode === "expand" && downloadRules.enabled,
   };
   if (isModuleInstalled("google-drive")) options["google-drive"] = {};
+  if (isModuleInstalled("mega")) options.mega = {
+    mode: downloadRules.megaMode,
+    applyFilter: downloadRules.megaMode === "expand" && downloadRules.enabled,
+  };
   return options;
 }
 

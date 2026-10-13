@@ -5,13 +5,53 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"truedown/internal/modulehost"
 	"truedown/internal/safefile"
 )
+
+func TestBundledMEGAVersionWinsOverOlderActivePointer(t *testing.T) {
+	root := artifactTempDir(t)
+	m, err := NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	pointer := filepath.Join(m.executableRoot("mega"), "active.json")
+	if err := modulehost.MakeDirectory(filepath.Dir(pointer)); err != nil {
+		t.Fatal(err)
+	}
+	before := []byte(`{"version":"0.1.1"}`)
+	if err := safefile.WriteFile(pointer, before, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.activeExecutable("mega"); !os.IsNotExist(err) {
+		t.Fatalf("older module remained selectable: %v", err)
+	}
+	executable, err := m.moduleExecutable("mega")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client, err := modulehost.Connect(ctx, exec.Command(executable), "mega")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer retireModule(client)
+	if client.Info.Version != m.modules.baseline["mega"].packageInfo.Version || !moduleCapability(client.Info, "public-folder-v1") {
+		t.Fatal("bundled executable version or folder capability differs from its registry")
+	}
+	after, _ := os.ReadFile(pointer)
+	if !bytes.Equal(before, after) {
+		t.Fatal("baseline fallback destroyed the recoverable activation pointer")
+	}
+}
 
 func TestModuleActivationHealthFailurePreservesCurrentVersion(t *testing.T) {
 	modules, _ := artifactHelper(t)

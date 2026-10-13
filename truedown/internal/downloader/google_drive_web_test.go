@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -270,6 +271,40 @@ func TestGoogleDriveFolderModuleCreatesIndependentTasks(t *testing.T) {
 	if result.Tasks[0].ModuleID != GoogleDriveModuleID || result.Tasks[1].Name != "deck.pptx" ||
 		filepath.Base(filepath.Dir(result.Tasks[0].Folder)) != "Drive Root" {
 		t.Fatalf("unexpected Google Drive tasks: %+v", result.Tasks)
+	}
+}
+
+func TestGoogleDriveFolderUsesSharedFilterAfterExportExtension(t *testing.T) {
+	for _, test := range []struct {
+		name, filterMode, suffix, format string
+		wantFiles, wantFiltered          int
+	}{
+		{"default-export", DropboxFilterCustom, ".PpTx", "pptx", 1, 1},
+		{"PDF-export", DropboxFilterCustom, ".PDF", "pdf", 1, 1},
+		{"filter-disabled", DropboxFilterOff, ".pptx", "pptx", 2, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			m, err := NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.Stop()
+			if _, err := m.SetDownloadRules(DownloadRules{FilterMode: test.filterMode, ExcludedExtensions: []string{test.suffix}}); err != nil {
+				t.Fatal(err)
+			}
+			m.googleDriveClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				return googleDriveTestResponse(request, http.StatusOK, `<html><head><title>Drive Root</title></head><body>
+					<a href="https://drive.google.com/file/d/file-regular-id-123456789012/view">image.png</a>
+					<a href="https://docs.google.com/presentation/d/slides-file-id-123456789012/edit">deck</a>
+				</body></html>`, http.Header{"Content-Type": []string{"text/html"}}), nil
+			})}
+			options := map[string]json.RawMessage{GoogleDriveModuleID: json.RawMessage(`{"presentationFormat":"` + test.format + `"}`)}
+			result, handled, err := m.AddWithModules(context.Background(), "https://drive.google.com/drive/folders/root-folder-id-123456789012345", "", "", nil, "", 0, Aria2Opts{}, options)
+			if err != nil || !handled || len(result.Tasks) != test.wantFiles || result.Filtered != test.wantFiltered {
+				t.Fatalf("shared export filter: %+v handled=%v err=%v", result, handled, err)
+			}
+		})
 	}
 }
 

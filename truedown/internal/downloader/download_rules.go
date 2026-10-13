@@ -16,27 +16,30 @@ var defaultExcludedExtensions = []string{
 const (
 	DropboxModeDirect     = "direct"
 	DropboxModeExpand     = "expand"
+	MegaModeArchive       = "archive"
+	MegaModeExpand        = "expand"
 	DropboxFilterProject  = "project"
 	DropboxFilterOff      = "off"
 	DropboxFilterCustom   = "custom"
 	maxDownloadRulesBytes = 16 * 1024
 )
 
-// DownloadRules stores the default Dropbox folder behavior and the optional
-// suffix filter used only while a shared folder is expanded.
+// DownloadRules stores provider folder modes and one shared expansion filter.
 type DownloadRules struct {
 	Enabled            bool     `json:"enabled"`
 	ExcludedExtensions []string `json:"excludedExtensions"`
 	DropboxMode        string   `json:"dropboxMode"`
+	MegaMode           string   `json:"megaMode"`
 	FilterMode         string   `json:"filterMode"`
 }
 
-// DownloadRulesUpdate preserves the current Dropbox mode when older clients
+// DownloadRulesUpdate preserves provider modes when older clients
 // post only filter fields to the shared settings endpoint.
 type DownloadRulesUpdate struct {
 	Enabled            bool     `json:"enabled"`
 	ExcludedExtensions []string `json:"excludedExtensions"`
 	DropboxMode        *string  `json:"dropboxMode"`
+	MegaMode           *string  `json:"megaMode"`
 	FilterMode         *string  `json:"filterMode"`
 }
 
@@ -72,6 +75,7 @@ func defaultDownloadRules() DownloadRules {
 		Enabled:     true,
 		FilterMode:  DropboxFilterProject,
 		DropboxMode: DropboxModeDirect,
+		MegaMode:    MegaModeArchive,
 	}
 }
 
@@ -83,6 +87,7 @@ func normalizeDownloadRules(rules DownloadRules) (DownloadRules, error) {
 		Enabled:            rules.Enabled,
 		ExcludedExtensions: make([]string, 0, len(rules.ExcludedExtensions)),
 		DropboxMode:        strings.ToLower(strings.TrimSpace(rules.DropboxMode)),
+		MegaMode:           strings.ToLower(strings.TrimSpace(rules.MegaMode)),
 		FilterMode:         strings.ToLower(strings.TrimSpace(rules.FilterMode)),
 	}
 	// Legacy profiles and extension writes retain their explicit filter choice.
@@ -98,7 +103,7 @@ func normalizeDownloadRules(rules DownloadRules) (DownloadRules, error) {
 	case DropboxFilterOff:
 		normalized.Enabled = false
 	default:
-		return DownloadRules{}, &ValidationError{Message: "Dropbox filter mode must be project, off or custom"}
+		return DownloadRules{}, &ValidationError{Message: "folder filter mode must be project, off or custom"}
 	}
 	// Null means custom mode has never been initialized; an empty list is explicit.
 	if rules.FilterMode != "" && rules.ExcludedExtensions == nil && normalized.FilterMode != DropboxFilterCustom {
@@ -109,6 +114,12 @@ func normalizeDownloadRules(rules DownloadRules) (DownloadRules, error) {
 	}
 	if normalized.DropboxMode != DropboxModeDirect && normalized.DropboxMode != DropboxModeExpand {
 		return DownloadRules{}, &ValidationError{Message: "Dropbox mode must be direct or expand"}
+	}
+	if normalized.MegaMode == "" {
+		normalized.MegaMode = MegaModeArchive
+	}
+	if normalized.MegaMode != MegaModeArchive && normalized.MegaMode != MegaModeExpand {
+		return DownloadRules{}, &ValidationError{Message: "MEGA mode must be archive or expand"}
 	}
 	seen := make(map[string]struct{}, len(rules.ExcludedExtensions))
 	for _, raw := range rules.ExcludedExtensions {
@@ -132,6 +143,7 @@ func (store *downloadRulesStore) snapshot() DownloadRules {
 		Enabled:            store.rules.Enabled,
 		ExcludedExtensions: slices.Clone(store.rules.ExcludedExtensions),
 		DropboxMode:        store.rules.DropboxMode,
+		MegaMode:           store.rules.MegaMode,
 		FilterMode:         store.rules.FilterMode,
 	}
 }
@@ -158,6 +170,10 @@ func (store *downloadRulesStore) updateRequest(request DownloadRulesUpdate) (Dow
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	mode := store.rules.DropboxMode
+	megaMode := store.rules.MegaMode
+	if request.MegaMode != nil {
+		megaMode = *request.MegaMode
+	}
 	if request.DropboxMode != nil {
 		mode = *request.DropboxMode
 	}
@@ -165,13 +181,14 @@ func (store *downloadRulesStore) updateRequest(request DownloadRulesUpdate) (Dow
 	if request.FilterMode != nil {
 		filterMode = *request.FilterMode
 		if strings.TrimSpace(filterMode) == "" {
-			return DownloadRules{}, &ValidationError{Message: "Dropbox filter mode must be project, off or custom"}
+			return DownloadRules{}, &ValidationError{Message: "folder filter mode must be project, off or custom"}
 		}
 	}
 	normalized, err := normalizeDownloadRules(DownloadRules{
 		Enabled:            request.Enabled,
 		ExcludedExtensions: request.ExcludedExtensions,
 		DropboxMode:        mode,
+		MegaMode:           megaMode,
 		FilterMode:         filterMode,
 	})
 	if err != nil {
@@ -193,11 +210,12 @@ func (store *downloadRulesStore) snapshotUnlocked() DownloadRules {
 		Enabled:            store.rules.Enabled,
 		ExcludedExtensions: slices.Clone(store.rules.ExcludedExtensions),
 		DropboxMode:        store.rules.DropboxMode,
+		MegaMode:           store.rules.MegaMode,
 		FilterMode:         store.rules.FilterMode,
 	}
 }
 
-// DownloadRules returns the current Dropbox mode and expansion filter defaults.
+// DownloadRules returns provider folder modes and the shared filter defaults.
 func (m *Manager) DownloadRules() DownloadRules {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -223,7 +241,7 @@ func (store *downloadRulesStore) reconcileProjectFilter(groups []FileGroup) erro
 }
 
 // Resolve the project group for each expansion; never persist a stale copy.
-func (m *Manager) dropboxFilterRules() DownloadRules {
+func (m *Manager) folderFilterRules() DownloadRules {
 	rules := m.DownloadRules()
 	if rules.FilterMode == DropboxFilterProject {
 		rules.ExcludedExtensions = []string{}
@@ -235,6 +253,15 @@ func (m *Manager) dropboxFilterRules() DownloadRules {
 		}
 	}
 	return rules
+}
+
+// Older Dropbox callers share the same current filter snapshot.
+func (m *Manager) dropboxFilterRules() DownloadRules { return m.folderFilterRules() }
+
+func (m *Manager) folderSuffixFilter() map[string]struct{} {
+	rules := m.folderFilterRules()
+	excluded, _ := normalizeDropboxExcludedExtensions(rules, rules.Enabled)
+	return excluded
 }
 
 // SetDownloadRules persists the complete Dropbox mode and filter defaults.

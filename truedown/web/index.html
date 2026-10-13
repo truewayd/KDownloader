@@ -400,6 +400,22 @@
                   </select>
                   <p class="hint">默认下载压缩包。展开后可逐个文件重试，并按后缀过滤。</p>
                 </div>
+              </fieldset>
+              <fieldset class="settings-group dropbox-settings" id="mega-settings" disabled>
+                <legend class="visually-hidden">MEGA 下载选项</legend>
+                <div class="field settings-row">
+                  <label for="cfg-mega-mode">目录下载</label>
+                  <select class="kd-select" id="cfg-mega-mode">
+                    <option value="archive">生成 ZIP 压缩包</option>
+                    <option value="expand">展开为独立文件</option>
+                  </select>
+                  <p class="hint">ZIP 保留完整目录；独立文件使用下方的统一过滤规则。公开链接须包含解密密钥。</p>
+                </div>
+              </fieldset>
+            </div>
+            <fieldset class="settings-group" id="folder-filter-settings">
+                <legend>目录文件过滤</legend>
+                <p class="hint">MEGA、Dropbox、Google Drive 展开目录时共用此规则。仅过滤目录中的文件；单文件链接和目录压缩包保留完整内容。</p>
                 <div class="field settings-row">
                   <label for="cfg-filter-mode">文件过滤</label>
                   <select class="kd-select" id="cfg-filter-mode" aria-describedby="dropbox-filter-hint">
@@ -416,8 +432,7 @@
                   <span class="field-label" id="excluded-extensions-label">排除的文件后缀</span>
                   <div id="dropbox-suffix-editor"></div>
                 </div>
-              </fieldset>
-            </div>
+            </fieldset>
           </section>
 <section data-settings-page="engine" hidden class="settings-section" aria-labelledby="settings-bt-diagnostics-title">
             <div class="settings-section-heading">

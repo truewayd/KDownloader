@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,15 +71,35 @@ func runArtifactTestHelper() {
 		code := ""
 		switch request.Method {
 		case "hello":
-			value = modulehost.Hello{Protocol: 1, ModuleID: "mega", Version: "0.1.0", Capabilities: []string{"aria2-artifact-v1"}}
+			value = modulehost.Hello{Protocol: 1, ModuleID: "mega", Version: "0.1.0", Capabilities: []string{"aria2-artifact-v1", "public-folder-v1", "folder-zip-v1"}}
 			if version := os.Getenv("TRUEDOWN_TEST_MODULE_VERSION"); version != "" {
 				value = modulehost.Hello{Protocol: 1, ModuleID: "mega", Version: version, Capabilities: []string{"aria2-artifact-v1"}}
 			}
 		case "prepare":
-			value = modulehost.PreparedArtifact{Name: "fixture.bin", Size: 2 * 1024 * 1024, URL: os.Getenv("TRUEDOWN_TEST_ARTIFACT_URL")}
+			prepared := modulehost.PreparedArtifact{Name: "fixture.bin", Size: 2 * 1024 * 1024, URL: os.Getenv("TRUEDOWN_TEST_ARTIFACT_URL")}
+			var options struct {
+				Data json.RawMessage `json:"data"`
+			}
+			_ = json.Unmarshal(request.Body, &options)
+			if len(options.Data) > 0 {
+				_ = json.Unmarshal(options.Data, &prepared)
+				prepared.Data = options.Data
+			}
+			value = prepared
+		case "list":
+			collection := artifactHelperCollection()
+			value = modulehost.CollectionPage{Name: collection.Name, Entries: collection.Entries, Total: len(collection.Entries), Next: -1}
 		case "transform":
 			if os.Getenv("TRUEDOWN_TEST_ARTIFACT_DELAY") == "1" {
 				time.Sleep(time.Minute)
+			}
+			var options struct {
+				Collection *modulehost.ArtifactCollection `json:"collection"`
+			}
+			_ = json.Unmarshal(request.Body, &options)
+			if options.Collection != nil {
+				value, code = transformArtifactHelperCollection(options.Collection)
+				break
 			}
 			data, err := os.ReadFile("ciphertext")
 			if err != nil {
@@ -109,6 +131,61 @@ func runArtifactTestHelper() {
 			return
 		}
 	}
+}
+
+func artifactHelperCollection() *modulehost.ArtifactCollection {
+	collection := &modulehost.ArtifactCollection{Name: "Fixture folder"}
+	collection.Entries = append(collection.Entries, modulehost.ArtifactEntry{Path: []string{"empty"}, Directory: true})
+	for _, relative := range [][]string{{"fixture.bin"}, {"nested", "second.bin"}} {
+		data, _ := json.Marshal(map[string]any{"name": relative[len(relative)-1], "size": 2 * 1024 * 1024})
+		collection.Entries = append(collection.Entries, modulehost.ArtifactEntry{Source: "https://mega.nz/folder/fixture#fixture/file/" + relative[len(relative)-1], Path: relative, Size: 2 * 1024 * 1024, Data: data})
+	}
+	return collection
+}
+
+func transformArtifactHelperCollection(collection *modulehost.ArtifactCollection) (any, string) {
+	output, err := os.OpenFile("payload", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return nil, "integrity"
+	}
+	defer output.Close()
+	writer := zip.NewWriter(output)
+	for index, entry := range collection.Entries {
+		name := strings.Join(entry.Path, "/")
+		if entry.Directory {
+			name += "/"
+		}
+		member, err := writer.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store})
+		if err != nil {
+			return nil, "integrity"
+		}
+		if entry.Directory {
+			continue
+		}
+		data, err := os.ReadFile(modulehost.CiphertextName(index))
+		if err != nil {
+			return nil, "integrity"
+		}
+		for i := range data {
+			data[i] ^= 0xaa
+		}
+		hash := sha256.Sum256(data)
+		if int64(len(data)) != entry.Size || hex.EncodeToString(hash[:]) != os.Getenv("TRUEDOWN_TEST_ARTIFACT_SHA256") {
+			return nil, "integrity"
+		}
+		if _, err := member.Write(data); err != nil {
+			return nil, "integrity"
+		}
+	}
+	if writer.Close() != nil || output.Sync() != nil || output.Close() != nil {
+		return nil, "integrity"
+	}
+	data, err := os.ReadFile("payload")
+	if err != nil {
+		return nil, "integrity"
+	}
+	hash := sha256.Sum256(data)
+	return modulehost.VerifiedArtifact{Size: int64(len(data)), SHA256: hex.EncodeToString(hash[:])}, ""
 }
 
 func artifactHelper(t *testing.T) (string, []byte) {
@@ -148,6 +225,34 @@ func artifactHelper(t *testing.T) (string, []byte) {
 	t.Setenv("TRUEDOWN_TEST_ARTIFACT_HELPER", "1")
 	t.Setenv("TRUEDOWN_TEST_ARTIFACT_SHA256", hex.EncodeToString(hash[:]))
 	return root, data
+}
+
+func TestArtifactMetadataRejectionFailsTheTask(t *testing.T) {
+	modules, data := artifactHelper(t)
+	t.Setenv("TRUEDOWN_TEST_ARTIFACT_URL", "https://example.test/fixture.bin")
+	root := artifactTempDir(t)
+	config := integrationManagerConfig()
+	config.ModuleDirectory = modules
+	m, err := NewManagerWithConfig("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	m.rpc = &fakeAriaRPC{}
+	task, _, err := m.AddTask("https://mega.nz/file/fixture#fixture", "renamed.bin", "", nil, "", 0, Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.setTask(task.ID, func(task *Task) { task.TotalLength = int64(len(data)) + 1 }); err != nil {
+		t.Fatal(err)
+	}
+	if m.submit(submission{id: task.ID}) {
+		t.Fatal("changed remote size was admitted")
+	}
+	current, _ := m.GetTask(task.ID)
+	if current.Status != StatusError || !strings.Contains(current.Error, "file size changed") {
+		t.Fatalf("metadata failure did not become a task error: %+v", current)
+	}
 }
 
 func TestArtifactPublicationAndRecovery(t *testing.T) {

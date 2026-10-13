@@ -17,6 +17,7 @@ foreach ($path in @($distRoot, $outputRoot, $testRoot)) {
 }
 
 $outputs = @(
+  @{ Package = "./modules/mega"; Path = (Join-Path $projectRoot "internal/modulebundle/assets/mega-linux-amd64.bin"); Module = $true },
   @{ Package = "./cmd/truedown-core"; Path = (Join-Path $outputRoot "truedown-core") },
   @{ Package = "./cmd/truedown"; Path = (Join-Path $outputRoot "truedown-cli") },
   @{ Package = "./internal/app"; Path = (Join-Path $testRoot "truedown.test"); Test = $true },
@@ -30,7 +31,10 @@ $outputs = @(
   @{ Package = "./internal/downloader"; Path = (Join-Path $testRoot "downloader.test"); Test = $true },
   @{ Package = "./internal/safefile"; Path = (Join-Path $testRoot "safefile.test"); Test = $true },
   @{ Package = "./internal/systemupdate"; Path = (Join-Path $testRoot "systemupdate.test"); Test = $true },
-  @{ Package = "./internal/updatecache"; Path = (Join-Path $testRoot "updatecache.test"); Test = $true }
+  @{ Package = "./internal/updatecache"; Path = (Join-Path $testRoot "updatecache.test"); Test = $true },
+  @{ Package = "./internal/modulehost"; Path = (Join-Path $testRoot "modulehost.test"); Test = $true },
+  @{ Package = "./modules/mega"; Path = (Join-Path $testRoot "mega-module.test"); Test = $true },
+  @{ Package = "./modules/mega/internal/mega"; Path = (Join-Path $testRoot "mega-crypto.test"); Test = $true }
 )
 
 foreach ($output in $outputs) {
@@ -51,9 +55,15 @@ try {
   $env:GOARCH = "amd64"
   Push-Location $projectRoot
   try {
+    $megaBaseline = Get-Content -LiteralPath (Join-Path $projectRoot "internal/downloader/module_baselines/mega.json") -Raw | ConvertFrom-Json
+    if ($megaBaseline.id -ne 'mega' -or $megaBaseline.version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+      throw 'Invalid MEGA baseline version'
+    }
     foreach ($output in $outputs) {
       if ($output.Test) {
         & go test -c -o $output.Path $output.Package
+      } elseif ($output.Module) {
+        & go build -trimpath -ldflags "-s -w -X main.version=$($megaBaseline.version)" -o $output.Path $output.Package
       } else {
         & go build -trimpath -o $output.Path $output.Package
       }
@@ -70,5 +80,5 @@ try {
   $env:GOARCH = $previousGoarch
 }
 
-Write-Output "WSL2 binary: $($outputs[0].Path)"
+Write-Output "WSL2 binary: $($outputs[1].Path)"
 Write-Output "WSL2 tests: $testRoot"

@@ -38,6 +38,10 @@ func (m *Manager) executableRoot(id string) string {
 }
 
 func (m *Manager) activeExecutable(id string) (string, string, error) {
+	baselineInfo, exists := m.modules.baseline[id]
+	if !exists {
+		return "", "", modulehost.ErrPackage
+	}
 	root := m.executableRoot(id)
 	raw, err := safefile.ReadFile(filepath.Join(root, "active.json"), 4096)
 	if err != nil {
@@ -46,6 +50,10 @@ func (m *Manager) activeExecutable(id string) (string, string, error) {
 	var active moduleActive
 	if modulehost.Decode(raw, &active) != nil || !modulehost.Newer(active.Version, "0.1.0") {
 		return "", "", modulehost.ErrPackage
+	}
+	baseline := baselineInfo.packageInfo.Version
+	if active.Version != baseline && !modulehost.Newer(active.Version, baseline) {
+		return "", "", os.ErrNotExist
 	}
 	directory := filepath.Join(root, active.Version)
 	raw, err = safefile.ReadFile(filepath.Join(directory, "manifest.json"), 16*1024)
@@ -141,7 +149,7 @@ func moduleFetch(ctx context.Context, client *http.Client, raw string, maximum i
 }
 
 func (m *Manager) updateExecutable(ctx context.Context, id string) (string, error) {
-	current := "0.1.0"
+	current := m.modules.baseline[id].packageInfo.Version
 	if _, version, err := m.activeExecutable(id); err == nil {
 		current = version
 	}

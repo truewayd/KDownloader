@@ -23,8 +23,22 @@ func TestDownloadRulesMigratesMissingDropboxModeToDirect(t *testing.T) {
 	}
 	defer manager.Stop()
 	rules := manager.DownloadRules()
-	if rules.DropboxMode != DropboxModeDirect || rules.FilterMode != DropboxFilterCustom || !rules.Enabled || len(rules.ExcludedExtensions) != 1 {
+	if rules.DropboxMode != DropboxModeDirect || rules.MegaMode != MegaModeArchive || rules.FilterMode != DropboxFilterCustom || !rules.Enabled || len(rules.ExcludedExtensions) != 1 {
 		t.Fatalf("legacy download rules were not migrated safely: %+v", rules)
+	}
+}
+
+func TestLegacyFilterWritesPreserveBothProviderModes(t *testing.T) {
+	store, err := newDownloadRulesStoreAt(filepath.Join(t.TempDir(), "rules.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.update(DownloadRules{FilterMode: DropboxFilterCustom, ExcludedExtensions: []string{".psd"}, DropboxMode: DropboxModeExpand, MegaMode: MegaModeExpand}); err != nil {
+		t.Fatal(err)
+	}
+	rules, err := store.updateRequest(DownloadRulesUpdate{Enabled: true, ExcludedExtensions: []string{".PDF"}})
+	if err != nil || rules.DropboxMode != DropboxModeExpand || rules.MegaMode != MegaModeExpand || !slices.Equal(rules.ExcludedExtensions, []string{".pdf"}) {
+		t.Fatal("legacy filter save changed provider modes", rules, err)
 	}
 }
 

@@ -76,6 +76,10 @@ func (link Link) block() cipher.Block {
 }
 
 func (link Link) DecryptAttributes(encoded string) (string, error) {
+	return decryptAttributes(link.block(), encoded)
+}
+
+func decryptAttributes(block cipher.Block, encoded string) (string, error) {
 	if len(encoded) > 64*1024 {
 		return "", ErrSource
 	}
@@ -84,7 +88,7 @@ func (link Link) DecryptAttributes(encoded string) (string, error) {
 		return "", ErrSource
 	}
 	var iv [16]byte
-	cipher.NewCBCDecrypter(link.block(), iv[:]).CryptBlocks(data, data)
+	cipher.NewCBCDecrypter(block, iv[:]).CryptBlocks(data, data)
 	data = bytes.TrimRight(data, "\x00")
 	if !bytes.HasPrefix(data, []byte("MEGA{")) || !utf8.Valid(data) {
 		return "", ErrSource

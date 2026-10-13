@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 	"truedown/internal/enginesignal"
+	"truedown/internal/modulehost"
 	"truedown/internal/profile"
 	"unicode/utf8"
 )
@@ -189,16 +190,18 @@ func IsEngineStartError(err error) bool {
 }
 
 type requestIdentity struct {
-	UpdateDownload bool                `json:"updateDownload,omitempty"`
-	Link           string              `json:"link"`
-	Name           string              `json:"name"`
-	Folder         string              `json:"folder"`
-	QueueID        int                 `json:"queueId"`
-	Headers        map[string]string   `json:"headers"`
-	DownloadPage   string              `json:"downloadPage"`
-	Opts           Aria2Opts           `json:"opts"`
-	ModuleID       string              `json:"-"`
-	BitTorrent     *bitTorrentIdentity `json:"bitTorrent,omitempty"`
+	UpdateDownload bool                           `json:"updateDownload,omitempty"`
+	Link           string                         `json:"link"`
+	Name           string                         `json:"name"`
+	Folder         string                         `json:"folder"`
+	QueueID        int                            `json:"queueId"`
+	Headers        map[string]string              `json:"headers"`
+	DownloadPage   string                         `json:"downloadPage"`
+	Opts           Aria2Opts                      `json:"opts"`
+	ModuleID       string                         `json:"-"`
+	BitTorrent     *bitTorrentIdentity            `json:"bitTorrent,omitempty"`
+	ModuleData     json.RawMessage                `json:"moduleData,omitempty"`
+	Collection     *modulehost.ArtifactCollection `json:"collection,omitempty"`
 }
 
 type submission struct {
@@ -484,6 +487,9 @@ func (m *Manager) Stop() {
 		}
 		m.moduleUpdateMu.Unlock()
 		close(m.done)
+		if client, ok := m.rpc.(*ariaClient); ok && client.collections != nil {
+			client.collections.close()
+		}
 		if m.artifacts != nil {
 			m.artifacts.close()
 		}
@@ -560,11 +566,16 @@ func (m *Manager) AddTask(link, name, folder string, headers map[string]string, 
 }
 
 func (m *Manager) addTaskWithModule(link, name, folder string, headers map[string]string, downloadPage string, queueID int, opts Aria2Opts, moduleID string) (*Task, bool, error) {
+	return m.addModuleTask(link, name, folder, headers, downloadPage, queueID, opts, moduleID, nil, nil)
+}
+
+func (m *Manager) addModuleTask(link, name, folder string, headers map[string]string, downloadPage string, queueID int, opts Aria2Opts, moduleID string, data json.RawMessage, collection *modulehost.ArtifactCollection) (*Task, bool, error) {
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
 
 	identity := normalizeRequest(link, name, folder, m.defaultDir, headers, downloadPage, queueID, opts)
 	identity.ModuleID = moduleID
+	identity.ModuleData, identity.Collection = data, collection
 	if err := validateRequest(identity); err != nil {
 		return nil, false, err
 	}
@@ -1999,7 +2010,7 @@ func (m *Manager) submit(item submission) bool {
 		}
 		snapshot, err = m.applyRemoteMetadata(snapshot.ID, prepared.Metadata, !item.recheck, module.info().Name)
 		if err != nil {
-			m.failTask(snapshot.ID, err)
+			m.failTask(item.id, err)
 			return false
 		}
 		preparedLink = prepared.Link
@@ -2029,7 +2040,7 @@ func (m *Manager) submit(item submission) bool {
 		var err error
 		snapshot, err = m.prepareHTTPOutput(snapshot.ID, item.recheck)
 		if err != nil {
-			m.failTask(snapshot.ID, err)
+			m.failTask(item.id, err)
 			return false
 		}
 	}
@@ -2717,6 +2728,8 @@ func (m *Manager) startAria2() error {
 	deadline := time.Now().Add(6 * time.Second)
 	for time.Now().Before(deadline) {
 		if err := rpc.ready(); err == nil {
+			rpc.collections = newCollectionTransports(m.lifecycleCtx, rpc, m.artifacts)
+			m.artifacts.transports = rpc.collections
 			m.cmd, m.logFile, m.cmdDone, m.rpc = cmd, logFile, cmdDone, rpc
 			if m.aria2Next && aria2NextSupportsNativeDiagnostics(m.aria2NextVersion) {
 				log.Printf("Aria2 Next %s native diagnostics: debug log=%s, rotation=4x10MiB, console log=%s", m.aria2NextVersion, logPath, consoleLogPath)
@@ -3168,6 +3181,10 @@ func expectedDropboxRemoteName(task *Task) string {
 	}
 	if task.RemoteName != "" {
 		return task.RemoteName
+	}
+	// A user's MEGA output name is independent of the authenticated remote name.
+	if task.ModuleID == "mega" {
+		return ""
 	}
 	var identity requestIdentity
 	if task.RequestJSON != "" && json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.Name == "" {

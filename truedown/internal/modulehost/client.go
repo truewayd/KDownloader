@@ -161,7 +161,7 @@ func (c *Client) Call(ctx context.Context, method string, body, result any) erro
 
 func allowedMethod(method string) bool {
 	switch method {
-	case "hello", "resolve", "prepare", "transform", "start", "snapshot", "pause", "resume", "cancel", "shutdown":
+	case "hello", "list", "resolve", "prepare", "transform", "start", "snapshot", "pause", "resume", "cancel", "shutdown":
 		return true
 	default:
 		return false
