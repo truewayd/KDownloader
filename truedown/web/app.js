@@ -481,6 +481,7 @@ function buildModuleOptions() {
 }
 
 function closeModal() {
+  if (typeof cancelLinkProbe === "function") cancelLinkProbe();
   if (isNativeTaskWindow()) {
     invokeNative("close_auxiliary").catch((error) => showModalMsg(`关闭窗口失败：${error.message}`, true));
     return;
@@ -635,24 +636,19 @@ async function submitTask(event) {
     }
   }
 
-  let headers;
+  let transport;
   try {
-    headers = mergeHeaders(parseHeaders(downloadSettings.headers), parseHeaders(els.mHeaders.value));
-    if (downloadSettings.userAgent && !hasHeader(headers, "user-agent")) {
-      headers["User-Agent"] = downloadSettings.userAgent;
-    }
+    transport = buildTaskTransport();
   } catch {
     showModalMsg("Headers JSON 格式错误", true);
     return;
   }
 
   const sharedBody = {
-    headers,
-    downloadPage: emptyToUndefined(els.mReferer.value) || emptyToUndefined(downloadSettings.referer),
+    ...transport,
     folder: emptyToUndefined(els.mFolder.value) || emptyToUndefined(downloadSettings.folder),
     name: links.length === 1 ? emptyToUndefined(els.mName.value) : undefined,
     queueId: optionalInt("mQueueid") || undefined,
-    opts: buildOpts("m"),
 	moduleOptions: buildModuleOptions(),
   };
 
@@ -725,6 +721,7 @@ async function submitTask(event) {
 }
 
 function setSubmitting(isSubmitting) {
+  if (isSubmitting && typeof cancelLinkProbe === "function") cancelLinkProbe();
   els.downloadForm.inert = isSubmitting;
   els.downloadForm.setAttribute("aria-busy", String(isSubmitting));
   KDComponents.setBusyState(els.submitTaskBtn, isSubmitting);
@@ -761,6 +758,16 @@ function buildOpts(prefix) {
     retryWait: optionalInt(`${prefix}Wait`) || downloadSettings.retryWait,
     extraArgs: extraFromModal.length ? extraFromModal : settingsExtraArgs(),
     proxyMode: downloadSettings.proxyMode,
+  };
+}
+
+function buildTaskTransport() {
+  const headers = mergeHeaders(parseHeaders(downloadSettings.headers), parseHeaders(els.mHeaders.value));
+  if (downloadSettings.userAgent && !hasHeader(headers, "user-agent")) headers["User-Agent"] = downloadSettings.userAgent;
+  return {
+    headers,
+    downloadPage: emptyToUndefined(els.mReferer.value) || emptyToUndefined(downloadSettings.referer),
+    opts: buildOpts("m"),
   };
 }
 

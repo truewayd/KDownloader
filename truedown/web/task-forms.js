@@ -139,6 +139,7 @@ async function fillTaskClipboard() {
       || (source.trim() && source !== taskClipboardValue) || file || taskSourceRevision !== revision
       || els.mLink.value !== source || els.mTorrentFile.files?.[0] !== file
       || !Array.isArray(links) || !links.length) return;
+    if (typeof cancelLinkProbe === "function") cancelLinkProbe();
     els.mLink.value = parseLinks(links.join("\n")).join("\n");
     taskClipboardValue = els.mLink.value;
     showModalMsg(`已从剪贴板识别 ${links.length} 个链接，请确认后开始下载。`);

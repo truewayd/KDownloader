@@ -80,6 +80,33 @@ if pause is still settling, the manager waits before asking NEXT to finish it.
 DRM-protected media remains unsupported. Arbitrary track selection, captured
 browser manifests, and cross-origin credential contexts are not exposed yet.
 
+## Link preflight
+
+New download offers an explicit probe for one HTTP(S) link. The manager delegates
+to [aria2.probe](https://github.com/AnInsomniacy/aria2-next/blob/v3.0.0/src/http/Probe.cc),
+using the same headers, referrer and proxy configuration as submission. The
+engine makes a bounded one-byte Range request and resolves redirects and response
+metadata. No TrueDown task, native download task, output or checkpoint is created.
+This inspects the source response, not media tracks or the eventual muxed size.
+
+`POST /tasks/probe` accepts `{link, headers?, downloadPage?, opts?, useDefaults?}`
+with the normal bounded transport validation. It returns numeric `status`, optional
+`finalUrl`, `filename`, `contentType`, optional numeric `totalLength`, `resumable`,
+and an optional generic `errorCode`. Unknown length is omitted rather than zero.
+HTTP failures remain metadata results; raw native error messages are omitted.
+Unusable engine support returns 409, concurrent overload 429, invalid input 400,
+and RPC failures 502. Responses are not cached. Existing authentication and host
+checks apply; native permission is limited to New download.
+
+At most four probes can remain outstanding. Caller cancellation hides stale UI
+results but retains the slot for the native operation, which has a 20-second
+budget; the manager gives it 22 seconds. Transport failures retain their slot
+until that deadline because closing RPC does not cancel the native request.
+Closing/hiding, editing fields and automatic clipboard replacement invalidate
+results. Results are literal text and never overwrite the draft or submit it.
+
+## BitTorrent identity
+
 The BT identity change was announced in
 [issue 40](https://github.com/AnInsomniacy/aria2-next/issues/40)
 and verified against released
@@ -115,6 +142,12 @@ FFmpeg/ffprobe are developer-only fixture/oracle tools, never a production
 download stack. Media acceptance generates HLS and DASH, verifies decoded video
 frame hashes and audio/video tracks, retained cache across retries/restart,
 paused live finalization, native deletion, and cross-origin credential isolation.
+Native probe acceptance covers Range metadata, encoded filenames, known/unknown
+and empty lengths, same/cross-origin redirects, Cookie/Authorization isolation,
+HTTP errors, API admission boundaries and the absence of task/output side effects.
+The real 2.8.3 lane retains queued/paused media without sending it to the engine,
+completes ordinary HTTP with concurrency set to one, removes waiting records
+without touching completed output, and rejects probing without network activity.
 Stable-engine tests retain legacy control-file corruption coverage. Native UI,
 external service availability, live BitTorrent swarms and unpublished engine
 versions are outside this compatibility acceptance.

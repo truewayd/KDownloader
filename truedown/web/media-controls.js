@@ -7,6 +7,7 @@ async function refreshMediaCapabilities() {
   try { capabilities = await requestJSON("/engine/capabilities"); } catch { /* Backend validates every admission too. */ }
   if (revision !== mediaCapabilityRequest) return;
   mediaCapabilities = capabilities;
+  if (typeof updateProbeAvailability === "function") updateProbeAvailability();
   const control = document.getElementById("m-media");
   if (!control) return;
   for (const option of control.options) if (option.value) option.disabled = capabilities.media !== true;

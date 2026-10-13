@@ -87,7 +87,7 @@ test("task submission locks the form once and closes immediately after successfu
     formatStartOutcome: () => "Created", schedulePoll() {},
     window: { setTimeout() { assert.fail("success must not schedule a close against a future dialog"); } },
   });
-  vm.runInContext(["isNativeTaskWindow", "submitTask", "setSubmitting"].map(declaration).join("\n"), context);
+  vm.runInContext(["isNativeTaskWindow", "submitTask", "setSubmitting", "buildTaskTransport"].map(declaration).join("\n"), context);
   const pending = vm.runInContext("submitTask({preventDefault(){}})", context);
   assert.equal(fields.downloadForm.inert, true);
   assert.equal(fields.downloadForm.getAttribute("aria-busy"), "true");

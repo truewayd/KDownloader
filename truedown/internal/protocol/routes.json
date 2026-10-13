@@ -1,5 +1,6 @@
 {
   "/engine/capabilities": ["GET"],
+  "/tasks/probe": ["POST"],
   "/system/info": [
     "GET"
   ],

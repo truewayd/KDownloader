@@ -96,6 +96,10 @@ func (c *ariaClient) call(method string, params []any, result any) error {
 }
 
 func (c *ariaClient) callContext(ctx context.Context, method string, params []any, result any) error {
+	return c.callWithHTTP(ctx, c.http, method, params, result)
+}
+
+func (c *ariaClient) callWithHTTP(ctx context.Context, client *http.Client, method string, params []any, result any) error {
 	requestParams := make([]any, 0, len(params)+1)
 	requestParams = append(requestParams, "token:"+c.secret)
 	requestParams = append(requestParams, params...)
@@ -113,7 +117,7 @@ func (c *ariaClient) callContext(ctx context.Context, method string, params []an
 		return err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(request)
+	resp, err := client.Do(request)
 	if err != nil {
 		return err
 	}

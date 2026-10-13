@@ -199,7 +199,12 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
                 "/modules",
             ]
             .contains(&path),
-            "POST" => ["/start-headless-download", "/start-bt-download"].contains(&path),
+            "POST" => [
+                "/start-headless-download",
+                "/start-bt-download",
+                "/tasks/probe",
+            ]
+            .contains(&path),
             _ => false,
         },
         _ => false,
@@ -625,8 +630,11 @@ mod tests {
         assert!(!allowed("batch-task", "POST", "/start-headless-download"));
         let window = "new-task";
         assert!(allowed(window, "GET", "/engine/capabilities"));
+        assert!(allowed(window, "POST", "/tasks/probe"));
+        assert!(!allowed(window, "GET", "/tasks/probe"));
         for role in ["main", "settings", "task-details", "task-preview"] {
             assert!(!allowed(role, "GET", "/engine/capabilities"));
+            assert!(!allowed(role, "POST", "/tasks/probe"));
         }
         assert!(allowed(window, "GET", "/settings/task-defaults"));
         assert!(allowed(window, "POST", "/start-headless-download"));

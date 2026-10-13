@@ -137,7 +137,7 @@ test("a submitted native task never fetches task pages or reports a window-close
     invokeNative: async (command) => { actions.push(command); throw Error("focus failed"); },
     schedulePoll() {},
   });
-  vm.runInContext(declarations("isNativeTaskWindow", "submitTask", "setSubmitting", "finishNativeTaskForm"), context);
+  vm.runInContext(declarations("isNativeTaskWindow", "submitTask", "setSubmitting", "finishNativeTaskForm", "buildTaskTransport"), context);
   await context.submitTask({ preventDefault() {} });
   assert.deepEqual(actions, ["finish_task_window"]);
   assert.equal(fields.mLink.value, "");
@@ -176,7 +176,7 @@ test("native submission refreshes inherited preferences, preserves explicit draf
     loadTasks: assert.fail, showModalMsg() {}, formatStartOutcome: () => "created",
     finishNativeTaskForm() {}, schedulePoll() {},
   });
-  vm.runInContext(declarations("isNativeTaskWindow", "submitTask", "setSubmitting"), context);
+  vm.runInContext(declarations("isNativeTaskWindow", "submitTask", "setSubmitting", "buildTaskTransport"), context);
   const firstSubmission = context.submitTask({ preventDefault() {} });
   assert.equal(fields.downloadForm.inert, true);
   await context.submitTask({ preventDefault() {} });

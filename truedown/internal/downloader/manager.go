@@ -305,6 +305,7 @@ type Manager struct {
 	stopOnce     sync.Once
 	engineExited atomic.Bool
 	detailReads  atomic.Int32
+	probeReads   atomic.Int32
 	engineExit   func(*Manager, error)
 	lifecycleCtx context.Context
 	cancel       context.CancelFunc

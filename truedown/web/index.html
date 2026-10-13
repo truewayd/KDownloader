@@ -37,6 +37,7 @@
   <script src="/workspace.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/media-controls.js" defer></script>
+  <script src="/link-probe.js" defer></script>
   <script src="/task-forms.js" defer></script>
   <script src="/context-menu.js" defer></script>
   <script src="/popup-preload.js" defer></script>
@@ -598,6 +599,9 @@
             <label for="m-link">下载链接或 Magnet</label>
             <textarea id="m-link" class="kd-input link-list-field" rows="2" placeholder="https://example.com/file.zip&#10;magnet:?xt=urn:btih:..."></textarea>
             <p class="hint">每行一个链接。Magnet 和 .torrent 下载需要 Aria2 Next。</p>
+            <div><button class="kd-button secondary" id="probe-link-btn" type="button" disabled aria-describedby="probe-link-hint">探测链接</button></div>
+            <p class="hint" id="probe-link-hint">探测需要 NEXT 3；每次支持一个 HTTP(S) 链接。</p>
+            <p class="hint kd-selectable" id="probe-link-result" role="status" hidden></p>
           </div>
           <div class="field torrent-import-field">
             <label for="choose-torrent-btn">或导入种子文件</label>

@@ -203,6 +203,49 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, dm.EngineCapabilities())
 	})
+	mux.HandleFunc("/tasks/probe", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Link         string                `json:"link"`
+			Headers      map[string]string     `json:"headers"`
+			DownloadPage string                `json:"downloadPage"`
+			Opts         *downloader.Aria2Opts `json:"opts"`
+			UseDefaults  bool                  `json:"useDefaults"`
+		}
+		if !decodeJSONRequest(w, r, maxStartRequestBytes, &req) {
+			return
+		}
+		var opts downloader.Aria2Opts
+		if req.Opts != nil {
+			opts = *req.Opts
+		}
+		if req.UseDefaults {
+			_, req.DownloadPage, req.Headers, opts = dm.ApplyTaskDefaults("", req.DownloadPage, req.Headers, req.Opts)
+		}
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(25 * time.Second))
+		result, err := dm.ProbeLink(r.Context(), req.Link, req.Headers, req.DownloadPage, opts)
+		if err != nil {
+			status := http.StatusBadGateway
+			switch {
+			case downloader.IsValidationError(err):
+				status = http.StatusBadRequest
+			case errors.Is(err, downloader.ErrProbeUnavailable):
+				status = http.StatusConflict
+			case errors.Is(err, downloader.ErrProbeBusy):
+				status = http.StatusTooManyRequests
+			case errors.Is(err, context.Canceled):
+				return
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	})
 
 	// TrueDown has a global admission queue, but no ABDM named queues.
 	mux.HandleFunc("/queues", func(w http.ResponseWriter, r *http.Request) {

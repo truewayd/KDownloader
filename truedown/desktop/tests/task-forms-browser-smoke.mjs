@@ -60,7 +60,11 @@ try {
             if (path === "/settings/task-defaults" && method === "GET") body = { revision: 1, values: {} };
             else if (path === "/settings/download-rules" && method === "GET") body = window.nativeTestPreferences.rules;
             else if (path === "/modules" && method === "GET") body = window.nativeTestPreferences.modules;
-            else if (path === "/engine/capabilities" && method === "GET") body = { media: true, probe: false };
+            else if (path === "/engine/capabilities" && method === "GET") body = { media: true, probe: true };
+            else if (path === "/tasks/probe" && method === "POST") {
+              if (window.holdProbe) await new Promise(resolve => { window.releaseProbe = resolve; });
+              body = { status: 206, filename: "<video>.zip", contentType: "application/zip", totalLength: 1024, resumable: true };
+            }
             else if (path === "/start-headless-download" && method === "POST") body = "OK 1";
             else throw Error(`Unexpected native form request: ${method} ${path}`);
             return { status: 200, owned: true, body: typeof body === "string" ? body : JSON.stringify(body), headers: {} };
@@ -174,6 +178,22 @@ try {
       await page.waitForFunction(() => document.querySelector('[data-directory-input="m-folder"]').getAttribute("aria-busy") !== "true");
       assert.equal(await page.locator("#m-folder").inputValue(), "C:\\Newer draft");
       assert.equal(await page.locator("#m-folder").evaluate((input) => input === document.activeElement), true);
+      await page.locator("#m-name").fill("My name.zip");
+      await page.locator("#probe-link-btn").click();
+      await page.waitForFunction(() => !document.getElementById("probe-link-result").hidden);
+      assert.match(await page.locator("#probe-link-result").textContent(), /<video>\.zip.*支持续传/);
+      assert.equal(await page.locator("#probe-link-result video").count(), 0, "metadata stays literal");
+      assert.equal(await page.locator("#m-name").inputValue(), "My name.zip");
+      assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/draft.zip");
+      assert.equal(await page.evaluate(() => nativeCalls.some(call => call.args?.request?.path === "/start-headless-download")), false);
+      await page.evaluate(() => { window.holdProbe = true; });
+      await page.locator("#probe-link-btn").click();
+      await page.waitForFunction(() => typeof releaseProbe === "function");
+      await page.locator("#m-link").fill("https://example.test/newer.zip");
+      await page.evaluate(() => { releaseProbe(); window.holdProbe = false; });
+      await page.waitForFunction(() => !linkProbeController);
+      assert.equal(await page.locator("#probe-link-result").isVisible(), false, "late probe cannot replace newer draft state");
+      await page.locator("#m-link").fill("https://example.test/draft.zip");
       await page.keyboard.press("Escape");
       assert.equal(await page.evaluate(() => nativeCalls.filter(({ command }) => command === "close_auxiliary").length), 1);
       assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/draft.zip");
@@ -181,7 +201,7 @@ try {
       await page.mouse.wheel(0, 3000);
       await page.waitForFunction(() => {
         const body = document.querySelector("#overlay .modal-body");
-        return body.scrollHeight <= body.clientHeight || body.scrollTop > 0;
+        return body.scrollHeight - body.clientHeight - body.scrollTop < 2;
       });
       const advanced = await page.locator("#overlay .advanced-options summary").boundingBox();
       assert.ok(advanced.y >= layout.body.y && advanced.y + advanced.height <= layout.body.y + layout.body.height);
@@ -205,7 +225,7 @@ try {
       assert.deepEqual(mediaRequest, { protocol: "hls", format: "mp4", recordTime: 30 });
       await page.locator("#m-media").focus(); await page.keyboard.press("Home"); await page.keyboard.press("Enter");
       assert.equal(await page.locator("#m-link").inputValue(), "");
-      assert.equal(await page.evaluate(() => nativeCalls.some(({ command, args }) => command === "core_request" && args.request.path.startsWith("/tasks"))), false);
+      assert.equal(await page.evaluate(() => nativeCalls.some(({ command, args }) => command === "core_request" && args.request.path.startsWith("/tasks") && args.request.path !== "/tasks/probe")), false);
       if (role === "new-task") {
         const dropTorrent = () => page.evaluate(() => {
           const dataTransfer = new DataTransfer();
