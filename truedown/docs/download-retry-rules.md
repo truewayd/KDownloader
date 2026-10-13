@@ -33,7 +33,9 @@ separate native confirmation window in the desktop app.
 | --- | --- |
 | Failed HTTP task with usable payload and `.aria2` map | Resume at the same path; keep downloaded pieces. |
 | Stable engine: owned payload without `.aria2`, including a file already at its expected size | Remove only that task's incomplete payload and start again at the same path. Sparse/preallocated file length cannot prove completeness. |
-| NEXT 2.8.2+: owned payload without `.aria2` | Preserve it for the engine's native checkpoint validation. A same-URL failed retry retains its GID. |
+| NEXT 2.8.2-2.x: owned payload without `.aria2` | Preserve it for the engine's native checkpoint validation. A same-URL failed retry retains its GID. |
+| NEXT 3: paused or process-interrupted HTTP task | Preserve GID and output; the engine loads its native checkpoint. `continue=false` forbids unsafe file-length prefix adoption without disabling that checkpoint. |
+| NEXT 3: failed HTTP retry | Retire the stopped result and use a new GID; let the engine truncate the owned output on explicit retry. NEXT 3.0.0 has no HTTP retry RPC and result removal deletes its checkpoint. Do not copy or edit engine state to simulate this missing capability. |
 | NEXT rejects an existing output without matching native state | Leave the bytes intact and report that Retry will restart this file from zero. |
 | NEXT resolver request renews its source URL | Reuse the task and output, validate remote metadata, then start from zero under a new GID. |
 | Orphaned `.aria2` for an owned task with no payload | Remove the unusable map and start at the same path. |
@@ -59,7 +61,8 @@ the task is running.
 
 ## Persistence and failure boundaries
 
-SQLite record schema 7 adds `transfer_state` and `previous_gid`. The transfer
+SQLite record schema 7 added `transfer_state` and `previous_gid`; schema 8 adds
+the durable browser import inbox without changing transfer fields. The transfer
 states are `pending`, `resume`, `restart`, and `recheck`. New output ownership is
 committed before engine submission, and a failed database write does not publish
 a replacement filename or start the engine. Clean-restart intent survives queue
@@ -70,6 +73,14 @@ When a native HTTP retry reuses its GID, terminal polls are ignored until the
 previous result has been retired; revision checks reject polls from before
 resubmission. TrueDown's task database restores the original GID and URL on
 engine restart, while the profile's native state directory holds the ranges.
+
+Task deletion first stops the engine writer and waits for its terminal state.
+Native result/state retirement uses engine RPCs; failures preserve the manager
+record for another attempt. Engine-native state directories are never walked
+or edited by the manager. The engine does not unlink ordinary HTTP output files,
+so confirmed unfinished-file removal still uses TrueDown's bounded ownership
+checks after the writer stops. Module artifacts and updater stages have separate
+TrueDown-owned lifecycles. Completed user outputs remain untouched.
 
 Existing records retain their stored output path and migrate to resume state.
 HTTP recovery checks direct child paths and validates the entire payload/control

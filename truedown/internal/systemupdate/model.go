@@ -38,7 +38,7 @@ const (
 var (
 	canonicalVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 	stableVersionPattern    = regexp.MustCompile(`(?mi)^aria2 version ([0-9]+\.[0-9]+\.[0-9]+)\s*$`)
-	nextVersionPattern      = regexp.MustCompile(`(?mi)^aria2 next version ([0-9]+\.[0-9]+\.[0-9]+)\s*$`)
+	nextVersionPattern      = regexp.MustCompile(`(?mi)^aria2(?: next|-next) version ([0-9]+\.[0-9]+\.[0-9]+)\s*$`)
 	updateHelperPattern     = regexp.MustCompile(`^TrueDown-updater-[0-9]+\.exe$`)
 	nativeHelperPattern     = regexp.MustCompile(`^TrueDown-native-updater-[0-9a-f]{48}\.exe$`)
 )

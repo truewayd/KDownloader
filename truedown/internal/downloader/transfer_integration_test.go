@@ -36,6 +36,21 @@ func TestAriaHTTPRepeatedInterruptedRetriesKeepOneOutput(t *testing.T) {
 			resumed.Add(1)
 		}
 		if fail.Load() {
+			w.Header().Set("Accept-Ranges", "bytes")
+			// NEXT 3 counts failures without progress. Preserve one partial
+			// range, then fail without delivering more bytes on every retry.
+			if value := r.Header.Get("Range"); strings.HasPrefix(value, "bytes=") && value != "bytes=0-0" {
+				start, _, _ := strings.Cut(strings.TrimPrefix(value, "bytes="), "-")
+				offset, _ := strconv.Atoi(start)
+				if offset > 0 && offset < len(payload) {
+					http.Error(w, "fixture authorization expired", http.StatusUnauthorized)
+					return
+				}
+			}
+			if r.Header.Get("Range") == "bytes=0-0" {
+				http.ServeContent(w, r, "payload.bin", time.Unix(1_700_000_000, 0), bytes.NewReader(payload))
+				return
+			}
 			w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(payload[:64*1024])
@@ -59,7 +74,7 @@ func TestAriaHTTPRepeatedInterruptedRetriesKeepOneOutput(t *testing.T) {
 	if err := m.Start(); err != nil {
 		t.Fatal(err)
 	}
-	opts := Aria2Opts{Connections: 1, MaxTries: 1, RetryWait: 1, ExtraArgs: []string{"--file-allocation=trunc"}}
+	opts := Aria2Opts{Connections: 1, MaxTries: 2, RetryWait: 1, ExtraArgs: []string{"--file-allocation=trunc"}}
 	task, _, err := m.AddTask(server.URL+"/payload.bin", "payload.bin", "", nil, "", 0, opts)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +100,7 @@ func TestAriaHTTPRepeatedInterruptedRetriesKeepOneOutput(t *testing.T) {
 		}
 		waitForStatus(t, m, task.ID, 12*time.Second, StatusError)
 		current, _ := m.GetTask(task.ID)
-		if m.usesNativeHTTPState() && current.GID != task.GID {
+		if m.usesNativeHTTPState() && !m.usesNext3() && current.GID != task.GID {
 			t.Fatal("native retry changed checkpoint owner")
 		}
 		if current.OutputName != task.OutputName {
@@ -101,7 +116,7 @@ func TestAriaHTTPRepeatedInterruptedRetriesKeepOneOutput(t *testing.T) {
 	}
 	waitForStatus(t, m, task.ID, 12*time.Second, StatusDone)
 	assertTransferHash(t, path, payload)
-	if resumed.Load() == 0 {
+	if !m.usesNext3() && resumed.Load() == 0 {
 		t.Fatal("valid checkpoint retry did not resume a nonzero byte range")
 	}
 	assertTransferDirectory(t, task.Folder, task.OutputName, true)

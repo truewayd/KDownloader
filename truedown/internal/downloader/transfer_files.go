@@ -22,9 +22,21 @@ func (m *Manager) usesNativeHTTPState() bool {
 // Retiring a terminal RPC result frees the GID without changing its identity.
 func (m *Manager) keepHTTPRetryGID(task *Task) bool {
 	var identity requestIdentity
-	return m.usesNativeHTTPState() && task.Status == StatusError &&
+	return m.usesNativeHTTPState() && !m.usesNext3() && task.Status == StatusError &&
 		retryTransferState(task) != transferRestart &&
 		json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.BitTorrent == nil
+}
+
+func (m *Manager) retryTransferState(task *Task) string {
+	var identity requestIdentity
+	if m.usesNext3() && task.Status == StatusError && !m.isArtifactTask(task) &&
+		json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.BitTorrent == nil {
+		// NEXT 3 removes HTTP checkpoints with the stopped result. It has no
+		// HTTP retry RPC; keep pause/restart recovery native, and explicitly
+		// restart failed downloads instead of copying engine-owned state.
+		return transferRestart
+	}
+	return retryTransferState(task)
 }
 
 func retryTransferState(task *Task) string {
@@ -76,7 +88,8 @@ func (m *Manager) prepareHTTPOutput(id int64, recheck bool) (*Task, error) {
 	}
 	// A sparse or preallocated file's length says nothing about which pieces
 	// arrived. Legacy aria2 needs its control file; NEXT's curl engine owns
-	// range checkpoints in state-dir and validates existing output itself.
+	// range checkpoints in state-dir. NEXT 3 gets continue=false to reject
+	// prefix adoption when its checkpoint is missing.
 	if !recheck && !m.usesNativeHTTPState() && output != control {
 		if err := removePartialFiles(proposed, ""); err != nil {
 			return nil, fmt.Errorf("restart incomplete download without valid resume files: %w", err)

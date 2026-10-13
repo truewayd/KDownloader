@@ -1,11 +1,16 @@
-param([string]$EnginePath = "")
+param(
+  [string]$EnginePath = "",
+  [ValidateSet('3.0.0', '2.8.3')][string]$Version = '3.0.0'
+)
 
 $ErrorActionPreference = "Stop"
 if (-not $IsWindows -or [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') {
   throw "NEXT acceptance currently targets Windows x64"
 }
-$version = '2.8.3'
-$expectedHash = '08afaf2a44811d38e7ce538da719ab06d6925bcaad1231ee7b92c497f58e5aac'
+$expectedHash = @{
+  '3.0.0' = 'edf8d987abb3055f34b09a190b4d533950a186ddae9013b9fb83948ee3a5f438'
+  '2.8.3' = '08afaf2a44811d38e7ce538da719ab06d6925bcaad1231ee7b92c497f58e5aac'
+}[$Version]
 $temporaryRoot = $null
 if ($EnginePath) { $EnginePath = [IO.Path]::GetFullPath($EnginePath) }
 $saved = @{}
@@ -29,7 +34,7 @@ try {
   $env:TRUEDOWN_ARIA2_NEXT_VERSION = $version
   node tools/prepare-mega-module.mjs
   if ($LASTEXITCODE -ne 0) { throw "MEGA baseline preparation failed" }
-  go test ./internal/downloader -count=1 -timeout=5m
+  go test ./internal/downloader ./internal/systemupdate ./internal/api -count=1 -timeout=5m
   if ($LASTEXITCODE -ne 0) { throw "NEXT acceptance failed" }
 } finally {
   foreach ($key in $saved.Keys) {

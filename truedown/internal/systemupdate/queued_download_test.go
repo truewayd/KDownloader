@@ -125,7 +125,8 @@ func TestQueuedAssetRealEngineProgressAndPause(t *testing.T) {
 	}))
 	defer upstream.Close()
 	root := t.TempDir()
-	dm, err := downloader.NewManager(engine, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	nextVersion := os.Getenv("TRUEDOWN_ARIA2_NEXT_VERSION")
+	dm, err := downloader.NewManagerWithConfig(engine, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), downloader.ManagerConfig{Aria2Next: nextVersion != "", Aria2NextVersion: nextVersion})
 	if err != nil {
 		t.Fatal(err)
 	}

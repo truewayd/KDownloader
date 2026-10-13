@@ -126,7 +126,17 @@ func TestNextRenewedModuleURLRestartsWithoutLegacyControlFile(t *testing.T) {
 }
 
 func TestFilenameResolutionCapabilityAndRawBytes(t *testing.T) {
-	for _, supported := range []bool{false, true} {
+	for _, tc := range []struct {
+		version                      string
+		flag, method, discoveryFails bool
+	}{
+		{"1.37.0", false, false, false},
+		{"2.8.3", true, true, false},
+		{"2.8.3", true, false, true},
+		{"3.0.0", false, true, false},
+		{"3.0.0", false, false, true},
+	} {
+		supported := tc.method || (tc.discoveryFails && tc.flag)
 		calls := 0
 		disposition := "attachment; filename=\"caf\xc3\xa9-\xff.bin\""
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -142,10 +152,19 @@ func TestFilenameResolutionCapabilityAndRawBytes(t *testing.T) {
 			switch request.Method {
 			case "aria2.getVersion":
 				features := []string{}
-				if supported {
+				if tc.flag {
 					features = append(features, "filename-resolution")
 				}
-				result = map[string]any{"version": "2.8.3", "downloadFeatures": features}
+				result = map[string]any{"version": tc.version, "downloadFeatures": features}
+			case "system.listMethods":
+				if tc.discoveryFails {
+					_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": -32601, "message": "not available"}})
+					return
+				}
+				result = []string{"aria2.getVersion"}
+				if tc.method {
+					result = []string{"aria2.getVersion", "aria2.resolveFilename"}
+				}
 			case "aria2.resolveFilename":
 				calls++
 				var data []int

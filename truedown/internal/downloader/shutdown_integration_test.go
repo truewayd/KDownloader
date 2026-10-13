@@ -10,8 +10,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"truedown/internal/enginesignal"
 )
 
 func TestEngineShutdownTiming(t *testing.T) {
@@ -22,7 +20,7 @@ func TestEngineShutdownTiming(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"rpc", "interrupt"} {
+	for _, mode := range []string{"rpc", "managed"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			m, err := NewManagerWithConfig(path, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), integrationManagerConfig())
@@ -37,7 +35,7 @@ func TestEngineShutdownTiming(t *testing.T) {
 			if mode == "rpc" {
 				err = m.rpc.shutdown()
 			} else {
-				err = enginesignal.Interrupt(m.cmd.Process)
+				err = m.shutdownEngine()
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -51,7 +49,7 @@ func TestEngineShutdownTiming(t *testing.T) {
 			if !m.cmd.ProcessState.Success() {
 				t.Fatal("engine did not exit cleanly")
 			}
-			if mode == "interrupt" && !m.aria2Next && time.Since(start) > 2500*time.Millisecond {
+			if mode == "managed" && !m.aria2Next && time.Since(start) > 2500*time.Millisecond {
 				t.Fatal("normal interrupt retained the shutdown RPC delay")
 			}
 		})

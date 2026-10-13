@@ -47,6 +47,9 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 		if err := validateRequest(identity); err != nil {
 			return nil, err
 		}
+		if err := m.validateEngineOptions(identity.Opts); err != nil {
+			return nil, err
+		}
 		m.mu.RLock()
 		folder := m.groupedFolderLocked(identity.Folder, identity.Name, identity.Link)
 		m.mu.RUnlock()

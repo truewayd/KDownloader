@@ -284,6 +284,24 @@ type refusingRetireRPC struct {
 	activeGID string
 }
 
+func TestRemoveKeepsTaskWhenNativeStateCleanupFails(t *testing.T) {
+	m, rpc := transferTestManager(t)
+	task := transferTestTask(t, m, "retained.bin")
+	m.applyStatuses([]ariaStatus{{GID: task.GID, Status: "error", ErrorMessage: "failed"}})
+	m.rpc = &refusingRetireRPC{rpc, task.GID}
+	result := m.RemoveTasks([]int64{task.ID})
+	if len(result.Succeeded) != 0 || len(result.Failed) != 1 {
+		t.Fatalf("cleanup failure was ignored: %+v", result)
+	}
+	if _, exists := m.GetTask(task.ID); !exists {
+		t.Fatal("lost task before native state retirement")
+	}
+	stored, err := m.store.LoadAll()
+	if err != nil || len(stored) != 1 {
+		t.Fatal("lost durable cleanup owner", err)
+	}
+}
+
 func (r *refusingRetireRPC) removeResult(gid string) error {
 	if gid == r.activeGID {
 		return errors.New("download is still active")

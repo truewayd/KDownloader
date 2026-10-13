@@ -162,6 +162,9 @@ func (m *Manager) TaskDefaults() TaskDefaultsSnapshot {
 
 func (m *Manager) SetTaskDefaults(revision uint64, values TaskDefaults) (TaskDefaultsSnapshot, error) {
 	values = normalizeProxyDefaults(values)
+	if err := m.validateEngineOptions(values.options()); err != nil {
+		return TaskDefaultsSnapshot{}, err
+	}
 	if err := validateTaskDefaults(values); err != nil {
 		return TaskDefaultsSnapshot{}, err
 	}

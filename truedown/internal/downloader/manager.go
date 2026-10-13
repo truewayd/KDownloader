@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -510,18 +511,9 @@ func (m *Manager) Stop() {
 			if client, ok := m.rpc.(*ariaClient); ok {
 				defer client.http.CloseIdleConnections()
 			}
-			// aria2's shutdown RPC deliberately waits three seconds. A normal
-			// interrupt enters the same checkpoint/cleanup path immediately.
-			if m.cmd == nil || m.cmd.Process == nil {
-				_ = m.rpc.shutdown()
-			} else if err := enginesignal.Interrupt(m.cmd.Process); err != nil {
-				log.Printf("engine interrupt unavailable; using shutdown RPC: %v", err)
-				_ = m.rpc.shutdown()
-			} else {
-				// Preserve the old total grace budget (3s RPC delay + 4s wait)
-				// for NEXT's BitTorrent state flush and network cleanup.
-				gracefulTimeout = 7 * time.Second
-			}
+			_ = m.shutdownEngine()
+			// Preserve the checkpoint and BitTorrent cleanup budget.
+			gracefulTimeout = 7 * time.Second
 		} else {
 			m.trackerResearch.close()
 		}
@@ -543,6 +535,19 @@ func (m *Manager) Stop() {
 			_ = m.store.Close()
 		}
 	})
+}
+
+func (m *Manager) shutdownEngine() error {
+	// NEXT 3 on Windows terminates on CTRL_BREAK without checkpointing.
+	// Its authenticated RPC is the supported graceful shutdown path.
+	if runtime.GOOS == "windows" && m.aria2Next && aria2NextVersionAtLeast(m.aria2NextVersion, 3, 0, 0) || m.cmd == nil || m.cmd.Process == nil {
+		return m.rpc.shutdown()
+	}
+	if err := enginesignal.Interrupt(m.cmd.Process); err != nil {
+		log.Printf("engine interrupt unavailable; using shutdown RPC: %v", err)
+		return m.rpc.shutdown()
+	}
+	return nil
 }
 
 func waitForManagedCommand(command *exec.Cmd, done <-chan error, gracefulTimeout, killTimeout time.Duration) bool {
@@ -592,6 +597,9 @@ func (m *Manager) addModuleTask(link, name, folder string, headers map[string]st
 }
 
 func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (*Task, bool, error) {
+	if err := m.validateEngineOptions(identity.Opts); err != nil {
+		return nil, false, err
+	}
 	requestJSON, err := json.Marshal(identity)
 	if err != nil {
 		return nil, false, err
@@ -628,7 +636,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		if identity.Opts.startPaused {
 			proposed.Status = StatusPaused
 		}
-		proposed.TransferState = retryTransferState(task)
+		proposed.TransferState = m.retryTransferState(task)
 		if m.usesNativeHTTPState() && task.Link != identity.Link {
 			proposed.TransferState = transferRestart
 		}
@@ -668,7 +676,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		if identity.Opts.startPaused {
 			proposed.Status = StatusPaused
 		}
-		proposed.TransferState = retryTransferState(task)
+		proposed.TransferState = m.retryTransferState(task)
 		if task.Status == StatusDone {
 			proposed.TransferState = transferRecheck
 		}
@@ -1283,7 +1291,7 @@ func (m *Manager) RequeueTasks(ids []int64) TaskOperationResult {
 			continue
 		}
 		originals[id] = cloneTask(task)
-		task.TransferState = retryTransferState(task)
+		task.TransferState = m.retryTransferState(task)
 		discardPartials[id] = task.TransferState == transferRestart
 		if m.keepHTTPRetryGID(task) {
 			task.PreviousGID = firstNonEmptyString(task.PreviousGID, task.GID)
@@ -1706,15 +1714,20 @@ func (m *Manager) removeTasks(ids []int64, allowActive bool) TaskOperationResult
 			resultTargets = append(resultTargets, target)
 		}
 	}
-	_ = runRPCOperations(resultTargets, 8, func(target rpcTarget) error {
+	retirementErrors := runRPCOperations(resultTargets, 8, func(target rpcTarget) error {
 		if m.rpc == nil {
 			return nil
 		}
 		if err := m.rpc.removeResult(target.gid); err != nil && !isGIDNotFound(err) {
-			log.Printf("remove aria2 result %s: %v", target.gid, err)
+			return fmt.Errorf("remove engine state: %w", err)
 		}
 		return nil
 	})
+	for id, err := range retirementErrors {
+		if err != nil {
+			errorsByID[id] = err
+		}
+	}
 
 	removable := make([]int64, 0, len(targets))
 	for _, target := range targets {
@@ -1964,6 +1977,10 @@ func (m *Manager) submit(item submission) bool {
 	if snapshot.Status != StatusQueued && snapshot.Status != StatusPaused {
 		return false
 	}
+	if err := m.validateEngineOptions(snapshot.Opts); err != nil {
+		m.failTask(snapshot.ID, err)
+		return false
+	}
 	var identity requestIdentity
 	isBitTorrent := snapshot.RequestJSON != "" && json.Unmarshal([]byte(snapshot.RequestJSON), &identity) == nil && identity.BitTorrent != nil
 	item.recheck = item.recheck || snapshot.TransferState == transferRecheck
@@ -2040,7 +2057,7 @@ func (m *Manager) submit(item submission) bool {
 				m.failTask(snapshot.ID, err)
 				return false
 			}
-		} else {
+		} else if !m.usesNext3() {
 			if stalePartialPath == "" && snapshot.OutputName == "" && stalePathErr != nil {
 				m.failTask(snapshot.ID, fmt.Errorf("download engine became unavailable while locating stale partial data; restart TrueDown: %w", stalePathErr))
 				return false
@@ -2083,12 +2100,7 @@ func (m *Manager) submit(item submission) bool {
 		m.failTask(snapshot.ID, fmt.Errorf("create download directory: %w", err))
 		return false
 	}
-	options := ariaOptions(snapshot, item.recheck)
-	if m.usesNativeHTTPState() {
-		// NEXT's curl downloader rejects the retired legacy resume switch.
-		// Continue and the output ownership/overwrite guards remain active.
-		delete(options, "always-resume")
-	}
+	options := m.engineTaskOptions(snapshot, item.recheck, item.discardPartial, isBitTorrent)
 	if snapshot.Opts.ProxyMode != "" {
 		if err := applyDownloadProxy(options, snapshot.Link, snapshot.Opts); err != nil {
 			m.failTask(snapshot.ID, err)
@@ -2796,7 +2808,6 @@ func (m *Manager) aria2StartArgs(port int, secret string, runtimeSettings Runtim
 		"--rpc-secret=" + secret,
 		"--dir=" + filepath.ToSlash(m.defaultDir),
 		"--continue=true",
-		"--auto-save-interval=5",
 		fmt.Sprintf("--stop-with-process=%d", os.Getpid()),
 		fmt.Sprintf("--max-concurrent-downloads=%d", runtimeSettings.ConcurrentDownloads),
 		fmt.Sprintf("--max-overall-download-limit=%d", runtimeSettings.GlobalDownloadLimitBps),
@@ -2805,6 +2816,11 @@ func (m *Manager) aria2StartArgs(port int, secret string, runtimeSettings Runtim
 		"--download-result=full",
 		"--keep-unfinished-download-result=false",
 		fmt.Sprintf("--max-download-result=%d", ariaResultLimit),
+	}
+	if m.aria2Next && aria2NextVersionAtLeast(m.aria2NextVersion, 3, 0, 0) {
+		args = append(args, "--state-save-interval=1")
+	} else {
+		args = append(args, "--auto-save-interval=5")
 	}
 	if m.aria2Next {
 		args = append(args, "--check-integrity=true")
@@ -2824,7 +2840,7 @@ func (m *Manager) aria2StartArgs(port int, secret string, runtimeSettings Runtim
 		} else if aria2NextSupportsBTResumeSave(m.aria2NextVersion) {
 			args = append(args, "--bt-session-state-file="+filepath.ToSlash(filepath.Join(m.ariaStateDir, "bittorrent.session")))
 		}
-		if aria2NextSupportsBTResumeSave(m.aria2NextVersion) {
+		if aria2NextSupportsBTResumeSave(m.aria2NextVersion) && !aria2NextVersionAtLeast(m.aria2NextVersion, 3, 0, 0) {
 			args = append(args, "--bt-resume-save-interval=1")
 		}
 	}
