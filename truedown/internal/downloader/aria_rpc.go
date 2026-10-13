@@ -21,6 +21,7 @@ type ariaClient struct {
 	mediaSupport       atomic.Bool
 	probeSupport       atomic.Bool
 	collections        *collectionTransports
+	lifecycleCtx       context.Context
 }
 
 type ariaRPCError struct {
@@ -288,8 +289,13 @@ func (c *ariaClient) pause(gid string) error {
 	return c.nativePause(gid)
 }
 func (c *ariaClient) nativePause(gid string) error {
+	ctx, cancel := c.pauseContext()
+	defer cancel()
 	var result string
-	return c.call("aria2.pause", []any{gid}, &result)
+	if err := c.callContext(ctx, "aria2.pause", []any{gid}, &result); err != nil {
+		return err
+	}
+	return c.waitForPause(ctx, gid)
 }
 
 func (c *ariaClient) unpause(gid string) error {
@@ -311,8 +317,13 @@ func (c *ariaClient) pauseAll() error {
 			return err
 		}
 	}
+	ctx, cancel := c.pauseContext()
+	defer cancel()
 	var result string
-	return c.call("aria2.pauseAll", nil, &result)
+	if err := c.callContext(ctx, "aria2.pauseAll", nil, &result); err != nil {
+		return err
+	}
+	return c.waitForPause(ctx, "")
 }
 
 func (c *ariaClient) unpauseAll() error {

@@ -6,7 +6,6 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // MediaOptions select native NEXT behavior. Manifests, segments, muxing and
@@ -161,21 +160,6 @@ func (m *Manager) FinishMediaTasks(ids []int64) TaskOperationResult {
 			continue
 		}
 		state, err := m.rpc.status(task.GID)
-		if err == nil && task.Status == StatusPaused {
-			// pause is asynchronous in NEXT. finishMedia only unpauses a task
-			// that has actually reached Paused, so serialize this transition.
-			deadline := time.Now().Add(3 * time.Second)
-			for state.Status == "active" && time.Now().Before(deadline) && m.lifecycleCtx.Err() == nil {
-				time.Sleep(25 * time.Millisecond)
-				state, err = m.rpc.status(task.GID)
-				if err != nil {
-					break
-				}
-			}
-			if err == nil && state.Status == "active" {
-				err = fmt.Errorf("native pause is still pending")
-			}
-		}
 		if err == nil && (state.Media == nil || state.Media.Live != "true" || (state.Status != "active" && state.Status != "paused" && state.Status != "waiting")) {
 			err = fmt.Errorf("task %d is not a live recording", id)
 		}

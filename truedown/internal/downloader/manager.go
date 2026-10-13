@@ -1388,7 +1388,7 @@ func (m *Manager) ResumeTasks(ids []int64) TaskOperationResult {
 	return m.changePauseState(ids, false)
 }
 
-// PauseQueue pauses every queued or active task with one aria2-wide RPC call.
+// PauseQueue pauses every queued or active task with one aria2-wide pause request.
 func (m *Manager) PauseQueue() TaskOperationResult {
 	return m.changeQueuePauseState(true)
 }
@@ -2799,6 +2799,7 @@ func (m *Manager) startAria2() error {
 		close(cmdDone)
 	}()
 	rpc := newAriaClient(port, secret)
+	rpc.lifecycleCtx = m.lifecycleCtx
 	deadline := time.Now().Add(6 * time.Second)
 	for time.Now().Before(deadline) {
 		if err := rpc.ready(); err == nil {

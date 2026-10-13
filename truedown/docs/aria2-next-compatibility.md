@@ -74,8 +74,13 @@ stays completed rather than starting an HTTP conditional refresh.
 Snapshots expose bounded media state, duration, received bytes and structured
 error codes, excluding manifests, tracks and raw engine errors. Live tasks show
 recorded duration rather than a fictitious percentage. `finish-media` on the
-existing task batch route ends a live recording and waits for native completion;
-if pause is still settling, the manager waits before asking NEXT to finish it.
+existing task batch route asks NEXT to finalize a live recording; the task only
+completes after native publication.
+Pause requests wait for the native paused state (or no active queue writers)
+before TrueDown acknowledges them. The shared RPC wait has a five-second bound
+and stops on manager shutdown, so immediate resume and live finalization cannot
+overtake a pending pause. Terminal or unreadable states do not acknowledge an
+individual pause as successful.
 `GET /engine/capabilities` is read-only and native access is limited to new-task.
 DRM-protected media remains unsupported. Arbitrary track selection, captured
 browser manifests, and cross-origin credential contexts are not exposed yet.

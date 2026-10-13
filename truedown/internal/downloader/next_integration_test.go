@@ -53,16 +53,8 @@ func TestNext3NativePauseAndRemovalIntegration(t *testing.T) {
 	if err := m.PauseTask(task.ID); err != nil {
 		t.Fatal(err)
 	}
-	deadline = time.Now().Add(3 * time.Second)
-	for {
-		state, err := m.rpc.status(task.GID)
-		if err == nil && state.Status == "paused" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("engine did not finish pause")
-		}
-		time.Sleep(20 * time.Millisecond)
+	if state, err := m.rpc.status(task.GID); err != nil || state.Status != "paused" {
+		t.Fatal("pause returned before the engine stopped", state, err)
 	}
 	// Test-only inspection proves the engine owns checkpoint creation/removal.
 	// Production code never opens this database.
@@ -87,6 +79,16 @@ func TestNext3NativePauseAndRemovalIntegration(t *testing.T) {
 	}
 	if err := m.ResumeTask(task.ID); err != nil {
 		t.Fatal(err)
+	}
+	waitForStatus(t, m, task.ID, 5*time.Second, StatusDownloading)
+	if result := m.PauseQueue(); len(result.Failed) != 0 || len(result.Succeeded) != 1 {
+		t.Fatalf("pause queue: %+v", result)
+	}
+	if state, err := m.rpc.status(task.GID); err != nil || state.Status != "paused" {
+		t.Fatal("queue pause returned before the engine stopped", state, err)
+	}
+	if result := m.ResumeQueue(); len(result.Failed) != 0 || len(result.Succeeded) != 1 {
+		t.Fatalf("immediate queue resume: %+v", result)
 	}
 	foreign := filepath.Join(task.Folder, "foreign.tmp")
 	if err := os.WriteFile(foreign, []byte("keep"), 0600); err != nil {
