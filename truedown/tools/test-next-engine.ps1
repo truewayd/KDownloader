@@ -27,6 +27,8 @@ try {
   $env:TRUEDOWN_INTEGRATION = '1'
   $env:TRUEDOWN_ARIA2_PATH = $EnginePath
   $env:TRUEDOWN_ARIA2_NEXT_VERSION = $version
+  node tools/prepare-mega-module.mjs
+  if ($LASTEXITCODE -ne 0) { throw "MEGA baseline preparation failed" }
   go test ./internal/downloader -count=1 -timeout=5m
   if ($LASTEXITCODE -ne 0) { throw "NEXT acceptance failed" }
 } finally {

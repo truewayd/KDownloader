@@ -105,7 +105,9 @@ jobs:
 
       - name: Test TrueDown
         working-directory: truedown
-        run: go test ./...
+        run: |
+          node tools/prepare-mega-module.mjs
+          go test ./...
 
       - name: Vet TrueDown
         working-directory: truedown
@@ -240,7 +242,9 @@ jobs:
         env:
           CGO_ENABLED: "0"
           TRUEDOWN_INTEGRATION: "1"
-        run: go test ./...
+        run: |
+          node tools/prepare-mega-module.mjs
+          go test ./...
 
       - name: Vet TrueDown
         working-directory: truedown

@@ -72,11 +72,7 @@ if(!nativeIcon || nativeIcon.subarray(0,8).toString("hex")!=="89504e470d0a1a0a")
 const iconOutput=path.join(await directory("dist"),"desktop-icon.png");
 await regularOutput(iconOutput);
 await fs.writeFile(iconOutput,nativeIcon);
-const moduleOutput=path.join(await directory("internal/modulebundle/assets"),`mega-${goos}-${goarch}.bin`);
-await regularOutput(moduleOutput);
-const megaBaseline=JSON.parse(await fs.readFile(path.join(project,"internal/downloader/module_baselines/mega.json"),"utf8"));
-if(megaBaseline.id!=="mega" || !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(megaBaseline.version))throw new Error("Invalid MEGA baseline version");
-run("go",["build","-trimpath","-ldflags",`-s -w -X main.version=${megaBaseline.version}`,"-o",moduleOutput,"./modules/mega"],{env:{...process.env,CGO_ENABLED:"0",GOOS:goos,GOARCH:goarch}});
+console.log(run(process.execPath,[path.join(project,"tools/prepare-mega-module.mjs")],{env:{...process.env,GOOS:goos,GOARCH:goarch}}));
 for(const [name,entry] of [["truedown-core","./cmd/truedown-core"],["truedown-cli","./cmd/truedown"]]){
   const output=path.join(binaries,`${name}-${target}${suffix}`);
   await regularOutput(output);
