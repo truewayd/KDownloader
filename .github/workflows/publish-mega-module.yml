@@ -56,6 +56,11 @@ jobs:
           done
           cp ../LICENSE ../dist/mega-release/LICENSE
           cp "$(go env GOROOT)/LICENSE" ../dist/mega-release/GO-LICENSE
+          for reference in MEGAJS MEGA_SDK MEGAcmd; do
+            printf '%s\n' "$reference" >> ../dist/mega-release/MEGA-REFERENCES.txt
+            cat "licenses/$reference.txt" >> ../dist/mega-release/MEGA-REFERENCES.txt
+            printf '\n' >> ../dist/mega-release/MEGA-REFERENCES.txt
+          done
           printf 'MODULE_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
       - name: Publish immutable module release
         env:
@@ -64,5 +69,5 @@ jobs:
           set -euo pipefail
           tag="truedown-module-mega-v$MODULE_VERSION"
           gh release create "$tag" dist/mega-release/* --target "$GITHUB_SHA" --draft --title "MEGA module $MODULE_VERSION" --notes "Independent pure-Go MEGA module. aria2 owns file transfer and resume; this module owns metadata, decryption and integrity verification."
-          gh release view "$tag" --json assets --jq '.assets | length == 14' | grep -qx true
+          gh release view "$tag" --json assets --jq '.assets | length == 15' | grep -qx true
           gh release edit "$tag" --draft=false --latest=false

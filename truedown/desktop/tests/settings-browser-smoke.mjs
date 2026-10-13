@@ -5,9 +5,12 @@ import { promises as fs } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 
-const assets = new URL("../../web/", import.meta.url);
+const assets = process.env.TRUEDOWN_TEST_WEB_ROOT
+  ? pathToFileURL(path.resolve(process.env.TRUEDOWN_TEST_WEB_ROOT) + path.sep)
+  : new URL("../../web/", import.meta.url);
 const screenshots = process.argv[2] || await fs.mkdtemp(path.join(os.tmpdir(), "truedown-settings-"));
 await fs.mkdir(screenshots, { recursive: true });
 const server = http.createServer(async (request, response) => {
@@ -170,7 +173,7 @@ try {
     await search.fill("Pictures");
     assert.equal(await page.locator("#settings-search-results").textContent(), "没有匹配的设置", "profile values must stay out of search");
     await search.press("Escape");
-    assert.equal(await page.locator('.settings-section details').count(), 0, "settings help is readable without disclosure controls");
+    assert.equal(await page.locator('.settings-section details:not(#open-source-licenses)').count(), 0, "settings help is readable without disclosure controls");
     await search.fill("代理地址");
     await page.locator(".settings-search-result").first().click();
     await page.waitForFunction(() => currentSettingsPage === "general" && document.querySelector(".settings-search-highlight"));
@@ -399,6 +402,13 @@ try {
         assert.equal(await page.locator("#check-truedown-update-btn").isVisible(), true);
         assert.equal(await page.locator("#auto-update-truedown").getAttribute("role"), "switch");
         assert.equal(await page.locator("#auto-update-truedown").isChecked(), true);
+        assert.equal(await page.locator("#open-source-projects a").count(), 10);
+        await page.locator("#open-source-licenses summary").click();
+        await page.waitForFunction(() => document.querySelector("#license-notices").textContent.includes("interactive MEGAcmdShell"));
+        assert.ok((await page.locator("#license-notices").textContent()).includes("Copyright (c) 2023 Gustavo Rodrigues"));
+		assert.equal(await page.locator("#license-notices").evaluate(element => element.textContent === window.TrueDownOpenSource.notices + "\n\n" + window.TrueDownNativeLicenseNotices), true, "the complete packaged license inventory is readable");
+		assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "full licenses do not overflow the viewport");
+        await page.locator("#open-source-licenses summary").click();
       }
       await page.locator(".settings-content").evaluate(element => { element.scrollTop = 0; });
       await page.screenshot({ path: path.join(screenshots, `${name}-${category}.png`) });

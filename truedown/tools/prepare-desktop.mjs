@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { openSourceNotices } from "./open-source-notices.mjs";
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const desktop = path.join(project, "desktop");
@@ -88,4 +89,6 @@ for(const name of await fs.readdir(web)){
   if(!sources.includes(name))await fs.unlink(output);
 }
 for(const name of sources){const output=path.join(web,name);await regularOutput(output);await fs.copyFile(path.join(project,"web",name),output);}
+await fs.writeFile(path.join(web,"open-source.js"),`window.TrueDownOpenSource = ${JSON.stringify(await openSourceNotices())};\n`);
+await fs.writeFile(path.join(web,"native-license-notices.js"),`window.TrueDownNativeLicenseNotices = ${JSON.stringify(await fs.readFile(path.join(project,"dist/NATIVE_LICENSES.txt"),"utf8"))};\n`);
 console.log(`Desktop core and web resources prepared for ${target}`);

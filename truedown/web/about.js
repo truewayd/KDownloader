@@ -1,4 +1,5 @@
 async function loadAbout(initial = false) {
+  if (currentPage === "settings" && currentSettingsPage === "about") renderOpenSourceNotices();
   const epoch = routeEpoch;
   try {
     const [info, update, state] = await Promise.all([
@@ -19,4 +20,27 @@ async function loadAbout(initial = false) {
       scheduleReadRetry("about", loadAbout, () => currentPage === "settings" && currentSettingsPage === "about" && routeEpoch === epoch);
     }
   }
+}
+
+function renderOpenSourceNotices() {
+  const host = document.getElementById("open-source-projects");
+  if (!host || host.childElementCount || !window.TrueDownOpenSource) return;
+  for (const project of window.TrueDownOpenSource.projects) {
+    const entry = document.createElement("div");
+    const link = document.createElement("a");
+    link.href = project.url;
+    link.textContent = project.name;
+    link.className = "kd-selectable";
+    const license = document.createElement("span");
+    license.textContent = project.license;
+    const usage = document.createElement("p");
+    usage.className = "hint";
+    usage.textContent = project.usage;
+    entry.append(link, license, usage);
+    host.append(entry);
+  }
+  const details = document.getElementById("open-source-licenses");
+  details.addEventListener("toggle", () => {
+    if (details.open) document.getElementById("license-notices").textContent = window.TrueDownOpenSource.notices + "\n\n" + window.TrueDownNativeLicenseNotices;
+  });
 }

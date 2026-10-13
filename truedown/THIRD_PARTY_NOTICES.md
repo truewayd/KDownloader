@@ -82,6 +82,28 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
+## MEGA public-link references
+
+TrueDown's independent pure-Go MEGA executable implements public file and
+folder metadata, offline AES/MAC verification and local ZIP generation.
+aria2 owns all ciphertext downloads. No MEGA SDK, MEGAcmd or JavaScript
+runtime is bundled. Protocol and command behavior were reviewed against:
+
+- [MEGAJS](https://github.com/qgustavor/mega), commit
+  `32e4fa102b8a3afdd9e907877da285fea63e85e0`, MIT, Copyright (c) 2023 Gustavo Rodrigues.
+- [MEGA SDK](https://github.com/meganz/sdk), commit
+  `8775533fe50255723c45ab8abf4e14285a592d51`, BSD-2-Clause, Copyright (c) 2013 Mega Limited.
+- [MEGAcmd](https://github.com/meganz/MEGAcmd), commit
+  `6505327a5a7a0e94f26f611f83b024aeeb63582c`, BSD-2-Clause with GPL exceptions,
+  Copyright (c) 2013 Mega Limited. Its interactive shell and sources explicitly
+  distributed under GPL are exceptions; the entire project is not BSD licensed.
+
+Their complete original license texts are preserved in `licenses/MEGAJS.txt`,
+`licenses/MEGA_SDK.txt` and `licenses/MEGAcmd.txt`. The About page embeds these
+texts and the following notices; packaged builds also display the complete
+locked native dependency license inventory. Standalone MEGA module packages
+include the reference notices as `MEGA-REFERENCES.txt`.
+
 ## RatioGhost
 
 TrueDown's optional tracker-traffic research module is an original Go

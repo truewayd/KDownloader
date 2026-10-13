@@ -1,0 +1,12 @@
+[
+  {"name":"aria2","url":"https://github.com/aria2/aria2","license":"GPL-2.0-or-later","usage":"Windows 内置下载引擎；其他平台可使用系统安装的引擎。"},
+  {"name":"Aria2 Next","url":"https://github.com/AnInsomniacy/aria2-next","license":"GPL-2.0-or-later","usage":"可选下载引擎，用户安装后使用。"},
+  {"name":"Tauri","url":"https://github.com/tauri-apps/tauri","license":"MIT OR Apache-2.0","usage":"原生桌面窗口与受限 IPC；完整平台依赖许可证随构建生成。"},
+  {"name":"modernc.org/sqlite","url":"https://gitlab.com/cznic/sqlite","license":"BSD-3-Clause","usage":"Linux、macOS 的 SQLite 实现。"},
+  {"name":"Lucide / Feather","url":"https://github.com/lucide-icons/lucide","license":"ISC / MIT","usage":"界面图标。"},
+  {"name":"gdown","url":"https://github.com/wkentaro/gdown/tree/7132dabeef63255c6e2b3d555f0928f0f13bdbdb","license":"MIT","usage":"Google Drive 公开链接协议参考；使用原创 Go 实现，未包含 Python 运行时。"},
+  {"name":"MEGAJS","url":"https://github.com/qgustavor/mega/tree/32e4fa102b8a3afdd9e907877da285fea63e85e0","license":"MIT","usage":"MEGA 目录、节点密钥与公开文件协议参考；使用独立 Go 实现。","file":"MEGAJS.txt","sha256":"07d33447c310dc9459034beb287e0b967fd3be8350ac608b03f9559e16c8f4ec"},
+  {"name":"MEGA SDK","url":"https://github.com/meganz/sdk/tree/8775533fe50255723c45ab8abf4e14285a592d51","license":"BSD-2-Clause","usage":"MEGA 公开目录与完整性校验参考；未打包 SDK。","file":"MEGA_SDK.txt","sha256":"188c6c4c40243f61dd4490910ba5039e87f26214cc028ceae43cd7a632c00f95"},
+  {"name":"MEGAcmd","url":"https://github.com/meganz/MEGAcmd/tree/6505327a5a7a0e94f26f611f83b024aeeb63582c","license":"BSD-2-Clause，含 GPL 例外","usage":"MEGA 文件及目录下载行为参考；交互 shell 和明确标记的部分使用 GPL，未打包该项目。","file":"MEGAcmd.txt","sha256":"100f84803f57d825f19096b216279209f8dd324ee8257eda1939477655574ce2"},
+  {"name":"RatioGhost","url":"https://github.com/ratioghost/ratioghost/tree/64b641b675b8c88f7c84ee812e69a5274cf49474","license":"GPL-3.0-or-later","usage":"可选 Tracker 研究功能的行为参考；未打包 Tcl/Tk 代码或证书。"}
+]

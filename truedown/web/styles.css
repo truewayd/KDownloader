@@ -30,6 +30,14 @@ input[type="checkbox"].kd-switch[role="switch"]:checked, button.kd-switch[aria-c
 .kd-switch:checked::before, .kd-switch[aria-checked="true"]::before { transform: translateX(14px); background: #fff; }
 .kd-switch[role="switch"]:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 3px; }
 .kd-switch[role="switch"]:disabled { opacity: 0.5; cursor: not-allowed; }
+.open-source-projects { display: grid; gap: 16px; margin: 16px 0 24px; }
+.open-source-projects > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; }
+.open-source-projects p { grid-column: 1 / -1; margin: 4px 0 0; }
+.open-source-projects span { color: var(--kd-muted); font-size: 12px; }
+.license-notices { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 var(--font-mono, monospace); }
+#open-source-licenses summary { cursor: pointer; }
+@media (max-width: 520px) { .open-source-projects > div { grid-template-columns: minmax(0, 1fr); } }
+
 @media (prefers-reduced-motion: reduce) {
   input[type="checkbox"].kd-switch[role="switch"], button.kd-switch[role="switch"], .kd-switch[role="switch"]::before { transition: none; }
 }

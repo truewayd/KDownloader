@@ -26,7 +26,9 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Module build failed for $target" }
         Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination (Join-Path $directory 'LICENSE')
         Copy-Item -LiteralPath (Join-Path $goRoot 'LICENSE') -Destination (Join-Path $directory 'GO-LICENSE')
-        $files = foreach ($name in @($entry,'LICENSE','GO-LICENSE')) {
+        $referenceTexts = foreach ($reference in @('MEGAJS','MEGA_SDK','MEGAcmd')) { $reference + "`n" + [IO.File]::ReadAllText((Join-Path $coreRoot "licenses/$reference.txt")) }
+        [IO.File]::WriteAllText((Join-Path $directory 'MEGA-REFERENCES.txt'),($referenceTexts -join "`n`n"))
+        $files = foreach ($name in @($entry,'LICENSE','GO-LICENSE','MEGA-REFERENCES.txt')) {
             $path = Join-Path $directory $name
             @{ name = $name; size = (Get-Item -LiteralPath $path).Length; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
         }
