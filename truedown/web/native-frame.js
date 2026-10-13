@@ -18,23 +18,37 @@
     tooltipSending = true;
     try {
       while (tooltipPending !== undefined) {
-        const bounds = tooltipPending;
+        const pending = tooltipPending;
         tooltipPending = undefined;
-        await invoke("frame_tooltip", { session: tooltipSession, revision: ++tooltipRevision, bounds });
+        try {
+          const current = await invoke("frame_tooltip", { session: tooltipSession, revision: ++tooltipRevision, bounds: pending.bounds });
+          if (current !== tooltipSession) throw new Error("Native tooltip session changed");
+          pending.resolve(true);
+        } catch (error) { pending.resolve(false); throw error; }
       }
     } catch (error) {
       delete root.dataset.nativeTooltip;
       document.removeEventListener("kd-tooltip-layout", tooltipLayout);
       KDComponents.installTooltips().hide();
       // A failed reveal must not leave caption pixels exposed.
+      tooltipPending?.resolve(false);
       tooltipPending = undefined;
       await invoke("frame_tooltip", { session: tooltipSession, revision: ++tooltipRevision, bounds: null }).catch(console.error);
       console.error("Native tooltip layout failed:", error);
     } finally { tooltipSending = false; }
   };
-  const tooltipLayout = event => {
-    tooltipPending = disposed ? null : event.detail;
+  const queueTooltip = bounds => {
+    // Superseded layouts still settle; the controller rejects stale revisions.
+    tooltipPending?.resolve(true);
+    let resolve;
+    const ready = new Promise(done => { resolve = done; });
+    tooltipPending = { bounds, resolve };
     void flushTooltip();
+    return ready;
+  };
+  const tooltipLayout = event => {
+    const ready = queueTooltip(disposed ? null : event.detail);
+    if (event.detail) event.waitUntil?.(ready);
   };
   if (platform === "windows") {
     document.addEventListener("kd-tooltip-layout", tooltipLayout);
@@ -45,6 +59,8 @@
       void flushTooltip();
     }).catch(error => {
       document.removeEventListener("kd-tooltip-layout", tooltipLayout);
+      tooltipPending?.resolve(false);
+      tooltipPending = undefined;
       console.error("Native tooltip initialization failed:", error);
     });
   }
@@ -107,8 +123,7 @@
   window.addEventListener("pagehide", () => {
     disposed = true; clearTimeout(timer); observer.disconnect();
     document.removeEventListener("kd-tooltip-layout", tooltipLayout);
-    tooltipPending = null;
-    void flushTooltip();
+    void queueTooltip(null);
     window.removeEventListener("resize", resized);
     window.removeEventListener("focus", refresh);
   }, { once: true });

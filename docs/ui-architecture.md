@@ -86,9 +86,26 @@ native-frame adapter serializes/coalesces those layouts through caller-scoped
 `frame_tooltip` IPC. A new document opens a native session; old sessions and
 revisions cannot overwrite a newer layout. The native frame unions only the
 tooltip's rounded footprint into the WebView region, retaining the resize edge
-and caption exclusions elsewhere. Native move/resize/activation/hide and page
+and caption exclusions elsewhere. Native move/resize/hide and page
 navigation clear the reveal. CSS-to-client ratios account for DPI and WebView
 zoom. Without a working adapter, placement retains the caption-safe top inset.
+
+The layout event lets the native adapter register its acknowledgement through
+`waitUntil`. The controller retains measurable layout with hidden visibility
+until the native reveal is committed to DWM, then presents the tooltip. This
+keeps the first visible frame intact rather than exposing a clipped frame while
+IPC is pending. Layout revisions invalidate late acknowledgements after updates
+or dismissal; ordinary browser tooltips still display synchronously.
+
+The native session and revision belong to the retained WebView host. Its frame
+subclass shares that state, so renewing a native shell preserves document
+ordering while clearing the old visible footprint. Theme/composition refreshes
+derive the clipping region from the same state. WebView teardown releases the
+session; navigation starts a new one and rejects prior-document messages.
+Visible inactive windows accept the same bounded tooltip layouts as active
+ones. Activation refreshes composition without discarding document intent;
+the shared DOM controller publishes dismissal on blur, while a later pointer
+hover can display a new tooltip without activating the window.
 
 This follows the composition approach observed in the locally installed Codex
 26.924.2738.0 Windows package: its main bundle configures Electron's hidden

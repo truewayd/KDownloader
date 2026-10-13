@@ -49,13 +49,26 @@ try {
     await page.waitForFunction(() => calls.at(-1).bounds === null);
     assert.equal(await page.locator("#kd-tooltip").isVisible(), false);
 
-    // A delayed native reveal must be followed by the latest dismissal.
+    // Keep layout measurable but invisible until native composition is ready.
     await page.evaluate(() => { window.delayLayout = true; });
+    await page.locator("#anchor").focus();
+    await page.waitForFunction(() => Boolean(window.releaseLayout));
+    assert.equal(await page.locator("#kd-tooltip").isVisible(), false, "A pending native reveal must not paint a clipped first frame");
+    assert.ok((await page.evaluate(() => document.getElementById("kd-tooltip").getBoundingClientRect().width)) > 0, "Pending tooltips retain measurable layout");
+    await page.evaluate(() => { window.delayLayout = false; window.releaseLayout(); window.releaseLayout = null; });
+    await page.locator("#kd-tooltip").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#kd-tooltip").textContent(), "Caption overlap");
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => calls.at(-1).bounds === null);
+
+    // Dismissal while waiting must prevent a late acknowledgement from showing.
+    await page.evaluate(() => { window.delayLayout = true; document.activeElement.blur(); });
     await page.locator("#anchor").focus();
     await page.waitForFunction(() => Boolean(window.releaseLayout));
     await page.keyboard.press("Escape");
     await page.evaluate(() => { window.delayLayout = false; window.releaseLayout(); });
     await page.waitForFunction(() => calls.at(-1).bounds === null);
+    assert.equal(await page.locator("#kd-tooltip").isVisible(), false);
     const revisions = await page.evaluate(() => calls.map(call => call.revision));
     assert.ok(revisions.every((value, index) => index === 0 || value > revisions[index - 1]));
 
@@ -71,7 +84,7 @@ try {
     assert.ok((await page.locator("#kd-tooltip").boundingBox()).y >= 48, "failed native adapter retains usable caption-safe tooltips");
     await page.close();
   }
-  console.log("Caption tooltip placement, accessibility, delayed dismissal and failure recovery OK at 100/125/150/200% scale");
+  console.log("Caption tooltip placement, composition readiness, accessibility, delayed dismissal and failure recovery OK at 100/125/150/200% scale");
 } finally {
   await browser?.close();
   await new Promise(resolve => server.close(resolve));

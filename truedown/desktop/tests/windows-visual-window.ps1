@@ -1,8 +1,9 @@
 param(
-    [Parameter(Mandatory = $true)][ValidateRange(1, 2147483647)][int]$ProcessId,
-    [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]+$')][string]$WindowHandle,
-    [Parameter(Mandatory = $true)][string]$OutputPath,
-    [switch]$KeepVisible
+    [ValidateRange(1, 2147483647)][int]$ProcessId,
+    [ValidatePattern('^[0-9a-f]+$')][string]$WindowHandle,
+    [string]$OutputPath,
+    [switch]$KeepVisible,
+    [switch]$Server
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
@@ -32,7 +33,7 @@ public static class TrueDownVisibleWindow {
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern IntPtr SendMessageTimeoutW(IntPtr window, uint message, UIntPtr wparam, IntPtr lparam, uint flags, uint timeout, out IntPtr result);
-    public static void Capture(IntPtr window, uint expectedProcess, string path, bool keepVisible) {
+    public static string Capture(IntPtr window, uint expectedProcess, string path, bool keepVisible) {
         uint process;
         GetWindowThreadProcessId(window, out process);
         if (process != expectedProcess) throw new InvalidOperationException("Refusing another process's window");
@@ -52,9 +53,7 @@ public static class TrueDownVisibleWindow {
             if (width < 100 || height < 100 || width > 8192 || height > 8192) throw new InvalidOperationException("Unbounded capture dimensions");
             using (var bitmap = new Bitmap(rect.right - rect.left, rect.bottom - rect.top)) {
                 using (var graphics = Graphics.FromImage(bitmap)) {
-                    var dc = graphics.GetHdc();
-                    try { if (!PrintWindow(window, dc, 2)) throw new InvalidOperationException("Native window capture failed"); }
-                    finally { graphics.ReleaseHdc(dc); }
+                    graphics.CopyFromScreen(rect.left, rect.top, 0, 0, bitmap.Size, CopyPixelOperation.SourceCopy);
                 }
                 bitmap.Save(path, ImageFormat.Png);
                 var caption = new TITLEBARINFOEX { size = (uint)Marshal.SizeOf(typeof(TITLEBARINFOEX)), states = new uint[6], rects = new RECT[6] };
@@ -75,11 +74,14 @@ public static class TrueDownVisibleWindow {
                             int value = (color.R + color.G + color.B) / 3;
                             darkest = Math.Min(darkest, value); lightest = Math.Max(lightest, value);
                         }
-                        if (lightest - darkest < 35) throw new InvalidOperationException("Missing visible caption glyph " + index);
+                        // Fixed-size auxiliary windows have a disabled maximize
+                        // glyph, whose native light-theme contrast is lower.
+                        int contrast = (caption.states[index] & 1) != 0 ? 12 : 35;
+                        if (lightest - darkest < contrast) throw new InvalidOperationException("Missing visible caption glyph " + index);
                     }
                 } finally { Marshal.FreeHGlobal(memory); }
             }
-            Console.WriteLine("native_caption_glyphs=ok");
+            return "native_caption_glyphs=ok";
         } finally {
             if (!keepVisible) ShowWindow(window, 0);
             SetWindowPos(window, new IntPtr(-2), 0, 0, 0, 0, 0x0013);
@@ -89,4 +91,19 @@ public static class TrueDownVisibleWindow {
     }
 }
 '@
-[TrueDownVisibleWindow]::Capture([IntPtr]::new([Convert]::ToInt64($WindowHandle, 16)), [uint32]$ProcessId, $OutputPath, $KeepVisible.IsPresent)
+if ($Server) {
+    [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    [Console]::WriteLine('ready')
+    while ($null -ne ($line = [Console]::ReadLine())) {
+        try {
+            $request = $line | ConvertFrom-Json
+            if ($request.processId -lt 1 -or $request.windowHandle -notmatch '^[0-9a-f]+$' -or -not $request.path) { throw 'Invalid fixture capture' }
+            $glyphResult = [TrueDownVisibleWindow]::Capture([IntPtr]::new([Convert]::ToInt64($request.windowHandle, 16)), [uint32]$request.processId, [string]$request.path, [bool]$request.keepVisible)
+            [Console]::WriteLine((@{ glyphs = $glyphResult } | ConvertTo-Json -Compress))
+        } catch { [Console]::WriteLine((@{ error = $_.Exception.Message } | ConvertTo-Json -Compress)) }
+    }
+} else {
+    if ($ProcessId -lt 1 -or -not $WindowHandle -or -not $OutputPath) { throw 'ProcessId, WindowHandle and OutputPath are required' }
+    [TrueDownVisibleWindow]::Capture([IntPtr]::new([Convert]::ToInt64($WindowHandle, 16)), [uint32]$ProcessId, $OutputPath, $KeepVisible.IsPresent)
+}

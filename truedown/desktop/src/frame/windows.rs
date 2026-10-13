@@ -2,11 +2,11 @@
 //! The WebView region excludes those buttons, so its child HWND cannot obscure
 //! their painting or consume their non-client mouse input (including Snap).
 //! An active DOM tooltip can reveal its bounded, rounded footprint temporarily.
-use std::ptr::null_mut;
+use std::{cell::RefCell, ptr::null_mut, rc::Rc};
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
     Graphics::{
-        Dwm::{DwmDefWindowProc, DwmExtendFrameIntoClientArea},
+        Dwm::{DwmDefWindowProc, DwmExtendFrameIntoClientArea, DwmFlush},
         Gdi::{
             BeginPaint, CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, EndPaint,
             FillRect, GetStockObject, InvalidateRect, ScreenToClient, SetWindowRgn, BLACK_BRUSH,
@@ -22,6 +22,7 @@ use windows_sys::Win32::{
 };
 
 const SUBCLASS: usize = 0x54444652;
+const TOOLTIP_SUBCLASS: usize = 0x54445450;
 pub const BUTTON_WIDTH: f64 = 144.0;
 pub const CAPTION_HEIGHT: f64 = 40.0;
 
@@ -32,13 +33,59 @@ struct Tooltip {
     bounds: Option<super::TooltipBounds>,
 }
 
-unsafe fn tooltip_state(hwnd: HWND) -> Option<&'static mut Tooltip> {
+type TooltipState = Rc<RefCell<Tooltip>>;
+
+unsafe fn tooltip_state(hwnd: HWND) -> Option<TooltipState> {
     let mut data = 0;
     if GetWindowSubclass(hwnd, Some(procedure), SUBCLASS, &mut data) == 0 || data == 0 {
         None
     } else {
-        Some(&mut *(data as *mut Tooltip))
+        Some((*(data as *const TooltipState)).clone())
     }
+}
+
+// The WebView survives native shell renewal, so it owns the session lifetime.
+// Each attached frame shares that state but still clears its visible footprint.
+unsafe fn retained_tooltip_state(child: HWND) -> Result<TooltipState, String> {
+    let mut existing = 0;
+    if GetWindowSubclass(
+        child,
+        Some(tooltip_lifetime),
+        TOOLTIP_SUBCLASS,
+        &mut existing,
+    ) != 0
+        && existing != 0
+    {
+        return Ok((*(existing as *const TooltipState)).clone());
+    }
+    let state = Rc::new(RefCell::new(Tooltip::default()));
+    let data = Box::into_raw(Box::new(state.clone()));
+    if SetWindowSubclass(
+        child,
+        Some(tooltip_lifetime),
+        TOOLTIP_SUBCLASS,
+        data as usize,
+    ) == 0
+    {
+        drop(Box::from_raw(data));
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(state)
+}
+
+unsafe extern "system" fn tooltip_lifetime(
+    hwnd: HWND,
+    message: u32,
+    wp: WPARAM,
+    lp: LPARAM,
+    _: usize,
+    data: usize,
+) -> LRESULT {
+    if message == WM_NCDESTROY {
+        RemoveWindowSubclass(hwnd, Some(tooltip_lifetime), TOOLTIP_SUBCLASS);
+        drop(Box::from_raw(data as *mut TooltipState));
+    }
+    DefSubclassProc(hwnd, message, wp, lp)
 }
 
 pub unsafe fn tooltip(
@@ -47,7 +94,8 @@ pub unsafe fn tooltip(
     revision: u32,
     bounds: Option<super::TooltipBounds>,
 ) -> Result<u32, String> {
-    let state = tooltip_state(hwnd).ok_or("Native frame unavailable")?;
+    let shared = tooltip_state(hwnd).ok_or("Native frame unavailable")?;
+    let mut state = shared.borrow_mut();
     if session == 0 {
         state.session = state
             .session
@@ -57,11 +105,18 @@ pub unsafe fn tooltip(
         state.bounds = None;
     } else if state.session == session && revision > state.revision {
         state.revision = revision;
-        state.bounds =
-            bounds.filter(|_| IsWindowVisible(hwnd) != 0 && GetForegroundWindow() == hwnd);
+        // Hover tooltips also belong to visible, inactive windows.
+        state.bounds = bounds.filter(|_| IsWindowVisible(hwnd) != 0);
     }
     let current = state.session;
+    let revealing = state.bounds.is_some();
+    drop(state);
     refresh(hwnd);
+    if revealing {
+        // The DOM waits for this acknowledgement before presenting pixels.
+        // Commit the region to DWM before releasing that first visible frame.
+        DwmFlush();
+    }
     Ok(current)
 }
 
@@ -189,7 +244,7 @@ unsafe fn refresh(hwnd: HWND) {
     );
     if !region.is_null() && !buttons.is_null() && CombineRgn(region, region, buttons, RGN_DIFF) != 0
     {
-        if let Some(bounds) = tooltip_state(hwnd).and_then(|state| state.bounds) {
+        if let Some(bounds) = tooltip_state(hwnd).and_then(|state| state.borrow().bounds) {
             let tip = tooltip_region(bounds, &rect);
             if !tip.is_null() {
                 // Reveal only the caption intersection, preserving resize borders.
@@ -227,16 +282,10 @@ unsafe extern "system" fn procedure(
 ) -> LRESULT {
     if matches!(
         message,
-        WM_SIZE
-            | WM_MOVE
-            | WM_DPICHANGED
-            | WM_SHOWWINDOW
-            | WM_ACTIVATE
-            | WM_CANCELMODE
-            | WM_ENTERSIZEMOVE
+        WM_SIZE | WM_MOVE | WM_DPICHANGED | WM_SHOWWINDOW | WM_CANCELMODE | WM_ENTERSIZEMOVE
     ) {
         if let Some(state) = tooltip_state(hwnd) {
-            state.bounds = None;
+            state.borrow_mut().bounds = None;
         }
     }
     if message == WM_ERASEBKGND || message == WM_PRINTCLIENT {
@@ -303,7 +352,7 @@ unsafe extern "system" fn procedure(
         SendMessageW(hwnd, WM_SETICON, ICON_BIG as WPARAM, 0);
         RemoveWindowSubclass(hwnd, Some(procedure), SUBCLASS);
         if data != 0 {
-            drop(Box::from_raw(data as *mut Tooltip));
+            drop(Box::from_raw(data as *mut TooltipState));
         }
         return DefSubclassProc(hwnd, message, wp, lp);
     }
@@ -327,14 +376,20 @@ unsafe extern "system" fn procedure(
 
 /// Must run on the HWND's owning UI thread, after the WebView is constructed.
 pub unsafe fn install(hwnd: HWND) -> Result<(), String> {
+    install_with_webview(hwnd, webview(hwnd))
+}
+
+unsafe fn install_with_webview(hwnd: HWND, child: HWND) -> Result<(), String> {
     let mut existing = 0usize;
     if GetWindowSubclass(hwnd, Some(procedure), SUBCLASS, &mut existing) != 0 {
         return Ok(());
     }
-    if webview(hwnd).is_null() {
+    if child.is_null() {
         return Err("Native WebView host is unavailable".into());
     }
-    let state = Box::into_raw(Box::<Tooltip>::default());
+    let shared = retained_tooltip_state(child)?;
+    shared.borrow_mut().bounds = None;
+    let state = Box::into_raw(Box::new(shared));
     if SetWindowSubclass(hwnd, Some(procedure), SUBCLASS, state as usize) == 0 {
         drop(Box::from_raw(state));
         return Err(std::io::Error::last_os_error().to_string());
@@ -370,6 +425,99 @@ mod tests {
         CreateCompatibleDC, CreateDIBSection, DeleteDC, GdiFlush, SelectObject, BITMAPINFO,
         BITMAPINFOHEADER, DIB_RGB_COLORS,
     };
+
+    #[test]
+    fn tooltip_sessions_follow_the_webview_across_native_shells() {
+        struct HiddenWindow(HWND);
+        impl Drop for HiddenWindow {
+            fn drop(&mut self) {
+                unsafe { DestroyWindow(self.0) };
+            }
+        }
+        unsafe fn hidden_window(parent: HWND) -> HiddenWindow {
+            let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+            let hwnd = CreateWindowExW(
+                0,
+                class.as_ptr(),
+                std::ptr::null(),
+                if parent.is_null() {
+                    WS_OVERLAPPEDWINDOW
+                } else {
+                    WS_CHILD
+                },
+                0,
+                0,
+                800,
+                600,
+                parent,
+                null_mut(),
+                null_mut(),
+                std::ptr::null(),
+            );
+            assert!(!hwnd.is_null());
+            HiddenWindow(hwnd)
+        }
+        unsafe {
+            let mut parent = hidden_window(null_mut());
+            let child = hidden_window(parent.0);
+            install_with_webview(parent.0, child.0).unwrap();
+            let session = tooltip(parent.0, 0, 0, None).unwrap();
+            tooltip(parent.0, session, 10, None).unwrap();
+            let shared = tooltip_state(parent.0).unwrap();
+            let weak = Rc::downgrade(&shared);
+            drop(shared);
+            for revision in 11..14 {
+                let replacement = hidden_window(null_mut());
+                assert_eq!(SetParent(child.0, replacement.0), parent.0);
+                drop(parent);
+                install_with_webview(replacement.0, child.0).unwrap();
+                let state = tooltip_state(replacement.0).unwrap();
+                assert!(Rc::ptr_eq(&state, &weak.upgrade().unwrap()));
+                assert_eq!(state.borrow().session, session);
+                assert_eq!(state.borrow().revision, revision - 1);
+                assert!(state.borrow().bounds.is_none());
+                tooltip(replacement.0, session, revision - 2, None).unwrap();
+                assert_eq!(state.borrow().revision, revision - 1);
+                assert_eq!(
+                    tooltip(replacement.0, session, revision, None).unwrap(),
+                    session
+                );
+                assert_eq!(state.borrow().revision, revision);
+                assert_eq!(IsWindowVisible(replacement.0), 0);
+                parent = replacement;
+            }
+            let layout = super::super::TooltipBounds {
+                left: 600.0,
+                top: 12.0,
+                width: 192.0,
+                height: 38.0,
+                radius: 12.0,
+                viewport_width: 800.0,
+                viewport_height: 600.0,
+            };
+            // Activation changes composition, not the document's tooltip intent.
+            for activation in [WA_ACTIVE, WA_INACTIVE, WA_CLICKACTIVE] {
+                tooltip_state(parent.0).unwrap().borrow_mut().bounds = Some(layout);
+                SendMessageW(parent.0, WM_ACTIVATE, activation as WPARAM, 0);
+                assert!(tooltip_state(parent.0).unwrap().borrow().bounds.is_some());
+            }
+            tooltip(parent.0, session, 14, Some(layout)).unwrap();
+            assert!(
+                tooltip_state(parent.0).unwrap().borrow().bounds.is_none(),
+                "Hidden windows must not reveal tooltip pixels"
+            );
+            let newer = tooltip(parent.0, 0, 0, None).unwrap();
+            assert_ne!(newer, session);
+            tooltip(parent.0, session, 100, None).unwrap();
+            assert_eq!(tooltip_state(parent.0).unwrap().borrow().revision, 0);
+            drop(child);
+            drop(parent);
+            assert!(
+                weak.upgrade().is_none(),
+                "Document teardown must release tooltip state"
+            );
+        }
+    }
 
     #[test]
     fn tooltip_reveal_is_rounded_and_tracks_viewport_scale() {

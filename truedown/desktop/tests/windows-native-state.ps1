@@ -1,6 +1,7 @@
 param(
-    [Parameter(Mandatory = $true)][ValidateRange(1, 2147483647)][int]$ProcessId,
-    [switch]$VisibilityOnly
+    [ValidateRange(1, 2147483647)][int]$ProcessId,
+    [switch]$VisibilityOnly,
+    [switch]$Server
 )
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -201,4 +202,17 @@ public static class TrueDownNativeState {
 }
 '@
 
-ConvertTo-Json -InputObject @([TrueDownNativeState]::Read([uint32]$ProcessId, [bool]$VisibilityOnly)) -Compress
+if ($Server) {
+    [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+    [Console]::WriteLine('ready')
+    while ($null -ne ($line = [Console]::ReadLine())) {
+        try {
+            $request = $line | ConvertFrom-Json
+            if ($request.processId -lt 1 -or $request.processId -gt 2147483647) { throw 'Invalid fixture process' }
+            [Console]::WriteLine((ConvertTo-Json -InputObject @([TrueDownNativeState]::Read([uint32]$request.processId, [bool]$request.visibilityOnly)) -Compress))
+        } catch { [Console]::WriteLine((@{ error = $_.Exception.Message } | ConvertTo-Json -Compress)) }
+    }
+} else {
+    if ($ProcessId -lt 1) { throw 'ProcessId is required' }
+    ConvertTo-Json -InputObject @([TrueDownNativeState]::Read([uint32]$ProcessId, [bool]$VisibilityOnly)) -Compress
+}

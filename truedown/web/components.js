@@ -992,13 +992,22 @@
     tip.setAttribute("popover", "manual");
     tip.hidden = true;
     ownerDocument.body.append(tip);
-    let anchor = null, timer = 0, leaveTimer = 0;
-    const publishBounds = bounds => ownerDocument.dispatchEvent(new view.CustomEvent("kd-tooltip-layout", { detail: bounds }));
+    let anchor = null, timer = 0, leaveTimer = 0, layoutRevision = 0, layoutKey = "";
+    const publishBounds = bounds => {
+      const pending = [];
+      const event = new view.CustomEvent("kd-tooltip-layout", { detail: bounds });
+      // A native host can prepare composition before the first visible frame.
+      event.waitUntil = promise => pending.push(Promise.resolve(promise));
+      ownerDocument.dispatchEvent(event);
+      return pending;
+    };
     const selector = "[data-tooltip]";
     const find = node => node?.closest?.(selector);
     const hide = () => {
       view.clearTimeout(timer);
       view.clearTimeout(leaveTimer);
+      layoutRevision++;
+      layoutKey = "";
       if (anchor) {
         const ids = (anchor.getAttribute("aria-describedby") || "").split(/\s+/).filter(id => id && id !== tip.id);
         if (ids.length) anchor.setAttribute("aria-describedby", ids.join(" "));
@@ -1007,6 +1016,7 @@
       if (!tip.hidden) publishBounds(null);
       if (tip.hidePopover && tip.matches(":popover-open")) tip.hidePopover();
       tip.hidden = true;
+      tip.style.visibility = "";
       anchor = null;
     };
     const render = () => {
@@ -1035,9 +1045,20 @@
       tip.style.left = `${Math.max(edge, Math.min(left, width - bounds.width - edge))}px`;
       tip.style.top = `${Math.max(topEdge, Math.min(top, height - bounds.height - edge))}px`;
       const placed = tip.getBoundingClientRect();
-      publishBounds({ left: placed.left, top: placed.top, width: placed.width, height: placed.height,
+      const layout = { left: placed.left, top: placed.top, width: placed.width, height: placed.height,
         radius: parseFloat(view.getComputedStyle(tip).borderTopLeftRadius) || 0,
-        viewportWidth: width, viewportHeight: height });
+        viewportWidth: width, viewportHeight: height };
+      const key = JSON.stringify(layout);
+      if (key === layoutKey) return;
+      layoutKey = key;
+      const revision = ++layoutRevision;
+      const pending = publishBounds(layout);
+      tip.style.visibility = pending.length ? "hidden" : "";
+      if (pending.length) Promise.all(pending).then(results => {
+        if (revision !== layoutRevision || tip.hidden) return;
+        if (results.includes(false)) hide();
+        else tip.style.visibility = "";
+      }, () => { if (revision === layoutRevision) hide(); });
     };
     const show = target => {
       view.clearTimeout(leaveTimer);
