@@ -33,6 +33,7 @@ $outputs = @(
   @{ Package = "./internal/systemupdate"; Path = (Join-Path $testRoot "systemupdate.test"); Test = $true },
   @{ Package = "./internal/updatecache"; Path = (Join-Path $testRoot "updatecache.test"); Test = $true },
   @{ Package = "./internal/modulehost"; Path = (Join-Path $testRoot "modulehost.test"); Test = $true },
+  @{ Package = "./internal/netproxy"; Path = (Join-Path $testRoot "netproxy.test"); Test = $true },
   @{ Package = "./modules/mega"; Path = (Join-Path $testRoot "mega-module.test"); Test = $true },
   @{ Package = "./modules/mega/internal/mega"; Path = (Join-Path $testRoot "mega-crypto.test"); Test = $true }
 )

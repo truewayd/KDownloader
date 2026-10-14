@@ -9,8 +9,36 @@ import (
 	"testing"
 	"time"
 
+	"truedown/internal/downloader"
 	"truedown/internal/systemupdate"
 )
+
+func TestUpdateProxyFollowsCurrentManagerAndFailsClosedWhenUnavailable(t *testing.T) {
+	request, _ := http.NewRequest(http.MethodGet, "https://github.com/update.bin", nil)
+	host := &managerHost{}
+	if _, err := host.proxyForRequest(request); err == nil {
+		t.Fatal("updater bypassed saved settings with no manager")
+	}
+	for _, mode := range []string{"custom", "none", "custom"} {
+		root := t.TempDir()
+		manager, err := downloader.NewManager("unused", root, filepath.Join(root, "records.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer manager.Stop()
+		current := manager.TaskDefaults()
+		values := current.Values
+		values.ProxyMode, values.Proxy = mode, "https://127.0.0.1:7890"
+		if _, err := manager.SetTaskDefaults(current.Revision, values); err != nil {
+			t.Fatal(err)
+		}
+		host.current = &managerRuntime{manager: manager}
+		proxy, err := host.proxyForRequest(request)
+		if err != nil || (mode == "none" && proxy != nil) || (mode == "custom" && (proxy == nil || proxy.String() != values.Proxy)) {
+			t.Fatal("updater retained a previous manager's proxy choice")
+		}
+	}
+}
 
 func TestBackgroundUpdateAdmissionOwnsLifetimeAndRejectsDuplicates(t *testing.T) {
 	if runtime.GOOS != "windows" {
