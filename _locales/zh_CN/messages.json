@@ -630,6 +630,13 @@
     "message": "批量抓取未能完成帖子获取或结果保存，请重试。"
   },
   "autoResolveLabel": { "message": "自动解析下载" },
+  "downloadUserAgent": { "message": "媒体下载 User-Agent" },
+  "downloadUserAgentSite": { "message": "站点默认" },
+  "downloadUserAgentBrowser": { "message": "当前浏览器" },
+  "downloadUserAgentBackend": { "message": "后端默认（不覆写）" },
+  "downloadUserAgentHelp": { "message": "站点默认在 Pawchive 使用 KDownloader 标识。当前浏览器传递本浏览器的完整 UA；后端默认不传 UA 覆写。" },
+  "downloadForwardCookies": { "message": "携带浏览器 Cookie" },
+  "downloadForwardCookiesHelp": { "message": "仅传递适用于受信任媒体 URL 的 Cookie。浏览器 UA 和 Cookie 可能有助于验证，但不保证通过 Cloudflare。" },
   "dmLinksMode": { "message": "抓取页面或创作者时同时处理 Pawchive DM 链接" },
   "dmLinksOff": { "message": "不读取 DM" },
   "dmLinksExtract": { "message": "提取全部 DM 链接到 TXT" },

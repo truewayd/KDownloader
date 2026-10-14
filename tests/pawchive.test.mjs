@@ -143,6 +143,34 @@ test('cookie forwarding is allowlisted, header-safe, and size bounded', async ()
   }
 });
 
+test('media cookie lookup uses the exact URL, tab store and first-party partition', async (t) => {
+  t.mock.method(pawchiveChrome.cookies, 'getAll', async (details) => {
+    lookups.push(details);
+    return details.partitionKey
+      ? [{ name: 'cf_clearance', value: 'fixture', path: '/', domain: '.pawchive.pw', partitionKey: { topLevelSite: 'https://pawchive.pw' } },
+         { name: 'embedded', value: 'must-not-forward', partitionKey: { hasCrossSiteAncestor: true } }]
+      : [{ name: 'session', value: 'fixture', path: '/data', domain: 'file.pawchive.pw' }];
+  });
+  const originalStores = pawchiveChrome.cookies.getAllCookieStores;
+  pawchiveChrome.cookies.getAllCookieStores = async () => [{ id: 'normal', tabIds: [1] }, { id: 'private', tabIds: [27] }];
+  const lookups = [];
+  try {
+    const context = await network.getDownloadCookieContext('https://pawchive.pw', 27);
+    assert.deepEqual(context, { storeId: 'private', partitionKey: { topLevelSite: 'https://pawchive.pw' } });
+    const url = 'https://file.pawchive.pw/data/a.jpg';
+    assert.equal(await network.getCookies(url, context), 'session=fixture; cf_clearance=fixture');
+    assert.deepEqual(lookups, [{ url, storeId: 'private' }, { url, storeId: 'private', partitionKey: context.partitionKey }]);
+    await assert.rejects(network.getCookies('https://kemono.cr/data/a.jpg', context), /across site families/);
+    await assert.rejects(network.getCookies('https://file.pawchive.pw.attacker.test/data/a.jpg', context), /unexpected domain/);
+    await assert.rejects(network.getCookies('http://file.pawchive.pw/data/a.jpg', context), /unexpected domain/);
+    assert.equal(await network.getCookies(url, await network.getDownloadCookieContext('https://pawchive.pw', 999)), '');
+    assert.equal(lookups.length, 2, 'closed/missing tab must not fall back to another store');
+  } finally {
+    if (originalStores) pawchiveChrome.cookies.getAllCookieStores = originalStores;
+    else delete pawchiveChrome.cookies.getAllCookieStores;
+  }
+});
+
 test('extracts Pawchive DM dates, readable text, and link targets from HTML', () => {
   const html = `
     <main>

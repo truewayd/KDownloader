@@ -160,6 +160,8 @@ function renderBackendConfig(config) {
   setValue("backend-file-limit", config.perPostFileLimit);
   setValue("backend-api-key", config.apiKey);
   setValue("backend-auto-resolve", config.autoResolve);
+  setValue("backend-user-agent-mode", config.userAgentMode || "site");
+  setValue("backend-forward-cookies", config.forwardCookies !== false);
   setValue("gopeed-protocol", config.gopeedProtocol);
   setValue("gopeed-host", config.gopeedHost);
   setValue("gopeed-port", config.gopeedPort);
@@ -172,6 +174,8 @@ function backendFormConfig() {
   const config = {
     enabled: !!$("backend-enabled")?.checked,
     autoResolve: !!$("backend-auto-resolve")?.checked,
+    userAgentMode: $("backend-user-agent-mode")?.value || "site",
+    forwardCookies: !!$("backend-forward-cookies")?.checked,
     backendType,
     protocol: $("backend-protocol")?.value === "https" ? "https" : "http",
     host: loopbackHostValue("backend-host"),

@@ -2,7 +2,7 @@
 import { CONFIG, API, PAW } from './constants.js';
 import UTIL from './util.js';
 import { loadBackendConfig, loadExternalLinkFilterConfig } from './config.js';
-import { handleAPIRequest, getCookies, readLimitedResponseText } from './network.js';
+import { handleAPIRequest, getCookies, getDownloadCookieContext, readLimitedResponseText } from './network.js';
 import {
   buildPawchiveDownloadTasks,
   fetchPawchivePost,
@@ -23,6 +23,32 @@ const COOMERFANS_MEDIA_EXTENSIONS = new Set([
   '.mp4', '.webm', '.m4v', '.mov', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.zip', '.rar', '.7z',
 ]);
 const TRUSTED_MEDIA_HOSTS = new Set([...API.HOSTS, API.COOMERFANS_HOST, PAW.HOST, PAW.FILE_HOST]);
+
+function pawchiveDownloaderHeaders() {
+  const version = chrome.runtime.getManifest?.().version || 'dev';
+  return {
+    Accept: '*/*',
+    'User-Agent': `KDownloader/${version} (+https://github.com/truewayd/KDownloader)`,
+  };
+}
+
+function mediaRequestHeaders(config, headers, origin) {
+  const result = { ...headers };
+  if (new URL(origin).hostname === PAW.HOST) Object.assign(result, pawchiveDownloaderHeaders());
+  if (config.userAgentMode === 'browser' || config.userAgentMode === 'backend') {
+    for (const name of Object.keys(result)) {
+      if (name.toLowerCase() === 'user-agent') delete result[name];
+    }
+    if (config.userAgentMode === 'browser') {
+      const ua = globalThis.navigator?.userAgent;
+      if (typeof ua !== 'string' || !ua || ua.length > 4096 || /[\r\n\x00]/.test(ua)) {
+        throw new Error('Browser User-Agent is unavailable');
+      }
+      result['User-Agent'] = ua;
+    }
+  }
+  return result;
+}
 
 function trustedMediaUrl(value) {
   try {
@@ -53,8 +79,8 @@ function isSameSiteFamily(taskUrl, origin) {
   }
 }
 
-function cookieForTask(taskUrl, origin, cookieString) {
-  return cookieString && isSameSiteFamily(taskUrl, origin) ? cookieString : '';
+async function cookieForTask(taskUrl, origin, cookieContext) {
+  return cookieContext && isSameSiteFamily(taskUrl, origin) ? getCookies(taskUrl, cookieContext) : '';
 }
 
 function refererForTask(taskUrl, origin, referer) {
@@ -185,7 +211,7 @@ class TaskQueue {
       let record;
       try {
         const {
-          endpoint, cookieString, origin, service, userId, postId, headers, referer,
+          endpoint, cookieContext, origin, service, userId, postId, headers, referer,
           perFileRetry = 0, sendProgress: progressCallback,
         } = options || {};
         sendProgress = progressCallback;
@@ -196,13 +222,13 @@ class TaskQueue {
 
         // Build payload. Site cookies never cross to a different media domain.
         const downloadHeaders = {
-          'User-Agent': headers?.['User-Agent'] || 'Mozilla/5.0',
           Accept: headers?.['Accept'] || 'text/css',
           'Accept-Language': headers?.['Accept-Language'] || 'zh-CN,zh;q=0.9'
         };
+        if (headers?.['User-Agent']) downloadHeaders['User-Agent'] = headers['User-Agent'];
         const taskReferer = refererForTask(task.url, origin, requestReferer);
         if (taskReferer) downloadHeaders.Referer = taskReferer;
-        const taskCookie = cookieForTask(task.url, origin, cookieString);
+        const taskCookie = await cookieForTask(task.url, origin, cookieContext);
         if (taskCookie) downloadHeaders.Cookie = taskCookie;
         const filePayload = {
           downloadSource: {
@@ -325,7 +351,7 @@ async function dispatchAllToBackend(tasks, backendCfg, context) {
     try {
       const results = await GLOBAL_TASK_QUEUE.enqueueTasks(batch, {
         endpoint,
-        cookieString: context.cookieString,
+        cookieContext: context.cookieContext,
         origin: context.origin,
         service: context.service,
         userId: context.userId,
@@ -687,9 +713,9 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
   const backendCfg = await loadBackendConfig();
 
   if (backendCfg.enabled) {
-    const cookieString = await getCookies(API.COOMERFANS_HOST);
+    const cookieContext = backendCfg.forwardCookies !== false ? await getDownloadCookieContext(API.COOMERFANS_ORIGIN, senderTabId) : null;
     if (backendCfg.backendType === 'gopeed') {
-      const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieString, API.COOMERFANS_ORIGIN, postUrl, service, userId, postId, senderTabId, requestId);
+      const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieContext, API.COOMERFANS_ORIGIN, postUrl, service, userId, postId, senderTabId, requestId, mediaRequestHeaders(backendCfg, {}, API.COOMERFANS_ORIGIN));
       if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, results, externalLinks };
     } else {
       const headers = {
@@ -698,12 +724,12 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
         'User-Agent': 'Mozilla/5.0',
       };
       const allFileResults = await dispatchAllToBackend(tasks, backendCfg, {
-        cookieString,
+        cookieContext,
         origin: API.COOMERFANS_ORIGIN,
         service,
         userId,
         postId,
-        headers,
+        headers: mediaRequestHeaders(backendCfg, headers, API.COOMERFANS_ORIGIN),
         referer: postUrl,
         senderTabId,
         requestId,
@@ -767,19 +793,20 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
   const backendCfg = await loadBackendConfig();
 
   if (backendCfg.enabled) {
-    const cookies = await getCookies(PAW.HOST);
+    const cookieContext = backendCfg.forwardCookies !== false ? await getDownloadCookieContext(PAW.ORIGIN, senderTabId) : null;
+    const mediaHeaders = mediaRequestHeaders(backendCfg, headers, PAW.ORIGIN);
     if (backendCfg.backendType === 'gopeed') {
       const referer = postUrl;
-      const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookies, PAW.ORIGIN, referer, service, userId, postId, senderTabId, requestId);
+      const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieContext, PAW.ORIGIN, referer, service, userId, postId, senderTabId, requestId, mediaHeaders);
       if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, results, externalLinks };
     } else {
       const allFileResults = await dispatchAllToBackend(tasks, backendCfg, {
-        cookieString: cookies,
+        cookieContext,
         origin: PAW.ORIGIN,
         service,
         userId,
         postId,
-        headers,
+        headers: mediaHeaders,
         referer: postUrl,
         defaultFileLimit: 200,
         senderTabId,
@@ -804,8 +831,8 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
 // Dispatch a single file URL to Gopeed via the REST API from the background
 // service worker. Do not use no-cors here: it strips Content-Type and
 // X-Api-Token, which makes token-protected Gopeed instances silently fail.
-async function dispatchToGopeed(baseUrl, token, fileUrl, cookieString, referer, fileName) {
-  const requestHeaders = {};
+async function dispatchToGopeed(baseUrl, token, fileUrl, cookieString, referer, fileName, mediaHeaders = {}) {
+  const requestHeaders = { ...mediaHeaders };
   if (referer) requestHeaders.Referer = referer;
   if (cookieString) requestHeaders.Cookie = cookieString;
   const payload = {
@@ -849,21 +876,27 @@ async function dispatchToGopeed(baseUrl, token, fileUrl, cookieString, referer, 
 }
 
 // Dispatch all tasks to gopeed sequentially, reporting progress.
-async function dispatchAllToGopeed(tasks, backendCfg, cookieString, origin, referer, service, userId, postId, senderTabId, requestId) {
+async function dispatchAllToGopeed(tasks, backendCfg, cookieContext, origin, referer, service, userId, postId, senderTabId, requestId, mediaHeaders = {}) {
   const baseUrl = `${backendCfg.gopeedProtocol}://${backendCfg.gopeedHost}:${backendCfg.gopeedPort}`;
   const token = backendCfg.gopeedToken || '';
   let successCount = 0;
   const results = [];
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[i];
-    const result = await dispatchToGopeed(
-      baseUrl,
-      token,
-      task.url,
-      cookieForTask(task.url, origin, cookieString),
-      refererForTask(task.url, origin, referer),
-      task.fileName
-    );
+    let result;
+    try {
+      result = await dispatchToGopeed(
+        baseUrl,
+        token,
+        task.url,
+        await cookieForTask(task.url, origin, cookieContext),
+        refererForTask(task.url, origin, referer),
+        task.fileName,
+        mediaHeaders
+      );
+    } catch (error) {
+      result = { success: false, error: error?.message || 'Media request headers unavailable' };
+    }
     results.push({ task, ...result });
     if (result.success) successCount++;
     sendDownloadProgress(senderTabId, service, userId, postId, i + 1, tasks.length, i + 1, requestId);
@@ -922,19 +955,19 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
 
   // 3. Backend forwarding (with centralized queue/batching and adaptive throttle)
   if (backendCfg.enabled) {
-    const cookieString = await getCookies(new URL(origin).hostname);
+    const cookieContext = backendCfg.forwardCookies !== false ? await getDownloadCookieContext(origin, senderTabId) : null;
     if (backendCfg.backendType === 'gopeed') {
       const referer = postUrl;
-      const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieString, origin, referer, service, userId, postId, senderTabId, requestId);
+      const { successCount, results } = await dispatchAllToGopeed(tasks, backendCfg, cookieContext, origin, referer, service, userId, postId, senderTabId, requestId, mediaRequestHeaders(backendCfg, {}, origin));
       if (successCount > 0) return { success: true, backend: true, gopeed: true, successCount, results, externalLinks };
     } else {
       const allFileResults = await dispatchAllToBackend(tasks, backendCfg, {
-        cookieString,
+        cookieContext,
         origin,
         service,
         userId,
         postId,
-        headers,
+        headers: mediaRequestHeaders(backendCfg, headers, origin),
         defaultFileLimit: 200,
         senderTabId,
         requestId,

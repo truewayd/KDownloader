@@ -23,9 +23,15 @@ const networkUrl = asModuleUrl(`
     if (globalThis.__apiResponse) return globalThis.__apiResponse;
     throw new Error('unexpected API request');
   }
-  export async function getCookies() {
+  export async function getCookies(url, context) {
     globalThis.__cookieReads = (globalThis.__cookieReads || 0) + 1;
+    globalThis.__cookieLookups.push({ url, context });
+    if (globalThis.__cookieFailureUrl === url) throw new Error('Site cookies exceed the 64 KiB forwarding safety limit');
     return globalThis.__cookieString || '';
+  }
+  export async function getDownloadCookieContext(origin, tabId) {
+    globalThis.__cookieContextReads++;
+    return { origin, tabId };
   }
   export async function readLimitedResponseText(response) { return response.text(); }
 `);
@@ -34,7 +40,7 @@ const pawchiveUrl = asModuleUrl(`
   export async function fetchPawchivePost() { throw new Error('unexpected post request'); }
   export function buildPawchiveDownloadTasks(post) {
     if (!isCompletePawchivePost(post)) return [];
-    return [{ url: 'https://file.pawchive.pw/data/mock.jpg', fileName: 'mock.jpg', type: 'file' }];
+    return globalThis.__pawMediaTasks || [{ url: 'https://file.pawchive.pw/data/mock.jpg', fileName: 'mock.jpg', type: 'file' }];
   }
 `);
 const downloadSource = (await readFile(path.join(root, 'background', 'download.js'), 'utf8'))
@@ -58,6 +64,7 @@ const testChrome = {
   runtime: {
     id: 'test-extension',
     lastError: null,
+    getManifest() { return { version: '3.3.0' }; },
     sendMessage(_payload, callback) {
       runtimeMessages.push(_payload);
       callback?.();
@@ -126,6 +133,11 @@ beforeEach(() => {
   globalThis.__apiResponse = null;
   globalThis.__cookieString = '';
   globalThis.__cookieReads = 0;
+  globalThis.__cookieContextReads = 0;
+  globalThis.__cookieLookups = [];
+  globalThis.__cookieFailureUrl = '';
+  globalThis.__pawMediaTasks = null;
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/143.0.0.0 Safari/537.36' } });
   globalThis.__downloadRulesConfig = { enabled: false, excludedExtensions: [] };
   globalThis.__backendTabMessageHook = null;
   globalThis.__fetchImplementation = async () => ({
@@ -172,6 +184,94 @@ test('disabled backend still uses the normal Chrome download path directly', asy
   assert.equal(result.successCount, 1);
   assert.equal(nativeDownloadCalls, 1);
   assert.equal(globalThis.__cookieReads, 0);
+});
+
+test('Pawchive media hand-off identifies the downloader and does not reuse JSON Accept', async () => {
+  let payload;
+  globalThis.__fetchImplementation = async (_url, options) => {
+    payload = JSON.parse(options.body);
+    return { ok: true, status: 200, async text() { return ''; } };
+  };
+  const result = await download.startPawchiveDownload('fanbox', '2131660', '9809891', undefined, { id: '9809891', has_full: true });
+  assert.equal(result.success, true);
+  assert.equal(payload.downloadSource.headers['User-Agent'], 'KDownloader/3.3.0 (+https://github.com/truewayd/KDownloader)');
+  assert.equal(payload.downloadSource.headers.Accept, '*/*');
+  assert.equal(payload.downloadSource.headers.Referer, 'https://pawchive.pw/fanbox/user/2131660/post/9809891');
+  assert.equal(payload.startDownload, true);
+  assert.equal(nativeDownloadCalls, 0);
+});
+
+test('Pawchive Gopeed hand-off uses the same identifiable media headers', async () => {
+  globalThis.__backendConfig = { ...globalThis.__backendConfig, backendType: 'gopeed', gopeedProtocol: 'http', gopeedHost: '127.0.0.1', gopeedPort: 9999 };
+  let payload;
+  globalThis.__fetchImplementation = async (_url, options) => {
+    payload = JSON.parse(options.body);
+    return { ok: true, status: 200, async text() { return '{"code":0}'; } };
+  };
+  await download.startPawchiveDownload('fanbox', '2131660', '9809891', undefined, { id: '9809891', has_full: true });
+  assert.equal(payload.req.extra.header['User-Agent'], 'KDownloader/3.3.0 (+https://github.com/truewayd/KDownloader)');
+  assert.equal(payload.req.extra.header.Accept, '*/*');
+});
+
+for (const backendType of ['abdm', 'gopeed']) {
+  for (const [userAgentMode, forwardCookies] of [['browser', false], ['backend', true]]) {
+    test(`${backendType} ${userAgentMode} UA keeps the cookie choice independent`, async () => {
+      globalThis.__backendConfig = { ...globalThis.__backendConfig, backendType, userAgentMode, forwardCookies, gopeedProtocol: 'http', gopeedHost: '127.0.0.1', gopeedPort: 9999 };
+      globalThis.__cookieString = 'session=fixture';
+      let payload;
+      globalThis.__fetchImplementation = async (_url, options) => {
+        payload = JSON.parse(options.body);
+        return { ok: true, status: 200, async text() { return '{"code":0}'; } };
+      };
+      await download.startPawchiveDownload('fanbox', '2131660', '9809891', undefined, { id: '9809891', has_full: true });
+      const headers = backendType === 'abdm' ? payload.downloadSource.headers : payload.req.extra.header;
+      assert.equal(headers['User-Agent'], userAgentMode === 'browser' ? navigator.userAgent : undefined);
+      assert.equal(headers.Cookie, forwardCookies ? 'session=fixture' : undefined);
+      assert.equal(globalThis.__cookieReads, forwardCookies ? 1 : 0);
+    });
+  }
+  test(`${backendType} browser UA mode forwards the original UA and URL-scoped cookies`, async () => {
+    globalThis.__backendConfig = { ...globalThis.__backendConfig, backendType, userAgentMode: 'browser', gopeedProtocol: 'http', gopeedHost: '127.0.0.1', gopeedPort: 9999 };
+    globalThis.__cookieString = 'cf_clearance=fixture; session=fixture';
+    let payload;
+    globalThis.__fetchImplementation = async (_url, options) => {
+      payload = JSON.parse(options.body);
+      return { ok: true, status: 200, async text() { return '{"code":0}'; } };
+    };
+    await download.startPawchiveDownload('fanbox', '2131660', '9809891', 27, { id: '9809891', has_full: true });
+    const headers = backendType === 'abdm' ? payload.downloadSource.headers : payload.req.extra.header;
+    assert.equal(headers['User-Agent'], navigator.userAgent);
+    assert.equal(headers.Cookie, globalThis.__cookieString);
+    assert.deepEqual(globalThis.__cookieLookups, [{ url: 'https://file.pawchive.pw/data/mock.jpg', context: { origin: 'https://pawchive.pw', tabId: 27 } }]);
+  });
+
+  test(`${backendType} backend UA and disabled cookies add neither header nor cookie reads`, async () => {
+    globalThis.__backendConfig = { ...globalThis.__backendConfig, backendType, userAgentMode: 'backend', forwardCookies: false, gopeedProtocol: 'http', gopeedHost: '127.0.0.1', gopeedPort: 9999 };
+    let payload;
+    globalThis.__fetchImplementation = async (_url, options) => {
+      payload = JSON.parse(options.body);
+      return { ok: true, status: 200, async text() { return '{"code":0}'; } };
+    };
+    await download.startPawchiveDownload('fanbox', '2131660', '9809891', undefined, { id: '9809891', has_full: true });
+    const headers = backendType === 'abdm' ? payload.downloadSource.headers : payload.req.extra.header;
+    assert.equal(Object.hasOwn(headers, 'User-Agent'), false);
+    assert.equal(Object.hasOwn(headers, 'Cookie'), false);
+    assert.equal(globalThis.__cookieReads, 0);
+    assert.equal(globalThis.__cookieContextReads, 0);
+  });
+}
+
+test('a later Gopeed cookie-read failure preserves the earlier file dispatch result', async () => {
+  globalThis.__backendConfig = { ...globalThis.__backendConfig, backendType: 'gopeed', gopeedProtocol: 'http', gopeedHost: '127.0.0.1', gopeedPort: 9999 };
+  globalThis.__cookieFailureUrl = 'https://file.pawchive.pw/data/second.jpg';
+  globalThis.__pawMediaTasks = [
+    { url: 'https://file.pawchive.pw/data/first.jpg', fileName: 'first.jpg' },
+    { url: globalThis.__cookieFailureUrl, fileName: 'second.jpg' },
+  ];
+  globalThis.__fetchImplementation = async () => ({ ok: true, status: 200, async text() { return '{"code":0}'; } });
+  const result = await download.startPawchiveDownload('fanbox', '2131660', '9809891', undefined, { id: '9809891', has_full: true });
+  assert.equal(result.successCount, 1);
+  assert.deepEqual(result.results.map(value => value.success), [true, false]);
 });
 
 test('downloads the aggregated external-link TXT directly through Chrome', async () => {

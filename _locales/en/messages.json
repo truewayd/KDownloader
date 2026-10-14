@@ -630,6 +630,13 @@
     "message": "The batch could not finish fetching posts or saving its results. Please retry."
   },
   "autoResolveLabel": { "message": "Automatically resolve cloud links" },
+  "downloadUserAgent": { "message": "Media download User-Agent" },
+  "downloadUserAgentSite": { "message": "Site default" },
+  "downloadUserAgentBrowser": { "message": "Current browser" },
+  "downloadUserAgentBackend": { "message": "Backend default (do not override)" },
+  "downloadUserAgentHelp": { "message": "Site default identifies KDownloader for Pawchive. Current browser sends this browser's full User-Agent. Backend default sends no User-Agent override." },
+  "downloadForwardCookies": { "message": "Include browser cookies" },
+  "downloadForwardCookiesHelp": { "message": "Only cookies applicable to the trusted media URL are sent. Browser User-Agent and cookies may help with verification, but cannot guarantee Cloudflare access." },
   "dmLinksMode": { "message": "Include Pawchive DM links when fetching a page or creator" },
   "dmLinksOff": { "message": "Do not read DMs" },
   "dmLinksExtract": { "message": "Extract all DM links to TXT" },

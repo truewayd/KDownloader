@@ -604,25 +604,73 @@ export async function handleAPIRequest(url, headers = {}) {
   }
 }
 
-export async function getCookies(domain) {
-  const normalizedDomain = String(domain || '').trim().toLowerCase();
-  if (!ALLOWED_COOKIE_DOMAINS.has(normalizedDomain)) {
+function trustedCookieUrl(value) {
+  const url = new URL(value);
+  const host = url.hostname.toLowerCase();
+  const root = host === PAW.HOST || host === PAW.FILE_HOST ? PAW.HOST
+    : [...API.HOSTS, API.COOMERFANS_HOST].find(domain => host === domain || host.endsWith(`.${domain}`));
+  if (url.protocol !== 'https:' || url.username || url.password || url.port || !root) {
     throw new Error('Refusing to export cookies for an unexpected domain');
+  }
+  return { url: url.href, site: `https://${root}` };
+}
+
+export async function getDownloadCookieContext(origin, tabId) {
+  const { site } = trustedCookieUrl(origin);
+  const context = { partitionKey: { topLevelSite: site } };
+  if (Number.isInteger(tabId) && tabId >= 0 && typeof chrome.cookies.getAllCookieStores === 'function') {
+    try {
+      const stores = await chrome.cookies.getAllCookieStores();
+      const store = stores.find(value => value.tabIds?.includes(tabId));
+      if (!store) return { unavailable: true };
+      context.storeId = store.id;
+    } catch (_) { return { unavailable: true }; }
+  }
+  return context;
+}
+
+export async function getCookies(value, context) {
+  const input = String(value || '').trim();
+  let details;
+  if (input.includes('://')) {
+    const { url, site } = trustedCookieUrl(input);
+    if (context?.unavailable) return '';
+    if (context?.partitionKey?.topLevelSite && context.partitionKey.topLevelSite !== site) {
+      throw new Error('Refusing to export cookies across site families');
+    }
+    details = { url, ...(context?.storeId ? { storeId: context.storeId } : {}) };
+  } else {
+    const domain = input.toLowerCase();
+    if (!ALLOWED_COOKIE_DOMAINS.has(domain)) throw new Error('Refusing to export cookies for an unexpected domain');
+    details = { domain };
   }
   let cookies;
   try {
-    cookies = await chrome.cookies.getAll({ domain: normalizedDomain });
-  } catch (e) {
-    console.error('[Background] getCookies error', e);
+    cookies = await chrome.cookies.getAll(details);
+  } catch (_) {
+    console.warn('[Background] Browser cookies could not be read');
     return '';
   }
+  if (details.url && context?.partitionKey) {
+    // Chrome's default lookup omits partitioned cookies, including modern
+    // cf_clearance. Never query a wildcard partition or another browser store.
+    try {
+      const partitioned = await chrome.cookies.getAll({ ...details, partitionKey: context.partitionKey });
+      cookies = [...cookies, ...partitioned.filter(cookie => cookie.partitionKey?.hasCrossSiteAncestor !== true)];
+    } catch (_) { /* Older browsers retain the unpartitioned-cookie path. */ }
+  }
+  cookies = (Array.isArray(cookies) ? cookies : []).slice().sort((a, b) => (b.path?.length || 0) - (a.path?.length || 0));
   const pairs = [];
+  const seen = new Set();
   let bytes = 0;
   for (const cookie of Array.isArray(cookies) ? cookies : []) {
     const name = String(cookie?.name || '');
     const value = String(cookie?.value || '');
     if (!name || /[\0-\x20\x7f;=]/.test(name) || /[\0-\x1f\x7f;]/.test(value)) continue;
     const pair = `${name}=${value}`;
+    const identity = JSON.stringify([name, value, cookie.domain, cookie.path]);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
     const pairBytes = new TextEncoder().encode(pair).byteLength + (pairs.length > 0 ? 2 : 0);
     if (bytes + pairBytes > MAX_FORWARDED_COOKIE_HEADER_BYTES) {
       throw new Error('Site cookies exceed the 64 KiB forwarding safety limit');

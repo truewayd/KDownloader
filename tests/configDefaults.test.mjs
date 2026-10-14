@@ -255,6 +255,23 @@ test("backend and token settings are bounded and restricted to loopback", async 
   await assert.rejects(saveGistConfig({ gistId: "bad\ud800id" }), /Gist ID/);
 });
 
+test("media identity choices persist, survive partial saves and reset with defaults", async (t) => {
+  const data = useMemoryStorage(t, { sync: { backendConfig: { enabled: true } } });
+  const legacy = await loadBackendConfig();
+  assert.equal(legacy.userAgentMode, 'site');
+  assert.equal(legacy.forwardCookies, true);
+  await saveBackendConfig({ userAgentMode: 'browser', forwardCookies: false });
+  const partial = await saveBackendConfig({ concurrency: 2 });
+  assert.equal(partial.userAgentMode, 'browser');
+  assert.equal(partial.forwardCookies, false);
+  const invalid = await saveBackendConfig({ userAgentMode: 'arbitrary-header', forwardCookies: 'true' });
+  assert.equal(invalid.userAgentMode, 'browser');
+  assert.equal(invalid.forwardCookies, false);
+  await restoreDefaultConfigs();
+  assert.equal(data.sync.backendConfig.userAgentMode, 'site');
+  assert.equal(data.sync.backendConfig.forwardCookies, true);
+});
+
 test("API keys use the same printable-ASCII bounds as TrueDown", async () => {
   const unicodeKey = "é".repeat(32);
   await assert.rejects(saveBackendConfig({ apiKey: unicodeKey }), /printable ASCII/);

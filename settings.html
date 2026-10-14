@@ -92,6 +92,20 @@
             <span data-i18n="autoResolveLabel">Automatically resolve cloud links</span>
           </label>
           <p class="field-help" data-i18n="autoResolveHelp">Checks backend support before enabling. Unhandled links remain available for manual download.</p>
+          <label class="field">
+            <span data-i18n="downloadUserAgent">Media download User-Agent</span>
+            <select id="backend-user-agent-mode" class="kd-select">
+              <option value="site" data-i18n="downloadUserAgentSite">Site default</option>
+              <option value="browser" data-i18n="downloadUserAgentBrowser">Current browser</option>
+              <option value="backend" data-i18n="downloadUserAgentBackend">Backend default (do not override)</option>
+            </select>
+          </label>
+          <p class="field-help" data-i18n="downloadUserAgentHelp">Site default identifies KDownloader for Pawchive. Current browser sends this browser's full User-Agent. Backend default sends no User-Agent override.</p>
+          <label class="field field-inline">
+            <input id="backend-forward-cookies" type="checkbox" class="kd-toggle">
+            <span data-i18n="downloadForwardCookies">Include browser cookies</span>
+          </label>
+          <p class="field-help" data-i18n="downloadForwardCookiesHelp">Only cookies applicable to the trusted media URL are sent. Browser User-Agent and cookies may help with verification, but cannot guarantee Cloudflare access.</p>
           <div class="backend-config backend-batching">
             <label class="field">
               <span data-i18n="concurrency">Concurrency</span>

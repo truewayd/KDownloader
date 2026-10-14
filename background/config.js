@@ -122,7 +122,7 @@ async function writeWatchConfig(cfg) {
 export function getDefaultBackendConfig() {
   // Default per-post batch limit reduced to 100 because most posts have fewer files.
   // Larger batch downloads (many posts) are still supported by batching across posts.
-  return { enabled: false, autoResolve: false, backendType: 'abdm', host: '127.0.0.1', port: 15151, retryCount: 3, protocol: 'http', concurrency: 3, perPostFileLimit: 100, apiKey: '', gopeedHost: '127.0.0.1', gopeedPort: 9999, gopeedToken: '', gopeedProtocol: 'http' };
+  return { enabled: false, autoResolve: false, userAgentMode: 'site', forwardCookies: true, backendType: 'abdm', host: '127.0.0.1', port: 15151, retryCount: 3, protocol: 'http', concurrency: 3, perPostFileLimit: 100, apiKey: '', gopeedHost: '127.0.0.1', gopeedPort: 9999, gopeedToken: '', gopeedProtocol: 'http' };
 }
 
 export function getDefaultLinkHandlingConfig() { return { dmMode: 'off', skipExtracted: true }; }
@@ -147,6 +147,8 @@ function normalizeBackendConfig(cfg, fallback = getDefaultBackendConfig()) {
   return {
     enabled: typeof value.enabled === 'boolean' ? value.enabled : fallback.enabled,
     autoResolve: value.autoResolve === true && value.enabled === true && value.backendType !== 'gopeed',
+    userAgentMode: ['site', 'browser', 'backend'].includes(value.userAgentMode) ? value.userAgentMode : fallback.userAgentMode,
+    forwardCookies: typeof value.forwardCookies === 'boolean' ? value.forwardCookies : fallback.forwardCookies,
     backendType: value.backendType === 'gopeed' ? 'gopeed' : 'abdm',
     host: normalizedBackendHost(value.host, fallback.host),
     port: boundedInteger(value.port, fallback.port, 1, 65535),
