@@ -166,18 +166,24 @@ export const UTIL = {
 
   filterDownloadTasks: (tasks, config) => {
     if (!Array.isArray(tasks)) return [];
-    if (!config || config.enabled !== true) return [...tasks];
+    if (!config || config.enabled !== true || config.filterMode === 'off') return [...tasks];
+    const extensions = config.filterMode === 'project' ? config.projectExtensions : config.excludedExtensions;
     const excluded = new Set(
-      (Array.isArray(config.excludedExtensions) ? config.excludedExtensions : [])
+      (Array.isArray(extensions) ? extensions : [])
         .map((value) => String(value || '').trim().toLowerCase())
         .map((value) => value && (value.startsWith('.') ? value : `.${value}`))
-        .filter((value) => /^\.[a-z0-9]{1,16}$/.test(value))
+        .filter((value) => /^\.[a-z0-9]{1,16}(\.[a-z0-9]{1,16}){0,3}$/.test(value))
     );
     if (excluded.size === 0) return [...tasks];
+    const suffixes = [...excluded];
     return tasks.filter((task) => {
-      const extension = UTIL.getFileExtension(task && task.fileName)
-        || UTIL.getFileExtension(task && task.url);
-      return !excluded.has(extension);
+      const fileName = String(task?.fileName || '').toLowerCase();
+      if (suffixes.some(extension => fileName.endsWith(extension))) return false;
+      if (UTIL.getFileExtension(fileName)) return true;
+      try {
+        const path = decodeURIComponent(new URL(task?.url).pathname).toLowerCase();
+        return !suffixes.some(extension => path.endsWith(extension));
+      } catch { return true; }
     });
   },
 

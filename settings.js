@@ -14,6 +14,8 @@ const MAX_WATCH_IMPORT_FILE_BYTES = MAX_WATCH_STORAGE_BYTES + 1024;
 let settingsLoaded = false;
 let settingsRequestSequence = 0;
 let settingsOperationPending = false;
+let downloadFilterConfig = null;
+let downloadFilterCustomEdited = false;
 
 async function withSettingsOperation(button, task) {
   if (settingsOperationPending) return;
@@ -116,11 +118,20 @@ function updateBackendVisibility() {
   $("backend-details")?.classList.toggle("kd-hidden", !enabled);
   $("abdm-fields")?.classList.toggle("kd-hidden", !enabled || backendType !== "abdm");
   $("gopeed-fields")?.classList.toggle("kd-hidden", !enabled || backendType !== "gopeed");
+  updateDownloadFilterVisibility();
 }
 
 function updateDownloadFilterVisibility() {
-  const enabled = !!$("download-filter-enabled")?.checked;
-  $("download-filter-details")?.classList.toggle("kd-hidden", !enabled);
+  const mode = $("download-filter-mode")?.value || "off";
+  const synced = !!$("download-filter-sync-truedown")?.checked;
+  $("download-filter-details")?.classList.toggle("kd-hidden", mode !== "custom");
+  $("download-filter-project-details")?.classList.toggle("kd-hidden", mode !== "project");
+  if ($("download-filter-mode")) $("download-filter-mode").disabled = synced;
+  if ($("download-filter-extensions")) $("download-filter-extensions").readOnly = synced;
+  if ($("download-filter-sync-now")) {
+    $("download-filter-sync-now").disabled = !synced || !$("backend-enabled")?.checked || backendType !== "abdm";
+    $("download-filter-sync-now").dataset.tooltip = t("downloadFilterSyncNow");
+  }
 }
 
 function updateExternalLinkFilterVisibility() {
@@ -198,36 +209,61 @@ async function saveBackend() {
 }
 
 async function loadDownloadRules(generation) {
-  const { config } = await sendMessage({ action: "downloadRules.getConfig" });
+  const response = await sendMessage({ action: "downloadRules.getConfig" }, 20000, { retries: 0 });
   if (!isCurrentLoad(generation)) return;
-  renderDownloadRulesConfig(config);
+  renderDownloadRulesConfig(response.config);
+  renderDownloadRuleSyncStatus(response.sync);
 }
 
 function renderDownloadRulesConfig(config) {
-  setValue("download-filter-enabled", config.enabled);
-  setValue("download-filter-sync-truedown", config.syncToTrueDown);
-  const selected = new Set(config.excludedExtensions || []);
-  document.querySelectorAll("[data-download-extension]").forEach((input) => {
-    input.checked = selected.has(input.value);
-  });
+  downloadFilterConfig = config;
+  downloadFilterCustomEdited = false;
+  setValue("download-filter-mode", config.filterMode || (config.enabled ? "custom" : "off"));
+  setValue("download-filter-sync-truedown", config.syncFromTrueDown !== false);
+  setValue("download-filter-extensions", (config.excludedExtensions || []).join(", "));
+  $("download-filter-project-extensions").textContent = (config.projectExtensions || []).join(", ") || t("downloadFilterNoExtensions");
   updateDownloadFilterVisibility();
 }
 
+function renderDownloadRuleSyncStatus(sync) {
+  const status = $("download-filter-sync-status");
+  const keys = { synced: "downloadFilterSynced", disabled: "downloadFilterLocal", conflict: "downloadFilterSyncConflict",
+    failed: "downloadFilterSyncFailed", skipped: sync?.reason === "backend-type" ? "downloadFilterBackendUnsupported" : "downloadFilterBackendDisabled" };
+  status.textContent = sync ? t(keys[sync.state] || "downloadFilterSyncFailed") : "";
+  if (sync?.state === "failed" && sync.error) status.textContent += ` ${sync.error}`;
+  status.hidden = !status.textContent;
+}
+
+function downloadRulesFormConfig() {
+  const filterMode = $("download-filter-mode")?.value || "off";
+  let excludedExtensions = downloadFilterConfig?.excludedExtensions ?? null;
+  if (filterMode === "custom" || downloadFilterCustomEdited) {
+    excludedExtensions = [...new Set(($("download-filter-extensions")?.value || "").toLowerCase().split(/[\s,;]+/)
+      .filter(Boolean).map(value => value.startsWith(".") ? value : `.${value}`))];
+    if (excludedExtensions.length > 128 || excludedExtensions.some(value => !/^\.[a-z0-9]{1,16}(\.[a-z0-9]{1,16}){0,3}$/.test(value))) {
+      throw new Error(t("downloadFilterExtensionsInvalid"));
+    }
+  }
+  return { filterMode, excludedExtensions, syncFromTrueDown: !!$("download-filter-sync-truedown")?.checked };
+}
+
 async function saveDownloadRules() {
-  const excludedExtensions = Array.from(
-    document.querySelectorAll("[data-download-extension]:checked"),
-    (input) => input.value
-  );
   const response = await sendMessage({
     action: "downloadRules.setConfig",
-    config: {
-      enabled: !!$("download-filter-enabled")?.checked,
-      excludedExtensions,
-      syncToTrueDown: !!$("download-filter-sync-truedown")?.checked,
-    },
-  }, 20000);
+    config: downloadRulesFormConfig(),
+  }, 20000, { retries: 0 });
   renderDownloadRulesConfig(response.config);
+  renderDownloadRuleSyncStatus(response.sync);
   return response;
+}
+
+async function syncDownloadRulesNow() {
+  try {
+    const response = await sendMessage({ action: "downloadRules.syncFromTrueDown", enable: true }, 20000, { retries: 0 });
+    renderDownloadRulesConfig(response.config);
+    renderDownloadRuleSyncStatus(response.sync);
+    showToast($("download-filter-sync-status").textContent, response.sync?.state === "synced" ? "success" : "error");
+  } catch (error) { showToast(error.message, "error"); }
 }
 
 async function loadExternalLinkFilter(generation) {
@@ -404,6 +440,7 @@ async function saveAll() {
   await withBusyButton(saveBtn, async () => {
     try {
       $("save-status").textContent = t("statusSaving");
+      downloadRulesFormConfig();
       await saveBackend();
       const results = await Promise.allSettled([
         saveDownloadRules(),
@@ -533,7 +570,16 @@ function bindEvents() {
       updateBackendVisibility();
     }
   });
-  $("download-filter-enabled")?.addEventListener("change", updateDownloadFilterVisibility);
+  $("download-filter-mode")?.addEventListener("change", () => {
+    if ($("download-filter-mode").value === "custom" && downloadFilterConfig?.excludedExtensions === null && !downloadFilterCustomEdited) {
+      $("download-filter-extensions").value = (downloadFilterConfig.projectExtensions || []).join(", ");
+      downloadFilterCustomEdited = true;
+    }
+    updateDownloadFilterVisibility();
+  });
+  $("download-filter-extensions")?.addEventListener("input", () => { downloadFilterCustomEdited = true; });
+  $("download-filter-sync-truedown")?.addEventListener("change", updateDownloadFilterVisibility);
+  $("download-filter-sync-now")?.addEventListener("click", event => withBusyButton(event.currentTarget, syncDownloadRulesNow));
   $("external-link-filter-mode")?.addEventListener("change", updateExternalLinkFilterVisibility);
   $("save-settings")?.addEventListener("click", saveAll);
   $("reload-settings")?.addEventListener("click", (event) => withBusyButton(event.currentTarget, loadAll));

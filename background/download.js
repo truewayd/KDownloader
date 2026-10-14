@@ -1,7 +1,7 @@
 // background/download.js - download orchestration (local chrome.downloads and backend forwarding)
 import { CONFIG, API, PAW } from './constants.js';
 import UTIL from './util.js';
-import { loadBackendConfig, loadExternalLinkFilterConfig } from './config.js';
+import { loadBackendConfig, loadDownloadRulesConfig, loadExternalLinkFilterConfig } from './config.js';
 import { handleAPIRequest, getCookies, getDownloadCookieContext, readLimitedResponseText } from './network.js';
 import {
   buildPawchiveDownloadTasks,
@@ -502,6 +502,16 @@ function validateDownloadTasks(tasks) {
   return trustedTasks;
 }
 
+async function applyDownloadRules(tasks, externalLinks) {
+  const trustedTasks = validateDownloadTasks(tasks);
+  const filteredTasks = UTIL.filterDownloadTasks(trustedTasks, await loadDownloadRulesConfig());
+  if (trustedTasks.length > 0 && filteredTasks.length === 0) {
+    return { tasks: filteredTasks, result: { success: true, successCount: 0, results: [],
+      externalLinks, skippedByFilter: true, filteredCount: trustedTasks.length } };
+  }
+  return { tasks: filteredTasks, result: null };
+}
+
 function absoluteCoomerFansUrl(rawUrl) {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
   try {
@@ -708,7 +718,9 @@ export async function startCoomerFansDownload(service, userId, postId, creatorNa
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
   }
 
-  tasks = validateDownloadTasks(tasks);
+  const filtered = await applyDownloadRules(tasks, externalLinks);
+  if (filtered.result) return filtered.result;
+  tasks = filtered.tasks;
 
   const backendCfg = await loadBackendConfig();
 
@@ -788,7 +800,9 @@ export async function startPawchiveDownload(service, userId, postId, senderTabId
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
   }
 
-  tasks = validateDownloadTasks(tasks);
+  const filtered = await applyDownloadRules(tasks, externalLinks);
+  if (filtered.result) return filtered.result;
+  tasks = filtered.tasks;
 
   const backendCfg = await loadBackendConfig();
 
@@ -949,7 +963,9 @@ export async function startFullDownload(service, userId, postId, path, senderUrl
     return { success: true, successCount: 0, results: [], externalLinks, message: 'No downloadable files found', noFiles: true };
   }
 
-  tasks = validateDownloadTasks(tasks);
+  const filtered = await applyDownloadRules(tasks, externalLinks);
+  if (filtered.result) return filtered.result;
+  tasks = filtered.tasks;
 
   const backendCfg = await loadBackendConfig();
 

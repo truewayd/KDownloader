@@ -22,7 +22,7 @@ import {
   requireExtensionPage,
   respondWith,
 } from "../messageHelpers.js";
-import { syncDownloadRulesToTrueDown } from "../truedown.js";
+import { syncDownloadRulesFromTrueDown } from "../truedown.js";
 import { writeLinkRecords } from "../linkHistory.js";
 
 async function restoreSettingsDefaults() {
@@ -35,18 +35,8 @@ async function restoreSettingsDefaults() {
 }
 
 async function saveAndSyncDownloadRules(value) {
-  const config = await saveDownloadRulesConfig(value);
-  try {
-    return { config, sync: await syncDownloadRulesToTrueDown(config) };
-  } catch (error) {
-    return {
-      config,
-      sync: {
-        state: "failed",
-        error: error && error.message ? error.message : String(error),
-      },
-    };
-  }
+  await saveDownloadRulesConfig(value);
+  return syncDownloadRulesFromTrueDown();
 }
 
 function withoutBackendSecrets(config) {
@@ -86,8 +76,15 @@ export function createConfigHandlers() {
       return respondWith(sendResponse, probeAutoResolve(message.config || {}), (capabilities) => ({ capabilities }));
     },
 
-    "downloadRules.getConfig": ({ sendResponse }) =>
-      respondWith(sendResponse, loadDownloadRulesConfig(), (config) => ({ config })),
+    "downloadRules.getConfig": ({ sender, sendResponse }) => isExtensionPageSender(sender)
+      ? respondWith(sendResponse, syncDownloadRulesFromTrueDown(), result => result)
+      : respondWith(sendResponse, loadDownloadRulesConfig(), config => ({ config })),
+
+    "downloadRules.syncFromTrueDown": ({ message, sender, sendResponse }) => {
+      requireExtensionPage(sender, "TrueDown filter synchronization");
+      return respondWith(sendResponse, message.enable === true
+        ? saveAndSyncDownloadRules({ syncFromTrueDown: true }) : syncDownloadRulesFromTrueDown(), result => result);
+    },
 
     "downloadRules.setConfig": ({ message, sender, sendResponse }) => {
       requireExtensionPage(sender, "Download-rule configuration");

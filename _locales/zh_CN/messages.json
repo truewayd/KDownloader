@@ -185,15 +185,26 @@
   "downloadRulesTitle": {
     "message": "下载与链接处理"
   },
-  "downloadFilterEnable": {
-    "message": "展开 Dropbox 目录时默认应用此过滤器"
-  },
   "downloadFilterExtensions": {
     "message": "排除的文件后缀"
   },
   "downloadFilterSyncTrueDown": {
-    "message": "保存设置时将 Dropbox 过滤选项同步到 TrueDown"
+    "message": "从 TrueDown 同步过滤器"
   },
+  "downloadFilterMode": { "message": "下载过滤器" },
+  "downloadFilterOff": { "message": "不过滤" },
+  "downloadFilterProject": { "message": "工程分组" },
+  "downloadFilterCustom": { "message": "自定义后缀" },
+  "downloadFilterProjectExtensions": { "message": "工程分组后缀" },
+  "downloadFilterNoExtensions": { "message": "无" },
+  "downloadFilterSyncNow": { "message": "从 TrueDown 同步" },
+  "downloadFilterSynced": { "message": "已从 TrueDown 同步过滤器" },
+  "downloadFilterLocal": { "message": "使用本地过滤器" },
+  "downloadFilterSyncConflict": { "message": "同步期间设置已变化，已保留较新的设置" },
+  "downloadFilterSyncFailed": { "message": "TrueDown 同步失败，已保留已保存的过滤器" },
+  "downloadFilterBackendDisabled": { "message": "TrueDown 未启用，使用已保存的过滤器" },
+  "downloadFilterBackendUnsupported": { "message": "当前下载后端不支持 TrueDown 过滤器" },
+  "downloadFilterExtensionsInvalid": { "message": "请输入最多 128 个有效后缀，以逗号或空格分隔" },
   "externalLinkFilterMode": {
     "message": "外链提取过滤"
   },

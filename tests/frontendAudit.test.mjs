@@ -503,13 +503,16 @@ test("settings blank numeric controls use their defaults and preserve explicit z
 
 test("settings keep save success and failure visible after the busy state ends", async () => {
   let failure = null;
+  let validationFailure = null;
+  let backendWrites = 0;
   const status = { textContent: '' };
   const context = vm.createContext({
     $: () => status,
     settingsLoaded: true,
     t: (key) => key,
     withBusyButton: (_button, task) => task(),
-    saveBackend: async () => { if (failure) throw failure; },
+    downloadRulesFormConfig: () => { if (validationFailure) throw validationFailure; },
+    saveBackend: async () => { backendWrites += 1; if (failure) throw failure; },
     saveDownloadRules: async () => ({ sync: { state: 'success' } }),
     saveExternalLinkFilter: async () => {},
     saveWatch: async () => {},
@@ -525,6 +528,12 @@ test("settings keep save success and failure visible after the busy state ends",
   failure = new Error('Storage unavailable');
   await context.saveAll();
   assert.equal(status.textContent, 'Storage unavailable');
+  const writesBeforeValidation = backendWrites;
+  failure = null;
+  validationFailure = new Error('Invalid download suffix');
+  await context.saveAll();
+  assert.equal(status.textContent, 'Invalid download suffix');
+  assert.equal(backendWrites, writesBeforeValidation);
 });
 
 test("Watch import waits for the shared confirmation and cancel preserves the current list", async () => {

@@ -426,7 +426,7 @@ test('keeps Dropbox parsing and filter configuration out of per-file task reques
   assert.equal(Object.hasOwn(backendPayload, 'downloadRules'), false);
 });
 
-test('Dropbox filter settings do not remove ordinary site media tasks', async () => {
+test('restored site filter excludes project media before backend dispatch', async () => {
   globalThis.__downloadRulesConfig = { enabled: true, excludedExtensions: ['.psd'] };
   globalThis.__apiResponse = {
     post: { title: 'ordinary project file' },
@@ -443,7 +443,48 @@ test('Dropbox filter settings do not remove ordinary site media tasks', async ()
   );
 
   assert.equal(result.success, true);
-  assert.equal(backendPayload.downloadSource.link, 'https://kemono.cr/data/source.psd');
+  assert.equal(result.skippedByFilter, true);
+  assert.equal(result.filteredCount, 1);
+  assert.equal(backendPayload, undefined);
+});
+
+for (const host of ['kemono.cr', 'coomer.st']) {
+  test(`${host} filters only excluded files and retains allowed backend media`, async () => {
+    globalThis.__downloadRulesConfig = { enabled: true, filterMode: 'project', projectExtensions: ['.psd'] };
+    globalThis.__apiResponse = { post: { title: 'mixed files' }, videos: [
+      { url: `https://${host}/data/source.psd` }, { url: `https://${host}/data/photo.jpg` },
+    ] };
+    const links = [];
+    globalThis.__fetchImplementation = async (_url, options) => {
+      links.push(JSON.parse(options.body).downloadSource.link);
+      return { ok: true, status: 200, async text() { return ''; } };
+    };
+    const result = await download.startFullDownload('patreon', 'creator-1', 'post-1', '', `https://${host}/post-1`);
+    assert.equal(result.success, true);
+    assert.deepEqual(links, [`https://${host}/data/photo.jpg`]);
+  });
+}
+
+test('Pawchive filtered-only posts retain external links without dispatch or cookies', async () => {
+  globalThis.__downloadRulesConfig = { enabled: true, excludedExtensions: ['.psd'] };
+  globalThis.__pawMediaTasks = [{ url: 'https://file.pawchive.pw/data/source.psd', fileName: 'source.psd', type: 'file' }];
+  const result = await download.startPawchiveDownload('fanbox', 'creator-1', 'post-1', undefined,
+    { has_full: true, content: 'https://mega.nz/file/id#key' });
+  assert.equal(result.skippedByFilter, true);
+  assert.deepEqual(result.externalLinks, ['https://mega.nz/file/id#key']);
+  assert.equal(globalThis.__cookieReads, 0);
+  assert.equal(nativeDownloadCalls, 0);
+});
+
+test('CoomerFans applies the same suffix filter before media dispatch', async () => {
+  globalThis.__downloadRulesConfig = { enabled: true, excludedExtensions: ['.jpg'] };
+  globalThis.__fetchImplementation = async (_url, options) => {
+    assert.notEqual(options?.method, 'POST');
+    return { ok: true, status: 200, async text() { return '<a href="https://coomerfans.com/storage/source.jpg">source</a>'; } };
+  };
+  const result = await download.startCoomerFansDownload('onlyfans', 'creator-1', 'post-1', 'creator');
+  assert.equal(result.skippedByFilter, true);
+  assert.equal(nativeDownloadCalls, 0);
 });
 
 test('backend progress preserves the originating request id', async () => {

@@ -56,7 +56,8 @@ test('Unicode validation rejects only unpaired UTF-16 surrogates within a bounde
 test('download extension filtering is disabled by default', async () => {
   const value = await config.loadDownloadRulesConfig();
   assert.equal(value.enabled, false);
-  assert.equal(value.syncToTrueDown, true);
+  assert.equal(value.filterMode, 'off');
+  assert.equal(value.syncFromTrueDown, true);
   assert.ok(value.excludedExtensions.includes('.psd'));
   assert.ok(value.excludedExtensions.includes('.clip'));
 });
@@ -67,18 +68,47 @@ test('download rules normalize suffixes and reject invalid values', async () => 
     excludedExtensions: ['PSD', '.clip', '.PSD', '.procreate', '../pyc', ''],
   });
   assert.deepEqual(value, {
+    ...config.getDefaultDownloadRulesConfig(),
     enabled: true,
+    filterMode: 'custom',
     excludedExtensions: ['.psd', '.clip', '.procreate'],
-    syncToTrueDown: true,
   });
   assert.deepEqual(stored.downloadRulesConfig, value);
 
   const syncDisabled = await config.saveDownloadRulesConfig({
     enabled: false,
     excludedExtensions: [],
-    syncToTrueDown: false,
+    syncFromTrueDown: false,
   });
-  assert.equal(syncDisabled.syncToTrueDown, false);
+  assert.equal(syncDisabled.syncFromTrueDown, false);
+});
+
+test('legacy rule preferences migrate without retaining outgoing synchronization', async () => {
+  stored.downloadRulesConfig = { enabled: true, excludedExtensions: ['.psd'], syncToTrueDown: false };
+  const value = await config.loadDownloadRulesConfig();
+  assert.equal(value.filterMode, 'custom');
+  assert.equal(value.syncFromTrueDown, false);
+  assert.equal(Object.hasOwn(value, 'syncToTrueDown'), false);
+  await config.saveDownloadRulesConfig({ syncFromTrueDown: true });
+  assert.equal(Object.hasOwn(stored.downloadRulesConfig, 'syncToTrueDown'), false);
+  assert.deepEqual(stored.downloadRulesConfig.excludedExtensions, ['.psd']);
+});
+
+test('project mode uses its resolved Engineering cache and preserves null versus empty custom lists', async () => {
+  const project = await config.saveDownloadRulesConfig({ filterMode: 'project', excludedExtensions: null, projectExtensions: ['.work.project'] });
+  await config.saveDownloadRulesConfig({ syncFromTrueDown: false });
+  assert.equal(stored.downloadRulesConfig.excludedExtensions, null);
+  const tasks = [{ fileName: 'drawing.WORK.PROJECT', url: 'https://files.example/file' }, { fileName: 'photo.psd' }];
+  assert.deepEqual(util.filterDownloadTasks(tasks, project), [tasks[1]]);
+  const empty = await config.saveDownloadRulesConfig({ filterMode: 'custom', excludedExtensions: [] });
+  assert.deepEqual(util.filterDownloadTasks(tasks, empty), tasks);
+  assert.deepEqual(empty.excludedExtensions, []);
+});
+
+test('compound suffix matching decodes URL paths without filtering query values', () => {
+  const tasks = [{ fileName: 'Untitled', url: 'https://files.example/archive%2Ework%2Eproject?name=image.jpg' },
+    { fileName: 'image.jpg', url: 'https://files.example/image?note=.work.project' }];
+  assert.deepEqual(util.filterDownloadTasks(tasks, { enabled: true, excludedExtensions: ['.work.project'] }), [tasks[1]]);
 });
 
 test('external link filtering defaults to a user-editable Patreon domain blacklist', async () => {

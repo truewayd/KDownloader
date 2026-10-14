@@ -86,8 +86,7 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
 }
 
-.backend-details,
-.download-filter-details {
+.backend-details {
   margin-top: 16px;
   padding-top: 0;
 }
@@ -133,38 +132,16 @@ body {
   min-height: var(--kd-control-height);
 }
 
-.extension-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: 8px;
-}
-
-.extension-option {
+.download-filter-sync-row {
   display: flex;
   align-items: center;
-  min-height: var(--kd-control-height);
-  gap: 8px;
-  border: 0;
-  border-radius: var(--kd-control-radius);
-  padding: 0 12px;
-  background: var(--kd-input);
-  color: var(--kd-text);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
 }
 
-.extension-option:has(input:checked) {
-  border-color: var(--kd-button-border);
-  background: var(--kd-accent-soft);
-}
-
-.extension-option input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--kd-accent);
-}
+.download-filter-suffixes { overflow-wrap: anywhere; line-height: 1.5; }
+#download-filter-sync-status { margin: 0; }
 
 .button-row {
   display: flex;

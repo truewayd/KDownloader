@@ -185,15 +185,26 @@
   "downloadRulesTitle": {
     "message": "Download and link handling"
   },
-  "downloadFilterEnable": {
-    "message": "Apply this filter by default when expanding Dropbox folders"
-  },
   "downloadFilterExtensions": {
     "message": "Excluded file extensions"
   },
   "downloadFilterSyncTrueDown": {
-    "message": "Sync Dropbox filter choices to TrueDown when settings are saved"
+    "message": "Sync filters from TrueDown"
   },
+  "downloadFilterMode": { "message": "Download filter" },
+  "downloadFilterOff": { "message": "No filtering" },
+  "downloadFilterProject": { "message": "Engineering group" },
+  "downloadFilterCustom": { "message": "Custom extensions" },
+  "downloadFilterProjectExtensions": { "message": "Engineering extensions" },
+  "downloadFilterNoExtensions": { "message": "None" },
+  "downloadFilterSyncNow": { "message": "Sync from TrueDown" },
+  "downloadFilterSynced": { "message": "Filters synced from TrueDown" },
+  "downloadFilterLocal": { "message": "Using local filters" },
+  "downloadFilterSyncConflict": { "message": "Settings changed during sync; newer settings were preserved" },
+  "downloadFilterSyncFailed": { "message": "TrueDown sync failed; saved filters were preserved" },
+  "downloadFilterBackendDisabled": { "message": "TrueDown is disabled; using saved filters" },
+  "downloadFilterBackendUnsupported": { "message": "This backend does not support TrueDown filters" },
+  "downloadFilterExtensionsInvalid": { "message": "Enter at most 128 valid extensions, separated by commas or spaces" },
   "externalLinkFilterMode": {
     "message": "External link filter"
   },

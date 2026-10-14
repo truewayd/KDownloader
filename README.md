@@ -32,7 +32,7 @@ KDownloader is a dependency-free Chrome Manifest V3 extension for discovering, c
 - Tracks download history in IndexedDB with paged export and chunked, duplicate-safe import.
 - Watches Pawchive creators for updates and supports manual or scheduled checks.
 - Dispatches to loopback-only AB-compatible or Gopeed backends, with an explicit Chrome-download fallback after total failure.
-- Includes a folder-expansion suffix filter synchronized to TrueDown for MEGA, Dropbox and Google Drive, external-link filtering, creator search caches, and optional GitHub Gist sync.
+- Provides off, Engineering-group and custom suffix filters for supported site media. Optional authenticated synchronization reads TrueDown's shared MEGA, Dropbox and Google Drive folder filter into KDownloader, without overwriting TrueDown. Also includes external-link filtering, creator search caches, and optional GitHub Gist sync.
 - Keeps backend and Gist secrets in local-only extension storage.
 
 ### Build and load

@@ -14,6 +14,7 @@ import {
 import { hasUnpairedSurrogate } from './util.js';
 
 let configMutationQueue = Promise.resolve();
+let trueDownRuleSyncRevision = 0;
 
 function withConfigMutation(task) {
   const run = configMutationQueue.then(task, task);
@@ -238,6 +239,7 @@ export async function probeAutoResolve(config) {
 }
 
 async function writeBackendConfig(cfg) {
+  trueDownRuleSyncRevision++;
   const current = await readBackendConfig();
   const input = cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? { ...cfg } : {};
   if (Object.hasOwn(input, 'apiKey')) {
@@ -263,13 +265,15 @@ async function writeBackendConfig(cfg) {
 }
 
 function normalizeExcludedExtensions(value, fallback = DEFAULT_EXCLUDED_EXTENSIONS) {
-  if (!Array.isArray(value)) return [...fallback];
+  if (value === null) return null;
+  if (!Array.isArray(value)) return fallback === null ? null : [...fallback];
   const normalized = [];
   const seen = new Set();
   for (const entry of value) {
     const raw = String(entry || '').trim().toLowerCase();
     const extension = raw.startsWith('.') ? raw : `.${raw}`;
-    if (!/^\.[a-z0-9]{1,16}$/.test(extension) || seen.has(extension)) continue;
+    if (!/^\.[a-z0-9]{1,16}(\.[a-z0-9]{1,16}){0,3}$/.test(extension) || seen.has(extension)) continue;
+    if (normalized.length >= 128) throw new Error('Too many excluded file extensions');
     seen.add(extension);
     normalized.push(extension);
   }
@@ -295,8 +299,10 @@ function normalizeExternalLinkBlacklist(value, fallback = DEFAULT_EXTERNAL_LINK_
 export function getDefaultDownloadRulesConfig() {
   return {
     enabled: false,
+    filterMode: 'off',
     excludedExtensions: [...DEFAULT_EXCLUDED_EXTENSIONS],
-    syncToTrueDown: true,
+    projectExtensions: [...DEFAULT_EXCLUDED_EXTENSIONS],
+    syncFromTrueDown: true,
   };
 }
 
@@ -316,6 +322,7 @@ export function restoreDefaultConfigs() {
 }
 
 async function writeDefaultConfigs() {
+  trueDownRuleSyncRevision++;
   const configs = {
     backend: getDefaultBackendConfig(),
     downloadRules: getDefaultDownloadRulesConfig(),
@@ -344,15 +351,25 @@ async function writeDefaultConfigs() {
   return configs;
 }
 
-export async function loadDownloadRulesConfig() {
+export function loadDownloadRulesConfig() {
+  return withConfigMutation(readDownloadRulesConfig);
+}
+
+function normalizeDownloadRulesConfig(cfg, fallback = getDefaultDownloadRulesConfig()) {
+  const value = cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? cfg : {};
+  const filterMode = ['off', 'project', 'custom'].includes(value.filterMode) ? value.filterMode
+    : typeof value.enabled === 'boolean' ? (value.enabled ? 'custom' : 'off') : fallback.filterMode;
+  const excludedExtensions = normalizeExcludedExtensions(value.excludedExtensions, fallback.excludedExtensions);
+  return { enabled: filterMode !== 'off', filterMode,
+    excludedExtensions: filterMode === 'custom' && excludedExtensions === null ? [] : excludedExtensions,
+    projectExtensions: normalizeExcludedExtensions(value.projectExtensions, fallback.projectExtensions) || [],
+    syncFromTrueDown: typeof value.syncFromTrueDown === 'boolean' ? value.syncFromTrueDown
+      : typeof value.syncToTrueDown === 'boolean' ? value.syncToTrueDown : fallback.syncFromTrueDown };
+}
+
+async function readDownloadRulesConfig() {
   const r = await chrome.storage.sync.get(DOWNLOAD_RULES_CONFIG_KEY);
-  const cfg = r[DOWNLOAD_RULES_CONFIG_KEY] || {};
-  const def = getDefaultDownloadRulesConfig();
-  return {
-    enabled: typeof cfg.enabled === 'boolean' ? cfg.enabled : def.enabled,
-    excludedExtensions: normalizeExcludedExtensions(cfg.excludedExtensions),
-    syncToTrueDown: typeof cfg.syncToTrueDown === 'boolean' ? cfg.syncToTrueDown : def.syncToTrueDown,
-  };
+  return normalizeDownloadRulesConfig(r[DOWNLOAD_RULES_CONFIG_KEY]);
 }
 
 export function saveDownloadRulesConfig(cfg) {
@@ -360,13 +377,32 @@ export function saveDownloadRulesConfig(cfg) {
 }
 
 async function writeDownloadRulesConfig(cfg) {
-  const next = {
-    enabled: !!(cfg && cfg.enabled),
-    excludedExtensions: normalizeExcludedExtensions(cfg && cfg.excludedExtensions),
-    syncToTrueDown: !cfg || cfg.syncToTrueDown !== false,
-  };
+  const current = await readDownloadRulesConfig();
+  const next = normalizeDownloadRulesConfig(cfg, current);
+  if (new TextEncoder().encode(JSON.stringify(next)).length > 8000) throw new Error('Download filter settings exceed the storage limit');
+  trueDownRuleSyncRevision++;
   await chrome.storage.sync.set({ [DOWNLOAD_RULES_CONFIG_KEY]: next });
   return next;
+}
+
+export function captureTrueDownRuleSync() {
+  return withConfigMutation(async () => ({ config: await readDownloadRulesConfig(),
+    backend: await readBackendConfig(), revision: trueDownRuleSyncRevision }));
+}
+
+export function commitTrueDownDownloadRules(snapshot, rules) {
+  return withConfigMutation(async () => {
+    const current = await readDownloadRulesConfig();
+    const backend = await readBackendConfig();
+    const sameBackend = ['enabled', 'backendType', 'protocol', 'host', 'port', 'apiKey']
+      .every(key => backend[key] === snapshot.backend[key]);
+    if (!current.syncFromTrueDown || trueDownRuleSyncRevision !== snapshot.revision || !sameBackend
+        || JSON.stringify(current) !== JSON.stringify(snapshot.config)) {
+      return { config: current, sync: { state: 'conflict' } };
+    }
+    const config = await writeDownloadRulesConfig({ ...current, ...rules, syncFromTrueDown: true });
+    return { config, sync: { state: 'synced' } };
+  });
 }
 
 export async function loadExternalLinkFilterConfig() {

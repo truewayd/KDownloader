@@ -32,7 +32,7 @@ KDownloader 是一个零运行时依赖的 Chrome Manifest V3 扩展，用于发
 - 使用 IndexedDB 记录下载历史，支持分页导出和分块、重复安全的导入流程。
 - 支持关注 Pawchive 创作者，并可手动或定时检查更新。
 - 可向仅限本机回环地址的 AB 兼容后端或 Gopeed 分发任务；全部失败后才会提供明确确认的 Chrome 下载回退。
-- 支持同步到 TrueDown 的 Dropbox 展开过滤器、外链过滤、创作者搜索缓存和可选的 GitHub Gist 同步。
+- 支持不过滤、工程分组和自定义后缀三种站点文件过滤模式；可从 TrueDown 读取 MEGA、Dropbox、Google Drive 共用的目录展开过滤器，不再反向覆盖 TrueDown。另支持外链过滤、创作者搜索缓存和可选的 GitHub Gist 同步。
 - 后端密钥与 Gist 密钥仅保存在扩展本地存储中。
 
 ### 构建与加载
