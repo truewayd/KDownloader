@@ -8,12 +8,30 @@ import { readUIFixtureAsset } from "./ui-fixture-assets.mjs";
 
 const assets = new URL("../../web/", import.meta.url);
 const screenshots = await fs.mkdtemp(path.join(os.tmpdir(), "truedown-notice-"));
-const idle = { trueDown: { supported: true, autoUpdate: true }, engine: {} };
+const idle = { trueDown: { supported: true, autoUpdate: true, restartNeedsConfirmation: false }, engine: {} };
 let state = idle, fail = false, reads = 0, restarts = 0;
 let limit = 0, runtimeFail = false;
+let moduleState = { running: false, version: "0.2.0" };
+let nextResult = null;
+const retries = { truedown: 0, "next-engine": 0, mega: 0 };
 let summary = {};
 const server = http.createServer(async (request, response) => {
   const name = new URL(request.url, "http://localhost").pathname;
+  if (["/system/update/check", "/system/engine/next", "/modules/update"].includes(name) && request.method === "POST") {
+    const kind = name === "/modules/update" ? "mega" : name === "/system/engine/next" ? "next-engine" : "truedown";
+    retries[kind]++;
+    if (kind === "mega") {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      assert.deepEqual(JSON.parse(body), { id: "mega" });
+      moduleState = { id: "mega", running: true, phase: "installing", version: "" };
+    } else {
+      state = kind === "next-engine" && nextResult ? nextResult : { ...idle, busy: kind };
+    }
+    await new Promise(resolve => setTimeout(resolve, 250));
+    response.writeHead(202).end(JSON.stringify(kind === "mega" ? moduleState : state)); return;
+  }
+  if (name === "/modules/update") { response.end(JSON.stringify(moduleState)); return; }
   if (name === "/system/update") {
     reads++;
     if (fail) { response.writeHead(503).end("offline"); return; }
@@ -49,7 +67,7 @@ try {
         if (command === "frame_state") return { maximized: false };
         if (command === "confirm_action") return confirmUpdate;
         if (command !== "core_request") return false;
-        const response = await fetch(args.request.path, { method: args.request.method });
+        const response = await fetch(args.request.path, { method: args.request.method, body: args.request.body || undefined });
         return { status: response.status, owned: true, body: await response.text(), headers: {} };
       } } };
     });
@@ -133,11 +151,12 @@ try {
     await page.evaluate(() => scheduleSystemUpdateRefresh(true));
     await page.waitForFunction(() => workspaceNoticeTarget === "engine");
     assert.equal(await page.locator("#workspace-notice-progress").getAttribute("aria-valuenow"), null, "unknown totals use indeterminate progress");
-    state = { ...idle, trueDown: { ...idle.trueDown, restartRequired: true, pendingVersion: "1.2.3" } };
+    state = { ...idle, trueDown: { ...idle.trueDown, restartRequired: true, restartNeedsConfirmation: true, pendingVersion: "1.2.3" } };
     await page.evaluate(() => scheduleSystemUpdateRefresh(true));
     await page.waitForFunction(() => workspaceNoticeTarget === "restart");
     await page.screenshot({ path: path.join(screenshots, `${colorScheme}-restart.png`) });
     const beforeRestart = restarts;
+    await page.evaluate(() => { systemUpdateState.trueDown.restartNeedsConfirmation = false; });
     await page.locator("#workspace-notice-action").click();
     await page.waitForFunction(() => !restartConfirmationPending && !restartingForUpdate);
     assert.equal(restarts, beforeRestart, "cancellation cannot restart");
@@ -145,13 +164,73 @@ try {
     await page.locator("#workspace-notice-action").click();
     await page.waitForFunction(() => !restartConfirmationPending && !restartingForUpdate);
     assert.equal(restarts, beforeRestart + 1, "confirmed restart uses the existing endpoint");
+    state = { ...state, trueDown: { ...state.trueDown, restartNeedsConfirmation: false } };
+    const confirmations = await page.evaluate(() => calls.filter(call => call.command === "confirm_action").length);
+    await page.evaluate(() => { confirmUpdate = false; systemUpdateState.trueDown.restartNeedsConfirmation = true; });
+    await page.evaluate(() => Promise.all([restartForTrueDownUpdate(), restartForTrueDownUpdate()]));
+    assert.equal(restarts, beforeRestart + 2, "fresh idle state restarts directly and coalesces clicks");
+    assert.equal(await page.evaluate(() => calls.filter(call => call.command === "confirm_action").length), confirmations, "idle restart has no confirmation");
+    await page.evaluate(() => { settingsDirtyControls.set("engine", new Set([document.getElementById("auto-update-next")])); });
+    await page.evaluate(() => restartForTrueDownUpdate());
+    assert.equal(restarts, beforeRestart + 2, "unsaved settings remain cancellable even with an idle queue");
+    assert.equal(await page.evaluate(() => calls.filter(call => call.command === "confirm_action").length), confirmations + 1);
+    await page.evaluate(() => { settingsDirtyControls.clear(); });
+    fail = true;
+    await page.evaluate(() => restartForTrueDownUpdate());
+    assert.equal(restarts, beforeRestart + 2, "failed preflight never guesses idle");
+    fail = false;
+    state = { ...state, trueDown: { ...state.trueDown, restartRequired: false } };
+    await page.evaluate(() => restartForTrueDownUpdate());
+    assert.equal(restarts, beforeRestart + 2, "stale pending restart cannot be submitted");
+    state = { ...state, trueDown: { ...state.trueDown, restartRequired: true } };
     state = { ...state, error: "NEXT update failed" };
     await page.evaluate(() => scheduleSystemUpdateRefresh(true));
     await page.waitForFunction(() => systemUpdateState.error !== "");
     assert.equal(await page.evaluate(() => workspaceNoticeTarget), "restart", "a separate update failure cannot hide a verified restart");
+    for (const kind of ["truedown", "next-engine", "mega"]) {
+      state = { ...idle, trueDown: { ...idle.trueDown, error: kind === "truedown" ? "Program install failed" : "" }, engine: { error: kind === "next-engine" ? "Engine verification failed" : "" } };
+      moduleState = { id: "mega", running: false, error: kind === "mega" ? "Module installation failed" : "" };
+      await page.evaluate(() => scheduleSystemUpdateRefresh(true));
+      await page.waitForFunction(expected => workspaceNoticeCommand?.kind === expected, kind);
+      const command = page.locator("#workspace-notice-command");
+      assert.equal(await command.isVisible(), true);
+      const row = await page.locator("#workspace-notice-action").boundingBox();
+      const action = await command.boundingBox();
+      assert.ok(action.x >= row.x + row.width && Math.abs(action.y + action.height / 2 - row.y - row.height / 2) < 2, "retry stays on the same row");
+      await page.screenshot({ path: path.join(screenshots, `${colorScheme}-${kind}-retry.png`) });
+      const before = retries[kind];
+      const opened = await page.evaluate(() => calls.filter(call => call.command === "open_auxiliary").length);
+      await command.focus();
+      await page.keyboard.press("Enter");
+      await page.evaluate(kind => Promise.all([requestUpdateOperation(kind), requestUpdateOperation(kind)]), kind);
+      assert.equal(retries[kind], before + 1, "duplicate clicks reuse the full update operation");
+      assert.equal(await page.evaluate(() => calls.filter(call => call.command === "open_auxiliary").length), opened, "retry executes without opening settings");
+      if (kind === "mega") {
+        await page.waitForFunction(() => document.getElementById("workspace-notice-title").textContent === "安装 MEGA 模块");
+        moduleState = { id: "mega", running: true, phase: "downloading", download: { taskId: 42, status: "downloading", completedLength: 1024, totalLength: 4096, downloadSpeed: 1024 } };
+        await page.evaluate(() => scheduleSystemUpdateRefresh(true));
+        await page.waitForFunction(() => document.getElementById("workspace-notice-progress").getAttribute("aria-valuenow") === "25");
+        await page.screenshot({ path: path.join(screenshots, `${colorScheme}-mega-progress.png`) });
+      }
+    }
+    moduleState = { running: false };
+    state = { ...idle, error: "Program install failed", trueDown: { ...idle.trueDown, error: "Program install failed" },
+      engine: { preference: "next", active: "next", activeVersion: "3.0.2", nextInstalled: true, nextInstalledVersion: "3.0.2", nextRecommendedVersion: "3.0.2", autoUpdateSupported: true } };
+    nextResult = state;
+    await page.evaluate(() => scheduleSystemUpdateRefresh(true));
+    await page.waitForFunction(() => systemUpdateState.trueDown.error === "Program install failed" && !moduleUpdateState.running);
+    await page.evaluate(() => { confirmUpdate = true; });
+    await page.evaluate(() => installNextEngine());
+    await page.waitForFunction(() => document.body.textContent.includes("当前已使用 Aria2 Next v3.0.2。"));
+    assert.equal(await page.evaluate(() => systemUpdateState.trueDown.error), "Program install failed", "NEXT success preserves an independent program failure");
+    assert.doesNotMatch(await page.locator("#engine-update-status").textContent(), /Program install failed/);
+    nextResult = null;
+    state = { ...idle, trueDown: { ...idle.trueDown, restartRequired: true, pendingVersion: "1.2.3" } };
+    await page.evaluate(() => scheduleSystemUpdateRefresh(true));
+    await page.waitForFunction(() => workspaceNoticeTarget === "restart");
     await page.locator(".sidebar-toggle").click();
-    assert.equal(await page.locator("#workspace-notice-action").isVisible(), true);
-    assert.match(await page.locator("#workspace-notice-action").getAttribute("aria-label"), /1\.2\.3/);
+    assert.equal(await page.locator("#workspace-notice-command").isVisible(), true);
+    assert.match(await page.locator("#workspace-notice-command").getAttribute("aria-label"), /重启/);
     await page.screenshot({ path: path.join(screenshots, `${colorScheme}-collapsed.png`) });
     await page.setViewportSize({ width: 390, height: 700 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

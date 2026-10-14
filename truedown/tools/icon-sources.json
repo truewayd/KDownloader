@@ -82,7 +82,7 @@
     "trash": "trash-2",
     "upload": "upload"
   },
-  "projectIcons": ["google-drive", "dropbox"],
+  "projectIcons": ["google-drive", "dropbox", "mega"],
   "extension": ["server", "cloud", "clock", "database", "save", "refresh", "upload", "download", "search", "filter"],
   "nativeMenu": ["download", "app-window", "settings", "logs", "info", "power", "pause", "play", "retry", "file", "folder-open", "folder-pen", "folder-plus", "folders", "trash", "plus", "folder", "undo", "redo", "cut", "copy", "paste", "select-all", "search"],
   "nativeWindow": ["download", "settings", "info", "search"],

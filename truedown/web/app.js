@@ -211,6 +211,7 @@ function cacheElements() {
 	"engine-update-status",
 	"engine-version",
 	"install-next-engine-btn",
+	"rollback-next-engine-btn",
     "new-task-btn",
     "open-downloads-btn",
     "overlay",
@@ -345,6 +346,7 @@ function bindEvents() {
   els.installNextEngineBtn.addEventListener("click", installNextEngine);
   els.selectStableEngineBtn.addEventListener("click", () => selectDownloadEngine("stable"));
   els.selectNextEngineBtn.addEventListener("click", () => selectDownloadEngine("next"));
+  els.rollbackNextEngineBtn.addEventListener("click", () => selectDownloadEngine("previous-next"));
   els.dialogForm.addEventListener("submit", submitDialog);
   els.dialogCloseBtn.addEventListener("click", cancelDialog);
   els.dialogCancelBtn.addEventListener("click", cancelDialog);

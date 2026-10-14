@@ -48,11 +48,12 @@ try {
       "/system/storage": { dataDirectory: `C:\\Users\\${"LongProfileName".repeat(8)}\\AppData\\Local\\TrueDown`, paths: Object.fromEntries(["config", "data", "state", "logs", "cache"].map(role => [role, `C:\\Users\\Example\\AppData\\Local\\TrueDown\\${role}`])) },
       "/system/info": { product: "TrueDown", productVersion: "1.5.0", version: "truedown-build-42", buildNumber: "42", commit: "a".repeat(40) },
       "/system/logs": { content: "entry\n".repeat(300), updatedAt: "2026-09-08T05:35:34Z" },
-      "/system/update": { trueDown: { version: "truedown-build-42", build: 42, supported: true, autoUpdate: true, lastCheckedAt: "2026-09-08T05:35:34Z" }, engine: { preference: "stable", active: "stable", activeVersion: "1.37.0", stableVersion: "1.37.0", nextInstalled: true, nextInstalledVersion: "2.7.2" } },
+      "/system/update": { trueDown: { version: "truedown-build-42", build: 42, supported: true, autoUpdate: true, lastCheckedAt: "2026-09-08T05:35:34Z" }, engine: { preference: "next", active: "next", activeVersion: "3.0.2", stableVersion: "1.37.0", nextInstalled: true, nextInstalledVersion: "3.0.2", nextRecommendedVersion: "3.0.2", nextRollbackVersion: "3.0.0", autoUpdateSupported: true, autoUpdate: true } },
+      "/system/engine/select": {},
       "/modules": { modules: ["google-drive", "dropbox", "mega"].map(id => ({ id, name: id === "dropbox" ? "Dropbox" : id === "mega" ? "MEGA" : "Google Drive", version: "1.0.0", installed: true, source: "baseline" })) },
       "/modules/update": { running: false, version: "1.0.1" },
     };
-    let failSave = false, logReads = 0;
+    let failSave = false, logReads = 0, engineSelections = 0;
     let offline = native && colorScheme === "light";
     let finishRuntimeRead;
     const runtimeReadGate = offline ? null : new Promise(resolve => { finishRuntimeRead = resolve; });
@@ -68,6 +69,12 @@ try {
       if (route.request().method() === "POST") {
         if (failSave) { await route.fulfill({ status: 500, body: "Fixture persistence failure" }); return; }
         const value = route.request().postDataJSON();
+        if (endpoint === "/system/engine/select") {
+          assert.equal(value.engine, "previous-next");
+          engineSelections++;
+          Object.assign(fixture["/system/update"].engine, { activeVersion: "3.0.0", nextInstalledVersion: "3.0.0", nextRollbackVersion: "", nextBlockedVersion: "3.0.2", restartRequired: false });
+          await route.fulfill({ contentType: "application/json", body: JSON.stringify(fixture["/system/update"]) }); return;
+        }
         if (endpoint === "/modules") {
           const saved = fixture[endpoint].modules.find(module => module.id === value.id);
           Object.assign(saved, value);
@@ -235,6 +242,23 @@ try {
         await page.screenshot({ path: path.join(screenshots, `${name}-file-groups.png`) });
       }
       if (category === "engine") {
+        assert.match(await page.locator("#engine-update-status").textContent(), /推荐 v3\.0\.2/);
+        const rollback = page.getByRole("button", { name: "回退到 v3.0.0" });
+        assert.equal(await rollback.isVisible(), true);
+        await rollback.evaluate(node => node.scrollIntoView({ block: "center" }));
+        await page.screenshot({ path: path.join(screenshots, `${name}-next-rollback.png`) });
+        await page.evaluate(() => { window.confirmResult = false; });
+        await rollback.click();
+        assert.equal(engineSelections, 0, "cancelling rollback cannot change the engine");
+        await page.evaluate(() => { window.confirmResult = true; });
+        await rollback.click();
+        await page.waitForFunction(() => systemUpdateState.engine.activeVersion === "3.0.0");
+        assert.equal(engineSelections, 1);
+        assert.equal(await page.locator("#rollback-next-engine-btn").isVisible(), false);
+        assert.match(await page.locator("#engine-update-status").textContent(), /已暂停自动安装 v3\.0\.2/);
+        assert.match(await page.locator('[data-module-id="mega"] .module-card-icon use').getAttribute("href"), /#icon-mega$/);
+        await page.locator('[data-module-id="mega"]').evaluate(node => node.scrollIntoView({ block: "center" }));
+        await page.screenshot({ path: path.join(screenshots, `${name}-mega.png`) });
         assert.equal(await page.locator('#dropbox-settings').evaluate(node => node.closest('[data-module-id]')?.dataset.moduleId), "dropbox");
         assert.equal(await page.locator('#mega-settings').evaluate(node => node.closest('[data-module-id]')?.dataset.moduleId), "mega");
         assert.equal(await page.locator('#cfg-filter-mode').isDisabled(), false, "shared filter remains editable for Drive and future expansions");

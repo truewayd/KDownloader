@@ -22,9 +22,20 @@ import (
 )
 
 type ModuleUpdateState struct {
-	Running bool   `json:"running"`
-	Version string `json:"version"`
-	Error   string `json:"error,omitempty"`
+	ID       string                `json:"id,omitempty"`
+	Phase    string                `json:"phase,omitempty"`
+	Running  bool                  `json:"running"`
+	Version  string                `json:"version"`
+	Error    string                `json:"error,omitempty"`
+	Download *ModuleUpdateProgress `json:"download,omitempty"`
+}
+
+type ModuleUpdateProgress struct {
+	TaskID          int64  `json:"taskId"`
+	Status          Status `json:"status"`
+	CompletedLength int64  `json:"completedLength"`
+	TotalLength     int64  `json:"totalLength"`
+	DownloadSpeed   int64  `json:"downloadSpeed"`
 }
 type moduleActive struct {
 	Version string `json:"version"`
@@ -84,7 +95,12 @@ func (m *Manager) activeExecutable(id string) (string, string, error) {
 func (m *Manager) ModuleUpdateStatus() ModuleUpdateState {
 	m.moduleUpdateMu.Lock()
 	defer m.moduleUpdateMu.Unlock()
-	return m.moduleUpdateState
+	state := m.moduleUpdateState
+	if state.Download != nil {
+		progress := *state.Download
+		state.Download = &progress
+	}
+	return state
 }
 func (m *Manager) StartModuleUpdate(id string) error {
 	if id != "mega" {
@@ -98,18 +114,19 @@ func (m *Manager) StartModuleUpdate(id string) error {
 	if m.lifecycleCtx.Err() != nil {
 		return fmt.Errorf("application is stopping")
 	}
-	m.moduleUpdateState = ModuleUpdateState{Running: true}
+	m.moduleUpdateState = ModuleUpdateState{ID: id, Phase: "checking", Running: true}
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
 		version, err := m.updateExecutable(m.lifecycleCtx, id)
-		state := ModuleUpdateState{Version: version}
+		m.moduleUpdateMu.Lock()
+		defer m.moduleUpdateMu.Unlock()
+		state := m.moduleUpdateState
+		state.Running, state.Version = false, version
 		if err != nil {
 			state.Error = "Module update failed; the previous version remains available"
 		}
-		m.moduleUpdateMu.Lock()
 		m.moduleUpdateState = state
-		m.moduleUpdateMu.Unlock()
 	}()
 	return nil
 }
@@ -207,7 +224,12 @@ func (m *Manager) updateExecutable(ctx context.Context, id string) (string, erro
 		return "", modulehost.ErrPackage
 	}
 	root := m.executableRoot(id)
-	path, err := m.DownloadUpdate(ctx, base+stem+".bin", "MEGA module "+version+".bin", filepath.Join(root, "downloads"), manifest.Size, Aria2Opts{})
+	path, err := m.DownloadUpdate(ctx, base+stem+".bin", "MEGA module "+version+".bin", filepath.Join(root, "downloads"), manifest.Size, Aria2Opts{}, func(task TaskSnapshot) {
+		m.moduleUpdateMu.Lock()
+		defer m.moduleUpdateMu.Unlock()
+		m.moduleUpdateState.Phase = "downloading"
+		m.moduleUpdateState.Download = &ModuleUpdateProgress{TaskID: task.ID, Status: task.Status, CompletedLength: task.CompletedLength, TotalLength: task.TotalLength, DownloadSpeed: task.DownloadSpeed}
+	})
 	if err != nil {
 		return "", err
 	}
@@ -217,6 +239,10 @@ func (m *Manager) updateExecutable(ctx context.Context, id string) (string, erro
 		return "", err
 	}
 	defer file.Close()
+	m.moduleUpdateMu.Lock()
+	m.moduleUpdateState.Phase = "installing"
+	m.moduleUpdateState.Download = nil
+	m.moduleUpdateMu.Unlock()
 	installed, err := modulehost.InstallSigned(root, id, current, raw, signature, modulePublicKey(), file)
 	if err != nil {
 		return "", err

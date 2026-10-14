@@ -126,4 +126,6 @@ SOFTWARE.
   <symbol id="icon-google-drive" viewBox="0 0 24 24"><path d="M9 3h6l7 12-3 5H5l-3-5Z"/><path d="m9 3 7 12h6M2 15h14l3 5M5 20l7-12"/></symbol>
   <!-- Project-drawn dropbox provider mark. -->
   <symbol id="icon-dropbox" viewBox="0 0 24 24"><path d="m7 3 5 3.5L7 10 2 6.5Zm10 0 5 3.5-5 3.5-5-3.5Z"/><path d="m7 10 5 3.5L7 17 2 13.5Zm10 0 5 3.5-5 3.5-5-3.5ZM7 19l5 3 5-3"/></symbol>
+  <!-- Project-drawn mega provider mark. -->
+  <symbol id="icon-mega" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M7 16V8.5l5 5 5-5V16"/></symbol>
 </svg>

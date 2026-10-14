@@ -114,6 +114,8 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
                 "/settings/file-groups",
                 "/system/info",
                 "/system/update",
+                "/settings/runtime",
+                "/modules/update",
                 "/system/storage",
                 "/settings/task-defaults",
             ]
@@ -129,6 +131,10 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
                 "/system/open-downloads",
                 "/system/exit",
                 "/system/update/restart",
+                "/system/update/check",
+                "/system/engine/next",
+                "/system/engine/select",
+                "/modules/update",
             ]
             .contains(&path),
             _ => false,
@@ -598,7 +604,7 @@ mod tests {
         assert!(!allowed("main", "POST", "/auth/settings"));
         assert!(allowed("main", "GET", "/system/update"));
         assert!(allowed("main", "POST", "/system/update/restart"));
-        assert!(!allowed("main", "POST", "/system/update/check"));
+        assert!(allowed("main", "POST", "/system/update/check"));
         for role in ["new-task", "task-details"] {
             assert!(!allowed(role, "GET", "/system/update"));
             assert!(!allowed(role, "POST", "/system/update/restart"));
@@ -679,6 +685,27 @@ mod tests {
             assert!(group_settings_route("main", Some(id), false).is_err());
         }
         assert!(group_settings_route("main", Some("image"), true).is_err());
+    }
+
+    #[test]
+    fn main_update_actions_remain_closed_to_task_windows() {
+        for (method, path) in [
+            ("GET", "/modules/update"),
+            ("GET", "/settings/runtime"),
+            ("POST", "/modules/update"),
+            ("POST", "/system/update/check"),
+            ("POST", "/system/engine/next"),
+            ("POST", "/system/engine/select"),
+        ] {
+            assert!(allowed("main", method, path));
+            assert!(allowed("settings", method, path));
+            for role in ["new-task", "task-details", "task-preview"] {
+                assert!(!allowed(role, method, path));
+            }
+        }
+        for path in ["/modules/package", "/settings/runtime", "/auth/settings"] {
+            assert!(!allowed("main", "POST", path));
+        }
     }
 
     #[test]

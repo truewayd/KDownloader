@@ -49,8 +49,12 @@
 .sidebar-collapsed #workspace-traffic .traffic-speed > .icon { display: none; }
 .sidebar-collapsed #workspace-traffic .traffic-speed { margin: 0; flex-shrink: 1; max-width: 100%; }
 .sidebar-collapsed #workspace-speed { white-space: normal; line-height: 1.15; text-align: center; }
-.workspace-notice { min-width: 0; }
-.workspace-notice .sidebar-action { width: 100%; text-align: left; }
+.workspace-notice { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.workspace-notice .sidebar-action { flex: 1; min-width: 0; text-align: left; }
+.workspace-notice-command { flex: 0 0 28px; min-width: 28px; min-height: 28px; width: 28px; height: 28px; padding: 0; }
+.workspace-notice[data-actionable="true"] .sidebar-action { padding-inline: 8px; gap: 8px; }
+.sidebar-collapsed .workspace-notice[data-actionable="true"] { justify-content: center; }
+.sidebar-collapsed .workspace-notice[data-actionable="true"] .sidebar-action { display: none; }
 #workspace-limit-action { min-width: 0; width: 100%; text-align: left; }
 #workspace-limit-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notice-copy { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; line-height: 1.4; white-space: nowrap; }

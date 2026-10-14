@@ -71,6 +71,7 @@
                 <span class="traffic-count" data-tooltip="出错"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-circle-alert"></use></svg><span id="error-count">0</span></span>
               </span>
             </button>
+            <button class="kd-icon-button workspace-notice-command" id="workspace-notice-command" type="button" aria-label="重试更新" data-tooltip="重试更新" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-retry"></use></svg></button>
             <span class="visually-hidden" id="workspace-notice-announcement" role="status"></span>
           </div>
           <button class="sidebar-action" id="workspace-limit-action" type="button" hidden>
@@ -377,12 +378,13 @@
                     <span id="engine-version">正在读取版本…</span>
                   </div>
                   <p id="engine-update-status" aria-live="polite">正在读取内核状态…</p>
-                  <label class="inline-update-toggle" for="auto-update-next"><input id="auto-update-next" type="checkbox" role="switch" class="kd-switch"><span>自动更新 NEXT</span></label><small>仅更新已安装的 NEXT，空闲时切换。</small>
+                  <label class="inline-update-toggle" for="auto-update-next"><input id="auto-update-next" type="checkbox" role="switch" class="kd-switch"><span>自动更新 NEXT</span></label><small>跟随 TrueDown 推荐版本，空闲时切换。</small>
                 </div>
                 <div class="update-card-actions">
                   <button class="kd-button secondary compact" id="select-stable-engine-btn" type="button">使用稳定内核</button>
                   <button class="kd-button secondary compact" id="select-next-engine-btn" type="button" disabled>使用 NEXT</button>
                   <button class="kd-button secondary compact" id="install-next-engine-btn" type="button">手动安装 NEXT</button>
+                  <button class="kd-button secondary compact" id="rollback-next-engine-btn" type="button" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg#icon-undo"></use></svg><span>回退 NEXT</span></button>
                 </div>
               </article>
             </div>

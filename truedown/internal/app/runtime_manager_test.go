@@ -62,6 +62,40 @@ func TestAutomaticEngineSwitchRechecksIdleAfterRequestsDrain(t *testing.T) {
 	}
 }
 
+func TestRestartConfirmationUsesGlobalTaskState(t *testing.T) {
+	root := t.TempDir()
+	manager, err := downloader.NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updates, err := systemupdate.New(systemupdate.Options{BaseDir: root, DataDir: root, StableEnginePath: "unused",
+		InspectEngine: func(string) (string, string, error) { return systemupdate.EngineStable, "1.37.0", nil }})
+	if err != nil {
+		manager.Stop()
+		t.Fatal(err)
+	}
+	host := &managerHost{}
+	host.configure(manager, systemupdate.EngineSpec{Kind: systemupdate.EngineStable}, nil, func(*downloader.Manager) http.Handler { return http.NewServeMux() })
+	defer host.stop()
+	controller := newEngineController(updates, host, nil)
+	if controller.Snapshot().TrueDown.RestartNeedsConfirmation {
+		t.Fatal("idle runtime requires confirmation")
+	}
+	task, _, err := manager.AddTask("https://example.com/file", "file", "", nil, "", 0, downloader.Aria2Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !controller.Snapshot().TrueDown.RestartNeedsConfirmation {
+		t.Fatal("queued work was hidden from restart impact")
+	}
+	if task.Status != downloader.StatusQueued {
+		t.Fatal("task did not remain queued before engine startup")
+	}
+	if !(&managerHost{}).restartNeedsConfirmation() {
+		t.Fatal("unavailable runtime was treated as idle")
+	}
+}
+
 func TestDrainingHandlerWaitsForInflightRequestAndRejectsNewWork(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})

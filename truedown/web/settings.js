@@ -10,6 +10,8 @@ const settingReadVersions = new Map();
 let systemUpdateTimer = 0, updatePreferenceSaving = false, restartingForUpdate = false;
 let restartConfirmationPending = false;
 let systemUpdateDisposed = false, systemUpdateFailures = 0;
+let moduleUpdateState = null;
+const updateOperationsPending = new Map();
 function stopSystemUpdateRefresh() { clearTimeout(systemUpdateTimer); }
 function scheduleSystemUpdateRefresh(immediate = false) {
   stopSystemUpdateRefresh();
@@ -19,7 +21,7 @@ function scheduleSystemUpdateRefresh(immediate = false) {
   systemUpdateTimer = setTimeout(async () => {
     try {
       if (!updatePreferenceSaving && epoch === routeEpoch) {
-        await Promise.all([loadSystemUpdateState(), sidebar ? refreshWorkspaceLimit() : Promise.resolve()]);
+        await Promise.all([loadSystemUpdateState(), refreshModuleUpdateState(), sidebar ? refreshWorkspaceLimit() : Promise.resolve()]);
       }
     }
     catch {
@@ -28,10 +30,13 @@ function scheduleSystemUpdateRefresh(immediate = false) {
       }
     }
     finally { if (epoch === routeEpoch) scheduleSystemUpdateRefresh(); }
-  }, immediate === true ? 0 : systemUpdateFailures ? Math.min(30000, 3000 * 2 ** Math.min(systemUpdateFailures, 4)) : systemUpdateState?.busy ? 1500 : 5000);
+  }, immediate === true ? 0 : systemUpdateFailures ? Math.min(30000, 3000 * 2 ** Math.min(systemUpdateFailures, 4)) : systemUpdateState?.busy || moduleUpdateState?.running ? 1500 : 5000);
 }
-document.addEventListener("visibilitychange", () => scheduleSystemUpdateRefresh(true));
-window.addEventListener("pagehide", () => { systemUpdateDisposed = true; stopSystemUpdateRefresh(); invalidateSettingRead("engine"); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { invalidateSettingRead("engine"); invalidateSettingRead("module-update"); }
+  scheduleSystemUpdateRefresh(true);
+});
+window.addEventListener("pagehide", () => { systemUpdateDisposed = true; stopSystemUpdateRefresh(); invalidateSettingRead("engine"); invalidateSettingRead("module-update"); });
 window.addEventListener("pageshow", () => { systemUpdateDisposed = false; scheduleSystemUpdateRefresh(true); });
 const settingReadRequests = new Map();
 const settingSnapshotsKnown = new Set();
@@ -476,7 +481,7 @@ async function resetImmediateSettings(page) {
         systemUpdateState = normalizeSystemUpdateState(await post("/system/engine/select", { engine: "stable" }));
         if (systemUpdateState.busy === "engine-switch") systemUpdateState = await waitForEngineTransition();
         renderSystemUpdateState();
-        if (systemUpdateState.engine.active !== "stable") throw new Error(systemUpdateState.error || "稳定内核切换未完成");
+        if (systemUpdateState.engine.active !== "stable") throw new Error(systemUpdateState.engine.error || "稳定内核切换未完成");
       }
     }
     settingsMessages.delete(page);
@@ -938,7 +943,7 @@ function renderResolverModules() {
 		const icon = document.createElement("span");
 		icon.className = "module-card-icon";
 		icon.setAttribute("aria-hidden", "true");
-		icon.innerHTML = iconMarkup(module.id === "google-drive" ? "google-drive" : module.id === "dropbox" ? "dropbox" : "cloud");
+		icon.innerHTML = iconMarkup(module.id === "google-drive" ? "google-drive" : module.id === "dropbox" ? "dropbox" : module.id === "mega" ? "mega" : "cloud");
 		const copy = document.createElement("div");
 		copy.className = "module-card-copy";
 		const heading = document.createElement("div");
@@ -953,6 +958,14 @@ function renderResolverModules() {
 			: module.id === "dropbox" ? "下载共享文件，或将文件夹展开为独立任务。"
 			: module.id === "mega" ? "下载公开文件；目录可生成 ZIP 或展开为独立文件，完成前校验完整性。需预留约两倍内容大小的空间。" : module.description;
 		copy.append(heading, description);
+		if (module.id === "mega") {
+			const status = document.createElement("p");
+			status.className = "hint";
+			status.dataset.moduleUpdateStatus = "mega";
+			status.setAttribute("role", "status");
+			status.hidden = true;
+			copy.append(status);
+		}
 		if (module.updateError) {
 			const error = document.createElement("p");
 			error.dataset.kdNotice = "error";
@@ -997,6 +1010,7 @@ function renderResolverModules() {
 	}
 	if (!dropboxSettings.isConnected) els.moduleList.append(dropboxSettings);
 	if (!megaSettings.isConnected) els.moduleList.append(megaSettings);
+	renderModuleUpdateStatus();
 	renderDropboxSuffixEditor(true);
 }
 
@@ -1011,8 +1025,7 @@ async function onModuleAction(event) {
 	try {
 		if (button.dataset.moduleUpdate) {
 			if (id === "mega") {
-				await requestJSON("/modules/update", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
-				moduleUpdatePending = true;
+				await requestUpdateOperation("mega");
 				showToast("正在检查模块更新；如有新版，下载进度会显示在任务列表中。");
 				return;
 			}
@@ -1126,17 +1139,92 @@ function replaceResolverModule(value) {
 }
 
 let moduleUpdatePending = false;
+let moduleUpdateNotifyPending = false;
+function renderModuleUpdateStatus() {
+  const status = els.moduleList?.querySelector('[data-module-update-status="mega"]');
+  const button = els.moduleList?.querySelector('[data-module-update="mega"]');
+  const update = moduleUpdateState;
+  if (status) {
+    status.textContent = update?.running
+      ? ({ checking: "正在检查 MEGA 更新…", downloading: "正在下载 MEGA 更新…", installing: "正在校验并安装 MEGA 更新…" })[update.phase] || "正在更新 MEGA…"
+      : update?.error ? "MEGA 更新失败，已保留原版本。" : update?.version && update.id === "mega" ? `MEGA v${update.version} 已就绪。` : "";
+    status.hidden = !status.textContent;
+  }
+  if (button) {
+    const busy = update?.running === true || updateOperationsPending.has("mega") || pendingResolverModuleActions.has("mega");
+    button.disabled = busy;
+    KDComponents.setBusyState(button, busy, { manageDisabled: false });
+    button.textContent = update?.error ? "重试更新" : "检查更新";
+  }
+}
+
+function normalizeModuleUpdateState(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const download = source.download && typeof source.download === "object" ? source.download : null;
+  return { id: source.id === "mega" ? "mega" : "", running: source.running === true,
+    phase: ["checking", "downloading", "installing"].includes(source.phase) ? source.phase : "",
+    version: stringValue(source.version), error: stringValue(source.error),
+    download: download ? { status: stringValue(download.status),
+      completedLength: boundedInt(download.completedLength, 0, Number.MAX_SAFE_INTEGER, 0),
+      totalLength: boundedInt(download.totalLength, 0, Number.MAX_SAFE_INTEGER, 0),
+      downloadSpeed: boundedInt(download.downloadSpeed, 0, Number.MAX_SAFE_INTEGER, 0) } : null };
+}
+
+async function refreshModuleUpdateState() {
+  const epoch = routeEpoch;
+  try {
+    await readSettingSnapshot("module-update", "/modules/update", value => {
+      if (systemUpdateDisposed || document.hidden || epoch !== routeEpoch) return;
+      const update = normalizeModuleUpdateState(value);
+      const completed = moduleUpdatePending && !update.running;
+      moduleUpdateState = update;
+      moduleUpdatePending = update.running;
+      if (completed && (moduleUpdateNotifyPending || (currentPage === "settings" && currentSettingsPage === "engine"))) {
+        if (currentPage === "settings" && currentSettingsPage === "engine") loadResolverModules().catch(() => {});
+        showToast(update.error ? "模块更新失败，已保留原版本。" : `MEGA 模块已就绪：v${update.version}`, update.error ? "error" : "success");
+        moduleUpdateNotifyPending = false;
+      }
+      renderModuleUpdateStatus();
+      renderWorkspaceNotice();
+    });
+  } catch { /* The visible-page update refresh retries this independent read. */ }
+}
+
+function requestUpdateOperation(kind) {
+  if (updateOperationsPending.has(kind)) return updateOperationsPending.get(kind);
+  const commands = { truedown: "/system/update/check?background=true", "next-engine": "/system/engine/next?background=true", mega: "/modules/update" };
+  if (!Object.hasOwn(commands, kind)) return Promise.reject(new Error("未知更新操作"));
+  const key = kind === "mega" ? "module-update" : "engine";
+  invalidateSettingRead(key);
+  const operation = (async () => {
+    const options = { method: "POST" };
+    if (kind === "mega") { options.headers = { "Content-Type": "application/json" }; options.body = JSON.stringify({ id: "mega" }); }
+    const result = await requestJSON(commands[kind], options);
+    invalidateSettingRead(key);
+    if (kind === "mega") {
+      moduleUpdateState = normalizeModuleUpdateState(result);
+      moduleUpdatePending = moduleUpdateState.running;
+      moduleUpdateNotifyPending = moduleUpdatePending;
+      if (!moduleUpdatePending && currentPage === "settings" && currentSettingsPage === "engine") await loadResolverModules();
+    } else {
+      systemUpdateState = normalizeSystemUpdateState(result);
+      workspaceUpdateReadFailed = false;
+    }
+    return result;
+  })();
+  updateOperationsPending.set(kind, operation);
+  renderWorkspaceNotice();
+  operation.finally(() => {
+    invalidateSettingRead(key);
+    updateOperationsPending.delete(kind);
+    renderModuleUpdateStatus();
+    renderSystemUpdateState();
+    scheduleSystemUpdateRefresh(true);
+  }).catch(() => {});
+  return operation;
+}
+
 async function loadSystemUpdateState() {
-	if (moduleUpdatePending && !document.hidden && !systemUpdateDisposed) {
-		try {
-			const update = await requestJSON("/modules/update");
-			if (!update.running) {
-				moduleUpdatePending = false;
-				await loadResolverModules();
-				showToast(update.error ? "模块更新失败，已保留原版本。" : `MEGA 模块已就绪：v${stringValue(update.version)}`, update.error ? "error" : "success");
-			}
-		} catch { /* The existing visible-page refresh retries this read. */ }
-	}
   const epoch = routeEpoch;
   await readSettingSnapshot("engine", "/system/update", (value) => {
     if (systemUpdateDisposed || document.hidden || epoch !== routeEpoch) return;
@@ -1161,6 +1249,7 @@ function normalizeSystemUpdateState(value) {
       downloadSpeed: boundedInt(source.download.downloadSpeed, 0, Number.MAX_SAFE_INTEGER, 0),
     } : null,
     trueDown: {
+      error: stringValue(trueDown.error) || (!engine.error ? stringValue(source.error) : ""),
       version: stringValue(trueDown.version) || "unknown",
       productVersion: stringValue(trueDown.productVersion),
       build: boundedInt(trueDown.build, 0, Number.MAX_SAFE_INTEGER, 0),
@@ -1171,9 +1260,11 @@ function normalizeSystemUpdateState(value) {
       pendingVersion: stringValue(trueDown.pendingVersion),
       pendingBuild: boundedInt(trueDown.pendingBuild, 0, Number.MAX_SAFE_INTEGER, 0),
       restartRequired: trueDown.restartRequired === true,
+      restartNeedsConfirmation: trueDown.restartNeedsConfirmation !== false,
       lastCheckedAt: stringValue(trueDown.lastCheckedAt),
     },
     engine: {
+      error: stringValue(engine.error),
       preference: engine.preference === "next" ? "next" : "stable",
       autoUpdate: engine.autoUpdate === true,
       autoUpdateSupported: engine.autoUpdateSupported === true,
@@ -1183,6 +1274,9 @@ function normalizeSystemUpdateState(value) {
       nextInstalled: engine.nextInstalled === true,
       nextInstalledVersion: stringValue(engine.nextInstalledVersion),
       nextAvailableVersion: stringValue(engine.nextAvailableVersion),
+      nextRecommendedVersion: stringValue(engine.nextRecommendedVersion),
+      nextRollbackVersion: stringValue(engine.nextRollbackVersion),
+      nextBlockedVersion: stringValue(engine.nextBlockedVersion),
       restartRequired: engine.restartRequired === true,
     },
   };
@@ -1191,7 +1285,7 @@ function normalizeSystemUpdateState(value) {
 function renderSystemUpdateState() {
   if (!systemUpdateState) return;
   renderWorkspaceNotice();
-  const { trueDown, engine, busy, error } = systemUpdateState;
+  const { trueDown, engine, busy } = systemUpdateState;
   els.truedownUpdateVersion.textContent = trueDown.build > 0
     ? `${trueDown.productVersion || trueDown.version} · build ${trueDown.build}` : `${trueDown.productVersion || trueDown.version} · 开发构建`;
   let trueDownStatus = trueDown.supported
@@ -1205,15 +1299,15 @@ function renderSystemUpdateState() {
     trueDownStatus += ` 上次检查：${formatUpdateTime(trueDown.lastCheckedAt)}。`;
   }
   if (busy === "truedown") trueDownStatus = "正在检查并验证 TrueDown 更新，更新包下载进度可在任务列表查看…";
-  if (error) trueDownStatus += ` 最近一次更新操作：${error}`;
+  if (trueDown.error) trueDownStatus += ` 最近一次更新操作：${trueDown.error}`;
   els.truedownUpdateStatus.textContent = trueDownStatus;
   els.autoUpdateTruedown.checked = trueDown.autoUpdate;
   els.autoUpdateTruedown.disabled = !trueDown.supported || Boolean(busy);
   els.checkTruedownUpdateBtn.disabled = !trueDown.supported || Boolean(busy);
   KDComponents.setBusyState(els.checkTruedownUpdateBtn, busy === "truedown", { manageDisabled: false });
   els.restartTruedownUpdateBtn.hidden = !trueDown.restartRequired;
-  els.restartTruedownUpdateBtn.disabled = Boolean(busy) || restartingForUpdate;
-  KDComponents.setBusyState(els.restartTruedownUpdateBtn, restartingForUpdate, { manageDisabled: false });
+  els.restartTruedownUpdateBtn.disabled = Boolean(busy) || restartingForUpdate || restartConfirmationPending;
+  KDComponents.setBusyState(els.restartTruedownUpdateBtn, restartingForUpdate || restartConfirmationPending, { manageDisabled: false });
 
   const activeLabel = engine.active === "next" ? "Aria2 Next" : "内置稳定版 aria2";
   renderBitTorrentIdentity({ engine: engine.active, engineVersion: engine.activeVersion });
@@ -1226,16 +1320,19 @@ function renderSystemUpdateState() {
       ? `NEXT v${engine.nextInstalledVersion || "unknown"}` : "内置稳定内核";
     engineStatus += ` 已准备 ${selected}。${engine.autoUpdate ? "队列空闲后自动切换。" : "可手动选择内核以应用更新。"}`;
   } else if (engine.nextInstalled) {
-    engineStatus += ` 已安装 NEXT v${engine.nextInstalledVersion}。${engine.autoUpdate ? "自动检查稳定版更新。" : "自动更新已关闭。"}`;
+    engineStatus += ` 已安装 NEXT v${engine.nextInstalledVersion}。${engine.autoUpdate ? "跟随 TrueDown 推荐版本更新。" : "自动更新已关闭。"}`;
   } else {
     engineStatus += " 尚未安装 NEXT。";
   }
+  if (engine.nextRecommendedVersion) engineStatus += ` 本次 TrueDown 推荐 v${engine.nextRecommendedVersion}。`;
+  if (engine.nextBlockedVersion) engineStatus += ` 已暂停自动安装 v${engine.nextBlockedVersion}，可手动恢复推荐版本。`;
+  if (engine.error) engineStatus += ` 最近一次内核操作：${engine.error}`;
   if (busy === "next-engine") engineStatus = "正在下载、校验并安装 NEXT，下载进度可在任务列表查看…";
   if (busy === "engine-switch") engineStatus = "正在保存任务状态并切换下载内核…";
   if (busy === "engine-recovery") engineStatus = "下载内核意外退出，正在自动恢复任务…";
   if (busy === "engine-reload") engineStatus = "内核自动恢复失败，正在重载 TrueDown…";
   els.engineUpdateStatus.textContent = engineStatus;
-  els.installNextEngineBtn.textContent = engine.nextInstalled ? "手动更新 NEXT" : "手动安装 NEXT";
+  els.installNextEngineBtn.textContent = engine.nextInstalled ? "使用推荐 NEXT" : "安装推荐 NEXT";
   els.installNextEngineBtn.disabled = Boolean(busy) || !engine.autoUpdateSupported;
   const nextToggle = document.getElementById("auto-update-next");
   nextToggle.checked = engine.autoUpdate;
@@ -1245,6 +1342,9 @@ function renderSystemUpdateState() {
   els.selectStableEngineBtn.setAttribute("aria-pressed", String(engine.preference === "stable"));
   els.selectNextEngineBtn.disabled = Boolean(busy) || !engine.nextInstalled || (engine.preference === "next" && !engine.restartRequired);
   els.selectNextEngineBtn.setAttribute("aria-pressed", String(engine.preference === "next"));
+  els.rollbackNextEngineBtn.hidden = !engine.nextRollbackVersion;
+  els.rollbackNextEngineBtn.disabled = Boolean(busy);
+  els.rollbackNextEngineBtn.querySelector("span").textContent = `回退到 v${engine.nextRollbackVersion}`;
 }
 
 async function updateTrueDownAutoUpdate() {
@@ -1284,7 +1384,7 @@ async function checkTrueDownUpdate() {
   showToast("正在检查更新，发现新版本后会加入下载任务列表。");
   invalidateSettingRead("engine");
   try {
-    systemUpdateState = normalizeSystemUpdateState(await requestJSON("/system/update/check?background=true", { method: "POST" }));
+    systemUpdateState = normalizeSystemUpdateState(await requestUpdateOperation("truedown"));
     renderSystemUpdateState();
     if (systemUpdateState.busy === "truedown") {
       showToast("更新检查已开始，更新包进度可在任务列表查看。");
@@ -1306,13 +1406,25 @@ async function checkTrueDownUpdate() {
 async function restartForTrueDownUpdate() {
   if (restartConfirmationPending || restartingForUpdate || !systemUpdateState?.trueDown.restartRequired || systemUpdateState.busy) return;
   restartConfirmationPending = true;
+  invalidateSettingRead("engine");
+  renderSystemUpdateState();
   try {
-    const confirmed = await confirmAction({
-      title: "重启并更新 TrueDown",
-      message: "TrueDown 将停止内置 aria2、替换并启动新版本。存在排队、下载中或暂停任务时会拒绝本次重启；新版本启动失败会自动回滚。",
-      confirmLabel: "重启并更新",
-    });
-    if (!confirmed) return;
+    const latest = normalizeSystemUpdateState(await requestJSON("/system/update"));
+    invalidateSettingRead("engine");
+    systemUpdateState = latest;
+    renderSystemUpdateState();
+    if (systemUpdateDisposed || document.hidden || !latest.trueDown.restartRequired || latest.busy) return;
+    const unsavedSettings = [...settingsDirtyControls.values()].some(controls => controls.size > 0);
+    if (latest.trueDown.restartNeedsConfirmation || unsavedSettings) {
+      const confirmed = await confirmAction({
+        title: "重启并更新 TrueDown",
+        message: unsavedSettings
+          ? "当前窗口有未保存的设置，重启会丢弃这些修改。未结束的任务和模块更新仍受保护，不会被强制中断。"
+          : "当前有未结束的任务或模块更新。只有排队、下载中、暂停任务和模块更新结束后才能重启，不会强制中断工作。新版本启动失败会自动回滚。",
+        confirmLabel: "检查并重启",
+      });
+      if (!confirmed) return;
+    }
     restartingForUpdate = true;
     renderSystemUpdateState();
     await requestJSON("/system/update/restart", { method: "POST" });
@@ -1322,7 +1434,9 @@ async function restartForTrueDownUpdate() {
   } finally {
     restartConfirmationPending = false;
     restartingForUpdate = false;
+    invalidateSettingRead("engine");
     renderSystemUpdateState();
+    scheduleSystemUpdateRefresh(true);
   }
 }
 
@@ -1330,14 +1444,14 @@ async function installNextEngine() {
   const action = systemUpdateState?.engine.nextInstalled ? "更新" : "安装";
   const confirmed = await confirmAction({
     title: `手动${action} Aria2 Next`,
-    message: `这会将官方 GitHub Release 的 Windows 内核加入下载队列，可在任务列表查看进度、暂停或继续。下载后核对 SHA-256 和版本；如果当前已选择 NEXT，验证完成后会保存任务状态并切换到新版本。后续自动更新由 NEXT 自动更新开关控制。`,
+    message: `安装本次 TrueDown 验证过的推荐内核${systemUpdateState?.engine.nextRecommendedVersion ? ` v${systemUpdateState.engine.nextRecommendedVersion}` : ""}。下载任务可暂停或继续，安装前核对发布校验和与版本。如果已选择 NEXT，将保存任务状态并切换；上一版本会保留供回退使用。`,
     confirmLabel: `手动${action}`,
   });
   if (!confirmed) return;
   setUpdateButtonBusy(els.installNextEngineBtn, true);
   invalidateSettingRead("engine");
   try {
-    systemUpdateState = normalizeSystemUpdateState(await requestJSON("/system/engine/next?background=true", { method: "POST" }));
+    systemUpdateState = normalizeSystemUpdateState(await requestUpdateOperation("next-engine"));
     renderSystemUpdateState();
     if (systemUpdateState.busy === "next-engine") {
       showToast("NEXT 下载已安排，可在任务列表查看进度、暂停或继续。");
@@ -1347,12 +1461,12 @@ async function installNextEngine() {
       showToast("Aria2 Next 已验证，正在热切换下载内核…");
       systemUpdateState = await waitForEngineTransition();
     }
-    showToast(systemUpdateState.error
-      ? `Aria2 Next 已安装，但运行期切换未完成：${systemUpdateState.error}`
+    showToast(systemUpdateState.engine.error
+      ? `Aria2 Next 已安装，但运行期切换未完成：${systemUpdateState.engine.error}`
       : systemUpdateState.engine.active === "next"
         ? `当前已使用 Aria2 Next${systemUpdateState.engine.activeVersion ? ` v${systemUpdateState.engine.activeVersion}` : ""}。`
         : "Aria2 Next 已验证并安装；需要时可选择“使用 NEXT”。",
-    systemUpdateState.error ? "error" : "success");
+    systemUpdateState.engine.error ? "error" : "success");
   } catch (error) {
     showToast(`Aria2 Next ${action}失败：${error.message}`, "error");
     await reloadSystemUpdateStateQuietly();
@@ -1364,7 +1478,16 @@ async function installNextEngine() {
 }
 
 async function selectDownloadEngine(engine) {
-  const button = engine === "next" ? els.selectNextEngineBtn : els.selectStableEngineBtn;
+  const rollback = engine === "previous-next";
+  const rollbackVersion = systemUpdateState?.engine.nextRollbackVersion;
+  const targetKind = rollback ? "next" : engine;
+  const label = rollback ? `NEXT v${rollbackVersion}` : engine === "next" ? "Aria2 Next" : "内置稳定内核";
+  const button = rollback ? els.rollbackNextEngineBtn : engine === "next" ? els.selectNextEngineBtn : els.selectStableEngineBtn;
+  if (rollback && (!rollbackVersion || !await confirmAction({
+    title: "回退下载内核",
+    message: `切换到已保留的 NEXT v${rollbackVersion}，任务状态会保存。自动更新将暂时跳过当前版本，直到你手动恢复推荐版本或 TrueDown 推荐另一个版本。`,
+    confirmLabel: "回退",
+  }))) return;
   setUpdateButtonBusy(button, true);
   invalidateSettingRead("engine");
   try {
@@ -1375,13 +1498,13 @@ async function selectDownloadEngine(engine) {
     }));
     renderSystemUpdateState();
     if (systemUpdateState.busy === "engine-switch") {
-      showToast(`已选择${engine === "next" ? " Aria2 Next" : "内置稳定内核"}，正在保存任务并切换…`);
+      showToast(`已选择 ${label}，正在保存任务并切换…`);
       systemUpdateState = await waitForEngineTransition();
     }
-    const switched = systemUpdateState.engine.active === engine && !systemUpdateState.engine.restartRequired;
+    const switched = systemUpdateState.engine.active === targetKind && !systemUpdateState.engine.restartRequired && (!rollback || systemUpdateState.engine.activeVersion === rollbackVersion);
     showToast(switched
-      ? `已切换到${engine === "next" ? " Aria2 Next" : "内置稳定内核"}。`
-      : `下载内核切换未完成：${systemUpdateState.error || "已恢复原内核"}`,
+      ? `已切换到 ${label}。`
+      : `下载内核切换未完成：${systemUpdateState.engine.error || "已恢复原内核"}`,
     switched ? "success" : "error");
   } catch (error) {
     showToast(`切换下载内核失败：${error.message}`, "error");

@@ -21,6 +21,10 @@ func managerIdle(manager *downloader.Manager) bool {
 	return manager.TaskCountByStatus(downloader.StatusQueued) == 0 && manager.TaskCountByStatus(downloader.StatusDownloading) == 0 && manager.TaskCountByStatus(downloader.StatusPaused) == 0
 }
 
+func managerRestartIdle(manager *downloader.Manager) bool {
+	return manager != nil && managerIdle(manager) && !manager.ModuleUpdateStatus().Running
+}
+
 type drainingHandler struct {
 	mu       sync.Mutex
 	handler  http.Handler
@@ -171,6 +175,16 @@ func (host *managerHost) taskCount(status downloader.Status) int {
 		return 0
 	}
 	return current.manager.TaskCountByStatus(status)
+}
+
+func (host *managerHost) restartNeedsConfirmation() bool {
+	if host == nil {
+		return true
+	}
+	host.mu.RLock()
+	current := host.current
+	host.mu.RUnlock()
+	return current == nil || !managerRestartIdle(current.manager)
 }
 
 func (host *managerHost) hasActiveBitTorrent() bool {
@@ -343,9 +357,9 @@ func (host *managerHost) withProgramUpdateGate(automatic bool, apply func() erro
 			}
 		}
 	}
-	if !managerIdle(current.manager) {
+	if !managerRestartIdle(current.manager) {
 		handler.resume()
-		return fmt.Errorf("wait for queued, downloading, and paused tasks before updating TrueDown")
+		return fmt.Errorf("wait for queued, downloading, paused tasks and module updates before updating TrueDown")
 	}
 	if err := apply(); err != nil {
 		handler.resume()
@@ -385,6 +399,7 @@ func newEngineController(updates *systemupdate.Manager, host *managerHost, reloa
 
 func (controller *engineController) Snapshot() systemupdate.Snapshot {
 	snapshot := controller.updates.Snapshot()
+	snapshot.TrueDown.RestartNeedsConfirmation = controller.host.restartNeedsConfirmation()
 	controller.mu.RLock()
 	defer controller.mu.RUnlock()
 	if snapshot.Busy == "" {
@@ -395,6 +410,7 @@ func (controller *engineController) Snapshot() systemupdate.Snapshot {
 	}
 	if controller.lastError != "" {
 		snapshot.Error = controller.lastError
+		snapshot.Engine.Error = controller.lastError
 	}
 	return snapshot
 }

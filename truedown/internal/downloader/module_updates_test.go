@@ -53,6 +53,16 @@ func TestBundledMEGAVersionWinsOverOlderActivePointer(t *testing.T) {
 	}
 }
 
+func TestModuleUpdateProgressSnapshotDoesNotExposeMutableState(t *testing.T) {
+	m := &Manager{moduleUpdateState: ModuleUpdateState{ID: "mega", Phase: "downloading", Running: true, Download: &ModuleUpdateProgress{TaskID: 42, Status: StatusDownloading, CompletedLength: 1024, TotalLength: 4096}}}
+	state := m.ModuleUpdateStatus()
+	state.Download.CompletedLength = 4096
+	current := m.ModuleUpdateStatus()
+	if current.ID != "mega" || current.Phase != "downloading" || current.Download.CompletedLength != 1024 {
+		t.Fatal("public module progress changed the running updater")
+	}
+}
+
 func TestModuleActivationHealthFailurePreservesCurrentVersion(t *testing.T) {
 	modules, _ := artifactHelper(t)
 	root := artifactTempDir(t)

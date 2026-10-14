@@ -1,5 +1,6 @@
 // One compact status surface; update work stays owned by the core.
 let workspaceNoticeTarget = "about";
+let workspaceNoticeCommand = null;
 let workspaceUpdateReadFailed = false;
 let workspaceDownloadLimitBps = 0;
 let workspaceLimitRead = null;
@@ -38,6 +39,7 @@ function renderWorkspaceNotice() {
   const state = systemUpdateState;
   let title = "", detail = "", tooltip = "", icon = "info", progress = null, running = false;
   workspaceNoticeTarget = "about";
+  workspaceNoticeCommand = null;
   if (workspaceUpdateReadFailed) {
     title = "\u8fde\u63a5\u91cd\u8bd5\u4e2d";
     tooltip = "\u66f4\u65b0\u72b6\u6001\u6682\u4e0d\u53ef\u7528\uff0c\u6b63\u5728\u81ea\u52a8\u91cd\u8bd5";
@@ -66,21 +68,49 @@ function renderWorkspaceNotice() {
           if (running && download.downloadSpeed > 0) tooltip += " \u00b7 " + taskBytes(download.downloadSpeed) + "/s";
         }
       }
+    } else if (moduleUpdateState?.running) {
+      workspaceNoticeTarget = "engine";
+      icon = "mega";
+      title = moduleUpdateState.phase === "installing" ? "安装 MEGA 模块" : "更新 MEGA 模块";
+      tooltip = title + "，查看详情";
+      const moduleDownload = moduleUpdateState.download;
+      if (moduleDownload) {
+        progress = moduleDownload.totalLength > 0 ? Math.min(100, moduleDownload.completedLength / moduleDownload.totalLength * 100) : -1;
+        running = moduleDownload.status === "downloading";
+        detail = progress >= 0 ? `${Math.floor(progress)}%` : "";
+        if (moduleDownload.status === "paused") title = "MEGA 更新已暂停";
+        tooltip = `${title} · ${taskBytes(moduleDownload.completedLength)}${moduleDownload.totalLength > 0 ? ` / ${taskBytes(moduleDownload.totalLength)}` : ""}`;
+      }
     } else if (trueDown.restartRequired) {
       title = "\u91cd\u542f\u66f4\u65b0";
       tooltip = (trueDown.pendingVersion || "build " + trueDown.pendingBuild) + " \u5df2\u5c31\u7eea" + (trueDown.autoUpdate ? " \u00b7 \u7a7a\u95f2\u65f6\u81ea\u52a8\u91cd\u542f" : "");
       icon = "refresh";
       workspaceNoticeTarget = "restart";
-    } else if (error) {
-      title = "\u66f4\u65b0\u5931\u8d25";
-      tooltip = error;
+      workspaceNoticeCommand = { kind: "restart", label: "重启并安装 TrueDown 更新", icon: "refresh" };
+    } else if (trueDown.error || (error && !engine.error)) {
+      title = "TrueDown 更新失败";
+      tooltip = trueDown.error || error;
+      workspaceNoticeCommand = { kind: "truedown", label: "重试 TrueDown 更新", icon: "retry" };
+    } else if (engine.error) {
+      title = "NEXT 更新失败";
+      tooltip = engine.error;
+      workspaceNoticeTarget = "engine";
+      workspaceNoticeCommand = { kind: "next-engine", label: "重试 NEXT 更新", icon: "retry" };
+    } else if (moduleUpdateState?.error) {
+      title = "MEGA 更新失败";
+      tooltip = "MEGA 模块更新失败，已保留原版本。";
+      icon = "mega";
+      workspaceNoticeTarget = "engine";
+      workspaceNoticeCommand = { kind: "mega", label: "重试 MEGA 模块更新", icon: "retry" };
     } else if (engine.restartRequired) {
       title = "\u5185\u6838\u5df2\u5c31\u7eea";
       tooltip = engine.autoUpdate ? "\u961f\u5217\u7a7a\u95f2\u540e\u81ea\u52a8\u5207\u6362" : "\u524d\u5f80\u8bbe\u7f6e\u5e94\u7528\u66f4\u65b0";
       workspaceNoticeTarget = "engine";
+      workspaceNoticeCommand = { kind: engine.preference === "next" ? "select-next" : "select-stable", label: "应用已验证的下载内核", icon: "check" };
     } else if (trueDown.updateAvailable) {
       title = "\u53d1\u73b0\u65b0\u7248\u672c";
       tooltip = trueDown.availableVersion || "\u524d\u5f80\u8bbe\u7f6e\u66f4\u65b0";
+      workspaceNoticeCommand = { kind: "truedown", label: "安装 TrueDown 更新", icon: "download" };
     }
   }
   const traffic = !title;
@@ -97,6 +127,18 @@ function renderWorkspaceNotice() {
   host.querySelector(".notice-copy").hidden = traffic;
   document.getElementById("workspace-speed").textContent = `${taskDownloadedBytes(currentSummary.downloadSpeed)}/s`;
   const button = document.getElementById("workspace-notice-action");
+  const command = document.getElementById("workspace-notice-command");
+  host.dataset.actionable = String(Boolean(workspaceNoticeCommand));
+  if (!workspaceNoticeCommand && document.activeElement === command) button.focus({ preventScroll: true });
+  command.hidden = !workspaceNoticeCommand;
+  if (workspaceNoticeCommand) {
+    command.dataset.tooltip = workspaceNoticeCommand.label;
+    command.setAttribute("aria-label", workspaceNoticeCommand.label);
+    command.querySelector("use").setAttribute("href", "/icons.svg#icon-" + workspaceNoticeCommand.icon);
+    const pending = updateOperationsPending.has(workspaceNoticeCommand.kind) || restartingForUpdate || restartConfirmationPending;
+    command.disabled = pending || Boolean(state?.busy);
+    KDComponents.setBusyState(command, pending, { manageDisabled: false });
+  }
   document.getElementById("workspace-notice-title").textContent = title;
   document.getElementById("workspace-notice-detail").textContent = detail;
   button.dataset.tooltip = tooltip || title;
@@ -119,6 +161,19 @@ function renderWorkspaceNotice() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("workspace-notice-command")?.addEventListener("click", async () => {
+    const command = workspaceNoticeCommand;
+    if (!command) return;
+    if (command.kind === "restart") { await restartForTrueDownUpdate(); return; }
+    if (["select-next", "select-stable"].includes(command.kind)) { await selectDownloadEngine(command.kind === "select-next" ? "next" : "stable"); return; }
+    try {
+      await requestUpdateOperation(command.kind);
+      showToast(`${command.label}已开始。`);
+    } catch (error) {
+      showToast(`${command.label}失败：${error.message}`, "error");
+      scheduleSystemUpdateRefresh(true);
+    }
+  });
   document.getElementById("workspace-limit-action")?.addEventListener("click", () => {
     if (nativeWindowRole === "main") {
       invokeNative("open_auxiliary", { kind: "settings" }).catch(error => showToast(error.message, "error"));
