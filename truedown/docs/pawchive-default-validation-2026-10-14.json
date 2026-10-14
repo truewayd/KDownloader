@@ -1,0 +1,271 @@
+{
+  "date": "2026-10-14",
+  "creator": "https://pawchive.pw/fanbox/user/2131660",
+  "baselineCommit": "25d6620199214e1214cb74d62b0b995040758504",
+  "testedSourceSHA256": {
+    "truedown/internal/downloader/manager.go": "450c0fc91e58de51e02e9a0ce5fe163477a66c5b42069498febd0e2d7367c55d",
+    "truedown/internal/downloader/probe.go": "8a01a05b304d6fc351f6499b8f1773b09783e8f6c5ce0109c48b813fefb47d80"
+  },
+  "sampleSelection": "Creator JSON only; exclude observed local task/log URLs and prior two-file samples; no browser/media preflight",
+  "previouslyObservedURLsExcluded": 63,
+  "distinctFiles": 24,
+  "distinctPosts": 20,
+  "verifiedBytes": 56810803,
+  "extensions": {
+    ".jpeg": 21,
+    ".png": 3
+  },
+  "engines": [
+    {
+      "connections": 16,
+      "done": 12,
+      "engine": "aria2c.exe",
+      "failed": 0,
+      "files": [
+        {
+          "post": "1013920",
+          "url": "https://file.pawchive.pw/data/3a/8f/3a8fc1aa2f33651fcc49d80d0da686ef3266efa265ba83b7bca9c516e364e70a.jpeg",
+          "name": "hCzkBZFMcaksXKsKM6GoBP9Q.jpeg",
+          "role": "attachment",
+          "sha256": "3a8fc1aa2f33651fcc49d80d0da686ef3266efa265ba83b7bca9c516e364e70a",
+          "status": "done",
+          "bytes": 896176
+        },
+        {
+          "post": "409607",
+          "url": "https://file.pawchive.pw/data/22/3f/223f25f53f51c7421e16c25666d18696fffd4a396b3f1f6e37398c51b8bde2b7.jpeg",
+          "name": "H3OYD33Xe4cfseSuH8ddmwTk.jpeg",
+          "role": "attachment",
+          "sha256": "223f25f53f51c7421e16c25666d18696fffd4a396b3f1f6e37398c51b8bde2b7",
+          "status": "done",
+          "bytes": 1335482
+        },
+        {
+          "post": "480340",
+          "url": "https://file.pawchive.pw/data/36/40/364036ca11470a4b8aaa995f988b6951f37a7e56f6f07ab53eac58ca5d9b4397.png",
+          "name": "0mQecQwcHkSHK22lbBGGhU61.png",
+          "role": "attachment",
+          "sha256": "364036ca11470a4b8aaa995f988b6951f37a7e56f6f07ab53eac58ca5d9b4397",
+          "status": "done",
+          "bytes": 2440133
+        },
+        {
+          "post": "3611229",
+          "url": "https://file.pawchive.pw/data/62/42/6242d8e0939917cdcc937f906d9df18587ddaa48e6895cf9445c533c92e6e35e.jpeg",
+          "name": "NSSGLiN31AqJF6shKVlF6Z1s.jpeg",
+          "role": "attachment",
+          "sha256": "6242d8e0939917cdcc937f906d9df18587ddaa48e6895cf9445c533c92e6e35e",
+          "status": "done",
+          "bytes": 299340
+        },
+        {
+          "post": "540766",
+          "url": "https://file.pawchive.pw/data/eb/01/eb0122f77344533f1d7a475bba3585f8f1d1bd18fe95bcc4bbc014581107de2d.jpeg",
+          "name": "cover.jpeg",
+          "role": "cover",
+          "sha256": "eb0122f77344533f1d7a475bba3585f8f1d1bd18fe95bcc4bbc014581107de2d",
+          "status": "done",
+          "bytes": 183378
+        },
+        {
+          "post": "5659516",
+          "url": "https://file.pawchive.pw/data/a6/92/a69288a8125a3711e1a2c7aeec5d2053c218d033817b3f70f958be47cb8ac584.jpeg",
+          "name": "mYHT9qZiUXUeVOR2dZBC03CU.jpeg",
+          "role": "attachment",
+          "sha256": "a69288a8125a3711e1a2c7aeec5d2053c218d033817b3f70f958be47cb8ac584",
+          "status": "done",
+          "bytes": 803269
+        },
+        {
+          "post": "2826556",
+          "url": "https://file.pawchive.pw/data/58/25/58258d4c259682d64a7b80972d8fc517226a486c6a819b212f8e79f79912d772.jpeg",
+          "name": "cvOAjknUnrkedSLKbsbSlRR1.jpeg",
+          "role": "attachment",
+          "sha256": "58258d4c259682d64a7b80972d8fc517226a486c6a819b212f8e79f79912d772",
+          "status": "done",
+          "bytes": 848175
+        },
+        {
+          "post": "5659516",
+          "url": "https://file.pawchive.pw/data/6a/b7/6ab767904d4dcda30eb1b7155f09853d679186cdbd0ec43d72a3d175e08fa5f3.jpeg",
+          "name": "cover.jpeg",
+          "role": "cover",
+          "sha256": "6ab767904d4dcda30eb1b7155f09853d679186cdbd0ec43d72a3d175e08fa5f3",
+          "status": "done",
+          "bytes": 159851
+        },
+        {
+          "post": "409607",
+          "url": "https://file.pawchive.pw/data/69/f1/69f185bf166a4c358f7366b017af7ae8c0ed2b3613423acbe730678e130d3d87.jpeg",
+          "name": "cover.jpeg",
+          "role": "cover",
+          "sha256": "69f185bf166a4c358f7366b017af7ae8c0ed2b3613423acbe730678e130d3d87",
+          "status": "done",
+          "bytes": 248232
+        },
+        {
+          "post": "4326595",
+          "url": "https://file.pawchive.pw/data/79/ec/79ec15672569056d8214a29ab2439f3e078a927f91dfc1c642846848d51af29d.jpeg",
+          "name": "r4jW69W0iAIlvbJJtthXwnv9.jpeg",
+          "role": "attachment",
+          "sha256": "79ec15672569056d8214a29ab2439f3e078a927f91dfc1c642846848d51af29d",
+          "status": "done",
+          "bytes": 287505
+        },
+        {
+          "post": "1871883",
+          "url": "https://file.pawchive.pw/data/e2/37/e2373536b6d17f07154e64528c6de0f3e35cb2300e206a9709125fb793602d02.jpeg",
+          "name": "cover.jpeg",
+          "role": "cover",
+          "sha256": "e2373536b6d17f07154e64528c6de0f3e35cb2300e206a9709125fb793602d02",
+          "status": "done",
+          "bytes": 248764
+        },
+        {
+          "post": "183227",
+          "url": "https://file.pawchive.pw/data/f1/5a/f15a925805a7941f45ee0cf3836b466edc8296ae4b8bd4e6d0daa104a4a60f2f.jpeg",
+          "name": "cover.jpeg",
+          "role": "cover",
+          "sha256": "f15a925805a7941f45ee0cf3836b466edc8296ae4b8bd4e6d0daa104a4a60f2f",
+          "status": "done",
+          "bytes": 291565
+        }
+      ],
+      "http403Responses": 0,
+      "maxTries": 5,
+      "minimumRequestGapMicroseconds": 10305,
+      "nativeRequests": 12,
+      "nextVersion": "",
+      "peakActive": 3,
+      "queueConcurrency": 3,
+      "sitePolicy": false,
+      "totalBytes": 8041870
+    },
+    {
+      "connections": 16,
+      "done": 12,
+      "engine": "aria2-next-3.0.1-windows-x86_64.exe",
+      "failed": 0,
+      "files": [
+        {
+          "post": "6947072",
+          "url": "https://file.pawchive.pw/data/56/06/56069242d762117bb624be70f282f2d8eb565e588191f612e0c4f48b04c2bd9d.jpeg",
+          "name": "cover.jpeg",
+          "role": "cover",
+          "sha256": "56069242d762117bb624be70f282f2d8eb565e588191f612e0c4f48b04c2bd9d",
+          "status": "done",
+          "bytes": 293214
+        },
+        {
+          "post": "9809891",
+          "url": "https://file.pawchive.pw/data/e5/60/e56084c3bae437311a19c1d93b270bf8bc37b5a1508e25e807e529ddcd89ab0d.png",
+          "name": "I7wfhfJeCPpMPSRvBxWevs6R.png",
+          "role": "attachment",
+          "sha256": "e56084c3bae437311a19c1d93b270bf8bc37b5a1508e25e807e529ddcd89ab0d",
+          "status": "done",
+          "bytes": 31986715
+        },
+        {
+          "post": "340216",
+          "url": "https://file.pawchive.pw/data/f0/12/f012c1f7d936af6d74dd37cb2b99cbfb1678c1e2b78c7e1c0011810de7957900.jpeg",
+          "name": "cover.jpeg",
+          "role": "cover",
+          "sha256": "f012c1f7d936af6d74dd37cb2b99cbfb1678c1e2b78c7e1c0011810de7957900",
+          "status": "done",
+          "bytes": 142547
+        },
+        {
+          "post": "8331238",
+          "url": "https://file.pawchive.pw/data/5d/bc/5dbc8cde735802af6eb874e3054f6989a7183a37f7b9ea5891197276c9ce0edb.jpeg",
+          "name": "HeZ0qXHjekuzfSheYWwDiHHv.jpeg",
+          "role": "attachment",
+          "sha256": "5dbc8cde735802af6eb874e3054f6989a7183a37f7b9ea5891197276c9ce0edb",
+          "status": "done",
+          "bytes": 263547
+        },
+        {
+          "post": "3970417",
+          "url": "https://file.pawchive.pw/data/f5/4e/f54eb15b2cbf7969cc5ea8ebd3a8197397a896eff7695053ef12bfd1a8abc3b8.jpeg",
+          "name": "sjADrVYn9gJJxqa0IZlkv2tt.jpeg",
+          "role": "attachment",
+          "sha256": "f54eb15b2cbf7969cc5ea8ebd3a8197397a896eff7695053ef12bfd1a8abc3b8",
+          "status": "done",
+          "bytes": 1065894
+        },
+        {
+          "post": "793851",
+          "url": "https://file.pawchive.pw/data/ea/1c/ea1ca7d6d5945d729690f0b4423c4083df15a9edfd49d685f87679806be53384.jpeg",
+          "name": "cover.jpeg",
+          "role": "cover",
+          "sha256": "ea1ca7d6d5945d729690f0b4423c4083df15a9edfd49d685f87679806be53384",
+          "status": "done",
+          "bytes": 201650
+        },
+        {
+          "post": "4998579",
+          "url": "https://file.pawchive.pw/data/07/e7/07e725e4fec3dfff443730bc9027397e4639c0d40897ea3b973ba943fcc75fba.jpeg",
+          "name": "cover.jpeg",
+          "role": "cover",
+          "sha256": "07e725e4fec3dfff443730bc9027397e4639c0d40897ea3b973ba943fcc75fba",
+          "status": "done",
+          "bytes": 217203
+        },
+        {
+          "post": "1555886",
+          "url": "https://file.pawchive.pw/data/d7/27/d7271e12c526a5e1a6652cd6c066102140382505d80c168c354dafb70d5e99e3.jpeg",
+          "name": "cover.jpeg",
+          "role": "cover",
+          "sha256": "d7271e12c526a5e1a6652cd6c066102140382505d80c168c354dafb70d5e99e3",
+          "status": "done",
+          "bytes": 75080
+        },
+        {
+          "post": "9177619",
+          "url": "https://file.pawchive.pw/data/22/f9/22f9a18368c96a8041f6e65ecfe17a2ed45b450772af1954e31291316cad0885.png",
+          "name": "h1Fxe7IkQMcCVi8oBRKSLXGn.png",
+          "role": "attachment",
+          "sha256": "22f9a18368c96a8041f6e65ecfe17a2ed45b450772af1954e31291316cad0885",
+          "status": "done",
+          "bytes": 2330706
+        },
+        {
+          "post": "4326595",
+          "url": "https://file.pawchive.pw/data/d6/99/d699f75244a127d3cc332d9a00e4976c491395d8aa5e61bbad3d86169176433d.jpeg",
+          "name": "JtgNcWTQYB7Fd1o4FmvmI4X9.jpeg",
+          "role": "attachment",
+          "sha256": "d699f75244a127d3cc332d9a00e4976c491395d8aa5e61bbad3d86169176433d",
+          "status": "done",
+          "bytes": 443012
+        },
+        {
+          "post": "638071",
+          "url": "https://file.pawchive.pw/data/85/c9/85c9fcd9702f8b91f055b2d1751200e21861e9aecca9a0f9e681a895ed96947d.jpeg",
+          "name": "kFnZPYPhfkYUedtlsbK6fahi.jpeg",
+          "role": "attachment",
+          "sha256": "85c9fcd9702f8b91f055b2d1751200e21861e9aecca9a0f9e681a895ed96947d",
+          "status": "done",
+          "bytes": 384681
+        },
+        {
+          "post": "540766",
+          "url": "https://file.pawchive.pw/data/61/2f/612fe68c21434bc99c9f089e76f771d684fb22454068a189f1c24997b0fc0ce4.jpeg",
+          "name": "Al4hSXc1TV5EA0MqEZmdzbFZ.jpeg",
+          "role": "attachment",
+          "sha256": "612fe68c21434bc99c9f089e76f771d684fb22454068a189f1c24997b0fc0ce4",
+          "status": "done",
+          "bytes": 11364684
+        }
+      ],
+      "http403Responses": null,
+      "maxTries": 5,
+      "minimumRequestGapMicroseconds": null,
+      "nativeRequests": null,
+      "nextVersion": "3.0.1",
+      "peakActive": 3,
+      "queueConcurrency": 3,
+      "sitePolicy": false,
+      "testedAt": "2026-10-14T00:03:43Z",
+      "totalBytes": 48768933
+    }
+  ]
+}
