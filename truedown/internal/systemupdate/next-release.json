@@ -1,0 +1,7 @@
+{
+  "version": "3.0.2",
+  "windows": {
+    "amd64": "caa69e8ed4bdb2138b1b577f15ea9adecdf7c8230c6c3bb05c7c955383029de3",
+    "arm64": "c1b193f225b02eabed3aaeeeacde11e00365ecbccd02595153c8df01c1b9dcd1"
+  }
+}

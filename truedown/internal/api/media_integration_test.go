@@ -6,11 +6,23 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 	"truedown/internal/downloader"
 )
+
+func next3IntegrationConfig(t *testing.T) downloader.ManagerConfig {
+	t.Helper()
+	version := os.Getenv("TRUEDOWN_ARIA2_NEXT_VERSION")
+	parts := strings.Split(version, ".")
+	major, err := strconv.Atoi(parts[0])
+	if os.Getenv("TRUEDOWN_INTEGRATION") == "" || len(parts) != 3 || err != nil || major < 3 {
+		t.Skip("requires NEXT 3 or newer")
+	}
+	return downloader.ManagerConfig{Aria2Next: true, Aria2NextVersion: version}
+}
 
 func TestLegacyEngineAcceptsMixedBrowserTasksWithoutDroppingMedia(t *testing.T) {
 	mux, m := testHandler(t)
@@ -47,11 +59,9 @@ func TestLegacyEngineAcceptsMixedBrowserTasksWithoutDroppingMedia(t *testing.T) 
 }
 
 func TestNext3MediaBrowserAdmissionIntegration(t *testing.T) {
-	if os.Getenv("TRUEDOWN_INTEGRATION") == "" || os.Getenv("TRUEDOWN_ARIA2_NEXT_VERSION") != "3.0.0" {
-		t.Skip("requires NEXT 3")
-	}
+	config := next3IntegrationConfig(t)
 	root := t.TempDir()
-	m, err := downloader.NewManagerWithConfig(os.Getenv("TRUEDOWN_ARIA2_PATH"), filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), downloader.ManagerConfig{Aria2Next: true, Aria2NextVersion: "3.0.0"})
+	m, err := downloader.NewManagerWithConfig(os.Getenv("TRUEDOWN_ARIA2_PATH"), filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), config)
 	if err != nil {
 		t.Fatal(err)
 	}

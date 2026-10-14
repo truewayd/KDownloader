@@ -157,6 +157,20 @@ func TestNextCleanupRequiresPersistedVerifiedEngine(t *testing.T) {
 	if calls != 1 {
 		t.Fatal("installed engine download was not cleaned")
 	}
+	m.state.PreviousNextEngine, m.state.NextEngine = m.state.NextEngine, nil
+	if err := m.recordUpdateDownload(receipt); err != nil {
+		t.Fatal(err)
+	}
+	m.state.PreviousNextEngine.SHA256 = strings.Repeat("f", 64)
+	m.cleanupUpdateDownloads()
+	if calls != 1 {
+		t.Fatal("unverified retained engine authorized cleanup")
+	}
+	m.state.PreviousNextEngine.SHA256 = receipt.SHA256
+	m.cleanupUpdateDownloads()
+	if calls != 2 {
+		t.Fatal("retained engine download was not cleaned after rollback")
+	}
 	if _, err := os.Stat(filepath.Join(m.enginesDir, receipt.Name)); err != nil {
 		t.Fatal("installed engine removed", err)
 	}

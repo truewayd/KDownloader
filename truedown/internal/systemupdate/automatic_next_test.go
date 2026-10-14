@@ -49,7 +49,7 @@ func TestAutomaticNextVerifiesNewerReleaseAndRetainsRollback(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	options := Options{NextReleaseURL: server.URL + "/release", AllowInsecureLoopback: true, InspectEngine: func(path string) (string, string, error) {
+	options := Options{NextReleaseURL: server.URL + "/release", NextReleaseVersion: "2.9.0", NextReleaseSHA256: sha256Hex([]byte("MZ-next-2.9.0")), AllowInsecureLoopback: true, InspectEngine: func(path string) (string, string, error) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return "", "", err
@@ -60,6 +60,10 @@ func TestAutomaticNextVerifiesNewerReleaseAndRetainsRollback(t *testing.T) {
 		return EngineStable, "1.37.0", nil
 	}}
 	m := newTestManager(t, root, stable, options)
+	selectReviewedRelease := func(v string) {
+		version.Store(v)
+		m.nextReleaseVersion, m.nextReleaseSHA256 = v, sha256Hex([]byte("MZ-next-"+v))
+	}
 	if err := m.UpdateNextAutomatically(context.Background()); err != nil || downloads.Load() != 0 {
 		t.Fatal("automatic updates installed an unrequested engine", err)
 	}
@@ -76,7 +80,7 @@ func TestAutomaticNextVerifiesNewerReleaseAndRetainsRollback(t *testing.T) {
 	if _, err := m.ActivateEngine(old); err != nil {
 		t.Fatal(err)
 	}
-	version.Store("2.10.0")
+	selectReviewedRelease("2.10.0")
 	if err := m.UpdateNextAutomatically(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +88,7 @@ func TestAutomaticNextVerifiesNewerReleaseAndRetainsRollback(t *testing.T) {
 	if state.Engine.NextInstalledVersion != "2.10.0" || state.Engine.ActiveVersion != "2.9.0" || !state.Engine.RestartRequired {
 		t.Fatal(state)
 	}
-	version.Store("2.10.1")
+	selectReviewedRelease("2.10.1")
 	if err := m.UpdateNextAutomatically(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +102,7 @@ func TestAutomaticNextVerifiesNewerReleaseAndRetainsRollback(t *testing.T) {
 	if _, err := m.SetSettings(Settings{AutoUpdateNext: &disabled}); err != nil {
 		t.Fatal(err)
 	}
-	version.Store("2.11.0")
+	selectReviewedRelease("2.11.0")
 	if err := m.UpdateNextAutomatically(context.Background()); err != nil || downloads.Load() != 3 {
 		t.Fatal("disabled updates downloaded", err)
 	}

@@ -2864,6 +2864,8 @@ func (m *Manager) aria2StartArgs(port int, secret string, runtimeSettings Runtim
 		summaryInterval = 0
 	}
 	args := []string{
+		"--no-conf=true",
+		"--daemon=false",
 		"--enable-rpc=true",
 		"--rpc-listen-all=false",
 		"--rpc-allow-origin-all=false",

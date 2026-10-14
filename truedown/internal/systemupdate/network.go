@@ -229,6 +229,9 @@ func (m *Manager) installNext(ctx context.Context, automatic bool) error {
 	if err != nil {
 		return err
 	}
+	if available.Version != m.nextReleaseVersion {
+		return fmt.Errorf("Aria2 Next release does not match this TrueDown build's reviewed version %s", m.nextReleaseVersion)
+	}
 	m.mu.Lock()
 	nextState := m.state
 	nextState.NextLastCheckedAt = m.now().UTC()
@@ -239,10 +242,6 @@ func (m *Manager) installNext(ctx context.Context, automatic bool) error {
 	m.availableNext = available
 	installed := m.state.NextEngine
 	skip := automatic && (!m.state.AutoUpdateNext || installed == nil || m.state.NextFailedVersion == available.Version || compareEngineVersions(available.Version, installed.Version) <= 0)
-	if !automatic && installed != nil && compareEngineVersions(available.Version, installed.Version) < 0 {
-		m.mu.Unlock()
-		return fmt.Errorf("the latest release is older than the installed Aria2 Next")
-	}
 	m.mu.Unlock()
 	if skip {
 		return nil
@@ -254,6 +253,9 @@ func (m *Manager) installNext(ctx context.Context, automatic bool) error {
 	expected, err := checksumForAsset(checksumText, available.BinaryName)
 	if err != nil {
 		return err
+	}
+	if !strings.EqualFold(expected, m.nextReleaseSHA256) {
+		return fmt.Errorf("Aria2 Next checksum does not match this TrueDown build's reviewed release")
 	}
 	enginesDir := m.enginesDir
 	temporaryPath, digest, size, err := m.downloadFile(ctx, available.BinaryURL, available.BinaryName, enginesDir, maxEngineBytes)
@@ -307,7 +309,7 @@ func (m *Manager) installNext(ctx context.Context, automatic bool) error {
 		File:    available.BinaryName,
 		SHA256:  strings.ToLower(digest),
 	}
-	next.LastUpdateError = ""
+	next.NextUpdateError = ""
 	next.NextFailedVersion = ""
 	err = m.persistStateLocked(next)
 	return err
@@ -315,11 +317,11 @@ func (m *Manager) installNext(ctx context.Context, automatic bool) error {
 
 func selectNextRelease(release githubRelease) (*availableNextUpdate, error) {
 	if release.Draft || release.Prerelease {
-		return nil, fmt.Errorf("latest Aria2 Next release is not a stable release")
+		return nil, fmt.Errorf("Aria2 Next release is not a stable release")
 	}
 	version := strings.TrimPrefix(strings.TrimSpace(release.TagName), "v")
 	if !canonicalVersionPattern.MatchString(version) {
-		return nil, fmt.Errorf("latest Aria2 Next tag is not a canonical version")
+		return nil, fmt.Errorf("Aria2 Next tag is not a canonical version")
 	}
 	architecture := ""
 	switch runtime.GOARCH {

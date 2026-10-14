@@ -39,11 +39,9 @@ func TestProbeRejectsOldEngineAndMalformedRequestsWithoutAdmission(t *testing.T)
 }
 
 func TestNext3ProbeAPIIntegration(t *testing.T) {
-	if os.Getenv("TRUEDOWN_INTEGRATION") == "" || os.Getenv("TRUEDOWN_ARIA2_NEXT_VERSION") != "3.0.0" {
-		t.Skip("requires NEXT 3")
-	}
+	config := next3IntegrationConfig(t)
 	root := t.TempDir()
-	m, err := downloader.NewManagerWithConfig(os.Getenv("TRUEDOWN_ARIA2_PATH"), filepath.Join(root, "downloads"), filepath.Join(root, "tasks.db"), downloader.ManagerConfig{Aria2Next: true, Aria2NextVersion: "3.0.0"})
+	m, err := downloader.NewManagerWithConfig(os.Getenv("TRUEDOWN_ARIA2_PATH"), filepath.Join(root, "downloads"), filepath.Join(root, "tasks.db"), config)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -121,6 +121,8 @@ func TestManualNextInstallPersistsSelection(t *testing.T) {
 
 	manager := newTestManager(t, root, stablePath, Options{
 		NextReleaseURL:        server.URL + "/release",
+		NextReleaseVersion:    "2.5.6",
+		NextReleaseSHA256:     nextDigest,
 		AllowInsecureLoopback: true,
 		InspectEngine: func(path string) (string, string, error) {
 			data, err := os.ReadFile(path)
@@ -161,6 +163,8 @@ func TestManualNextInstallPersistsSelection(t *testing.T) {
 	}
 	reloaded := newTestManager(t, root, stablePath, Options{
 		NextReleaseURL:        server.URL + "/release",
+		NextReleaseVersion:    "2.5.6",
+		NextReleaseSHA256:     nextDigest,
 		AllowInsecureLoopback: true,
 		InspectEngine:         manager.inspectEngine,
 	})

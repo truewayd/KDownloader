@@ -39,6 +39,7 @@ func (m *Manager) discardPendingUpdate(build int64, updateErr error) {
 		next.PendingUpdate = nil
 	}
 	m.lastError = truncate(updateErr.Error(), 1024)
+	m.lastErrorScope = "truedown"
 	next.LastUpdateError = m.lastError
 	if persistErr := m.persistStateLocked(next); persistErr != nil {
 		m.lastError += fmt.Sprintf("; persist update failure: %v", persistErr)
@@ -52,6 +53,7 @@ func (m *Manager) recordUpdateError(updateErr error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lastError = truncate(updateErr.Error(), 1024)
+	m.lastErrorScope = "truedown"
 	m.state.LastUpdateError = m.lastError
 	_ = m.persistLocked()
 }

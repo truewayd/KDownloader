@@ -26,14 +26,15 @@ import (
 )
 
 const (
-	EngineStable = "stable"
-	EngineNext   = "next"
+	EngineStable       = "stable"
+	EngineNext         = "next"
+	EnginePreviousNext = "previous-next"
 
 	stateSchemaVersion = 1
 	maxEngineBytes     = 64 * 1024 * 1024
 
 	defaultTrueDownReleasesURL = "https://api.github.com/repos/truewayd/KDownloader/releases?per_page=50"
-	defaultNextReleaseURL      = "https://api.github.com/repos/AnInsomniacy/aria2-next/releases/latest"
+	defaultNextReleaseURL      = "https://api.github.com/repos/AnInsomniacy/aria2-next/releases/tags/v"
 )
 
 var (
@@ -62,6 +63,8 @@ type Options struct {
 	CleanupAsset          func(directory, name, sha256 string, size int64) error
 	TrueDownReleasesURL   string
 	NextReleaseURL        string
+	NextReleaseVersion    string
+	NextReleaseSHA256     string
 	AllowInsecureLoopback bool
 	InspectEngine         func(string) (kind, version string, err error)
 	Now                   func() time.Time
@@ -73,34 +76,40 @@ type Settings struct {
 }
 
 type TrueDownStatus struct {
-	ProductVersion   string     `json:"productVersion,omitempty"`
-	Version          string     `json:"version"`
-	Build            int64      `json:"build"`
-	Commit           string     `json:"commit,omitempty"`
-	Supported        bool       `json:"supported"`
-	AutoUpdate       bool       `json:"autoUpdate"`
-	UpdateAvailable  bool       `json:"updateAvailable"`
-	AvailableVersion string     `json:"availableVersion,omitempty"`
-	AvailableBuild   int64      `json:"availableBuild,omitempty"`
-	PendingVersion   string     `json:"pendingVersion,omitempty"`
-	PendingBuild     int64      `json:"pendingBuild,omitempty"`
-	RestartRequired  bool       `json:"restartRequired"`
-	LastCheckedAt    *time.Time `json:"lastCheckedAt,omitempty"`
+	Error                    string     `json:"error,omitempty"`
+	ProductVersion           string     `json:"productVersion,omitempty"`
+	Version                  string     `json:"version"`
+	Build                    int64      `json:"build"`
+	Commit                   string     `json:"commit,omitempty"`
+	Supported                bool       `json:"supported"`
+	AutoUpdate               bool       `json:"autoUpdate"`
+	UpdateAvailable          bool       `json:"updateAvailable"`
+	AvailableVersion         string     `json:"availableVersion,omitempty"`
+	AvailableBuild           int64      `json:"availableBuild,omitempty"`
+	PendingVersion           string     `json:"pendingVersion,omitempty"`
+	PendingBuild             int64      `json:"pendingBuild,omitempty"`
+	RestartRequired          bool       `json:"restartRequired"`
+	RestartNeedsConfirmation bool       `json:"restartNeedsConfirmation"`
+	LastCheckedAt            *time.Time `json:"lastCheckedAt,omitempty"`
 }
 
 type EngineStatus struct {
-	Preference           string     `json:"preference"`
-	Active               string     `json:"active"`
-	ActiveVersion        string     `json:"activeVersion,omitempty"`
-	StableVersion        string     `json:"stableVersion,omitempty"`
-	NextInstalled        bool       `json:"nextInstalled"`
-	NextInstalledVersion string     `json:"nextInstalledVersion,omitempty"`
-	NextAvailableVersion string     `json:"nextAvailableVersion,omitempty"`
-	RestartRequired      bool       `json:"restartRequired"`
-	ManualUpdatesOnly    bool       `json:"manualUpdatesOnly"`
-	AutoUpdate           bool       `json:"autoUpdate"`
-	AutoUpdateSupported  bool       `json:"autoUpdateSupported"`
-	LastCheckedAt        *time.Time `json:"lastCheckedAt,omitempty"`
+	Error                  string     `json:"error,omitempty"`
+	Preference             string     `json:"preference"`
+	Active                 string     `json:"active"`
+	ActiveVersion          string     `json:"activeVersion,omitempty"`
+	StableVersion          string     `json:"stableVersion,omitempty"`
+	NextInstalled          bool       `json:"nextInstalled"`
+	NextInstalledVersion   string     `json:"nextInstalledVersion,omitempty"`
+	NextAvailableVersion   string     `json:"nextAvailableVersion,omitempty"`
+	NextRecommendedVersion string     `json:"nextRecommendedVersion,omitempty"`
+	NextRollbackVersion    string     `json:"nextRollbackVersion,omitempty"`
+	NextBlockedVersion     string     `json:"nextBlockedVersion,omitempty"`
+	RestartRequired        bool       `json:"restartRequired"`
+	ManualUpdatesOnly      bool       `json:"manualUpdatesOnly"`
+	AutoUpdate             bool       `json:"autoUpdate"`
+	AutoUpdateSupported    bool       `json:"autoUpdateSupported"`
+	LastCheckedAt          *time.Time `json:"lastCheckedAt,omitempty"`
 }
 
 type Snapshot struct {
@@ -146,6 +155,7 @@ type persistedState struct {
 	PendingUpdate      *pendingAppUpdate `json:"pendingUpdate,omitempty"`
 	LastCheckedAt      time.Time         `json:"lastCheckedAt,omitzero"`
 	LastUpdateError    string            `json:"lastUpdateError,omitempty"`
+	NextUpdateError    string            `json:"nextUpdateError,omitempty"`
 }
 
 type activeEngine struct {
@@ -211,6 +221,8 @@ type Manager struct {
 	cleanupAsset          func(string, string, string, int64) error
 	trueDownReleasesURL   string
 	nextReleaseURL        string
+	nextReleaseVersion    string
+	nextReleaseSHA256     string
 	allowInsecureLoopback bool
 	inspectEngine         func(string) (string, string, error)
 	now                   func() time.Time
@@ -222,6 +234,7 @@ type Manager struct {
 	availableNext          *availableNextUpdate
 	busy                   string
 	lastError              string
+	lastErrorScope         string
 	restart                func() error
 	restartWithMode        func(bool) error
 	applyLaunched          bool
@@ -280,8 +293,19 @@ func New(options Options) (*Manager, error) {
 		trueDownURL = defaultTrueDownReleasesURL
 	}
 	nextURL := strings.TrimSpace(options.NextReleaseURL)
+	policy, err := reviewedNextRelease()
+	if err != nil {
+		return nil, err
+	}
+	nextVersion, nextSHA256 := policy.Version, policy.Windows[runtime.GOARCH]
+	if options.NextReleaseVersion != "" || options.NextReleaseSHA256 != "" {
+		if !canonicalVersionPattern.MatchString(options.NextReleaseVersion) || normalizeSHA256(options.NextReleaseSHA256) == "" {
+			return nil, fmt.Errorf("NEXT release override requires a canonical version and SHA-256")
+		}
+		nextVersion, nextSHA256 = options.NextReleaseVersion, strings.ToLower(options.NextReleaseSHA256)
+	}
 	if nextURL == "" {
-		nextURL = defaultNextReleaseURL
+		nextURL = defaultNextReleaseURL + nextVersion
 	}
 	manager := &Manager{
 		baseDir:                filepath.Clean(baseDir),
@@ -302,6 +326,8 @@ func New(options Options) (*Manager, error) {
 		cleanupAsset:           options.CleanupAsset,
 		trueDownReleasesURL:    trueDownURL,
 		nextReleaseURL:         nextURL,
+		nextReleaseVersion:     nextVersion,
+		nextReleaseSHA256:      nextSHA256,
 		allowInsecureLoopback:  options.AllowInsecureLoopback,
 		inspectEngine:          inspect,
 		now:                    now,
@@ -330,6 +356,7 @@ func New(options Options) (*Manager, error) {
 	}
 	if err := manager.loadState(); err != nil {
 		manager.lastError = fmt.Sprintf("ignored invalid update settings and used the built-in stable engine: %v", err)
+		manager.lastErrorScope = EngineNext
 		invalidPath := fmt.Sprintf("%s.invalid-%d", manager.statePath, manager.now().UnixNano())
 		if renameErr := os.Rename(manager.statePath, invalidPath); renameErr != nil && !os.IsNotExist(renameErr) {
 			manager.lastError += fmt.Sprintf("; could not preserve the invalid file: %v", renameErr)
@@ -382,17 +409,23 @@ func (m *Manager) ActivateEngine(spec EngineSpec) (Snapshot, error) {
 	}
 	m.active = resolved
 	m.lastError = ""
+	m.lastErrorScope = ""
 	return m.snapshotLocked(), nil
 }
 
 func (m *Manager) RecordEngineError(err error) Snapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err == nil {
-		m.lastError = ""
-		return m.snapshotLocked()
+	message := ""
+	if err != nil {
+		message = truncate(err.Error(), 1024)
 	}
-	m.lastError = truncate(err.Error(), 1024)
+	next := m.state
+	next.NextUpdateError = message
+	m.lastError, m.lastErrorScope = message, EngineNext
+	if persistErr := m.persistStateLocked(next); persistErr != nil {
+		m.lastError = firstNonEmpty(message, fmt.Sprintf("persist engine result: %v", persistErr))
+	}
 	return m.snapshotLocked()
 }
 
@@ -409,6 +442,7 @@ func (m *Manager) FallbackToStable(reason error) string {
 		File:    filepath.Base(m.stableEnginePath),
 	}
 	m.lastError = "Aria2 Next could not start; using the built-in stable engine"
+	m.lastErrorScope = EngineNext
 	if reason != nil {
 		m.lastError += ": " + truncate(reason.Error(), 1024)
 	}
@@ -453,7 +487,14 @@ func (m *Manager) snapshotLocked() Snapshot {
 			AutoUpdateSupported: runtime.GOOS == "windows",
 		},
 		Busy:  m.busy,
-		Error: firstNonEmpty(m.lastError, m.state.LastUpdateError),
+		Error: firstNonEmpty(m.lastError, firstNonEmpty(m.state.NextUpdateError, m.state.LastUpdateError)),
+	}
+	status.TrueDown.Error = m.state.LastUpdateError
+	status.Engine.Error = m.state.NextUpdateError
+	if m.lastErrorScope == EngineNext {
+		status.Engine.Error = firstNonEmpty(m.lastError, status.Engine.Error)
+	} else if m.lastErrorScope != "" {
+		status.TrueDown.Error = firstNonEmpty(m.lastError, status.TrueDown.Error)
 	}
 	if m.downloadProgress != nil {
 		progress := *m.downloadProgress
@@ -483,6 +524,11 @@ func (m *Manager) snapshotLocked() Snapshot {
 	}
 	if m.availableNext != nil {
 		status.Engine.NextAvailableVersion = m.availableNext.Version
+	}
+	status.Engine.NextRecommendedVersion = m.nextReleaseVersion
+	status.Engine.NextBlockedVersion = m.state.NextFailedVersion
+	if current, previous := m.state.NextEngine, m.state.PreviousNextEngine; current != nil && previous != nil && compareEngineVersions(previous.Version, current.Version) < 0 {
+		status.Engine.NextRollbackVersion = previous.Version
 	}
 	status.Engine.RestartRequired = m.engineRestartRequiredLocked()
 	return status
@@ -531,8 +577,8 @@ func (m *Manager) SetSettings(settings Settings) (Snapshot, error) {
 
 func (m *Manager) SelectEngine(engine string) (Snapshot, error) {
 	engine = strings.ToLower(strings.TrimSpace(engine))
-	if engine != EngineStable && engine != EngineNext {
-		return Snapshot{}, fmt.Errorf("engine must be stable or next")
+	if engine != EngineStable && engine != EngineNext && engine != EnginePreviousNext {
+		return Snapshot{}, fmt.Errorf("engine must be stable, next or previous-next")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -543,12 +589,25 @@ func (m *Manager) SelectEngine(engine string) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("install an Aria2 Next engine before selecting it")
 	}
 	next := m.state
+	if engine == EnginePreviousNext {
+		current, previous := next.NextEngine, next.PreviousNextEngine
+		if current == nil || previous == nil || compareEngineVersions(previous.Version, current.Version) >= 0 {
+			return Snapshot{}, fmt.Errorf("no previous NEXT version is available for rollback")
+		}
+		if _, err := m.resolveNextEngineLocked(previous); err != nil {
+			return Snapshot{}, fmt.Errorf("validate rollback NEXT: %w", err)
+		}
+		next.NextEngine, next.PreviousNextEngine = previous, current
+		next.NextFailedVersion = current.Version
+		engine = EngineNext
+	}
 	next.EnginePreference = engine
-	next.LastUpdateError = ""
+	next.NextUpdateError = ""
 	if err := m.persistStateLocked(next); err != nil {
 		return Snapshot{}, err
 	}
 	m.lastError = ""
+	m.lastErrorScope = ""
 	return m.snapshotLocked(), nil
 }
 
@@ -600,7 +659,12 @@ func (m *Manager) begin(operation string) error {
 	}
 	m.busy = operation
 	m.lastError = ""
-	m.state.LastUpdateError = ""
+	m.lastErrorScope = ""
+	if operation == "next-engine" {
+		m.state.NextUpdateError = ""
+	} else {
+		m.state.LastUpdateError = ""
+	}
 	return nil
 }
 
@@ -608,16 +672,29 @@ func (m *Manager) finish(err error) {
 	defer m.cleanupUpdateDownloads()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	operation := m.busy
 	m.busy = ""
 	m.downloadProgress = nil
+	message := ""
 	if err != nil {
 		m.lastError = truncate(err.Error(), 1024)
-		m.state.LastUpdateError = m.lastError
+		message = m.lastError
+		m.lastErrorScope = "truedown"
+		if operation == "next-engine" {
+			m.lastErrorScope = EngineNext
+		}
+	}
+	if operation == "next-engine" {
+		m.state.NextUpdateError = message
 	} else {
-		m.state.LastUpdateError = ""
+		m.state.LastUpdateError = message
 	}
 	if persistErr := m.persistLocked(); persistErr != nil {
 		m.lastError = firstNonEmpty(m.lastError, fmt.Sprintf("persist update result: %v", persistErr))
+		m.lastErrorScope = "truedown"
+		if operation == "next-engine" {
+			m.lastErrorScope = EngineNext
+		}
 	}
 }
 
@@ -635,6 +712,7 @@ func (m *Manager) resolveActiveEngine() {
 	if m.state.EnginePreference != EngineNext || m.state.NextEngine == nil {
 		return
 	}
+	m.lastErrorScope = EngineNext
 	nextPath, err := m.installedEnginePath(m.state.NextEngine)
 	if err != nil {
 		m.lastError = err.Error()
@@ -672,33 +750,37 @@ func (m *Manager) resolveEngineLocked(kind string) (activeEngine, error) {
 			File: filepath.Base(m.stableEnginePath),
 		}, nil
 	case EngineNext:
-		if m.state.NextEngine == nil {
-			return activeEngine{}, fmt.Errorf("install an Aria2 Next engine before selecting it")
-		}
-		nextPath, err := m.installedEnginePath(m.state.NextEngine)
-		if err != nil {
-			return activeEngine{}, err
-		}
-		digest, size, err := hashFile(nextPath, maxEngineBytes)
-		if err != nil {
-			return activeEngine{}, fmt.Errorf("validate installed Aria2 Next: %w", err)
-		}
-		if size <= 0 || !strings.EqualFold(digest, m.state.NextEngine.SHA256) {
-			return activeEngine{}, fmt.Errorf("installed Aria2 Next failed its SHA-256 check")
-		}
-		resolvedKind, version, err := m.inspectEngine(nextPath)
-		if err != nil {
-			return activeEngine{}, fmt.Errorf("validate installed Aria2 Next: %w", err)
-		}
-		if resolvedKind != EngineNext || version != m.state.NextEngine.Version {
-			return activeEngine{}, fmt.Errorf("installed Aria2 Next failed its version check")
-		}
-		return activeEngine{
-			Kind: EngineNext, Version: version, Path: nextPath, File: m.state.NextEngine.File,
-		}, nil
+		return m.resolveNextEngineLocked(m.state.NextEngine)
 	default:
 		return activeEngine{}, fmt.Errorf("engine must be stable or next")
 	}
+}
+
+func (m *Manager) resolveNextEngineLocked(engine *installedEngine) (activeEngine, error) {
+	if engine == nil {
+		return activeEngine{}, fmt.Errorf("install an Aria2 Next engine before selecting it")
+	}
+	nextPath, err := m.installedEnginePath(engine)
+	if err != nil {
+		return activeEngine{}, err
+	}
+	digest, size, err := hashFile(nextPath, maxEngineBytes)
+	if err != nil {
+		return activeEngine{}, fmt.Errorf("validate installed Aria2 Next: %w", err)
+	}
+	if size <= 0 || !strings.EqualFold(digest, engine.SHA256) {
+		return activeEngine{}, fmt.Errorf("installed Aria2 Next failed its SHA-256 check")
+	}
+	resolvedKind, version, err := m.inspectEngine(nextPath)
+	if err != nil {
+		return activeEngine{}, fmt.Errorf("validate installed Aria2 Next: %w", err)
+	}
+	if resolvedKind != EngineNext || version != engine.Version {
+		return activeEngine{}, fmt.Errorf("installed Aria2 Next failed its version check")
+	}
+	return activeEngine{
+		Kind: EngineNext, Version: version, Path: nextPath, File: engine.File,
+	}, nil
 }
 
 func engineSpec(engine activeEngine) EngineSpec {
@@ -772,6 +854,8 @@ func (m *Manager) loadState() error {
 	if state.NextFailedVersion != "" && !canonicalVersionPattern.MatchString(state.NextFailedVersion) {
 		return fmt.Errorf("invalid failed NEXT version")
 	}
+	state.LastUpdateError = truncate(state.LastUpdateError, 1024)
+	state.NextUpdateError = truncate(state.NextUpdateError, 1024)
 	m.prunedNativeState = false
 	if state.PendingUpdate != nil {
 		if filepath.Base(state.PendingUpdate.File) != state.PendingUpdate.File || state.PendingUpdate.Build <= 0 || normalizeSHA256(state.PendingUpdate.SHA256) == "" {
@@ -825,7 +909,7 @@ func (m *Manager) persistStateLocked(next persistedState) error {
 func inspectEngineBinary(path string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "--version")
+	cmd := exec.CommandContext(ctx, path, "--no-conf=true", "--daemon=false", "--version")
 	var output limitedBuffer
 	output.limit = 128 * 1024
 	cmd.Stdout = &output

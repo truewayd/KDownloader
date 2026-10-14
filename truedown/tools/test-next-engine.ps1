@@ -1,17 +1,23 @@
 param(
   [string]$EnginePath = "",
   [string]$FFmpegPath = "",
-  [ValidateSet('3.0.0', '2.8.3')][string]$Version = '3.0.0'
+  [string]$Version = ''
 )
 
 $ErrorActionPreference = "Stop"
 if (-not $IsWindows -or [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') {
   throw "NEXT acceptance currently targets Windows x64"
 }
-$expectedHash = @{
+$reviewedNext = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../internal/systemupdate/next-release.json') -Raw | ConvertFrom-Json
+if (-not $Version) { $Version = $reviewedNext.version }
+$expectedHashes = @{
   '3.0.0' = 'edf8d987abb3055f34b09a190b4d533950a186ddae9013b9fb83948ee3a5f438'
   '2.8.3' = '08afaf2a44811d38e7ce538da719ab06d6925bcaad1231ee7b92c497f58e5aac'
-}[$Version]
+}
+$expectedHashes[$reviewedNext.version] = $reviewedNext.windows.amd64
+if (-not $expectedHashes.ContainsKey($Version)) { throw 'Select the reviewed NEXT version or a pinned regression version' }
+$expectedHash = $expectedHashes[$Version]
+if ($expectedHash -notmatch '^[0-9a-f]{64}$') { throw 'Invalid reviewed NEXT SHA-256' }
 $temporaryRoot = $null
 if ($EnginePath) { $EnginePath = [IO.Path]::GetFullPath($EnginePath) }
 $saved = @{}
@@ -34,7 +40,7 @@ try {
   $env:TRUEDOWN_ARIA2_PATH = $EnginePath
   $env:TRUEDOWN_ARIA2_NEXT_VERSION = $version
   if ($FFmpegPath) { $env:TRUEDOWN_FFMPEG_PATH = [IO.Path]::GetFullPath($FFmpegPath) }
-  if ($version -eq '3.0.0' -and -not $env:TRUEDOWN_FFMPEG_PATH -and -not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+  if ([version]$version -ge [version]'3.0.0' -and -not $env:TRUEDOWN_FFMPEG_PATH -and -not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     throw 'NEXT 3 media acceptance requires developer FFmpeg and ffprobe; pass -FFmpegPath'
   }
   node tools/prepare-mega-module.mjs
