@@ -13,6 +13,23 @@ mean the update has been installed. Settings shows verification, installation
 and restart status. Program updates still require a numbered Windows desktop
 package; NEXT remains an optional Windows engine.
 
+Update checks, manifests, checksums, signatures and package requests follow the
+saved proxy mode: system, a custom HTTP(S) proxy, or no proxy. Operational requests
+read the current choice for every request. System mode retains environment-proxy
+precedence and the Windows current-user proxy fallback. Module update tasks apply
+the current choice when admitted or re-admitted after a pause. Download headers,
+cookies and extra aria2 defaults are not copied to update requests. The local
+single-asset relay and core/engine RPC traffic stay direct in every mode.
+
+`internal/netproxy/proxy.go` owns mode validation, proxy selection and loopback
+bypass. Its platform files own system-proxy lookup. Downloads, probes, cloud
+resolvers, update clients and tracker forwarding reuse this policy; callers
+only provide their settings and adapt the result to HTTP or aria2 options.
+Tasks without an explicit proxy use the saved choice without importing other
+download defaults. Explicit task modes and legacy proxy arguments keep their
+own values. MEGA module processes receive the selected route through their
+private protocol and use the same policy to install it into their HTTP client.
+
 With automatic updates enabled, Windows checks about eight seconds after startup
 and every twelve hours thereafter, then downloads and verifies eligible updates.
 Pending updates are considered for application every thirty seconds while waiting
