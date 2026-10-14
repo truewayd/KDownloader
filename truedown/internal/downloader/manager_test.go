@@ -482,8 +482,11 @@ func TestSubmitDropboxTaskUsesStableURLAfterMetadataValidation(t *testing.T) {
 	})}
 	fake := &fakeAriaRPC{}
 	m.rpc = fake
-	m.dropboxProxy = func(*http.Request) (*url.URL, error) {
-		return url.Parse("http://127.0.0.1:10808")
+	defaults := m.TaskDefaults()
+	values := defaults.Values
+	values.ProxyMode, values.Proxy = "custom", "http://127.0.0.1:10808"
+	if _, err := m.SetTaskDefaults(defaults.Revision, values); err != nil {
+		t.Fatal(err)
 	}
 	if !m.submit(submission{id: task.ID}) {
 		t.Fatal("Dropbox task was not admitted")

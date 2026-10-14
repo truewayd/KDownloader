@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"truedown/internal/netproxy"
 )
 
 type ariaClient struct {
@@ -75,8 +77,7 @@ type ariaStatus struct {
 }
 
 func newAriaClient(port int, secret string) *ariaClient {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil
+	transport := netproxy.NewTransport(nil)
 	transport.MaxIdleConns = 4
 	transport.MaxIdleConnsPerHost = 4
 	return &ariaClient{

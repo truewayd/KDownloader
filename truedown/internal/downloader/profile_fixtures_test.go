@@ -17,7 +17,7 @@ func newTaskDefaultsStore(database string) (*taskDefaultsStore, error) {
 	return newTaskDefaultsStoreAt(profile.File(filepath.Dir(database), profile.TaskDefaults))
 }
 func newTrackerResearchModule(database string) (*trackerResearchModule, error) {
-	return newTrackerResearchModuleAt(profile.File(filepath.Dir(database), profile.TrackerState))
+	return newTrackerResearchModuleAt(profile.File(filepath.Dir(database), profile.TrackerState), nil)
 }
 func newModuleRegistry(database string) (*moduleRegistry, error) {
 	return newModuleRegistryAt(profile.File(filepath.Dir(database), profile.Modules), filepath.Join(filepath.Dir(database), profile.ModulePackages))

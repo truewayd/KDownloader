@@ -60,7 +60,7 @@ func (m *Manager) ProbeLink(ctx context.Context, link string, headers map[string
 		return ProbeResult{}, err
 	}
 	options := ariaOptions(&Task{Headers: identity.Headers, DownloadPage: identity.DownloadPage, Opts: opts}, false)
-	if err := applyDownloadProxy(options, identity.Link, opts); err != nil {
+	if err := m.applyTaskProxy(options, &Task{Link: identity.Link, Opts: opts}); err != nil {
 		return ProbeResult{}, &ValidationError{Message: "invalid probe proxy configuration"}
 	}
 	// Only transport settings apply. A probe has no GID, output, queue position,

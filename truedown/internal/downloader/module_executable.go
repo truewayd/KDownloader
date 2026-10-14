@@ -91,7 +91,7 @@ func (r *executableResolver) prepare(ctx context.Context, m *Manager, task *Task
 	if !moduleHasArtifactCapability(client.Info) {
 		return modulePreparation{}, fmt.Errorf("download module protocol is incompatible")
 	}
-	proxyURL, err := megaTaskProxy(task.Opts)
+	proxyURL, err := m.megaTaskProxy(task.Opts)
 	if err != nil {
 		return modulePreparation{}, err
 	}
@@ -126,9 +126,9 @@ func (r *executableResolver) prepare(ctx context.Context, m *Manager, task *Task
 	return modulePreparation{Link: prepared.URL, Headers: map[string]string{}, ProxyURL: proxyURL, Metadata: remoteMetadata{Name: sanitizeModulePathComponent(prepared.Name), Length: prepared.Size, LengthKnown: true}, Artifact: &artifactPlan{Executable: executable, Source: task.Link, Data: prepared.Data}}, nil
 }
 
-func megaTaskProxy(opts Aria2Opts) (string, error) {
+func (m *Manager) megaTaskProxy(opts Aria2Opts) (string, error) {
 	request, _ := http.NewRequest(http.MethodGet, "https://g.api.mega.co.nz/", nil)
-	proxy, err := taskProxy(opts)(request)
+	proxy, err := m.proxyForTask(opts)(request)
 	if err != nil {
 		return "", err
 	}
@@ -176,7 +176,7 @@ func (r *executableResolver) resolveFolder(ctx context.Context, m *Manager, requ
 	if !moduleCapability(client.Info, "public-folder-v1") {
 		return result, true, fmt.Errorf("MEGA module needs folder support; repair or update it")
 	}
-	proxy, err := megaTaskProxy(request.Opts)
+	proxy, err := m.megaTaskProxy(request.Opts)
 	if err != nil {
 		return result, true, err
 	}

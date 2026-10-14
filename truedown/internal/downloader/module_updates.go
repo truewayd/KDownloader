@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"truedown/internal/modulehost"
+	"truedown/internal/netproxy"
 	"truedown/internal/safefile"
 )
 
@@ -113,9 +114,8 @@ func (m *Manager) StartModuleUpdate(id string) error {
 	return nil
 }
 
-func moduleUpdateHTTPClient() *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = systemProxyFunc()
+func moduleUpdateHTTPClient(proxy func(*http.Request) (*url.URL, error)) *http.Client {
+	transport := netproxy.NewTransport(proxy)
 	return &http.Client{Transport: transport, Timeout: 30 * time.Second, CheckRedirect: func(request *http.Request, previous []*http.Request) error {
 		if len(previous) > 5 || request.URL.Scheme != "https" || request.URL.User != nil {
 			return modulehost.ErrPackage
@@ -153,7 +153,7 @@ func (m *Manager) updateExecutable(ctx context.Context, id string) (string, erro
 	if _, version, err := m.activeExecutable(id); err == nil {
 		current = version
 	}
-	client := moduleUpdateHTTPClient()
+	client := moduleUpdateHTTPClient(m.ProxyForRequest)
 	defer client.CloseIdleConnections()
 	version := current
 	prefix := "truedown-module-" + id + "-v"

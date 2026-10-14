@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"truedown/internal/netproxy"
 )
 
 const (
@@ -157,8 +159,8 @@ func defaultTrackerResearchSettings() TrackerResearchSettings {
 	}
 }
 
-func newTrackerResearchModuleAt(path string) (*trackerResearchModule, error) {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+func newTrackerResearchModuleAt(path string, proxy func(*http.Request) (*url.URL, error)) (*trackerResearchModule, error) {
+	transport := netproxy.NewTransport(proxy)
 	module := &trackerResearchModule{
 		path:      path,
 		settings:  defaultTrackerResearchSettings(),

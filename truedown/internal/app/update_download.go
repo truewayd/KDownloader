@@ -3,10 +3,22 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
 
 	"truedown/internal/downloader"
 	"truedown/internal/systemupdate"
 )
+
+func (host *managerHost) proxyForRequest(request *http.Request) (*url.URL, error) {
+	host.mu.RLock()
+	current := host.current
+	host.mu.RUnlock()
+	if current == nil {
+		return nil, fmt.Errorf("download engine is unavailable")
+	}
+	return current.manager.ProxyForRequest(request)
+}
 
 func (host *managerHost) downloadUpdate(ctx context.Context, url, name, directory string, maximum int64, progress func(systemupdate.DownloadProgress)) (string, error) {
 	// Keep this manager's store alive until completion/cancellation is persisted.

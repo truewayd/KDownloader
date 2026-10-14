@@ -140,8 +140,11 @@ func TestSubmitGoogleDriveTaskRefreshesURLBeforeAria2(t *testing.T) {
 			"Set-Cookie":   []string{"download_warning=fresh-token; Path=/; Secure"},
 		}), nil
 	})}
-	manager.googleDriveProxy = func(*http.Request) (*url.URL, error) {
-		return url.Parse("http://127.0.0.1:10809")
+	defaults := manager.TaskDefaults()
+	values := defaults.Values
+	values.ProxyMode, values.Proxy = "custom", "http://127.0.0.1:10809"
+	if _, err := manager.SetTaskDefaults(defaults.Revision, values); err != nil {
+		t.Fatal(err)
 	}
 	fake := &fakeAriaRPC{}
 	manager.rpc = fake

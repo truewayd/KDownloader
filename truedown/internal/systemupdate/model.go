@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"truedown/internal/netproxy"
 	"truedown/internal/profile"
 
 	"truedown/internal/safefile"
@@ -56,6 +57,7 @@ type Options struct {
 	NativeExecutable      string
 
 	HTTPClient            *http.Client
+	Proxy                 func(*http.Request) (*url.URL, error)
 	DownloadAsset         func(context.Context, string, string, string, int64, func(DownloadProgress)) (string, error)
 	CleanupAsset          func(directory, name, sha256 string, size int64) error
 	TrueDownReleasesURL   string
@@ -256,9 +258,12 @@ func New(options Options) (*Manager, error) {
 	}
 	client := options.HTTPClient
 	if client == nil {
-		transport := http.DefaultTransport.(*http.Transport).Clone()
+		proxy := options.Proxy
+		if proxy == nil {
+			proxy = netproxy.System
+		}
 		client = &http.Client{
-			Transport: transport,
+			Transport: netproxy.NewTransport(proxy),
 			Timeout:   45 * time.Second,
 		}
 	}

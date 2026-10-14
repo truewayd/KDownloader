@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"truedown/internal/netproxy"
 	"truedown/internal/protocol"
 )
 
@@ -64,9 +65,8 @@ func New(endpoint, token string) (*Client, error) {
 			}
 		}
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
 	// Local credentials must never be forwarded through an environment proxy.
-	transport.Proxy = nil
+	transport := netproxy.NewTransport(nil)
 	return &Client{endpoint: strings.TrimRight(endpoint, "/"), token: token, http: &http.Client{
 		Transport:     transport,
 		Timeout:       6 * time.Minute,

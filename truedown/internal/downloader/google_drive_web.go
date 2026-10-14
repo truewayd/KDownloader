@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"truedown/internal/netproxy"
 )
 
 const (
@@ -77,8 +79,7 @@ func isGoogleDriveDownloadHost(host string) bool {
 }
 
 func newGoogleDriveHTTPClient(proxy func(*http.Request) (*url.URL, error)) *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = proxy
+	transport := netproxy.NewTransport(proxy)
 	transport.DisableCompression = true
 	return &http.Client{Transport: transport, CheckRedirect: googleDriveRedirectPolicy, Timeout: 2 * time.Minute}
 }

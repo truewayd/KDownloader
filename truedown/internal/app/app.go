@@ -139,6 +139,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	updateContext, cancelUpdates := context.WithCancel(ctx)
 	defer cancelUpdates()
 	updates, err := systemupdate.New(systemupdate.Options{
+		Proxy:                 host.proxyForRequest,
 		DownloadAsset:         host.downloadUpdate,
 		CleanupAsset:          host.cleanupUpdateDownload,
 		BaseDir:               base,

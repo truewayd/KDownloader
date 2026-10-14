@@ -26,6 +26,7 @@ import (
 	"time"
 	"truedown/internal/enginesignal"
 	"truedown/internal/modulehost"
+	"truedown/internal/netproxy"
 	"truedown/internal/profile"
 	"unicode/utf8"
 )
@@ -369,13 +370,12 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		store.Close()
 		return nil, err
 	}
-	trackerResearch, err := newTrackerResearchModuleAt(paths.File(profile.TrackerState))
+	proxy := taskDefaults.proxyForRequest
+	trackerResearch, err := newTrackerResearchModuleAt(paths.File(profile.TrackerState), proxy)
 	if err != nil {
 		store.Close()
 		return nil, err
 	}
-	dropboxProxy := systemProxyFunc()
-	googleDriveProxy := systemProxyFunc()
 	lifecycleCtx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
 		moduleDirectory:   config.ModuleDirectory,
@@ -404,10 +404,10 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		statusCounts:      make(map[Status]int, 5),
 		ariaAdmitted:      make(map[int64]bool, ariaBacklogLimit),
 		ariaSlots:         make(chan struct{}, ariaBacklogLimit),
-		dropboxClient:     newDropboxHTTPClient(dropboxProxy),
-		dropboxProxy:      dropboxProxy,
-		googleDriveClient: newGoogleDriveHTTPClient(googleDriveProxy),
-		googleDriveProxy:  googleDriveProxy,
+		dropboxClient:     newDropboxHTTPClient(proxy),
+		dropboxProxy:      proxy,
+		googleDriveClient: newGoogleDriveHTTPClient(proxy),
+		googleDriveProxy:  proxy,
 		openPath:          systemOpenPath,
 		wake:              make(chan struct{}, 1),
 		dbWake:            make(chan struct{}, 1),
@@ -1404,6 +1404,7 @@ func (m *Manager) changeQueuePauseState(pause bool) TaskOperationResult {
 	result := newOperationResult()
 	m.mu.RLock()
 	ids := make([]int64, 0)
+	var updateTargets []rpcTarget
 	for _, id := range m.orderedIDs {
 		task := m.tasks[id]
 		if task == nil {
@@ -1415,6 +1416,9 @@ func (m *Manager) changeQueuePauseState(pause bool) TaskOperationResult {
 		}
 		if eligible {
 			ids = append(ids, id)
+			if !pause && task.UpdateDownload && m.ariaAdmitted[id] {
+				updateTargets = append(updateTargets, rpcTarget{id: id, gid: task.GID, task: cloneTask(task)})
+			}
 		}
 	}
 	m.mu.RUnlock()
@@ -1431,6 +1435,17 @@ func (m *Manager) changeQueuePauseState(pause bool) TaskOperationResult {
 	if pause {
 		err = m.rpc.pauseAll()
 	} else {
+		proxyErrors := runRPCOperations(updateTargets, 8, func(target rpcTarget) error {
+			return m.refreshUpdateProxy(target.task)
+		})
+		for _, proxyErr := range proxyErrors {
+			if proxyErr != nil {
+				for _, id := range ids {
+					result.fail(id, fmt.Errorf("refresh update proxy before queue resume: %w", proxyErr))
+				}
+				return result
+			}
+		}
 		err = m.rpc.unpauseAll()
 	}
 	if err != nil {
@@ -1525,7 +1540,7 @@ func (m *Manager) changePauseState(ids []int64, pause bool) TaskOperationResult 
 			result.fail(id, fmt.Errorf("task %d is %s and cannot be %s", id, task.Status, map[bool]string{true: "paused", false: "resumed"}[pause]))
 			continue
 		}
-		targets = append(targets, rpcTarget{id: id, gid: task.GID})
+		targets = append(targets, rpcTarget{id: id, gid: task.GID, task: cloneTask(task)})
 	}
 	m.mu.RUnlock()
 
@@ -1544,7 +1559,10 @@ func (m *Manager) changePauseState(ids []int64, pause bool) TaskOperationResult 
 		if pause {
 			err = m.rpc.pause(target.gid)
 		} else {
-			err = m.rpc.unpause(target.gid)
+			err = m.refreshUpdateProxy(target.task)
+			if err == nil {
+				err = m.rpc.unpause(target.gid)
+			}
 		}
 		if isGIDNotFound(err) {
 			missingMu.Lock()
@@ -2124,11 +2142,9 @@ func (m *Manager) submit(item submission) bool {
 		return false
 	}
 	options := m.engineTaskOptions(snapshot, item.recheck, item.discardPartial, isBitTorrent)
-	if snapshot.Opts.ProxyMode != "" {
-		if err := applyDownloadProxy(options, snapshot.Link, snapshot.Opts); err != nil {
-			m.failTask(snapshot.ID, err)
-			return false
-		}
+	if err := m.applyTaskProxy(options, snapshot); err != nil {
+		m.failTask(snapshot.ID, err)
+		return false
 	}
 	if isBitTorrent {
 		// OutputName records the root observed from the native torrent layout.
@@ -2138,7 +2154,7 @@ func (m *Manager) submit(item submission) bool {
 			options["check-integrity"] = "true"
 		}
 	}
-	if preparedProxy != "" && snapshot.Opts.ProxyMode == "" {
+	if preparedProxy != "" && snapshot.Opts.ProxyMode == "" && hasTaskProxyExtras(snapshot.Opts) {
 		options["https-proxy"] = preparedProxy
 	}
 	attachedToNative := false
@@ -3088,8 +3104,7 @@ func isDropboxContentHost(host string) bool {
 }
 
 func newDropboxHTTPClient(proxy func(*http.Request) (*url.URL, error)) *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = proxy
+	transport := netproxy.NewTransport(proxy)
 	transport.DisableCompression = true
 	jar, _ := cookiejar.New(nil)
 	return &http.Client{

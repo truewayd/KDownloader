@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"truedown/internal/netproxy"
 )
 
 type Metadata struct {
@@ -23,7 +25,7 @@ type Client struct {
 }
 
 func NewClient() *Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport := netproxy.NewTransport(netproxy.System)
 	transport.ResponseHeaderTimeout = 20 * time.Second
 	transport.MaxConnsPerHost = 2
 	return &Client{http: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, gateway: "https://g.api.mega.co.nz/cs?id=1"}
@@ -34,16 +36,12 @@ func (c *Client) SetProxy(raw string) error {
 	if !ok {
 		return ErrSource
 	}
-	var proxy *url.URL
-	if raw != "" {
-		var err error
-		proxy, err = url.Parse(raw)
-		if err != nil || proxy.Hostname() == "" || len(raw) > 4096 || (proxy.Scheme != "http" && proxy.Scheme != "https" && proxy.Scheme != "socks5" && proxy.Scheme != "socks5h") {
-			return ErrSource
-		}
+	proxy, err := netproxy.Resolved(raw)
+	if err != nil {
+		return ErrSource
 	}
 	transport.CloseIdleConnections()
-	transport.Proxy = http.ProxyURL(proxy)
+	transport.Proxy = proxy
 	return nil
 }
 

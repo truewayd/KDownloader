@@ -16,6 +16,7 @@ import (
 
 	"truedown/internal/client"
 	"truedown/internal/desktopbridge"
+	"truedown/internal/netproxy"
 	"truedown/internal/profile"
 	"truedown/internal/protocol"
 	"truedown/internal/safefile"
@@ -109,8 +110,7 @@ func existingDesktopHandler(ctx context.Context, endpoint string, location profi
 	if !same {
 		return nil, fmt.Errorf("listener belongs to a different TrueDown data directory")
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil
+	transport := netproxy.NewTransport(nil)
 	httpClient := &http.Client{Transport: transport, Timeout: 6 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	go func() { <-ctx.Done(); httpClient.CloseIdleConnections() }()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

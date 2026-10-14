@@ -145,11 +145,12 @@ func (c *collectionTransports) run(ctx context.Context, job *collectionTransport
 			}
 			job.mu.Unlock()
 			options["dir"], options["out"], options["gid"], options["pause"] = child.Folder, child.OutputName, child.GID, "true"
-			if err := applyDownloadProxy(options, child.Link, child.Opts); err != nil {
+			if child.Opts.ProxyMode == "" && !hasTaskProxyExtras(child.Opts) {
+				if err := applyResolvedDownloadProxy(options, child.Link, job.plan.Proxy); err != nil {
+					return err
+				}
+			} else if err := applyDownloadProxy(options, child.Link, child.Opts); err != nil {
 				return err
-			}
-			if job.plan.Proxy != "" && child.Opts.ProxyMode == "" {
-				options["https-proxy"] = job.plan.Proxy
 			}
 			job.mu.Lock()
 			if ctx.Err() != nil {
