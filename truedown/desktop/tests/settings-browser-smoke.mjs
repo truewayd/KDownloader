@@ -11,6 +11,8 @@ import { chromium } from "playwright";
 const assets = process.env.TRUEDOWN_TEST_WEB_ROOT
   ? pathToFileURL(path.resolve(process.env.TRUEDOWN_TEST_WEB_ROOT) + path.sep)
   : new URL("../../web/", import.meta.url);
+const expectedProjects = JSON.parse(await fs.readFile(new URL("../../licenses/projects.json", import.meta.url), "utf8"))
+  .map(({ name, url, license, usage }) => ({ name, url, license, usage }));
 const screenshots = process.argv[2] || await fs.mkdtemp(path.join(os.tmpdir(), "truedown-settings-"));
 await fs.mkdir(screenshots, { recursive: true });
 const server = http.createServer(async (request, response) => {
@@ -402,7 +404,13 @@ try {
         assert.equal(await page.locator("#check-truedown-update-btn").isVisible(), true);
         assert.equal(await page.locator("#auto-update-truedown").getAttribute("role"), "switch");
         assert.equal(await page.locator("#auto-update-truedown").isChecked(), true);
-        assert.equal(await page.locator("#open-source-projects a").count(), 10);
+        const renderedProjects = await page.locator("#open-source-projects > li").evaluateAll(entries => entries.map(entry => ({
+          name: entry.querySelector("a").textContent.trim(),
+          url: entry.querySelector("a").getAttribute("href"),
+          license: entry.querySelector(".open-source-project-license").textContent,
+          usage: entry.querySelector("p").textContent,
+        })));
+        assert.deepEqual(renderedProjects, expectedProjects, "every reference retains its source, license and role");
         await page.locator("#open-source-licenses summary").click();
         await page.waitForFunction(() => document.querySelector("#license-notices").textContent.includes("interactive MEGAcmdShell"));
         assert.ok((await page.locator("#license-notices").textContent()).includes("Copyright (c) 2023 Gustavo Rodrigues"));

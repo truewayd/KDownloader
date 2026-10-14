@@ -5,6 +5,8 @@
   reference for browser UA and URL-scoped cookie hand-off.
 - Preserve the generic HTTP backend and its existing header override path.
   Pawchive verification and media identity choices remain in the extension.
+- Validate every displayed About reference against the canonical inventory,
+  including its source, license and role, instead of a fixed project count.
 
 ## Verification
 
@@ -13,3 +15,5 @@
   both aria2 1.37.0 and NEXT 3.0.1 pass.
 - Full JavaScript and Go suites, Go vet, shared UI and original notice checks.
 - Windows package/core/CLI startup and WSL Linux tests/startup passed locally.
+- Settings browser acceptance passed at 1040, 820 and 390 pixels in light/dark
+  themes, comparing the complete displayed reference inventory with its source.
