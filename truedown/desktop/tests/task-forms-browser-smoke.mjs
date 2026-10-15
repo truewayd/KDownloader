@@ -207,16 +207,29 @@ try {
       assert.ok(advanced.y >= layout.body.y && advanced.y + advanced.height <= layout.body.y + layout.body.height);
       await page.locator("#overlay .advanced-options summary").click();
       await page.mouse.wheel(0, 3000);
-      await page.waitForFunction(() => document.querySelector("#overlay .modal-body").scrollTop > 0);
+      await page.waitForFunction(() => {
+        const body = document.querySelector("#overlay .modal-body");
+        return body.scrollHeight - body.clientHeight - body.scrollTop < 2;
+      });
       await page.locator("#overlay .advanced-options summary").focus();
       await page.keyboard.press("Tab");
       assert.equal(await page.evaluate(() => document.activeElement.matches('input, textarea, select, button[role="combobox"]') && Boolean(document.activeElement.closest(".advanced-body"))), true);
-      await page.keyboard.press("End");
       await page.waitForFunction(() => mediaCapabilities.media);
       await page.waitForFunction(() => !document.querySelector('#m-media option[value="hls"]').disabled);
-      await page.locator("#m-media").focus();
-      await page.keyboard.press("Home"); await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter");
-      assert.equal(await page.locator("#m-media").inputValue(), "hls");
+      const media = page.locator("#m-media");
+      // Opening during real focus-driven anchor movement correctly dismisses a picker.
+      await media.scrollIntoViewIfNeeded();
+      await media.focus();
+      await media.press("Home");
+      await page.locator(".kd-select-list").waitFor({ state: "visible" });
+      await media.press("ArrowDown");
+      await page.waitForFunction(() => {
+        const select = document.getElementById("m-media");
+        const active = document.getElementById(select.getAttribute("aria-activedescendant"));
+        return active && select.options[Number(active.dataset.index)]?.value === "hls";
+      }, null, { timeout: 5000 });
+      await media.press("Enter");
+      assert.equal(await media.inputValue(), "hls");
       assert.equal(await page.locator("#media-options").isVisible(), true);
       await page.locator("#m-media-time").fill("30");
       await page.locator("#submit-task-btn").click();
