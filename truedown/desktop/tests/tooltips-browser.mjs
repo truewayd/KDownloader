@@ -154,9 +154,22 @@ if (process.argv.includes("--serve")) {
             if (mode === "expanded") assert.equal(geometry.speedFirst, true);
           } else if (scenario !== "idle") {
             assert.equal(await page.locator("#workspace-traffic").isVisible(), false);
-            const marker = page.locator("#workspace-notice-action > .icon, #workspace-notice-progress");
+            const primary = page.locator("#workspace-notice-action");
+            const command = page.locator("#workspace-notice-command");
+            const actionable = ["update", "restart", "update-failure", "engine-ready"].includes(scenario);
+            const compactAction = actionable && mode !== "expanded";
+            assert.equal(await command.isVisible(), actionable, `${scenario}/${mode}: update command visibility`);
+            assert.equal(await primary.isVisible(), !compactAction, `${scenario}/${mode}: status visibility`);
+            const target = compactAction ? command : primary;
+            const marker = compactAction ? command.locator(":scope > .icon")
+              : page.locator("#workspace-notice-action > .icon, #workspace-notice-progress");
             assert.equal((await Promise.all((await marker.all()).map(node => node.isVisible()))).filter(Boolean).length, 1, `${scenario}/${mode}: one visible update indicator`);
-            assert.ok((await page.locator("#workspace-notice-action").getAttribute("aria-label")).length > 0);
+            assert.ok((await target.getAttribute("aria-label")).length > 0);
+            await target.hover();
+            await tip.waitFor({ state: "visible" });
+            assert.equal(await tip.textContent(), await target.getAttribute("data-tooltip"), `${scenario}/${mode}: visible control tooltip`);
+            await page.keyboard.press("Escape");
+            await tip.waitFor({ state: "hidden" });
           }
         }
       }
