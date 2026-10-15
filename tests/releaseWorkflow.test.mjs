@@ -50,6 +50,56 @@ function actionReferences(source) {
   }));
 }
 
+test("Windows NEXT media setup retries bounded failures and requires both oracle tools", async () => {
+  const blocks = await Promise.all([
+    ".github/workflows/publish-truedown.yml",
+    ".github/workflows/test-cross-platform.yml",
+  ].map(async file => {
+    const source = await read(file);
+    const section = source.split("- name: Prepare media test oracle")[1]?.split("- name: Accept reviewed NEXT engine")[0];
+    assert.ok(section, file);
+    const lines = section.split(/\r?\n/);
+    const start = lines.findIndex(line => /run: \|/.test(line));
+    assert.ok(start >= 0, file);
+    return lines.slice(start + 1).map(line => line.trim() ? line.slice(10) : "").join("\n").trim();
+  }));
+  assert.equal(blocks[0], blocks[1], "validation and publication use the same oracle setup");
+  for (const scenario of ["installed", "transient", "failed", "partial"]) {
+    const { stdout } = await run("pwsh", ["-NoProfile", "-Command", `
+      $global:oracleAttempts = 0
+      $global:oracleSleeps = 0
+      $global:oracleReady = '${scenario}' -eq 'installed'
+      $global:oracleFailed = $false
+      function Get-Command {
+        param([string]$Name, [string]$ErrorAction)
+        if ($global:oracleReady -or ('${scenario}' -eq 'partial' -and $Name -eq 'ffmpeg')) {
+          return [pscustomobject]@{ Name = $Name }
+        }
+      }
+      function choco {
+        $global:oracleAttempts++
+        $global:oracleReady = '${scenario}' -eq 'transient' -and $global:oracleAttempts -eq 3
+        $global:LASTEXITCODE = if ($global:oracleReady -or '${scenario}' -eq 'partial') { 0 } else { 1 }
+      }
+      function Start-Sleep {
+        param([int]$Seconds)
+        $global:oracleSleeps++
+        if ($Seconds -ne (5 * $global:oracleSleeps)) { throw 'Unexpected retry delay' }
+      }
+      try {
+        ${blocks[0]}
+      } catch {
+        $global:oracleFailed = $true
+        if ($_.Exception.Message -notlike '*Failed to prepare FFmpeg and ffprobe after 3 attempts*') { throw }
+      }
+      [pscustomobject]@{ attempts = $global:oracleAttempts; sleeps = $global:oracleSleeps; failed = $global:oracleFailed } | ConvertTo-Json -Compress
+    `]);
+    assert.deepEqual(JSON.parse(stdout), scenario === "installed"
+      ? { attempts: 0, sleeps: 0, failed: false }
+      : { attempts: 3, sleeps: 2, failed: scenario !== "transient" }, scenario);
+  }
+});
+
 test("release workflows use dated, product-specific changelogs", async () => {
   const [kDownloader, trueDown, selectorSource, agents, changelogGuide, gitignore] =
     await Promise.all([
