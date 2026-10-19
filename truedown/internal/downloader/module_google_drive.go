@@ -22,6 +22,7 @@ type googleDriveResolverModule struct {
 }
 
 type googleDriveComponentConfig struct {
+	NameSource         string `json:"nameSource,omitempty"`
 	StableDownloadPath string `json:"stableDownloadPath"`
 	OpenPath           string `json:"openPath"`
 	FolderViewPath     string `json:"folderViewPath"`
@@ -30,6 +31,7 @@ type googleDriveComponentConfig struct {
 }
 
 var googleDriveBaselineProfile = googleDriveComponentConfig{
+	NameSource:         responseFilenameIdentity,
 	StableDownloadPath: "/uc",
 	OpenPath:           "/open",
 	FolderViewPath:     "/embeddedfolderview",
@@ -64,6 +66,12 @@ func newGoogleDriveResolverModule(pkg componentPackage) (resolverModule, error) 
 	profile.FolderViewPath = strings.TrimSpace(profile.FolderViewPath)
 	profile.NativeExportPath = strings.TrimSpace(profile.NativeExportPath)
 	profile.UserAgent = strings.TrimSpace(profile.UserAgent)
+	if profile.NameSource == "" {
+		profile.NameSource = responseFilenameIdentity
+	}
+	if profile.NameSource != responseFilenameIdentity && profile.NameSource != "legacy-output" {
+		return nil, &ValidationError{Message: "Google Drive nameSource must be response or legacy-output"}
+	}
 	for name, value := range map[string]string{
 		"stableDownloadPath": profile.StableDownloadPath,
 		"openPath":           profile.OpenPath,
@@ -171,6 +179,7 @@ func (module *googleDriveResolverModule) prepare(ctx context.Context, m *Manager
 	}
 	prepared := modulePreparation{Link: metadata.URL, Headers: headers, Metadata: metadata}
 	m.resolveMetadataFilename(resolveCtx, &prepared.Metadata)
+	prepared.Metadata.NameSource = module.profile.NameSource
 	if m.googleDriveProxy != nil {
 		proxyRequest, requestErr := http.NewRequest(http.MethodGet, task.Link, nil)
 		if requestErr != nil {

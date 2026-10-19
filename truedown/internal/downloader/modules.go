@@ -62,6 +62,9 @@ type ModuleAddResult struct {
 }
 
 type remoteMetadata struct {
+	// The provider chooses how to establish a missing remote-name baseline.
+	// Recorded remote names, lengths and digests are always enforced by the host.
+	NameSource         string
 	ContentDisposition string
 	URL                string
 	Name               string
@@ -69,6 +72,8 @@ type remoteMetadata struct {
 	Length             int64
 	LengthKnown        bool
 }
+
+const responseFilenameIdentity = "response"
 
 type modulePreparation struct {
 	Artifact *artifactPlan
@@ -233,6 +238,10 @@ func (registry *moduleRegistry) setInstalled(id string, installed bool) (ModuleI
 }
 
 func (registry *moduleRegistry) installPackage(raw json.RawMessage) (ModuleInfo, error) {
+	return registry.installPackageAt(raw, "")
+}
+
+func (registry *moduleRegistry) installPackageAt(raw json.RawMessage, expectedDigest string) (ModuleInfo, error) {
 	if len(raw) == 0 || len(raw) > maxModulePackageBytes {
 		return ModuleInfo{}, &ValidationError{Message: "resolver component package must be between 1 byte and 64 KiB"}
 	}
@@ -258,6 +267,9 @@ func (registry *moduleRegistry) installPackage(raw json.RawMessage) (ModuleInfo,
 	baselineVersion := registry.baseline[id].packageInfo.Version
 	current := registry.active[id]
 	registry.mu.RUnlock()
+	if expectedDigest != "" && current.digest != expectedDigest {
+		return ModuleInfo{}, &ValidationError{Message: "resolver profile changed while checking for updates"}
+	}
 	updated, err := decodeComponent(factory, raw, "updated")
 	if err != nil {
 		return ModuleInfo{}, err
@@ -403,12 +415,12 @@ func (m *Manager) InstallModulePackage(raw json.RawMessage) (ModuleInfo, error) 
 // ResetModulePackage removes an independent update and immediately restores
 // the baseline embedded in the current TrueDown binary.
 func (m *Manager) ResetModulePackage(id string) (ModuleInfo, error) {
+	m.moduleUpdateMu.Lock()
+	defer m.moduleUpdateMu.Unlock()
+	if m.moduleUpdateState.Running && m.moduleUpdateState.ID == id {
+		return ModuleInfo{}, fmt.Errorf("module update is running")
+	}
 	if id == "mega" {
-		m.moduleUpdateMu.Lock()
-		defer m.moduleUpdateMu.Unlock()
-		if m.moduleUpdateState.Running {
-			return ModuleInfo{}, fmt.Errorf("module update is running")
-		}
 		if err := removeComponentPackage(filepath.Join(m.executableRoot(id), "active.json")); err != nil {
 			return ModuleInfo{}, err
 		}

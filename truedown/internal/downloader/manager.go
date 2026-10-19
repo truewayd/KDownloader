@@ -3281,10 +3281,6 @@ func expectedDropboxRemoteName(task *Task) string {
 	if task.RemoteName != "" {
 		return task.RemoteName
 	}
-	// A user's MEGA output name is independent of the authenticated remote name.
-	if task.ModuleID == "mega" {
-		return ""
-	}
 	var identity requestIdentity
 	if task.RequestJSON != "" && json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.Name == "" {
 		return task.OutputName
@@ -3347,6 +3343,9 @@ func (m *Manager) applyRemoteMetadata(id int64, metadata remoteMetadata, enforce
 
 func validateRemoteMetadata(task *Task, metadata remoteMetadata, moduleName string) error {
 	expectedName := expectedDropboxRemoteName(task)
+	if metadata.NameSource == responseFilenameIdentity {
+		expectedName = task.RemoteName
+	}
 	if expectedName != "" && metadata.Name != "" && !samePathName(expectedName, metadata.Name) {
 		return fmt.Errorf("%s file name changed from %q to %q", moduleName, expectedName, metadata.Name)
 	}

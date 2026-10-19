@@ -62,7 +62,7 @@ func TestResolverComponentUpdateHotReloadsPersistsAndResets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Version != "1.1.0" || updated.BaselineVersion != "1.0.0" ||
+	if updated.Version != "1.1.0" || updated.BaselineVersion != "1.0.1" ||
 		updated.Source != "updated" || updated.Installed || !updated.HotReload || len(updated.Digest) != 64 {
 		t.Fatalf("unexpected updated component info: %+v", updated)
 	}

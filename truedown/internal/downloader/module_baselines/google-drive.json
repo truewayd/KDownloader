@@ -2,9 +2,10 @@
   "schemaVersion": 1,
   "id": "google-drive",
   "engine": "google-drive-v1",
-  "version": "1.0.0",
-  "releasedAt": "2026-08-19",
+  "version": "1.0.1",
+  "releasedAt": "2026-10-19",
   "config": {
+    "nameSource": "response",
     "stableDownloadPath": "/uc",
     "openPath": "/open",
     "folderViewPath": "/embeddedfolderview",

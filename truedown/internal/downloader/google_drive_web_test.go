@@ -164,6 +164,86 @@ func TestSubmitGoogleDriveTaskRefreshesURLBeforeAria2(t *testing.T) {
 	}
 }
 
+func TestGoogleDriveRetrySeparatesRemoteNameFromOutput(t *testing.T) {
+	for _, localName := range []string{"Process B", "custom.png", "Process B(1).png"} {
+		t.Run(localName, func(t *testing.T) {
+			root := t.TempDir()
+			downloads, database := filepath.Join(root, "downloads"), filepath.Join(root, "records.db")
+			m, err := NewManager("unused", downloads, database)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.Stop()
+			task, _, err := m.AddTask(googleDriveStableLink("file-id-123456789012345", "", ""), localName, "", nil, "", 0, Aria2Opts{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.flushAdmissions(false)
+			m.failTask(task.ID, fmt.Errorf("Google Drive file name changed"))
+			m.Stop()
+
+			// Existing failed records have a local name but no remote baseline.
+			m, err = NewManager("unused", downloads, database)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.Stop()
+			remoteName := "Process B.png"
+			m.googleDriveClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				return googleDriveTestResponse(request, http.StatusOK, "payload", http.Header{
+					"Content-Type":        {"application/octet-stream"},
+					"Content-Disposition": {`attachment; filename="` + remoteName + `"`},
+					"Content-Length":      {"7"},
+				}), nil
+			})}
+			fake := &fakeAriaRPC{}
+			m.rpc = fake
+			if err := m.RequeueTask(task.ID); err != nil {
+				t.Fatal(err)
+			}
+			if !m.submit(submission{id: task.ID}) {
+				current, _ := m.GetTask(task.ID)
+				t.Fatalf("retry rejected first remote name: %+v", current)
+			}
+			current, _ := m.GetTask(task.ID)
+			if current.OutputName != task.OutputName || current.Folder != task.Folder || current.RemoteName != remoteName || len(fake.added) != 1 {
+				t.Fatalf("retry changed output or lost remote metadata: %+v", current)
+			}
+			records, err := m.store.LoadAll()
+			if err != nil || len(records) != 1 || records[0].RemoteName != remoteName {
+				t.Fatalf("remote baseline was not persisted: %+v, %v", records, err)
+			}
+			// A real remote identity change must still fail before partial cleanup.
+			path := filepath.Join(current.Folder, current.OutputName)
+			if err := os.WriteFile(path, []byte("partial"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			m.applyStatuses([]ariaStatus{{GID: current.GID, Status: "error", ErrorMessage: "connection closed"}})
+			remoteName = "changed.png"
+			if err := m.RequeueTask(task.ID); err != nil {
+				t.Fatal(err)
+			}
+			if m.submit(submission{id: task.ID}) || len(fake.added) != 1 {
+				t.Fatal("changed remote file was admitted")
+			}
+			current, _ = m.GetTask(task.ID)
+			data, err := os.ReadFile(path)
+			if !strings.Contains(current.Error, "file name changed") || err != nil || string(data) != "partial" {
+				t.Fatalf("identity failure did not preserve output: %+v, %q, %v", current, data, err)
+			}
+			for _, metadata := range []remoteMetadata{
+				{Name: "Process B.png", Length: 8, LengthKnown: true},
+				{Name: "Process B.png", Digest: "different"},
+			} {
+				current.RemoteDigest = "recorded"
+				if validateRemoteMetadata(current, metadata, "Google Drive") == nil {
+					t.Fatalf("remote identity change accepted: %+v", metadata)
+				}
+			}
+		})
+	}
+}
+
 func TestResolveGoogleDriveNativeFileUsesRequestedExportFormat(t *testing.T) {
 	fileID := "slides-file-id-123456789012"
 	requests := 0

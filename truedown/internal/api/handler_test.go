@@ -520,7 +520,7 @@ func TestResolverComponentPackageEndpointHotReloadsAndResets(t *testing.T) {
 	installResponse := httptest.NewRecorder()
 	mux.ServeHTTP(installResponse, install)
 	if installResponse.Code != http.StatusOK || !strings.Contains(installResponse.Body.String(), `"source":"updated"`) ||
-		!strings.Contains(installResponse.Body.String(), `"baselineVersion":"1.0.0"`) {
+		!strings.Contains(installResponse.Body.String(), `"baselineVersion":"1.0.1"`) {
 		t.Fatalf("install component status=%d body=%s", installResponse.Code, installResponse.Body.String())
 	}
 

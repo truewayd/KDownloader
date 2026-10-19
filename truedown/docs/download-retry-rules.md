@@ -10,6 +10,13 @@ An already numbered caller filename is preserved; retry never adds another
 suffix to it. Ordinary unnamed HTTP downloads pin the URL-derived name before
 submission instead of letting response headers or the engine rename the file.
 
+Google Drive folder titles and user-provided local names may differ from the
+download response filename (including its extension). First preparation records
+the response filename separately without comparing it to the local name. This
+also repairs retries of older failed tasks with no recorded remote filename.
+Later preparations compare the recorded remote name, size and digest; the local
+output path stays fixed.
+
 Only new tasks allocate collision suffixes: `photo.png`, `photo(1).png`, and so
 on. Both filesystem entries and other task records reserve names. A foreign
 `.aria2` file also reserves its corresponding payload name, including dangling

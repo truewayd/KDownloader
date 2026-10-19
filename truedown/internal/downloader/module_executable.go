@@ -107,7 +107,7 @@ func (r *executableResolver) prepare(ctx context.Context, m *Manager, task *Task
 		if !moduleCapability(client.Info, "folder-zip-v1") {
 			return modulePreparation{}, fmt.Errorf("MEGA module needs folder support; repair or update it")
 		}
-		return modulePreparation{Headers: map[string]string{}, ProxyURL: proxyURL, Metadata: remoteMetadata{Name: identity.Collection.Name + ".zip", Length: size, LengthKnown: true}, Artifact: &artifactPlan{Executable: executable, Source: task.Link, Collection: identity.Collection, Proxy: proxyURL}}, nil
+		return modulePreparation{Headers: map[string]string{}, ProxyURL: proxyURL, Metadata: remoteMetadata{NameSource: responseFilenameIdentity, Name: identity.Collection.Name + ".zip", Length: size, LengthKnown: true}, Artifact: &artifactPlan{Executable: executable, Source: task.Link, Collection: identity.Collection, Proxy: proxyURL}}, nil
 	}
 	var prepared modulehost.PreparedArtifact
 	prepareRequest := map[string]any{"source": task.Link, "proxy": proxyURL}
@@ -123,7 +123,7 @@ func (r *executableResolver) prepare(ctx context.Context, m *Manager, task *Task
 	if err := validateDownloadURL(prepared.URL); err != nil {
 		return modulePreparation{}, fmt.Errorf("invalid module transport")
 	}
-	return modulePreparation{Link: prepared.URL, Headers: map[string]string{}, ProxyURL: proxyURL, Metadata: remoteMetadata{Name: sanitizeModulePathComponent(prepared.Name), Length: prepared.Size, LengthKnown: true}, Artifact: &artifactPlan{Executable: executable, Source: task.Link, Data: prepared.Data}}, nil
+	return modulePreparation{Link: prepared.URL, Headers: map[string]string{}, ProxyURL: proxyURL, Metadata: remoteMetadata{NameSource: responseFilenameIdentity, Name: sanitizeModulePathComponent(prepared.Name), Length: prepared.Size, LengthKnown: true}, Artifact: &artifactPlan{Executable: executable, Source: task.Link, Data: prepared.Data}}, nil
 }
 
 func (m *Manager) megaTaskProxy(opts Aria2Opts) (string, error) {
