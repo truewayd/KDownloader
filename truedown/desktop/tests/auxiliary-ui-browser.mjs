@@ -97,7 +97,7 @@ try {
   await page.waitForFunction(() => pendingResolverModuleActions.has("dropbox"));
   await page.locator('[data-module-toggle="google-drive"]').click();
   await page.waitForFunction(() => document.querySelector('[data-module-toggle="google-drive"]').dataset.installed === "false");
-  for (const action of ["toggle", "update", "reset"]) {
+  for (const action of ["toggle", "update", "import", "reset"]) {
     const button = page.locator(`[data-module-${action}="dropbox"]`);
     assert.equal(await button.isDisabled(), true, `re-render preserves pending ${action} state`);
     assert.equal(await button.getAttribute("aria-busy"), "true");
@@ -114,7 +114,8 @@ try {
   await page.waitForFunction(() => document.querySelector("#toast").textContent.includes("Fixture module save failed"));
   assert.equal(await page.locator('[data-module-update="dropbox"]').isDisabled(), false, "failed writes unlock all actions");
   await page.evaluate(() => { chooseModulePackageFile = () => new Promise(resolve => { globalThis.cancelModuleChoice = () => resolve(null); }); });
-  await page.locator('[data-module-update="dropbox"]').click();
+  await page.locator('[data-module-import="dropbox"]').click();
+  await page.waitForFunction(() => typeof cancelModuleChoice === "function");
   await page.evaluate(() => renderResolverModules());
   assert.equal(await page.locator('[data-module-toggle="dropbox"]').isDisabled(), true, "file selection owns the module slot");
   await page.evaluate(() => cancelModuleChoice());
