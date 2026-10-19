@@ -21,6 +21,11 @@
 - Add Copy download address to task context menus on all desktop platforms.
 - Add Copy links to the floating selection toolbar, with one task link per line
   and retained links for selected tasks outside the virtual viewport.
+- Reuse installed FFmpeg/ffprobe in Windows CI, otherwise fetch a fixed Gyan
+  9.0.2 archive with a pinned SHA-256 into the runner's versioned tool cache.
+  Keep bounded retries and executable version checks. Both NEXT validation and
+  Windows publication use this shared setup, avoiding the unavailable Chocolatey
+  package feed encountered during this release.
 
 ## Verification
 

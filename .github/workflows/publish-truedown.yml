@@ -8,6 +8,7 @@ on:
       - ".github/workflows/publish-truedown.yml"
       - "changelog/truedown/**"
       - "tools/read-latest-changelog.ps1"
+      - "tools/prepare-media-oracle.ps1"
       - "tests/releaseWorkflow.test.mjs"
       - "tests/releaseNumber.test.mjs"
       - "tests/native*.test.mjs"
@@ -114,15 +115,7 @@ jobs:
         run: go vet ./...
 
       - name: Prepare media test oracle
-        run: |
-          for ($attempt = 1; $attempt -le 3; $attempt++) {
-            if ((Get-Command ffmpeg -ErrorAction SilentlyContinue) -and (Get-Command ffprobe -ErrorAction SilentlyContinue)) { break }
-            choco install ffmpeg --no-progress --yes
-            $installExitCode = $LASTEXITCODE
-            if ($installExitCode -eq 0 -and (Get-Command ffmpeg -ErrorAction SilentlyContinue) -and (Get-Command ffprobe -ErrorAction SilentlyContinue)) { break }
-            if ($attempt -eq 3) { throw "Failed to prepare FFmpeg and ffprobe after 3 attempts (Chocolatey exit $installExitCode)" }
-            Start-Sleep -Seconds (5 * $attempt)
-          }
+        run: ./tools/prepare-media-oracle.ps1
       - name: Accept reviewed NEXT engine
         run: ./truedown/tools/test-next-engine.ps1
 
