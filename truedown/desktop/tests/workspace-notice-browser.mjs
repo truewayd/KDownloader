@@ -7,29 +7,32 @@ import { chromium } from "playwright";
 import { readUIFixtureAsset } from "./ui-fixture-assets.mjs";
 
 const assets = new URL("../../web/", import.meta.url);
-const screenshots = await fs.mkdtemp(path.join(os.tmpdir(), "truedown-notice-"));
+const screenshots = process.argv[2] || await fs.mkdtemp(path.join(os.tmpdir(), "truedown-notice-"));
+await fs.mkdir(screenshots, { recursive: true });
 const idle = { trueDown: { supported: true, autoUpdate: true, restartNeedsConfirmation: false }, engine: {} };
 let state = idle, fail = false, reads = 0, restarts = 0;
 let limit = 0, runtimeFail = false;
 let moduleState = { running: false, version: "0.2.0" };
 let nextResult = null;
-const retries = { truedown: 0, "next-engine": 0, mega: 0 };
+const retries = { truedown: 0, "next-engine": 0, mega: 0, dropbox: 0, "google-drive": 0 };
 let summary = {};
 const server = http.createServer(async (request, response) => {
   const name = new URL(request.url, "http://localhost").pathname;
   if (["/system/update/check", "/system/engine/next", "/modules/update"].includes(name) && request.method === "POST") {
-    const kind = name === "/modules/update" ? "mega" : name === "/system/engine/next" ? "next-engine" : "truedown";
-    retries[kind]++;
-    if (kind === "mega") {
+    const moduleUpdate = name === "/modules/update";
+    let kind = name === "/system/engine/next" ? "next-engine" : "truedown";
+    if (moduleUpdate) {
       let body = "";
       for await (const chunk of request) body += chunk;
-      assert.deepEqual(JSON.parse(body), { id: "mega" });
-      moduleState = { id: "mega", running: true, phase: "installing", version: "" };
+      kind = JSON.parse(body).id;
+      assert.ok(["mega", "dropbox", "google-drive"].includes(kind));
+      moduleState = { id: kind, running: true, phase: "installing", version: "" };
     } else {
       state = kind === "next-engine" && nextResult ? nextResult : { ...idle, busy: kind };
     }
+    retries[kind]++;
     await new Promise(resolve => setTimeout(resolve, 250));
-    response.writeHead(202).end(JSON.stringify(kind === "mega" ? moduleState : state)); return;
+    response.writeHead(202).end(JSON.stringify(moduleUpdate ? moduleState : state)); return;
   }
   if (name === "/modules/update") { response.end(JSON.stringify(moduleState)); return; }
   if (name === "/system/update") {
@@ -187,9 +190,9 @@ try {
     await page.evaluate(() => scheduleSystemUpdateRefresh(true));
     await page.waitForFunction(() => systemUpdateState.error !== "");
     assert.equal(await page.evaluate(() => workspaceNoticeTarget), "restart", "a separate update failure cannot hide a verified restart");
-    for (const kind of ["truedown", "next-engine", "mega"]) {
+    for (const kind of ["truedown", "next-engine", "mega", "google-drive", "dropbox"]) {
       state = { ...idle, trueDown: { ...idle.trueDown, error: kind === "truedown" ? "Program install failed" : "" }, engine: { error: kind === "next-engine" ? "Engine verification failed" : "" } };
-      moduleState = { id: "mega", running: false, error: kind === "mega" ? "Module installation failed" : "" };
+      moduleState = { id: ["mega", "google-drive", "dropbox"].includes(kind) ? kind : "mega", running: false, error: ["mega", "google-drive", "dropbox"].includes(kind) ? "Module installation failed" : "" };
       await page.evaluate(() => scheduleSystemUpdateRefresh(true));
       await page.waitForFunction(expected => workspaceNoticeCommand?.kind === expected, kind);
       const command = page.locator("#workspace-notice-command");

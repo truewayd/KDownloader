@@ -958,10 +958,10 @@ function renderResolverModules() {
 			: module.id === "dropbox" ? "下载共享文件，或将文件夹展开为独立任务。"
 			: module.id === "mega" ? "下载公开文件；目录可生成 ZIP 或展开为独立文件，完成前校验完整性。需预留约两倍内容大小的空间。" : module.description;
 		copy.append(heading, description);
-		if (module.id === "mega") {
+		{
 			const status = document.createElement("p");
 			status.className = "hint";
-			status.dataset.moduleUpdateStatus = "mega";
+			status.dataset.moduleUpdateStatus = module.id;
 			status.setAttribute("role", "status");
 			status.hidden = true;
 			copy.append(status);
@@ -987,9 +987,18 @@ function renderResolverModules() {
 		update.type = "button";
 		update.className = "kd-button secondary compact";
 		update.dataset.moduleUpdate = module.id;
-		update.setAttribute("aria-label", module.id === "mega" ? `检查 ${module.name} 模块更新` : `导入 ${module.name} 组件更新包`);
-		update.textContent = module.id === "mega" ? "检查更新" : "导入更新";
+		update.setAttribute("aria-label", `检查 ${module.name} 模块更新`);
+		update.textContent = "检查更新";
 		actions.append(toggle, update);
+		if (module.id !== "mega") {
+			const upload = document.createElement("button");
+			upload.type = "button";
+			upload.className = "kd-button secondary compact";
+			upload.dataset.moduleImport = module.id;
+			upload.textContent = "导入更新";
+			upload.setAttribute("aria-label", `导入 ${module.name} 组件更新包`);
+			actions.append(upload);
+		}
 		if (module.source === "updated" || module.updateError) {
 			const reset = document.createElement("button");
 			reset.type = "button";
@@ -1015,20 +1024,20 @@ function renderResolverModules() {
 }
 
 async function onModuleAction(event) {
-	const button = event.target.closest("button[data-module-toggle], button[data-module-update], button[data-module-reset]");
+	const button = event.target.closest("button[data-module-toggle], button[data-module-update], button[data-module-import], button[data-module-reset]");
 	if (!button) return;
-	const id = button.dataset.moduleToggle || button.dataset.moduleUpdate || button.dataset.moduleReset;
+	const id = button.dataset.moduleToggle || button.dataset.moduleUpdate || button.dataset.moduleImport || button.dataset.moduleReset;
 	if (!id || pendingResolverModuleActions.has(id)) return;
 	const installed = button.dataset.installed !== "true";
 	setResolverModuleBusy(id, true);
 	invalidateSettingRead("modules");
 	try {
 		if (button.dataset.moduleUpdate) {
-			if (id === "mega") {
-				await requestUpdateOperation("mega");
-				showToast("正在检查模块更新；如有新版，下载进度会显示在任务列表中。");
-				return;
-			}
+			await requestUpdateOperation(id);
+			showToast("正在检查模块更新。更新成功后，后续解析和重试会使用新版本。");
+			return;
+		}
+		if (button.dataset.moduleImport) {
 			await importModuleUpdate(id);
 			return;
 		}
@@ -1056,12 +1065,13 @@ async function onModuleAction(event) {
 function setResolverModuleBusy(id, busy) {
   if (busy) pendingResolverModuleActions.add(id);
   else pendingResolverModuleActions.delete(id);
-  els.moduleList.querySelectorAll("button[data-module-toggle], button[data-module-update], button[data-module-reset]").forEach(button => {
-    if ((button.dataset.moduleToggle || button.dataset.moduleUpdate || button.dataset.moduleReset) === id) {
+  els.moduleList.querySelectorAll("button[data-module-toggle], button[data-module-update], button[data-module-import], button[data-module-reset]").forEach(button => {
+    if ((button.dataset.moduleToggle || button.dataset.moduleUpdate || button.dataset.moduleImport || button.dataset.moduleReset) === id) {
       KDComponents.setBusyState(button, busy);
     }
   });
   if (id === "dropbox") renderDropboxAvailability();
+  renderModuleUpdateStatus();
 }
 
 async function importModuleUpdate(id) {
@@ -1141,27 +1151,31 @@ function replaceResolverModule(value) {
 let moduleUpdatePending = false;
 let moduleUpdateNotifyPending = false;
 function renderModuleUpdateStatus() {
-  const status = els.moduleList?.querySelector('[data-module-update-status="mega"]');
-  const button = els.moduleList?.querySelector('[data-module-update="mega"]');
   const update = moduleUpdateState;
-  if (status) {
-    status.textContent = update?.running
-      ? ({ checking: "正在检查 MEGA 更新…", downloading: "正在下载 MEGA 更新…", installing: "正在校验并安装 MEGA 更新…" })[update.phase] || "正在更新 MEGA…"
-      : update?.error ? "MEGA 更新失败，已保留原版本。" : update?.version && update.id === "mega" ? `MEGA v${update.version} 已就绪。` : "";
-    status.hidden = !status.textContent;
-  }
-  if (button) {
-    const busy = update?.running === true || updateOperationsPending.has("mega") || pendingResolverModuleActions.has("mega");
-    button.disabled = busy;
-    KDComponents.setBusyState(button, busy, { manageDisabled: false });
-    button.textContent = update?.error ? "重试更新" : "检查更新";
+  for (const id of ["mega", "dropbox", "google-drive"]) {
+    const name = ({ mega: "MEGA", dropbox: "Dropbox", "google-drive": "Google Drive" })[id];
+    const status = els.moduleList?.querySelector(`[data-module-update-status="${id}"]`);
+    const button = els.moduleList?.querySelector(`[data-module-update="${id}"]`);
+    const own = update?.id === id ? update : null;
+    if (status) {
+      status.textContent = own?.running
+        ? `${({ checking: "正在检查", downloading: "正在下载", installing: "正在校验并安装" })[own.phase] || "正在更新"} ${name}…`
+        : own?.error ? `${name} 更新失败，已保留原版本。` : own?.version ? `${name} v${own.version} 已就绪。` : "";
+      status.hidden = !status.textContent;
+    }
+    if (button) {
+      const busy = update?.running === true || updateOperationsPending.has(id) || pendingResolverModuleActions.has(id);
+      button.disabled = busy;
+      KDComponents.setBusyState(button, busy, { manageDisabled: false });
+      button.textContent = own?.error ? "重试更新" : "检查更新";
+    }
   }
 }
 
 function normalizeModuleUpdateState(value) {
   const source = value && typeof value === "object" ? value : {};
   const download = source.download && typeof source.download === "object" ? source.download : null;
-  return { id: source.id === "mega" ? "mega" : "", running: source.running === true,
+  return { id: ["mega", "dropbox", "google-drive"].includes(source.id) ? source.id : "", running: source.running === true,
     phase: ["checking", "downloading", "installing"].includes(source.phase) ? source.phase : "",
     version: stringValue(source.version), error: stringValue(source.error),
     download: download ? { status: stringValue(download.status),
@@ -1181,7 +1195,8 @@ async function refreshModuleUpdateState() {
       moduleUpdatePending = update.running;
       if (completed && (moduleUpdateNotifyPending || (currentPage === "settings" && currentSettingsPage === "engine"))) {
         if (currentPage === "settings" && currentSettingsPage === "engine") loadResolverModules().catch(() => {});
-        showToast(update.error ? "模块更新失败，已保留原版本。" : `MEGA 模块已就绪：v${update.version}`, update.error ? "error" : "success");
+        const name = ({ mega: "MEGA", dropbox: "Dropbox", "google-drive": "Google Drive" })[update.id] || "解析";
+        showToast(update.error ? `${name} 模块更新失败，已保留原版本。` : `${name} 模块已就绪：v${update.version}`, update.error ? "error" : "success");
         moduleUpdateNotifyPending = false;
       }
       renderModuleUpdateStatus();
@@ -1192,16 +1207,17 @@ async function refreshModuleUpdateState() {
 
 function requestUpdateOperation(kind) {
   if (updateOperationsPending.has(kind)) return updateOperationsPending.get(kind);
-  const commands = { truedown: "/system/update/check?background=true", "next-engine": "/system/engine/next?background=true", mega: "/modules/update" };
+  const commands = { truedown: "/system/update/check?background=true", "next-engine": "/system/engine/next?background=true", mega: "/modules/update", dropbox: "/modules/update", "google-drive": "/modules/update" };
   if (!Object.hasOwn(commands, kind)) return Promise.reject(new Error("未知更新操作"));
-  const key = kind === "mega" ? "module-update" : "engine";
+  const moduleUpdate = ["mega", "dropbox", "google-drive"].includes(kind);
+  const key = moduleUpdate ? "module-update" : "engine";
   invalidateSettingRead(key);
   const operation = (async () => {
     const options = { method: "POST" };
-    if (kind === "mega") { options.headers = { "Content-Type": "application/json" }; options.body = JSON.stringify({ id: "mega" }); }
+    if (moduleUpdate) { options.headers = { "Content-Type": "application/json" }; options.body = JSON.stringify({ id: kind }); }
     const result = await requestJSON(commands[kind], options);
     invalidateSettingRead(key);
-    if (kind === "mega") {
+    if (moduleUpdate) {
       moduleUpdateState = normalizeModuleUpdateState(result);
       moduleUpdatePending = moduleUpdateState.running;
       moduleUpdateNotifyPending = moduleUpdatePending;

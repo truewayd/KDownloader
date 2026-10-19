@@ -81,8 +81,9 @@ try {
           await route.fulfill({ contentType: "application/json", body: JSON.stringify(saved) }); return;
         }
         if (endpoint === "/modules/update") {
-          assert.deepEqual(value, { id: "mega" });
-          Object.assign(fixture["/modules"].modules.find(module => module.id === "mega"), { version: "1.0.1", source: "updated" });
+          assert.ok(["mega", "dropbox", "google-drive"].includes(value.id));
+          Object.assign(fixture["/modules"].modules.find(module => module.id === value.id), { version: "1.0.1", source: "updated" });
+          fixture[endpoint].id = value.id;
           await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify(fixture[endpoint]) }); return;
         }
         fixture[endpoint] = endpoint === "/settings/task-defaults" ? { revision: fixture[endpoint].revision + 1, values: value.values }
@@ -410,10 +411,24 @@ try {
         assert.equal(fixture["/settings/task-defaults"].values.extra, "--min-split-size=2M");
         assert.equal(await page.locator("#check-truedown-update-btn").isVisible(), false);
         assert.equal(await page.locator(".module-card-icon use").count(), 3);
-        assert.equal(await page.locator('[data-module-update="mega"]').textContent(), "检查更新");
-        const moduleUpdate = page.waitForResponse(response => new URL(response.url()).pathname === "/modules/update" && response.request().method() === "POST");
-        await page.locator('[data-module-update="mega"]').click();
-        assert.equal((await moduleUpdate).status(), 202);
+        for (const id of ["mega", "google-drive", "dropbox"]) {
+          assert.equal(await page.locator(`[data-module-update="${id}"]`).textContent(), "检查更新");
+          const moduleUpdate = page.waitForResponse(response => new URL(response.url()).pathname === "/modules/update" && response.request().method() === "POST");
+          await page.locator(`[data-module-update="${id}"]`).click();
+          const response = await moduleUpdate;
+          assert.equal(response.status(), 202);
+          assert.deepEqual(response.request().postDataJSON(), { id });
+          await page.waitForFunction(id => !pendingResolverModuleActions.has(id) && moduleUpdateState?.id === id, id);
+          assert.match(await page.locator(`[data-module-update-status="${id}"]`).textContent(), /1\.0\.1/);
+        }
+        assert.equal(await page.locator('[data-module-import="google-drive"]').textContent(), "导入更新");
+        await page.locator('[data-module-id="google-drive"]').scrollIntoViewIfNeeded();
+        const googleCard = await page.locator('[data-module-id="google-drive"]').boundingBox();
+        for (const selector of ['[data-module-update="google-drive"]', '[data-module-import="google-drive"]', '[data-module-reset="google-drive"]']) {
+          const bounds = await page.locator(selector).boundingBox();
+          assert.ok(bounds.x >= googleCard.x && bounds.x + bounds.width <= googleCard.x + googleCard.width, "module controls stay inside their card");
+        }
+        await page.screenshot({ path: path.join(screenshots, `${name}-google-drive-updated.png`) });
         await page.locator('[data-module-toggle="dropbox"]').click();
         await page.waitForFunction(() => document.querySelector('[data-module-toggle="dropbox"]').getAttribute("aria-checked") === "false");
         assert.equal(await page.locator('[data-module-toggle="dropbox"]').getAttribute("aria-checked"), "false");

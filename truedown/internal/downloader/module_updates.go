@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
@@ -103,13 +104,16 @@ func (m *Manager) ModuleUpdateStatus() ModuleUpdateState {
 	return state
 }
 func (m *Manager) StartModuleUpdate(id string) error {
-	if id != "mega" {
-		return &ValidationError{Message: "unknown executable module"}
+	if id != "mega" && id != DropboxModuleID && id != GoogleDriveModuleID {
+		return &ValidationError{Message: "unknown resolver module"}
 	}
 	m.moduleUpdateMu.Lock()
 	defer m.moduleUpdateMu.Unlock()
 	if m.moduleUpdateState.Running {
-		return nil
+		if m.moduleUpdateState.ID == id {
+			return nil
+		}
+		return fmt.Errorf("another module update is running")
 	}
 	if m.lifecycleCtx.Err() != nil {
 		return fmt.Errorf("application is stopping")
@@ -118,7 +122,13 @@ func (m *Manager) StartModuleUpdate(id string) error {
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		version, err := m.updateExecutable(m.lifecycleCtx, id)
+		var version string
+		var err error
+		if id == "mega" {
+			version, err = m.updateExecutable(m.lifecycleCtx, id)
+		} else {
+			version, err = m.updateResolverProfile(m.lifecycleCtx, id)
+		}
 		m.moduleUpdateMu.Lock()
 		defer m.moduleUpdateMu.Unlock()
 		state := m.moduleUpdateState
@@ -172,41 +182,15 @@ func (m *Manager) updateExecutable(ctx context.Context, id string) (string, erro
 	}
 	client := moduleUpdateHTTPClient(m.ProxyForRequest)
 	defer client.CloseIdleConnections()
-	version := current
-	prefix := "truedown-module-" + id + "-v"
-	for page := 1; page <= 10; page++ {
-		raw, err := moduleFetch(ctx, client, fmt.Sprintf("https://api.github.com/repos/truewayd/KDownloader/releases?per_page=100&page=%d", page), 2*1024*1024)
-		if err != nil {
-			return "", err
-		}
-		var releases []struct {
-			Tag        string `json:"tag_name"`
-			Draft      bool   `json:"draft"`
-			Prerelease bool   `json:"prerelease"`
-		}
-		if json.Unmarshal(raw, &releases) != nil {
-			return "", modulehost.ErrPackage
-		}
-		for _, release := range releases {
-			if !release.Draft && !release.Prerelease && strings.HasPrefix(release.Tag, prefix) {
-				candidate := strings.TrimPrefix(release.Tag, prefix)
-				if modulehost.Newer(candidate, version) {
-					version = candidate
-				}
-			}
-		}
-		if len(releases) < 100 {
-			break
-		}
-		if page == 10 {
-			return "", fmt.Errorf("module release history exceeds discovery bound")
-		}
+	version, err := latestModuleVersion(ctx, client, id, current)
+	if err != nil {
+		return "", err
 	}
 	if version == current {
 		m.cleanupModuleCache(false)
 		return current, nil
 	}
-	base := "https://github.com/truewayd/KDownloader/releases/download/" + url.PathEscape(prefix+version) + "/"
+	base := moduleReleaseBase(id, version)
 	stem := id + "-" + runtime.GOOS + "-" + runtime.GOARCH
 	raw, err := moduleFetch(ctx, client, base+stem+".json", 16*1024)
 	if err != nil {
@@ -251,6 +235,44 @@ func (m *Manager) updateExecutable(ctx context.Context, id string) (string, erro
 		return "", err
 	}
 	m.cleanupModuleCache(false)
+	return version, nil
+}
+
+func moduleReleaseBase(id, version string) string {
+	return "https://github.com/truewayd/KDownloader/releases/download/" + url.PathEscape("truedown-module-"+id+"-v"+version) + "/"
+}
+
+func latestModuleVersion(ctx context.Context, client *http.Client, id, current string) (string, error) {
+	version := current
+	prefix := "truedown-module-" + id + "-v"
+	for page := 1; page <= 10; page++ {
+		raw, err := moduleFetch(ctx, client, fmt.Sprintf("https://api.github.com/repos/truewayd/KDownloader/releases?per_page=100&page=%d", page), 2*1024*1024)
+		if err != nil {
+			return "", err
+		}
+		var releases []struct {
+			Tag        string `json:"tag_name"`
+			Draft      bool   `json:"draft"`
+			Prerelease bool   `json:"prerelease"`
+		}
+		if trimmed := bytes.TrimSpace(raw); len(trimmed) == 0 || trimmed[0] != '[' || json.Unmarshal(raw, &releases) != nil {
+			return "", modulehost.ErrPackage
+		}
+		for _, release := range releases {
+			if !release.Draft && !release.Prerelease && strings.HasPrefix(release.Tag, prefix) {
+				candidate := strings.TrimPrefix(release.Tag, prefix)
+				if modulehost.Newer(candidate, version) {
+					version = candidate
+				}
+			}
+		}
+		if len(releases) < 100 {
+			break
+		}
+		if page == 10 {
+			return "", fmt.Errorf("module release history exceeds discovery bound")
+		}
+	}
 	return version, nil
 }
 

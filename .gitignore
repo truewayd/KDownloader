@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 *.pyo
 dist/
+work/runs/
 truedown/desktop/target/
 truedown/desktop/binaries/
 truedown/desktop/node_modules/
@@ -33,6 +34,7 @@ truedown/desktop/gen/
 !truedown/docs/preview-security.md
 !truedown/docs/task-list-performance.md
 !truedown/docs/mega-download-module.md
+!truedown/docs/resolver-modules.md
 truedown/internal/modulebundle/assets/*.bin
 !truedown/unix/README.md
 !truedown/windows/README.md

@@ -70,15 +70,16 @@ function renderWorkspaceNotice() {
       }
     } else if (moduleUpdateState?.running) {
       workspaceNoticeTarget = "engine";
-      icon = "mega";
-      title = moduleUpdateState.phase === "installing" ? "安装 MEGA 模块" : "更新 MEGA 模块";
+      const name = ({ mega: "MEGA", dropbox: "Dropbox", "google-drive": "Google Drive" })[moduleUpdateState.id] || "解析";
+      icon = moduleUpdateState.id || "download";
+      title = `${moduleUpdateState.phase === "installing" ? "安装" : "更新"} ${name} 模块`;
       tooltip = title + "，查看详情";
       const moduleDownload = moduleUpdateState.download;
       if (moduleDownload) {
         progress = moduleDownload.totalLength > 0 ? Math.min(100, moduleDownload.completedLength / moduleDownload.totalLength * 100) : -1;
         running = moduleDownload.status === "downloading";
         detail = progress >= 0 ? `${Math.floor(progress)}%` : "";
-        if (moduleDownload.status === "paused") title = "MEGA 更新已暂停";
+        if (moduleDownload.status === "paused") title = `${name} 更新已暂停`;
         tooltip = `${title} · ${taskBytes(moduleDownload.completedLength)}${moduleDownload.totalLength > 0 ? ` / ${taskBytes(moduleDownload.totalLength)}` : ""}`;
       }
     } else if (trueDown.restartRequired) {
@@ -97,11 +98,12 @@ function renderWorkspaceNotice() {
       workspaceNoticeTarget = "engine";
       workspaceNoticeCommand = { kind: "next-engine", label: "重试 NEXT 更新", icon: "retry" };
     } else if (moduleUpdateState?.error) {
-      title = "MEGA 更新失败";
-      tooltip = "MEGA 模块更新失败，已保留原版本。";
-      icon = "mega";
+      const name = ({ mega: "MEGA", dropbox: "Dropbox", "google-drive": "Google Drive" })[moduleUpdateState.id] || "解析";
+      title = `${name} 更新失败`;
+      tooltip = `${name} 模块更新失败，已保留原版本。`;
+      icon = moduleUpdateState.id || "download";
       workspaceNoticeTarget = "engine";
-      workspaceNoticeCommand = { kind: "mega", label: "重试 MEGA 模块更新", icon: "retry" };
+      workspaceNoticeCommand = { kind: moduleUpdateState.id, label: `重试 ${name} 模块更新`, icon: "retry" };
     } else if (engine.restartRequired) {
       title = "\u5185\u6838\u5df2\u5c31\u7eea";
       tooltip = engine.autoUpdate ? "\u961f\u5217\u7a7a\u95f2\u540e\u81ea\u52a8\u5207\u6362" : "\u524d\u5f80\u8bbe\u7f6e\u5e94\u7528\u66f4\u65b0";

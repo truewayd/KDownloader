@@ -1,0 +1,69 @@
+name: Publish independent resolver profiles
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "truedown/modules/profiles/*.json"
+      - ".github/workflows/publish-resolver-profiles.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-resolver-profiles
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: truedown/go.mod
+          cache-dependency-path: truedown/go.sum
+      - name: Validate packages with the host decoder and retry contract
+        working-directory: truedown
+        run: go test ./internal/downloader -run 'TestPublishedResolverProfiles|TestResolverProfile|TestGoogleDriveRetry|TestResolverComponent'
+      - name: Publish immutable profiles independently of the application
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for id in google-drive dropbox; do
+            file="truedown/modules/profiles/$id.json"
+            version=$(jq -er '.version | select(test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))' "$file")
+            tag="truedown-module-$id-v$version"
+            directory="dist/resolver-profiles/$id"
+            mkdir -p "$directory"
+            cp "$file" "$directory/$id.json"
+            sha256sum "$file" | cut -d' ' -f1 > "$directory/$id.sha256"
+            # Re-running another profile's publication never replaces a public version.
+            status=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq 'if .draft then "draft" else "published" end' 2>"$directory/lookup-error") || {
+              grep -q 'HTTP 404' "$directory/lookup-error" || { cat "$directory/lookup-error" >&2; exit 1; }
+              status=missing
+            }
+            if [[ "$status" == draft ]]; then
+              target=$(gh release view "$tag" --json targetCommitish --jq '.targetCommitish')
+              [[ "$target" == "$GITHUB_SHA" ]]
+              gh release upload "$tag" "$directory/$id.json" "$directory/$id.sha256" --clobber
+            elif [[ "$status" == published ]]; then
+              gh release download "$tag" --pattern "$id.json" --pattern "$id.sha256" --dir "$directory/existing"
+              cmp "$directory/$id.json" "$directory/existing/$id.json"
+              cmp "$directory/$id.sha256" "$directory/existing/$id.sha256"
+            else
+              gh release create "$tag" "$directory/$id.json" "$directory/$id.sha256" --target "$GITHUB_SHA" --draft --title "$id profile $version" --notes "Independent declarative resolver compatibility profile. Install through Engine and modules. Contains no executable code; host-supported fields only. Older hosts reject unsupported fields without replacing the active profile."
+            fi
+            [[ $(gh release view "$tag" --json assets --jq '.assets | length') == 2 ]]
+            if [[ "$status" != published ]]; then
+              gh release edit "$tag" --draft=false --latest=false
+            fi
+          done

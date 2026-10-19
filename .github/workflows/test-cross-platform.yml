@@ -15,6 +15,7 @@ on:
       - "tools/read-latest-changelog.ps1"
       - "tests/**"
       - "truedown/**"
+      - "!truedown/modules/profiles/**"
       - "manifest.json"
       - "package.json"
       - "settings.*"

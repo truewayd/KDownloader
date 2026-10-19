@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "dropbox",
+  "engine": "dropbox-v1",
+  "version": "1.0.0",
+  "releasedAt": "2026-08-19",
+  "config": {
+    "folderEntriesPath": "/list_shared_link_folder_entries",
+    "csrfCookieNames": ["__Host-js_csrf", "t"],
+    "userAgent": "Mozilla/5.0"
+  }
+}
