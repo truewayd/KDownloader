@@ -39,7 +39,7 @@ editing restores the selection in the original caller before native dispatch.
 
 | Context | Actions |
 | --- | --- |
-| Main task row | Currently enabled details, pause/resume/retry, open and remove actions |
+| Main task row | Currently enabled details, pause/resume/retry, open and remove actions; copy download address when a link exists |
 | File-group link | Select the group first; adjust this group, add group, manage groups |
 | Download navigation whitespace | New download, add group, manage groups |
 | Task-list whitespace | New download, enabled global queue pause/resume/retry/clear actions, default download directory |
@@ -51,6 +51,11 @@ editing restores the selection in the original caller before native dispatch.
 | Auxiliary blank area / disabled control | No content menu |
 | Title strip | Native system menu at the right-click screen position; Alt+Space keeps OS keyboard placement |
 | Tray | New, Open, Settings, Exit |
+
+Task link copying uses the task's stable source URL, including fragment keys.
+The floating selection toolbar copies one link per selected task, separated by
+newlines, and retains links for selected tasks outside the virtual viewport.
+Copying keeps the selection and does not submit task or queue mutations.
 
 Sidebar groups support pointer sorting and Alt+Up/Down. Only order IDs and the
 current revision reach `POST /settings/file-groups/order`; definitions cannot change

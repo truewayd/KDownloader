@@ -226,7 +226,7 @@ test("single-task removal preserves selection on failure and clears it before a 
   let fail = true;
   let synced = 0;
   const context = vm.createContext({
-    currentPage: "tasks", selectedTaskIDs, taskStatusByID, updateTaskIDs: new Set(),
+    currentPage: "tasks", selectedTaskIDs, taskStatusByID, taskLinkByID: new Map([[7, "https://example.test/7"]]), updateTaskIDs: new Set(),
     requestJSON: async () => fail ? { failed: [{ error: "database unavailable" }] } : { succeeded: [7] },
     syncSelectionControls() { synced++; }, showToast() {},
     loadTasks: async () => { assert.equal(selectedTaskIDs.size, 0); assert.equal(taskStatusByID.size, 0); },
@@ -273,7 +273,7 @@ test("a changed task page preserves keyboard focus on the same row control", () 
   const context = vm.createContext({
     document: { activeElement: original },
     els: { tasksContainer: { contains: (element) => element === original, querySelectorAll: () => [replacement], querySelector: () => ({ dataset: { sort: "status:asc" }, querySelector: () => ({}) }) } },
-    currentTasks: [], currentTotal: 1, selectedTaskIDs: new Set(), taskStatusByID: new Map(), updateTaskIDs: new Set(),
+    currentTasks: [], currentTotal: 1, selectedTaskIDs: new Set(), taskStatusByID: new Map(), taskLinkByID: new Map(), updateTaskIDs: new Set(),
     fileGroupsState: { revision: 0 }, taskDetailReturnID: 0, currentCategory: "", currentOffset: 0, currentFilter: "all", currentSearch: "", currentSort: "status", currentSortOrder: "asc",
     lastTaskRenderSignature: "", syncSelectionControls() {}, taskRow: () => "", sortableHeading: () => "",
     reconcileTaskRows() { context.document.activeElement = null; },

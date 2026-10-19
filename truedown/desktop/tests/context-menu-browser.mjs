@@ -27,6 +27,8 @@ try {
     await page.evaluate(() => {
       window.calls = []; window.errors = []; window.clicked = [];
       window.nativeWindowRole = "main";
+      window.taskLinkByID = new Map();
+      window.copyTaskLink = async link => calls.push({ command: "copy-link", link });
       window.selectFileGroup = group => { window.selectedGroup = group.dataset.taskCategory; };
       window.invokeNative = async (command, args) => { calls.push({ command, args }); };
       document.execCommand = action => { calls.push({ command: "edit_action", args: { action: action === "selectAll" ? "select-all" : action } }); return true; };
@@ -89,6 +91,16 @@ try {
     await choose("group-edit");
     assert.equal(await page.evaluate(() => calls.length), groupCalls, "changed group identity cannot redirect an old action");
     assert.deepEqual(await open("tr"), ["details", "pause", "remove"]);
+    await page.evaluate(() => taskLinkByID.set(1, "https://drive.google.com/file/d/test/view"));
+    assert.deepEqual(await open("tr"), ["details", "pause", "remove", "copy-link"]);
+    assert.equal(await page.locator('[data-menu-action="copy-link"]').textContent(), "复制下载地址");
+    await choose("copy-link");
+    assert.deepEqual(await page.evaluate(() => calls.at(-1)), { command: "copy-link", link: "https://drive.google.com/file/d/test/view" });
+    await open("tr");
+    await page.evaluate(() => taskLinkByID.delete(1));
+    await choose("copy-link");
+    assert.equal(await page.evaluate(() => calls.at(-1).link), "", "removed links cannot copy stale values");
+    await open("tr");
     await choose("pause");
     assert.deepEqual(await page.evaluate(() => clicked), ["pause"]);
     await open("tr");
@@ -163,6 +175,7 @@ try {
   await native.setContent('<table><tr data-task-id="1"><td><button data-action="pause">Pause</button></td></tr></table><div id="file-group-navigation"><a data-task-category="image">Images</a></div><aside id="workspace-sidebar">Sidebar</aside>');
   await native.evaluate(() => {
     window.calls = []; window.errors = []; window.clicked = 0; window.nativeWindowRole = "main";
+    window.taskLinkByID = new Map();
     window.selectFileGroup = group => { window.selectedGroup = group.dataset.taskCategory; };
     window.__TAURI__ = { core: { invoke() {} } };
     window.invokeNative = (command, args) => {
@@ -238,13 +251,14 @@ try {
   await renderer.evaluate(() => {
     window.results = [];
     window.__TAURI__ = { core: { invoke: async (command, args) => {
-      if (command === "context_menu_init") return ["group-edit", "group-add", "group-manage", "pause-queue", "resume-queue", "retry-all", "clear-done", "open-downloads"];
+      if (command === "context_menu_init") return ["copy-link", "group-edit", "group-add", "group-manage", "pause-queue", "resume-queue", "retry-all", "clear-done", "open-downloads"];
       results.push({ command, args });
     } } };
   });
   await renderer.addScriptTag({ content: await readFile(new URL("../../web/context-menu-window.js", import.meta.url), "utf8") });
   await renderer.waitForFunction(() => window.__popupActive);
-  assert.equal(await renderer.getByRole("menuitem").count(), 8);
+  assert.equal(await renderer.getByRole("menuitem").count(), 9);
+  assert.equal(await renderer.locator('[data-action="copy-link"]').textContent(), "复制下载地址");
   assert.equal(await renderer.locator('[data-action="clear-done"]').evaluate(button => button.classList.contains("danger")), true);
   await renderer.evaluate(() => { navigateContextMenu("End"); navigateContextMenu("Enter"); });
   assert.equal(await renderer.evaluate(() => results.at(-1).args.action), "open-downloads", "caller key relay activates the highlighted fixed action");

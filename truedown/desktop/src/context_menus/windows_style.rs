@@ -974,6 +974,7 @@ fn icon(action: &str, large: bool) -> Result<Image<'static>, String> {
     }
     let bytes = match action {
         "details" => bytes!("info"),
+        "copy-link" => bytes!("copy"),
         "preview" => bytes!("search"),
         "pause" | "pause-queue" => bytes!("pause"),
         "resume" | "resume-queue" => bytes!("play"),

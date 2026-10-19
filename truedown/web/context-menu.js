@@ -15,6 +15,7 @@
   const controlEnabled = action => available(control(action)) && enabled(control(action));
   const labels = {
     preview: "预览文件",
+    "copy-link": "复制下载地址",
     details: "\u4efb\u52a1\u8be6\u60c5", pause: "\u6682\u505c", resume: "\u7ee7\u7eed", requeue: "\u91cd\u8bd5",
     "open-file": "\u6253\u5f00\u6587\u4ef6", "open-folder": "\u6253\u5f00\u4e0b\u8f7d\u76ee\u5f55", remove: "\u79fb\u9664\u4efb\u52a1",
     "new-task": "\u65b0\u5efa\u4e0b\u8f7d", settings: "\u8bbe\u7f6e",
@@ -54,6 +55,10 @@
     if (context.row) {
       // Polling may remove the task or change which actions are allowed.
       if (context.row.dataset.taskId !== context.taskID) return;
+      if (action === "copy-link") {
+        await copyTaskLink(taskLinkByID.get(Number(context.taskID)) || "");
+        return;
+      }
       taskButtons(context.row).find(button => button.dataset.action === action)?.click();
     } else if (["group-edit", "group-add", "group-manage"].includes(action)) {
       if (action === "group-edit" && context.group?.dataset.taskCategory !== context.groupID) return;
@@ -106,6 +111,7 @@
     } else if (selected && !input) actions = ["copy", "select-all"];
     else if (["main", "browser"].includes(role()) && (row = target.closest("tr[data-task-id]"))) {
       actions = taskButtons(row).map(button => button.dataset.action).filter(action => labels[action]);
+      if (taskLinkByID.get(Number(row.dataset.taskId))) actions.push("copy-link");
     } else if (["main", "browser"].includes(role()) && !target.closest('[role="dialog"], dialog, input, textarea, select')) {
       if ((group = target.closest("#file-group-navigation [data-task-category]"))) {
         selectFileGroup(group);

@@ -99,7 +99,7 @@ try {
     const firstCheckbox = page.locator(".task-rows [data-select-task]").first();
     await firstCheckbox.check();
     assert.equal(await page.evaluate(() => selectedTaskIDs.has(currentTasks[0].id)), true, "selection keeps using the task ID without a visible ordinal");
-    await firstCheckbox.uncheck();
+    await page.evaluate(() => { writeClipboard = async text => { window.copiedLinks = text; }; });
     assert.equal(await page.locator('[data-task-category="video"] .nav-count').textContent(), "2400");
     assert.equal(await page.locator("#active-count").textContent(), "1");
     assert.equal(await page.locator("#error-count").textContent(), "1");
@@ -165,6 +165,11 @@ try {
     assert.equal(await page.locator(".task-rows tr").count(), 100);
     const at = await page.evaluate(() => ({ offset: currentOffset, top: els.tasksWrap.scrollTop }));
     assert.ok(at.top >= 600 * 64 - 1, "loading a new window must preserve scroll position");
+    const nextSelection = await page.locator('.task-rows [data-select-task]').first().getAttribute("value");
+    await page.locator('.task-rows [data-select-task]').first().check();
+    await page.locator("#batch-copy-btn").click();
+    assert.equal(await page.evaluate(() => copiedLinks), `https://example.test/1\nhttps://example.test/${nextSelection}`, "copy includes selected tasks outside the virtual viewport");
+    await page.locator("#batch-clear-btn").click();
     await page.evaluate(() => { window.retainedRow = document.querySelector('.task-rows tr'); });
     revision++;
     await page.evaluate(() => refreshAndSchedule(true));

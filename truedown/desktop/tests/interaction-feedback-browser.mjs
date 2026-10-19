@@ -6,10 +6,10 @@ import { chromium } from "playwright";
 import { readUIFixtureAsset } from "./ui-fixture-assets.mjs";
 
 const assets = new URL("../../web/", import.meta.url);
-const output = path.resolve("../dist/interaction-feedback");
+const output = path.resolve(process.argv[2] || "../dist/interaction-feedback");
 await fs.mkdir(output, { recursive: true });
 const groups = { revision: 1, groups: ["image", "video", "audio", "archive", "application", "document", "project", "other"].map(id => ({ id, name: id, extensions: id === "other" ? [] : [`.${id}`] })) };
-const tasks = Array.from({ length: 30 }, (_, i) => ({ id: i + 1, name: i ? `Example-${i}.zip` : "TrueDown-update.zip", category: "archive", status: "downloading", updateDownload: i === 0, totalLength: 10000000, completedLength: 4000000, downloadSpeed: 1000000, progress: "40%", createdAt: "2026-09-30T00:00:00Z" }));
+const tasks = Array.from({ length: 30 }, (_, i) => ({ id: i + 1, link: i === 1 ? "https://mega.nz/file/example#fragment-key" : `https://example.test/${i + 1}`, name: i ? `Example-${i}.zip` : "TrueDown-update.zip", category: "archive", status: "downloading", updateDownload: i === 0, totalLength: 10000000, completedLength: 4000000, downloadSpeed: 1000000, progress: "40%", createdAt: "2026-09-30T00:00:00Z" }));
 const state = { busy: "truedown", download: { taskId: 1, status: "downloading" }, trueDown: { supported: true }, engine: {} };
 let writes = 0;
 const server = http.createServer(async (request, response) => {
@@ -44,6 +44,12 @@ try {
     const floating = await page.locator("#batch-toolbar").boundingBox();
     assert.ok(floating.x >= after.x && floating.x + floating.width <= after.x + after.width);
     assert.ok(floating.y > after.y && floating.y + floating.height < after.y + after.height);
+    await page.evaluate(() => { writeClipboard = async text => { window.copiedLinks = text; }; });
+    await page.locator('[data-select-task][value="2"]').check();
+    await page.locator("#batch-copy-btn").click();
+    assert.equal(await page.evaluate(() => copiedLinks), tasks.slice(0, 2).map(task => task.link).join("\n"));
+    assert.equal(await page.locator("[data-select-task]:checked").count(), 2, "copy must retain selection");
+    await page.locator('[data-select-task][value="2"]').uncheck();
     assert.equal(await page.locator('tr[data-update-download="true"] .update-task-label').count(), 1);
     const checkboxStyle = await page.locator('[data-select-task][value="1"]').evaluate(node => {
       const style = getComputedStyle(node), check = getComputedStyle(node, "::after");

@@ -78,6 +78,7 @@ const statusMeta = {
 const els = {};
 const selectedTaskIDs = new Set();
 const taskStatusByID = new Map();
+const taskLinkByID = new Map();
 const updateTaskIDs = new Set();
 const activeTaskActions = new Set();
 const taskPages = new TaskPageStore((url, options) => apiFetch(url, options));
@@ -147,6 +148,7 @@ function cacheElements() {
     "active-count",
 	"auto-update-truedown",
     "batch-pause-btn",
+    "batch-copy-btn",
     "batch-remove-btn",
     "batch-resume-btn",
     "batch-selection-count",
@@ -328,6 +330,7 @@ function bindEvents() {
   });
   initTaskViewport();
   els.batchPauseBtn.addEventListener("click", () => runSelectedAction("pause", "暂停"));
+  els.batchCopyBtn.addEventListener("click", copySelectedTaskLinks);
   els.batchResumeBtn.addEventListener("click", () => runSelectedAction("resume", "继续"));
   els.batchRemoveBtn.addEventListener("click", () => runSelectedAction("remove", "移除", true));
   document.getElementById("batch-clear-btn").addEventListener("click", clearTaskSelection);
@@ -783,7 +786,7 @@ async function onTaskAction(event) {
     return;
   }
   if (action === "copy-link") {
-    await copyTaskLink(button.dataset.link || "");
+    await copyTaskLink(button.dataset.link || taskLinkByID.get(id) || "");
     return;
   }
   if (!Number.isSafeInteger(id) || id <= 0) return;
@@ -849,6 +852,7 @@ async function runTaskAction(action, id, successMessage) {
   if (action === "remove") {
     selectedTaskIDs.delete(id);
     taskStatusByID.delete(id);
+    taskLinkByID.delete(id);
     updateTaskIDs.delete(id);
     syncSelectionControls();
   }
@@ -920,6 +924,7 @@ async function runSelectedAction(action, label, requiresConfirmation = false) {
       (result.succeeded || []).forEach((id) => {
         selectedTaskIDs.delete(id);
         taskStatusByID.delete(id);
+        taskLinkByID.delete(id);
         updateTaskIDs.delete(id);
       });
     }
@@ -1157,10 +1162,11 @@ function renderTasks(tasks, epoch = "") {
   const focused = document.activeElement;
   const focusKey = els.tasksContainer.contains(focused) ? taskControlKey(focused) : "";
   for (const id of taskStatusByID.keys()) {
-    if (!selectedTaskIDs.has(id)) { taskStatusByID.delete(id); updateTaskIDs.delete(id); }
+    if (!selectedTaskIDs.has(id)) { taskStatusByID.delete(id); taskLinkByID.delete(id); updateTaskIDs.delete(id); }
   }
   tasks.forEach((task) => {
     taskStatusByID.set(task.id, task.status);
+    taskLinkByID.set(task.id, task.link || "");
     if (task.updateDownload === true) updateTaskIDs.add(task.id); else updateTaskIDs.delete(task.id);
   });
   currentTasks = [...tasks];
@@ -1464,6 +1470,20 @@ async function copyTaskLink(link) {
   try {
     await writeClipboard(link);
     showToast("下载链接已复制。");
+  } catch (error) {
+    showToast(`复制失败：${error.message}`, "error");
+  }
+}
+
+async function copySelectedTaskLinks() {
+  const links = [...selectedTaskIDs].map(id => taskLinkByID.get(id));
+  if (!links.length || links.some(link => !link)) {
+    showToast("所选任务中有不可复制的下载链接。", "error");
+    return;
+  }
+  try {
+    await writeClipboard(links.join("\n"));
+    showToast(`已复制 ${links.length} 个任务的下载链接。`);
   } catch (error) {
     showToast(`复制失败：${error.message}`, "error");
   }
