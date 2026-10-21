@@ -827,9 +827,23 @@
     }
   }
 
-  function createToast(element, { statusElement = null, duration = 2600 } = {}) {
+  function createToast(element, { statusElement = null, duration = 2600, spriteURL = null } = {}) {
     let timer = null;
     let presentation = 0;
+    let content = element;
+    let iconUse = null;
+    if (element && spriteURL) {
+      const doc = element.ownerDocument;
+      const icon = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+      iconUse = doc.createElementNS("http://www.w3.org/2000/svg", "use");
+      icon.setAttribute("class", "icon kd-toast-icon");
+      icon.setAttribute("aria-hidden", "true");
+      icon.setAttribute("focusable", "false");
+      icon.append(iconUse);
+      content = doc.createElement("span");
+      content.className = "kd-toast-message";
+      element.replaceChildren(icon, content);
+    }
     const hide = () => {
       presentation += 1;
       if (timer) clearTimeout(timer);
@@ -840,12 +854,15 @@
       if (!element) return;
       const version = ++presentation;
       if (timer) clearTimeout(timer);
-      const normalizedType = type === "error" ? "error" : "success";
+      const normalizedType = ["error", "info", "warning", "announcement"].includes(type) ? type : "success";
       element.classList.add("kd-toast");
-      element.classList.remove("success", "error", "is-visible");
+      element.classList.remove("success", "error", "info", "warning", "announcement", "is-visible");
       element.classList.add(normalizedType);
-      element.textContent = String(message ?? "");
+      content.textContent = String(message ?? "");
+      if (iconUse) iconUse.setAttribute("href", `${spriteURL}#icon-notification-${normalizedType}`);
+      element.setAttribute("role", normalizedType === "error" ? "alert" : "status");
       element.setAttribute("aria-live", normalizedType === "error" ? "assertive" : "polite");
+      element.setAttribute("aria-atomic", "true");
       if (statusElement) statusElement.textContent = String(message ?? "");
       requestAnimationFrame(() => {
         if (version === presentation) element.classList.add("is-visible");

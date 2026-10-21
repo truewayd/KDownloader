@@ -1034,7 +1034,7 @@ async function onModuleAction(event) {
 	try {
 		if (button.dataset.moduleUpdate) {
 			await requestUpdateOperation(id);
-			showToast("正在检查模块更新。更新成功后，后续解析和重试会使用新版本。");
+			showToast("正在检查模块更新。更新成功后，后续解析和重试会使用新版本。", "info");
 			return;
 		}
 		if (button.dataset.moduleImport) {
@@ -1196,7 +1196,7 @@ async function refreshModuleUpdateState() {
       if (completed && (moduleUpdateNotifyPending || (currentPage === "settings" && currentSettingsPage === "engine"))) {
         if (currentPage === "settings" && currentSettingsPage === "engine") loadResolverModules().catch(() => {});
         const name = ({ mega: "MEGA", dropbox: "Dropbox", "google-drive": "Google Drive" })[update.id] || "解析";
-        showToast(update.error ? `${name} 模块更新失败，已保留原版本。` : `${name} 模块已就绪：v${update.version}`, update.error ? "error" : "success");
+        showToast(update.error ? `${name} 模块更新失败，已保留原版本。` : `${name} 模块已就绪：v${update.version}`, update.error ? "error" : "announcement");
         moduleUpdateNotifyPending = false;
       }
       renderModuleUpdateStatus();
@@ -1397,13 +1397,13 @@ async function saveAutoUpdatePreference(control, key, name) {
 
 async function checkTrueDownUpdate() {
   setUpdateButtonBusy(els.checkTruedownUpdateBtn, true);
-  showToast("正在检查更新，发现新版本后会加入下载任务列表。");
+  showToast("正在检查更新，发现新版本后会加入下载任务列表。", "info");
   invalidateSettingRead("engine");
   try {
     systemUpdateState = normalizeSystemUpdateState(await requestUpdateOperation("truedown"));
     renderSystemUpdateState();
     if (systemUpdateState.busy === "truedown") {
-      showToast("更新检查已开始，更新包进度可在任务列表查看。");
+      showToast("更新检查已开始，更新包进度可在任务列表查看。", "info");
       return;
     }
     showToast(systemUpdateState.trueDown.restartRequired
@@ -1444,7 +1444,7 @@ async function restartForTrueDownUpdate() {
     restartingForUpdate = true;
     renderSystemUpdateState();
     await requestJSON("/system/update/restart", { method: "POST" });
-    showToast("TrueDown 正在重启并应用更新。");
+    showToast("TrueDown 正在重启并应用更新。", "info");
   } catch (error) {
     showToast(`无法重启更新：${error.message}`, "error");
   } finally {
@@ -1470,11 +1470,11 @@ async function installNextEngine() {
     systemUpdateState = normalizeSystemUpdateState(await requestUpdateOperation("next-engine"));
     renderSystemUpdateState();
     if (systemUpdateState.busy === "next-engine") {
-      showToast("NEXT 下载已安排，可在任务列表查看进度、暂停或继续。");
+      showToast("NEXT 下载已安排，可在任务列表查看进度、暂停或继续。", "info");
       return;
     }
     if (systemUpdateState.busy === "engine-switch") {
-      showToast("Aria2 Next 已验证，正在热切换下载内核…");
+      showToast("Aria2 Next 已验证，正在热切换下载内核…", "info");
       systemUpdateState = await waitForEngineTransition();
     }
     showToast(systemUpdateState.engine.error
@@ -1514,7 +1514,7 @@ async function selectDownloadEngine(engine) {
     }));
     renderSystemUpdateState();
     if (systemUpdateState.busy === "engine-switch") {
-      showToast(`已选择 ${label}，正在保存任务并切换…`);
+      showToast(`已选择 ${label}，正在保存任务并切换…`, "info");
       systemUpdateState = await waitForEngineTransition();
     }
     const switched = systemUpdateState.engine.active === targetKind && !systemUpdateState.engine.restartRequired && (!rollback || systemUpdateState.engine.activeVersion === rollbackVersion);

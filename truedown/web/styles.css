@@ -460,7 +460,9 @@ textarea:disabled {
   bottom: auto;
   left: 50%;
   z-index: 200;
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -481,6 +483,18 @@ textarea:disabled {
   font-weight: 700;
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+.kd-toast-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+.kd-toast-message {
+  min-width: 0;
+  white-space: pre-wrap;
+  user-select: text;
 }
 
 .kd-toast.is-visible {

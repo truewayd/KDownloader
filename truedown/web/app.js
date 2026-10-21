@@ -128,7 +128,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   KDComponents.prepareNotices();
   KDComponents.prepareDecorativeIcons();
   KDComponents.installTooltips();
-  trueDownToast = KDComponents.createToast(els.toast, { duration: 3200 });
+  trueDownToast = KDComponents.createToast(els.toast, { duration: 3200, spriteURL: "/icons.svg" });
   initTheme();
   renderDownloadSettings();
   renderTrackerResearchSettings();
