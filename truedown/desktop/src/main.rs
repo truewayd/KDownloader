@@ -364,7 +364,11 @@ fn main() {
                 }
             }
             let app_handle = app.handle().clone();
-            download_notifications::start(app.handle(), core.clone());
+            download_notifications::start(
+                app.handle(),
+                core.clone(),
+                std::path::PathBuf::from(&profile.paths.cache),
+            );
             let exit_app = app.handle().clone();
             let exit_signal = core.stop_requested.clone();
             tauri::async_runtime::spawn(async move {
