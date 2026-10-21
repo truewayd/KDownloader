@@ -13,6 +13,7 @@ import {
   readLimitedResponseBytes,
 } from './network.js';
 import { hasUnpairedSurrogate } from './util.js';
+import { createNotification, notificationIconUrl } from './notifications.js';
 
 const WATCH_SCHEMA_VERSION = 1;
 const WATCH_BATCH_SIZE = 5;
@@ -334,7 +335,7 @@ export async function setWatchState(serviceValue, userIdValue, watchedValue) {
     });
 
     if (result.added && watchStateIntents.get(key) === intent) {
-      await notifyWatchStarted(result.watch, result.cachedIcon || fallbackIconUrl()).catch((error) => {
+      await notifyWatchStarted(result.watch, result.cachedIcon || notificationIconUrl('success')).catch((error) => {
         console.warn('[Watch] initial notification failed', error);
       });
     }
@@ -381,10 +382,6 @@ export function importWatches(payload) {
     await saveWatchesAndIcons(watches, nextIcons);
     return { count: watches.length };
   });
-}
-
-function fallbackIconUrl() {
-  return chrome.runtime.getURL('icons/icon48.png');
 }
 
 function bytesToBase64(buffer) {
@@ -434,7 +431,7 @@ async function getNotificationIcon(watch) {
     return icon;
   } catch (error) {
     console.warn('[Watch] creator icon fetch failed', error);
-    return fallbackIconUrl();
+    return notificationIconUrl('announcement');
   }
 }
 
@@ -447,16 +444,6 @@ function message(key, substitutions, fallback) {
   } catch (error) {
     return fallback;
   }
-}
-
-function createNotification(id, options) {
-  return new Promise((resolve, reject) => {
-    chrome.notifications.create(id, options, (notificationId) => {
-      const lastError = chrome.runtime.lastError;
-      if (lastError) reject(new Error(lastError.message || 'Notification failed'));
-      else resolve(notificationId);
-    });
-  });
 }
 
 function notificationId(prefix) {
@@ -475,7 +462,7 @@ async function notifyUpdates(updates) {
     ? message('watchNotificationSingle', [latest.name], `A watched creator, ${latest.name}, has updated.`)
     : message('watchNotificationMultiple', [latest.name, String(sorted.length)], `${latest.name} and ${sorted.length - 1} other watched creators have updated.`);
   await createNotification(notificationId('pawchive-watch-update'), {
-    type: 'basic',
+    kind: 'announcement',
     iconUrl: icon,
     title: message('watchNotificationTitle', null, 'Pawchive Watch'),
     message: notificationMessage,
@@ -484,7 +471,7 @@ async function notifyUpdates(updates) {
 
 async function notifyWatchStarted(watch, icon) {
   await createNotification(notificationId('pawchive-watch-started'), {
-    type: 'basic',
+    kind: 'success',
     iconUrl: icon,
     title: message('watchStartedTitle', [watch.name], `Watching ${watch.name}`),
     message: message(
@@ -502,8 +489,7 @@ async function notifyFailures(failures) {
     ? message('watchFailureSingle', [first.name, first.error], `Failed to check ${first.name}: ${first.error}`)
     : message('watchFailureMultiple', [String(failures.length), first.error], `Failed to check ${failures.length} watched creators: ${first.error}`);
   await createNotification(notificationId('pawchive-watch-failure'), {
-    type: 'basic',
-    iconUrl: fallbackIconUrl(),
+    kind: 'error',
     title: message('watchFailureTitle', null, 'Pawchive Watch check failed'),
     message: notificationMessage,
   });
@@ -624,10 +610,14 @@ async function performWatchCheck({ prepareCloudflareContext = false } = {}) {
     return { updates, failures };
   });
 
-  await notifyUpdates(active.updates);
+  await notifyUpdates(active.updates).catch((error) => {
+    console.warn('[Watch] update notification failed', error);
+  });
   // Cloudflare failures already produce one deduplicated, actionable notice
   // from the shared Pawchive request layer.
-  await notifyFailures(active.failures.filter((failure) => !failure.cloudflareBlocked));
+  await notifyFailures(active.failures.filter((failure) => !failure.cloudflareBlocked)).catch((error) => {
+    console.warn('[Watch] failure notification failed', error);
+  });
   return { checked: results.length, updated: active.updates.length, failed: active.failures.length };
 }
 

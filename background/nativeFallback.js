@@ -1,5 +1,6 @@
 // background/nativeFallback.js - persistent backend-failure confirmation queue
 import { API, NATIVE_FALLBACK_KEY, PAW } from './constants.js';
+import { createNotification, clearNotification } from './notifications.js';
 
 const MAX_PENDING_AGE_MS = 60 * 60 * 1000;
 const MAX_FALLBACK_REQUESTS = 5000;
@@ -114,25 +115,6 @@ function message(key, substitutions, fallback) {
   } catch (error) {
     return fallback;
   }
-}
-
-function notificationCreate(id, options) {
-  return new Promise((resolve, reject) => {
-    chrome.notifications.create(id, options, (notificationId) => {
-      const lastError = chrome.runtime.lastError;
-      if (lastError) reject(new Error(lastError.message || 'Notification failed'));
-      else resolve(notificationId);
-    });
-  });
-}
-
-function notificationClear(id) {
-  return new Promise((resolve) => {
-    chrome.notifications.clear(id, () => {
-      void chrome.runtime.lastError;
-      resolve();
-    });
-  });
 }
 
 async function loadPending() {
@@ -276,9 +258,8 @@ export async function enqueueNativeFallback(requests) {
 
   const fileCount = taskCount;
   try {
-    await notificationCreate(notificationId, {
-      type: 'basic',
-      iconUrl: chrome.runtime.getURL('icons/icon48.png'),
+    await createNotification(notificationId, {
+      kind: 'warning',
       title: message('nativeFallbackTitle', null, 'Download backend unavailable'),
       message: message(
         'nativeFallbackMessage',
@@ -320,5 +301,5 @@ export function takeNativeFallback(notificationId) {
 }
 
 export async function clearNativeFallbackNotification(notificationId) {
-  await notificationClear(notificationId);
+  await clearNotification(notificationId);
 }

@@ -49,6 +49,7 @@ import {
 } from "../nativeFallback.js";
 import { loadExternalLinkFilterConfig, loadLinkHandlingConfig } from "../config.js";
 import { completeLinkKey, readLinkRecords, writeLinkRecords } from "../linkHistory.js";
+import { createNotification } from "../notifications.js";
 
 const DOWNLOAD_CONTENT_HOSTS = [...API.HOSTS, API.COOMERFANS_HOST, PAW.HOST];
 const MAX_BATCH_EXTERNAL_LINKS = 5000;
@@ -314,20 +315,13 @@ function notifyDownloadIssue(scope, result, batch = false) {
     [scope.service, scope.userId, ...(batch ? [] : [scope.postId])].filter(Boolean).join(" / "),
     240
   );
-  try {
-    chrome.notifications.create(`download-issue:${crypto.randomUUID()}`, {
-      type: "basic",
-      iconUrl: chrome.runtime.getURL("icons/icon48.png"),
-      title,
-      message: context ? `${context}\n${message}` : message,
-    }, () => {
-      if (chrome.runtime.lastError) {
-        console.warn("[Background] download issue notification failed", chrome.runtime.lastError.message);
-      }
-    });
-  } catch (error) {
+  createNotification(`download-issue:${crypto.randomUUID()}`, {
+    kind: result.incomplete || partial ? 'warning' : 'error',
+    title,
+    message: context ? `${context}\n${message}` : message,
+  }).catch((error) => {
     console.warn("[Background] download issue notification failed", error);
-  }
+  });
 }
 
 function broadcastComplete(item, result, tabId, requestId = item?.requestId, notify = true) {

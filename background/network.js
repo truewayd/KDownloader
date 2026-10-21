@@ -1,5 +1,6 @@
 // background/network.js - network helpers (API fetch, cookies)
 import { API, PAW } from './constants.js';
+import { createNotification } from './notifications.js';
 
 export const PAWCHIVE_CLOUDFLARE_ERROR_CODE = 'PAWCHIVE_CLOUDFLARE_BLOCKED';
 
@@ -51,26 +52,14 @@ function localizedMessage(key, fallback) {
   }
 }
 
-function createNotification(id, options) {
-  return new Promise((resolve, reject) => {
-    chrome.notifications.create(id, options, (notificationId) => {
-      const lastError = chrome.runtime.lastError;
-      if (lastError) reject(new Error(lastError.message || 'Notification failed'));
-      else resolve(notificationId);
-    });
-  });
-}
-
 async function notifyPawchiveCloudflareBlocked() {
   if (!globalThis.chrome || !chrome.notifications || typeof chrome.notifications.create !== 'function') return;
   const now = Date.now();
   if (pawchiveCloudflareNoticePromise) return pawchiveCloudflareNoticePromise;
   if (now - lastPawchiveCloudflareNoticeAt < PAWCHIVE_CLOUDFLARE_NOTICE_COOLDOWN_MS) return;
 
-  lastPawchiveCloudflareNoticeAt = now;
   pawchiveCloudflareNoticePromise = createNotification(PAWCHIVE_CLOUDFLARE_NOTIFICATION_ID, {
-    type: 'basic',
-    iconUrl: chrome.runtime.getURL('icons/icon48.png'),
+    kind: 'warning',
     title: localizedMessage('pawchiveCloudflareTitle', 'Pawchive verification required'),
     message: localizedMessage(
       'pawchiveCloudflareMessage',
@@ -80,6 +69,8 @@ async function notifyPawchiveCloudflareBlocked() {
     buttons: [{
       title: localizedMessage('openPawchiveAction', 'Open Pawchive'),
     }],
+  }).then(() => {
+    lastPawchiveCloudflareNoticeAt = Date.now();
   }).catch((error) => {
     console.warn('[Background] Pawchive Cloudflare notification failed', error);
   }).finally(() => {

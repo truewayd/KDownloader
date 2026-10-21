@@ -4,6 +4,7 @@ import { registerMessageHandlers } from './messages.js';
 import { cleanupHistoryStorage, cleanupLegacyHistoryMetadata } from './db.js';
 import { configureWatchAlarm, runWatchCheck } from './watch.js';
 import { handleNativeFallbackDecision } from './handlers/downloadHandlers.js';
+import { clearNotification } from './notifications.js';
 import {
   openPawchiveForVerification,
   PAWCHIVE_CLOUDFLARE_NOTIFICATION_ID,
@@ -36,16 +37,25 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+function openVerificationNotification() {
+  openPawchiveForVerification().then(() => {
+    return clearNotification(PAWCHIVE_CLOUDFLARE_NOTIFICATION_ID);
+  }).catch((error) => {
+    console.error('[Background] failed to open Pawchive verification page', error);
+  });
+}
+
+chrome.notifications.onClicked.addListener((notificationId) => {
+  if (notificationId === PAWCHIVE_CLOUDFLARE_NOTIFICATION_ID) openVerificationNotification();
+});
+
 chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
   if (notificationId === PAWCHIVE_CLOUDFLARE_NOTIFICATION_ID) {
-    if (buttonIndex === 0) {
-      openPawchiveForVerification().catch((error) => {
-        console.error('[Background] failed to open Pawchive verification page', error);
-      });
-    }
+    if (buttonIndex === 0) openVerificationNotification();
     return;
   }
   if (!String(notificationId || '').startsWith('native-fallback-')) return;
+  if (buttonIndex !== 0 && buttonIndex !== 1) return;
   handleNativeFallbackDecision(notificationId, buttonIndex === 0).catch((error) => {
     console.error('[Background] native fallback decision failed', error);
   });

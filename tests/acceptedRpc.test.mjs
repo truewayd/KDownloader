@@ -6,6 +6,7 @@ import test from "node:test";
 const root = path.resolve(import.meta.dirname, "..");
 const asModuleUrl = (source) =>
   `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
+const notificationsUrl = asModuleUrl(await readFile(path.join(root, "background", "notifications.js"), "utf8"));
 
 globalThis.chrome = {
   runtime: {
@@ -153,6 +154,7 @@ const handlerSource = (await readFile(
   path.join(root, "background", "handlers", "downloadHandlers.js"),
   "utf8"
 ))
+  .replace(/from\s+["']\.\.\/notifications\.js["']/, `from "${notificationsUrl}"`)
   .replace(/from\s+["']\.\.\/constants\.js["']/, `from "${constantsUrl}"`)
   .replace(/from\s+["']\.\.\/util\.js["']/, `from "${utilUrl}"`)
   .replace(/from\s+["']\.\.\/network\.js["']/, `from "${networkUrl}"`)
@@ -812,6 +814,9 @@ test("post notifications distinguish incomplete content, partial submission and 
       assert.equal(globalThis.__acceptedNotifications.length, title ? 1 : 0);
       if (title) {
         const notice = globalThis.__acceptedNotifications[0];
+        const kind = ['Post content is incomplete', 'Download is incomplete'].includes(title) ? 'warning' : 'error';
+        assert.equal(notice.iconUrl, `chrome-extension://test-extension/icons/notifications/${kind}.png`);
+        assert.equal(notice.contextMessage, 'KDownloader');
         assert.equal(notice.title, title);
         assert.match(notice.message, messagePattern);
         assert.match(notice.message, /patreon \/ creator \/ post-one/);

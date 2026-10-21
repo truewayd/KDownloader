@@ -49,7 +49,9 @@ globalThis.chrome = fallbackChrome;
 const root = path.resolve(import.meta.dirname, '..');
 const asModuleUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const constantsUrl = asModuleUrl(await readFile(path.join(root, 'background', 'constants.js'), 'utf8'));
+const notificationsUrl = asModuleUrl(await readFile(path.join(root, 'background', 'notifications.js'), 'utf8'));
 const source = (await readFile(path.join(root, 'background', 'nativeFallback.js'), 'utf8'))
+  .replace(/from\s+['"]\.\/notifications\.js['"]/, `from '${notificationsUrl}'`)
   .replace(/from\s+['"]\.\/constants\.js['"]/, `from '${constantsUrl}'`);
 const moduleUrl = asModuleUrl(source);
 const fallback = await import(moduleUrl);
@@ -84,6 +86,8 @@ test('backend failures create one persistent two-button notification for a batch
     'cancelDownloadAction:',
   ]);
   assert.equal(created[0].options.requireInteraction, true);
+  assert.equal(created[0].options.iconUrl, 'chrome-extension://test/icons/notifications/warning.png');
+  assert.equal(created[0].options.contextMessage, 'KDownloader');
   assert.equal(stored.pendingNativeFallbacks[id].requests.length, 2);
 });
 
@@ -112,6 +116,15 @@ test('fallback prompts reject empty or malformed task sets', async () => {
     tasks: [],
   }), /No native fallback tasks/);
   assert.equal(created.length, 0);
+});
+
+test('a failed confirmation notification removes its pending fallback without dispatching', async (t) => {
+  t.mock.method(chrome.notifications, 'create', (_id, _options, callback) => {
+    chrome.runtime.lastError = { message: 'Notifications disabled' };
+    try { callback(); } finally { chrome.runtime.lastError = null; }
+  });
+  await assert.rejects(fallback.enqueueNativeFallback(request('no-prompt')), /Notifications disabled/);
+  assert.equal(stored.pendingNativeFallbacks, undefined);
 });
 
 test('fallback tasks preserve request correlation and reject unsafe URLs', async () => {

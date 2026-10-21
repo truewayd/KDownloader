@@ -87,7 +87,9 @@ function bytewiseResponse(bytes, options = {}) {
 
 const constantsSource = await readFile(path.join(root, 'background', 'constants.js'), 'utf8');
 const constantsUrl = asModuleUrl(constantsSource);
+const notificationsUrl = asModuleUrl(`const chrome = globalThis.__pawchiveTestChrome;\n${await readFile(path.join(root, 'background', 'notifications.js'), 'utf8')}`);
 const networkSource = (`const chrome = globalThis.__pawchiveTestChrome;\n${await readFile(path.join(root, 'background', 'network.js'), 'utf8')}`)
+  .replace(/from\s+['"]\.\/notifications\.js['"]/, `from '${notificationsUrl}'`)
   .replaceAll('globalThis.chrome', 'globalThis.__pawchiveTestChrome')
   .replace(/from\s+['"]\.\/constants\.js['"]/, `from '${constantsUrl}'`);
 const networkUrl = asModuleUrl(networkSource);
@@ -632,7 +634,7 @@ test('failed scheduled probe silently opens a pinned background Pawchive tab', a
   }
 });
 
-test('detects a Cloudflare challenge and creates one actionable notification', async () => {
+test('Cloudflare notices retry after a creation failure and deduplicate after success', async (t) => {
   notifications.length = 0;
   globalThis.fetch = async () => ({
     ok: false,
@@ -649,6 +651,18 @@ test('detects a Cloudflare challenge and creates one actionable notification', a
     },
   });
 
+  const originalCreate = chrome.notifications.create;
+  let attempts = 0;
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(chrome.notifications, 'create', (...args) => {
+    if (++attempts > 2) return originalCreate(...args);
+    chrome.runtime.lastError = { message: 'Notification temporarily unavailable' };
+    try { args[2](); } finally { chrome.runtime.lastError = null; }
+  });
+  await assert.rejects(pawchive.fetchPawchiveCreatorPage('patreon', 'creator-1', 0),
+    (error) => error.code === 'PAWCHIVE_CLOUDFLARE_BLOCKED');
+  assert.equal(notifications.length, 0);
+
   await assert.rejects(
     pawchive.fetchPawchiveCreatorPage('patreon', 'creator-1', 0),
     (error) => error.code === 'PAWCHIVE_CLOUDFLARE_BLOCKED' && /HTTP 403/.test(error.message)
@@ -658,8 +672,10 @@ test('detects a Cloudflare challenge and creates one actionable notification', a
     (error) => error.code === 'PAWCHIVE_CLOUDFLARE_BLOCKED'
   );
   assert.equal(notifications.length, 1);
+  assert.equal(attempts, 3);
   assert.equal(notifications[0].id, 'pawchive-cloudflare-blocked');
   assert.equal(notifications[0].options.requireInteraction, true);
   assert.equal(notifications[0].options.title, 'pawchiveCloudflareTitle');
   assert.equal(notifications[0].options.buttons[0].title, 'openPawchiveAction');
+  assert.equal(notifications[0].options.iconUrl, 'chrome-extension://test/icons/notifications/warning.png');
 });

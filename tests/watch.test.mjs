@@ -105,11 +105,13 @@ globalThis.fetch = watchFetch;
 
 const constantsSource = await readFile(path.join(root, 'background', 'constants.js'), 'utf8');
 const constantsUrl = asModuleUrl(constantsSource);
+const notificationsUrl = asModuleUrl(await readFile(path.join(root, 'background', 'notifications.js'), 'utf8'));
 const utilSource = (await readFile(path.join(root, 'background', 'util.js'), 'utf8'))
   .replace(/from\s+['"]\.\/constants\.js['"]/, `from '${constantsUrl}'`);
 const utilUrl = asModuleUrl(utilSource);
 const util = await import(utilUrl);
 const networkSource = (await readFile(path.join(root, 'background', 'network.js'), 'utf8'))
+  .replace(/from\s+['"]\.\/notifications\.js['"]/, `from '${notificationsUrl}'`)
   .replace(/from\s+['"]\.\/constants\.js['"]/, `from '${constantsUrl}'`);
 const networkUrl = asModuleUrl(networkSource);
 const configSource = (await readFile(path.join(root, 'background', 'config.js'), 'utf8'))
@@ -117,6 +119,7 @@ const configSource = (await readFile(path.join(root, 'background', 'config.js'),
   .replace(/from\s+['"]\.\/util\.js['"]/, `from '${utilUrl}'`);
 const configUrl = asModuleUrl(configSource);
 const watchSource = (await readFile(path.join(root, 'background', 'watch.js'), 'utf8'))
+  .replace(/from\s+['"]\.\/notifications\.js['"]/, `from '${notificationsUrl}'`)
   .replace(/from\s+['"]\.\/constants\.js['"]/, `from '${constantsUrl}'`)
   .replace(/from\s+['"]\.\/config\.js['"]/, `from '${configUrl}'`)
   .replace(/from\s+['"]\.\/network\.js['"]/, `from '${networkUrl}'`)
@@ -257,6 +260,38 @@ test('a newer updated value reuses the cached icon for one update notification',
   assert.equal((await watch.getWatchSummary()).watches[0].updated, profile.updated);
 });
 
+test('an undecodable Watch avatar falls back to the bundled icon and preserves its update', async (t) => {
+  await watch.setWatchState('patreon', 'creator-1', true);
+  notifications.length = 0;
+  profile.updated = '2026-07-14T09:00:00.000000';
+  const attempts = [];
+  const originalCreate = chrome.notifications.create;
+  t.mock.method(chrome.notifications, 'create', (id, options, callback) => {
+    attempts.push({ id, options });
+    if (!options.iconUrl.startsWith('data:')) return originalCreate(id, options, callback);
+    chrome.runtime.lastError = { message: 'Unable to download all specified images' };
+    try { callback(); } finally { chrome.runtime.lastError = null; }
+  });
+  assert.deepEqual(await watch.runWatchCheck(), { checked: 1, updated: 1, failed: 0 });
+  assert.equal(attempts.length, 2);
+  assert.equal(attempts[0].id, attempts[1].id);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].options.iconUrl, 'chrome-extension://test/icons/notifications/announcement.png');
+  assert.equal(notifications[0].options.contextMessage, 'KDownloader');
+  assert.equal((await watch.getWatchSummary()).watches[0].updated, profile.updated);
+});
+
+test('unavailable system notifications do not change Watch check results or baselines', async (t) => {
+  await watch.setWatchState('patreon', 'creator-1', true);
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(chrome.notifications, 'create', () => { throw new Error('Notifications unavailable'); });
+  profile.updated = '2026-07-14T09:00:00.000000';
+  assert.deepEqual(await watch.runWatchCheck(), { checked: 1, updated: 1, failed: 0 });
+  profileStatus = 503;
+  assert.deepEqual(await watch.runWatchCheck(), { checked: 1, updated: 0, failed: 1 });
+  assert.equal((await watch.getWatchSummary()).watches[0].updated, profile.updated);
+});
+
 test('scheduled check probes directly once and reuses the profile when no Pawchive tab is open', async () => {
   await watch.setWatchState('patreon', 'creator-1', true);
   notifications.length = 0;
@@ -348,6 +383,7 @@ test('a failed profile check produces a failure notification and retains its bas
   assert.deepEqual(result, { checked: 1, updated: 0, failed: 1 });
   assert.equal(notifications.length, 1);
   assert.match(notifications[0].options.title, /^watchFailureTitle:/);
+  assert.equal(notifications[0].options.iconUrl, 'chrome-extension://test/icons/notifications/error.png');
   const stored = (await watch.getWatchSummary()).watches[0];
   assert.equal(stored.updated, baseline);
   assert.match(stored.lastError, /503/);
