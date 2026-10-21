@@ -7,8 +7,10 @@
 - Windows notification activation opens the existing main window through its normal lifecycle coordinator. Keep the profile-specific notification identity, single tag/group, silent updates and shutdown guard.
 - Mark an aggregate delivered only after the native sender accepts it. Failed attempts retain counts and retry after 30 seconds; repeated identical delivery errors do not flood logs. Linux discards failed notification handles so the next attempt can recreate them.
 - Add success, error and information icons to application toasts through the shared component. Preserve literal, selectable text, long-message wrapping, native-titlebar placement and reduced-motion behavior. In-progress update messages use the information state.
+- Require Go 1.26.10 for core and bundled module builds to include the crypto/x509 certificate distrust fix for GO-2026-6809; retain the dependency vulnerability audit in native validation.
 
 ## Verification
 
 - Focused Rust notification regressions and desktop checks, shared component/icon synchronization and browser toast checks in light/dark themes at desktop and narrow widths.
+- Go tests, vet and govulncheck with the patched Go 1.26.10 toolchain.
 - Native notification appearance and activation on installed operating-system packages require separate verification.
