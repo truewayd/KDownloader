@@ -1,5 +1,6 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir, lstat } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { notificationSvg, notificationKinds } from "./notification-icons.mjs";
 
 const root = new URL("../", import.meta.url);
 const require = createRequire(new URL("truedown/desktop/package.json", root));
@@ -14,6 +15,33 @@ if (process.argv.slice(2).some(value => value !== "--check")) {
 }
 
 const source = await readFile(new URL("icons/kdownloader-logo.svg", root), "utf8");
+const notificationDirectory = new URL("icons/notifications/", root);
+try {
+  const stat = await lstat(notificationDirectory);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("Unsafe notification icon directory");
+} catch (error) {
+  if (error.code !== "ENOENT" || check) throw error;
+  await mkdir(notificationDirectory);
+}
+async function notificationOutput(name, expected) {
+  const filename = new URL(name, notificationDirectory);
+  let current;
+  try {
+    const stat = await lstat(filename);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Unsafe notification icon: ${name}`);
+    current = await readFile(filename);
+  } catch (error) { if (error.code !== "ENOENT") throw error; }
+  if (current?.equals(expected)) return;
+  if (check) throw new Error(`Stale notification icon: ${name}. Run npm run icons:sync.`);
+  await writeFile(filename, expected);
+}
+for (const kind of notificationKinds) {
+  const variant = notificationSvg(kind, "KDownloader");
+  await notificationOutput(`${kind}.svg`, Buffer.from(variant));
+  await notificationOutput(`${kind}.png`, new Resvg(variant, {
+    fitTo: { mode: "width", value: 128 }, font: { loadSystemFonts: false },
+  }).render().asPng());
+}
 if (!source.includes('viewBox="0 0 1024 1024"')) throw new Error("Unexpected extension logo viewBox");
 // Keep the inline logo's spacing, but give browser icons a centered viewport
 // with roughly 32 source pixels above/below the silhouette. Preserve its ratio.
@@ -35,4 +63,4 @@ for (const size of [16, 20, 24, 32, 48, 128]) {
     await writeFile(filename, png);
   }
 }
-console.log(`${check ? "Verified" : "Generated"} 6 extension icons from the canonical SVG`);
+console.log(`${check ? "Verified" : "Generated"} 6 extension icons and 5 notification variants from the canonical SVG`);

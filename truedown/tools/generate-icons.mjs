@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { notificationSvg, notificationKinds, notificationSymbol } from "../../tools/notification-icons.mjs";
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repository = path.dirname(project);
@@ -39,6 +40,7 @@ for (const id of manifest.projectIcons) {
   if (!/^[a-z][a-z0-9-]*$/.test(id)) throw new Error("Invalid project icon source");
   addIcon(id, await fs.readFile(path.join(project, "tools/icons", `${id}.svg`), "utf8"));
 }
+for (const kind of notificationKinds) bodies.set(`notification-${kind}`, notificationSymbol(kind));
 
 let outputs = 0;
 async function output(relative, data) {
@@ -76,13 +78,13 @@ async function output(relative, data) {
 function sprite(ids) {
   const symbols = ids.map(id => {
     if (!bodies.has(id)) throw new Error(`Unknown icon: ${id}`);
-    const credit = manifest.projectIcons.includes(id) ? `  <!-- Project-drawn ${id} provider mark. -->\n` : "";
+    const credit = manifest.projectIcons.includes(id) || id.startsWith("notification-") ? `  <!-- Project-drawn ${id} mark. -->\n` : "";
     return `${credit}  <symbol id="icon-${id}" viewBox="0 0 24 24">${bodies.get(id)}</symbol>`;
   });
   return `${header}\n<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true">\n${symbols.join("\n")}\n</svg>\n`;
 }
 
-await output("shared/icons.svg", sprite(manifest.extension));
+await output("shared/icons.svg", sprite([...manifest.extension, ...notificationKinds.map(kind => `notification-${kind}`)]));
 await output("truedown/web/icons.svg", sprite([...bodies.keys()]));
 
 function render(svg, size) {
@@ -110,6 +112,14 @@ const frames = new Map();
 function brandFrame(size) {
   if (!frames.has(size)) frames.set(size, render(brand, size));
   return frames.get(size);
+}
+
+// Native notifications need a persistent PNG rather than a small tray raster.
+await output("truedown/desktop/icons/notification.png", brandFrame(256));
+for (const kind of notificationKinds) {
+  const svg = notificationSvg(kind, "TrueDown");
+  await output(`truedown/desktop/icons/notifications/${kind}.svg`, svg);
+  await output(`truedown/desktop/icons/notifications/${kind}.png`, render(svg, 256));
 }
 
 // Tauri's ICO loader decodes the first entry for its default window icon.
