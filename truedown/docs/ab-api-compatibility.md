@@ -1,10 +1,10 @@
 # AB Download Manager API compatibility
 
-Reviewed on 2026-10-13 using upstream source, not only REST-API.yml:
+Reviewed on 2026-10-22 using upstream source, not only REST-API.yml:
 
-- Latest published desktop release: [v1.11.0](https://github.com/amir1376/ab-download-manager/releases/tag/v1.11.0).
-- Inspected master: `dda4e2d0ca66895aab8547bc32bf4f113e70baa2`. The integration server in v1.11.0 and master is unchanged from v1.10.4.
-- Browser integration: latest published v1.5.0; inspected master `1871203ce9665ea6802e8d1328f8b70c7dc9d948`. The newer bypass shortcut does not change the HTTP protocol.
+- Latest published desktop release: [v1.11.1](https://github.com/amir1376/ab-download-manager/releases/tag/v1.11.1).
+- Inspected master: `e329495b6630b18e4b41d7682da33318b0f9ea18`. The integration server in v1.11.1 and master is unchanged from v1.10.4.
+- Browser integration: latest published v1.5.0; inspected master `658a0c70188d78033f478ba51c102a273322166f`. The newer bypass shortcut and selected-link content-script/tab fixes do not change the HTTP protocol. The client still uses a 500ms timeout for POST `/add` and `/ping`.
 - [Routes and authentication](https://github.com/amir1376/ab-download-manager/blob/afc57634b3c121c6415213242b2b600cccc6fd6e/integration/server/src/main/kotlin/com/abdownloadmanager/integration/Endpoints.kt).
 - [Request types and legacy decoding](https://github.com/amir1376/ab-download-manager/blob/afc57634b3c121c6415213242b2b600cccc6fd6e/integration/server/src/main/kotlin/com/abdownloadmanager/integration/model/DownloadCredentialsFromIntegration.kt).
 - [Headless request](https://github.com/amir1376/ab-download-manager/blob/afc57634b3c121c6415213242b2b600cccc6fd6e/integration/server/src/main/kotlin/com/abdownloadmanager/integration/model/NewDownloadTask.kt).
@@ -15,6 +15,20 @@ and loopback-only binding on 2026-09-06. TrueDown already implements both defaul
 The older REST specification omits polymorphic types, suggested names, silent
 options, categories and start flags; it is not a complete compatibility contract.
 No upstream implementation was copied.
+
+[PR 1488](https://github.com/amir1376/ab-download-manager/pull/1488), opened
+2026-10-18 and still unmerged at review, only documents the existing
+`categoryId`, `startDownload` and `startQueue` fields. It does not introduce
+a new REST API. TrueDown already preserves the typed start default and rejects
+unsupported queue/category actions before creating tasks.
+
+Rayburst Connect 2.1.7 uses a different
+[desktop REST contract](https://github.com/AnInsomniacy/rayburst-connect/blob/v2.1.7/lib/api.ts):
+GET `/ping` with product identity, `/downloads/capabilities`, Bearer authentication
+and structured download handoff responses. It cannot use TrueDown's ABDM routes
+directly. NEXT 3.0.8 restoring engine capability flags does not implement that
+desktop protocol. A future adapter needs separate product/route semantics;
+do not overload the existing ABDM `/add` contract or impersonate its native host.
 
 | Surface | TrueDown behavior |
 | --- | --- |

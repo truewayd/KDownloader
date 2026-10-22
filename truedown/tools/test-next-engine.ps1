@@ -11,6 +11,7 @@ if (-not $IsWindows -or [Runtime.InteropServices.RuntimeInformation]::OSArchitec
 $reviewedNext = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../internal/systemupdate/next-release.json') -Raw | ConvertFrom-Json
 if (-not $Version) { $Version = $reviewedNext.version }
 $expectedHashes = @{
+  '3.0.2' = 'caa69e8ed4bdb2138b1b577f15ea9adecdf7c8230c6c3bb05c7c955383029de3'
   '3.0.0' = 'edf8d987abb3055f34b09a190b4d533950a186ddae9013b9fb83948ee3a5f438'
   '2.8.3' = '08afaf2a44811d38e7ce538da719ab06d6925bcaad1231ee7b92c497f58e5aac'
 }

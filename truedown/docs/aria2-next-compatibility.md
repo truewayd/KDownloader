@@ -1,8 +1,8 @@
 # aria2 NEXT compatibility audit
 
-Reviewed on 2026-10-14 against the latest published release,
-[v3.0.2](https://github.com/AnInsomniacy/aria2-next/releases/tag/v3.0.2),
-commit `d518e90574e3b933e15aa70241bdc1f766a2dd14`. The previous 3.0.0 and
+Reviewed on 2026-10-22 against the latest published release,
+[v3.0.8](https://github.com/AnInsomniacy/aria2-next/releases/tag/v3.0.8),
+commit `fa9f2f2eda8d73afa611cd18cec0a0a4dba0da46`. The previous 3.0.2, 3.0.0 and
 2.8.3 releases remain separate regression targets.
 Unreleased main-branch behavior is not treated as a release contract.
 
@@ -11,6 +11,8 @@ Unreleased main-branch behavior is not treated as a release contract.
 | Native HTTP recovery | Preserve GID for paused/process-interrupted recovery. NEXT 2.x also preserves GID for same-URL failed retries. NEXT 3 failed HTTP retries restart from zero because result retirement discards native state and no HTTP retry RPC exists. Never infer completion from file size. |
 | Missing/incompatible recovery state | Native error 13 leaves output intact and offers an explicit clean retry. Existing range-error cleanup also remains bounded to the owned output. |
 | Output collisions | Reserve payload/control pairs, pin `out`, and disable automatic renaming and overwrite. NEXT 3 uses `continue=false` to forbid prefix adoption while retaining native checkpoint loading. Explicit clean retry delegates owned-output truncation to the engine. Completed-file conditional refresh remains separate. |
+| Unfinished-file suffix | Reject raw `incomplete-suffix` on all engines, including saved defaults, before task admission or requeue. Also strip it at RPC serialization for defense in depth. NEXT 3.0.4's suffixed paths are not part of TrueDown's output reservation/recovery/cleanup contract; changing engines must not silently enable them. |
+| MEGA archive recovery | NEXT's sparse/preallocated member length is not completion evidence. Persist a source-bound member cursor after native completion and before result retirement. Skip only receipted intact members; otherwise resume native checkpoints or redownload only the exact private journal-owned ciphertext when NEXT 3 has no checkpoint. Module MAC verification still gates archive publication. |
 | Dropbox / Google Drive | Recognize native partials without `.aria2`. A renewed source URL cannot inherit another URL's checkpoint; restart after metadata checks. Refreshed transient Google URLs remain engine-validated and may require a clean retry. |
 | Filename RPC | Discover `aria2.resolveFilename` through `system.listMethods`; keep older `getVersion.downloadFeatures` as fallback if discovery fails. Send original Content-Disposition as integer bytes. Bound URL/header lengths to 16384/8192 bytes and use a one-second deadline. |
 | Filename callers | Use the optional RPC for resolver metadata, with local-parser fallback. Caller-provided output names and existing output reservations stay authoritative. Ordinary unnamed HTTP tasks keep their URL-derived names. |
@@ -63,6 +65,35 @@ detachment. The restored XML-RPC route stays on the engine's private loopback
 listener with its existing token; it is not a TrueDown HTTP API or native command.
 Upstream no longer executes its release-time RPC BitTorrent smoke check; TrueDown
 retains its independent real-engine acceptance before Windows publication.
+
+[3.0.3](https://github.com/AnInsomniacy/aria2-next/releases/tag/v3.0.3) restores
+Windows sparse allocation for `trunc`/`none` and fixes empty ranged files.
+TrueDown defaults to `none`; explicit allocation choices remain engine-owned.
+[3.0.4](https://github.com/AnInsomniacy/aria2-next/releases/tag/v3.0.4) adds
+`aria2.moveDownload`, unfinished-file suffixes, parenthesized automatic numbering
+and Thunder links. None is enabled implicitly: relocation needs a durable manager
+transaction, suffixes are rejected, managed HTTP names remain reserved, and
+the public accepted-protocol set is unchanged.
+
+[3.0.5](https://github.com/AnInsomniacy/aria2-next/releases/tag/v3.0.5) and
+[3.0.6](https://github.com/AnInsomniacy/aria2-next/releases/tag/v3.0.6) repair
+noncompliant 206 responses and report the redirected `getServers.currentUri`.
+NEXT also shares host connections across downloads after 429/503 responses and
+applies Retry-After host-wide. Keep this scheduling in the engine; do not add
+site-specific retry/connection policy to TrueDown. The existing server-detail
+projection continues to expose only sanitized host information.
+[3.0.7](https://github.com/AnInsomniacy/aria2-next/releases/tag/v3.0.7) protects
+unowned prefixes when ranges are ignored, fixes Linux BT filename encoding and
+improves missing Windows drive diagnostics. TrueDown still forbids prefix
+adoption with `continue=false` and retains explicit owned-output clean retries.
+
+[3.0.8](https://github.com/AnInsomniacy/aria2-next/releases/tag/v3.0.8) restores
+`getVersion.downloadFeatures` (`filename-hints`, `filename-resolution`),
+`setBtPeerBlocklist` and `forceBtAnnounce`. Method discovery remains authoritative,
+with feature fallback only on discovery failure. These are engine JSON-RPC
+capabilities, not new TrueDown REST routes or native permissions. The restored
+flags fix Rayburst's engine check; Rayburst Connect's separate desktop REST
+contract is not supported by TrueDown's ABDM compatibility layer.
 
 ## Reviewed releases and rollback
 
@@ -189,14 +220,19 @@ From the repository root on Windows x64:
 pwsh -NoProfile -File truedown/tools/test-next-engine.ps1 -FFmpegPath C:\Tools\ffmpeg.exe
 ```
 
-The script fetches the reviewed 3.0.2 binary, verifies its pinned SHA-256 before
+The script fetches the reviewed 3.0.8 binary, verifies its pinned SHA-256 before
 execution, runs downloader/updater/API tests with NEXT configuration, and restores the
 caller's environment. `-EnginePath <absolute-path>` reuses an already downloaded
 binary only if its checksum matches. It never installs or selects the user's
 engine. CI runs this check for pull requests and before Windows release builds.
-Use `-Version 3.0.0` or `-Version 2.8.3` for the older engines. The reviewed
-NEXT 3.0.2 Windows x64 digest is
-`caa69e8ed4bdb2138b1b577f15ea9adecdf7c8230c6c3bb05c7c955383029de3`.
+Use `-Version 3.0.2`, `-Version 3.0.0` or `-Version 2.8.3` for the older engines.
+The reviewed NEXT 3.0.8 Windows x64 digest is
+`3e8763f67a7ce6d14f35239bbe88e3b0ee40c7a123424c0fe0b2f2232541c3a1`;
+the ARM64 policy digest is
+`61de72af3e9cd8555425eba765e58bb1a42568dcc01847be45cce6beeecfa00e`.
+Both match the official release asset metadata and checksum file. Real-engine
+acceptance currently runs on Windows x64; ARM64 digest review is not execution
+acceptance on that architecture.
 
 Real engine tests cover pause/resume/removal, unexpected exit, graceful
 checkpoint/restart with nonzero Range requests, repeated interrupted retries,
@@ -206,6 +242,12 @@ BT identity startup, hot update, restart persistence and default restoration
 via the real engine's global-option RPC. Managed startup is checked against an
 invalid ambient CLI configuration containing a daemon flag. NEXT 3.0.1+ also
 checks negotiated/unsolicited gzip decoding and preservation of gzip archives.
+NEXT 3.0.8+ additionally checks restored filename feature flags, empty range
+responses, missing/misplaced Content-Range and transient 429/503 with byte-for-byte
+output validation. Host scheduling fairness and external service throughput
+are not claimed by these local fixtures.
+Archive recovery checks both current member-completion receipts and missing
+legacy receipts, preserving native Range resume and verifying every ZIP member.
 NEXT 3 also verifies that pause retains
 native state and removal retires it without deleting an unrelated temporary file.
 FFmpeg/ffprobe are developer-only fixture/oracle tools, never a production

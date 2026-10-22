@@ -10,9 +10,110 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+// These fixtures deliberately exercise server behavior corrected in 3.0.3-3.0.7.
+// Verify bytes through the manager, not just a successful RPC acknowledgement.
+func TestNext308HTTPCompatibilityIntegration(t *testing.T) {
+	config := integrationManagerConfig()
+	if os.Getenv("TRUEDOWN_INTEGRATION") == "" || !aria2NextVersionAtLeast(config.Aria2NextVersion, 3, 0, 8) {
+		t.Skip("requires NEXT 3.0.8 or newer")
+	}
+	engine, err := integrationAria2Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	m, err := NewManagerWithConfig(engine, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	if err := m.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var version struct {
+		DownloadFeatures []string `json:"downloadFeatures"`
+	}
+	if err := m.rpc.(*ariaClient).call("aria2.getVersion", nil, &version); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"filename-hints", "filename-resolution"} {
+		found := false
+		for _, feature := range version.DownloadFeatures {
+			found = found || feature == want
+		}
+		if !found {
+			t.Fatalf("restored feature missing: %s", want)
+		}
+	}
+	payload := make([]byte, 4*1024*1024)
+	for i := range payload {
+		payload[i] = byte((i*31 + i/257) % 251)
+	}
+	for _, scenario := range []string{"empty", "missing-content-range", "wrong-content-range", "retry-429", "retry-503"} {
+		t.Run(scenario, func(t *testing.T) {
+			data := payload
+			if scenario == "empty" {
+				data = nil
+			}
+			var exercised atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if scenario == "empty" {
+					w.Header().Set("Accept-Ranges", "bytes")
+					w.Header().Set("Content-Length", "0")
+					if r.Header.Get("Range") != "" {
+						w.Header().Set("Content-Range", "bytes */0")
+						w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+						exercised.Add(1)
+					}
+					return
+				}
+				transfer := r.Method == http.MethodGet && r.Header.Get("Range") != "bytes=0-0"
+				if transfer && strings.HasPrefix(scenario, "retry-") && exercised.Add(1) == 1 {
+					code := http.StatusTooManyRequests
+					if scenario == "retry-503" {
+						code = http.StatusServiceUnavailable
+					}
+					w.Header().Set("Retry-After", "1")
+					http.Error(w, "fixture host busy", code)
+					return
+				}
+				recorder := httptest.NewRecorder()
+				http.ServeContent(recorder, r, "data.bin", time.Unix(1700000000, 0), bytes.NewReader(data))
+				if transfer && recorder.Code == http.StatusPartialContent {
+					switch scenario {
+					case "missing-content-range":
+						recorder.Header().Del("Content-Range")
+						exercised.Add(1)
+					case "wrong-content-range":
+						recorder.Header().Set("Content-Range", "bytes 1-1/"+strconv.Itoa(len(data)))
+						exercised.Add(1)
+					}
+				}
+				for key, values := range recorder.Header() {
+					w.Header()[key] = values
+				}
+				w.WriteHeader(recorder.Code)
+				_, _ = w.Write(recorder.Body.Bytes())
+			}))
+			defer server.Close()
+			opts := Aria2Opts{Connections: 2, MaxTries: 3, RetryWait: 1, ProxyMode: "none", ExtraArgs: []string{"--min-split-size=1M"}}
+			task, _, err := m.AddTask(server.URL+"/data.bin", scenario+".bin", "", nil, "", 0, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitForStatus(t, m, task.ID, 20*time.Second, StatusDone)
+			assertTransferHash(t, filepath.Join(task.Folder, task.OutputName), data)
+			if exercised.Load() == 0 {
+				t.Fatal("fixture did not exercise the intended server response")
+			}
+		})
+	}
+}
 
 func TestManagedEngineIgnoresAmbientConfigIntegration(t *testing.T) {
 	if os.Getenv("TRUEDOWN_INTEGRATION") == "" {

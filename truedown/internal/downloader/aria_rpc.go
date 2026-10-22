@@ -179,8 +179,8 @@ func (c *ariaClient) ready() error {
 	for _, feature := range version.DownloadFeatures {
 		supported = supported || feature == "filename-resolution"
 	}
-	// NEXT 3 no longer advertises downloadFeatures. Older engines retain the
-	// feature flag as a fallback when method discovery is unavailable.
+	// NEXT 3.0.0-3.0.7 omit downloadFeatures; 3.0.8 restores it. Prefer method
+	// discovery, retaining the feature flag only when discovery is unavailable.
 	var methods []string
 	var retry, finish, probe bool
 	if err := c.call("system.listMethods", nil, &methods); err == nil {

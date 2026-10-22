@@ -135,6 +135,9 @@ func TestFilenameResolutionCapabilityAndRawBytes(t *testing.T) {
 		{"2.8.3", true, false, true},
 		{"3.0.0", false, true, false},
 		{"3.0.0", false, false, true},
+		{"3.0.8", true, true, false},
+		{"3.0.8", true, false, true},
+		{"3.0.8", true, false, false},
 	} {
 		supported := tc.method || (tc.discoveryFails && tc.flag)
 		calls := 0
