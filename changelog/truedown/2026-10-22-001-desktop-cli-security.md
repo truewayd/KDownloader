@@ -14,3 +14,4 @@
 - Local checks passed: 452 JavaScript tests (one platform skip), 58 Rust tests, formatting/Clippy, native desktop build, Go tests/vet, 13 Python migration tests, UI/icon synchronization and focused release/native contracts.
 - Audit-loop fixtures verify clean success, immediate advisory failure, registry recovery, exhausted retries and malformed-report failure against the workflow's actual shell block.
 - The artifact pause/integrity/collision regression passed 20 consecutive repetitions after fixture reuse; the downloader package suite and release workflow contracts also passed.
+- Cross-platform package validation and standalone native desktop validation passed for commit f6a85be, including Windows, Linux and macOS native acceptance. Final release publication remains a separate gate.

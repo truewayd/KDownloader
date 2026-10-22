@@ -84,6 +84,20 @@ current lockfiles and deliberate compatibility pins.
 
 ## Verification boundaries
 
+Commit `f6a85be0fb9d58213ed948d9891db8e18cff70bf` passed both
+[cross-platform package validation](https://github.com/truewayd/KDownloader/actions/runs/39742022871)
+and [standalone native desktop validation](https://github.com/truewayd/KDownloader/actions/runs/39742022861).
+The native run passed on Windows, Linux and macOS, including npm/Go audits,
+Rust checks, native editing/clipboard, update recovery and window acceptance.
+
+The separate publication run repeated native acceptance on another runner.
+Its Windows editor fixture timed out at `main document readiness` before any
+editing action, despite the same commit passing the standalone native run.
+The [publication attempt](https://github.com/truewayd/KDownloader/actions/runs/39742022862)
+retains that failure; it is not counted as a successful release. Preserve the
+existing readiness assertions and accept a fresh push-triggered publication
+workflow separately from the two successful validation workflows.
+
 Local verification passed with 452 JavaScript tests and one platform skip,
 58 Rust tests, Rust formatting and Clippy, Go tests/vet, 13 Python migration
 tests, the native Windows debug build, UI/icon synchronization and focused
