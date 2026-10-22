@@ -50,7 +50,7 @@ try {
       "/system/logs": { content: "entry\n".repeat(300), updatedAt: "2026-09-08T05:35:34Z" },
       "/system/update": { trueDown: { version: "truedown-build-42", build: 42, supported: true, autoUpdate: true, lastCheckedAt: "2026-09-08T05:35:34Z" }, engine: { preference: "next", active: "next", activeVersion: "3.0.2", stableVersion: "1.37.0", nextInstalled: true, nextInstalledVersion: "3.0.2", nextRecommendedVersion: "3.0.2", nextRollbackVersion: "3.0.0", autoUpdateSupported: true, autoUpdate: true } },
       "/system/engine/select": {},
-      "/modules": { modules: ["google-drive", "dropbox", "mega"].map(id => ({ id, name: id === "dropbox" ? "Dropbox" : id === "mega" ? "MEGA" : "Google Drive", version: "1.0.0", installed: true, source: "baseline" })) },
+      "/modules": { modules: ["google-drive", "dropbox", "mega", "mediafire"].map(id => ({ id, capabilities: ["mega", "mediafire"].includes(id) ? ["executable"] : [], name: id === "mediafire" ? "MediaFire" : id === "dropbox" ? "Dropbox" : id === "mega" ? "MEGA" : "Google Drive", version: "1.0.0", installed: true, source: "baseline" })) },
       "/modules/update": { running: false, version: "1.0.1" },
     };
     let failSave = false, logReads = 0, engineSelections = 0;
@@ -81,7 +81,7 @@ try {
           await route.fulfill({ contentType: "application/json", body: JSON.stringify(saved) }); return;
         }
         if (endpoint === "/modules/update") {
-          assert.ok(["mega", "dropbox", "google-drive"].includes(value.id));
+          assert.ok(["mega", "dropbox", "google-drive", "mediafire"].includes(value.id));
           Object.assign(fixture["/modules"].modules.find(module => module.id === value.id), { version: "1.0.1", source: "updated" });
           fixture[endpoint].id = value.id;
           await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify(fixture[endpoint]) }); return;
@@ -410,8 +410,8 @@ try {
         await page.waitForFunction(() => downloadSettings.extra === "--min-split-size=2M" && !document.querySelector("#settings-form").inert);
         assert.equal(fixture["/settings/task-defaults"].values.extra, "--min-split-size=2M");
         assert.equal(await page.locator("#check-truedown-update-btn").isVisible(), false);
-        assert.equal(await page.locator(".module-card-icon use").count(), 3);
-        for (const id of ["mega", "google-drive", "dropbox"]) {
+        assert.equal(await page.locator(".module-card-icon use").count(), 4);
+        for (const id of ["mega", "google-drive", "dropbox", "mediafire"]) {
           assert.equal(await page.locator(`[data-module-update="${id}"]`).textContent(), "检查更新");
           const moduleUpdate = page.waitForResponse(response => new URL(response.url()).pathname === "/modules/update" && response.request().method() === "POST");
           await page.locator(`[data-module-update="${id}"]`).click();
@@ -422,6 +422,7 @@ try {
           assert.match(await page.locator(`[data-module-update-status="${id}"]`).textContent(), /1\.0\.1/);
         }
         assert.equal(await page.locator('[data-module-import="google-drive"]').textContent(), "导入更新");
+        assert.equal(await page.locator('[data-module-import="mediafire"]').count(), 0);
         await page.locator('[data-module-id="google-drive"]').scrollIntoViewIfNeeded();
         const googleCard = await page.locator('[data-module-id="google-drive"]').boundingBox();
         for (const selector of ['[data-module-update="google-drive"]', '[data-module-import="google-drive"]', '[data-module-reset="google-drive"]']) {

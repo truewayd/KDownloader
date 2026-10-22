@@ -231,7 +231,7 @@ export async function probeAutoResolve(config) {
     const result = JSON.parse(text);
     if (result.protocol !== 'kdownloader.resolve' || result.version !== 1
         || result.resolve !== true || !Array.isArray(result.modules)
-        || !result.modules.some(module => ['dropbox', 'google-drive'].includes(module.id) && module.enabled === true)) {
+        || !result.modules.some(module => ['dropbox', 'google-drive', 'mediafire'].includes(module.id) && module.enabled === true)) {
       throw unavailable();
     }
     return result;

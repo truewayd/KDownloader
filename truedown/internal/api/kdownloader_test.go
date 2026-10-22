@@ -20,7 +20,7 @@ func TestKDownloaderCapabilityAndModuleOnlyDispatch(t *testing.T) {
 		Resolve  bool   `json:"resolve"`
 		Modules  []any  `json:"modules"`
 	}
-	if json.Unmarshal(capability.Body.Bytes(), &caps) != nil || caps.Protocol != "kdownloader.resolve" || caps.Version != 1 || !caps.Resolve || len(caps.Modules) != 2 {
+	if json.Unmarshal(capability.Body.Bytes(), &caps) != nil || caps.Protocol != "kdownloader.resolve" || caps.Version != 1 || !caps.Resolve || len(caps.Modules) != 3 {
 		t.Fatalf("capability: %s", capability.Body.String())
 	}
 	send := func(link string) map[string]any {

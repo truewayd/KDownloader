@@ -415,7 +415,7 @@ export async function resolveExternalLinks(externalLinks) {
     try {
       const url = new URL(link);
       supported = url.protocol === 'https:' && !url.username && !url.password && !url.port
-        && ['drive.google.com', 'docs.google.com', 'dropbox.com', 'www.dropbox.com'].includes(url.hostname);
+        && ['drive.google.com', 'docs.google.com', 'dropbox.com', 'www.dropbox.com', 'mediafire.com', 'www.mediafire.com'].includes(url.hostname);
     } catch { /* Preserve unrecognized links for existing frontend validation. */ }
     if (!supported) { remaining.push(link); continue; }
     attemptedExternalLinks.push(link);
@@ -428,7 +428,7 @@ export async function resolveExternalLinks(externalLinks) {
       if (!response.ok) throw new Error('Resolver unavailable');
       const result = JSON.parse(await readLimitedResponseText(response, 128 * 1024, 'Link resolution'));
       if (result.protocol !== 'kdownloader.resolve' || result.version !== 1 || result.link !== link
-          || result.accepted !== true || !['google-drive', 'dropbox'].includes(result.module)
+          || result.accepted !== true || !['google-drive', 'dropbox', 'mediafire'].includes(result.module)
           || !Array.isArray(result.taskIds)
           || !(result.taskIds.some(id => Number.isSafeInteger(id) && id > 0) || result.filtered > 0)) {
         throw new Error('Link was not accepted');

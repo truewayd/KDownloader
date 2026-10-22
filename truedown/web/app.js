@@ -478,6 +478,7 @@ function buildModuleOptions() {
     applyFilter: downloadRules.dropboxMode === "expand" && downloadRules.enabled,
   };
   if (isModuleInstalled("google-drive")) options["google-drive"] = {};
+  if (isModuleInstalled("mediafire")) options.mediafire = {};
   if (isModuleInstalled("mega")) options.mega = {
     mode: downloadRules.megaMode,
     applyFilter: downloadRules.megaMode === "expand" && downloadRules.enabled,

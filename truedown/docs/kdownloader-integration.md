@@ -10,7 +10,7 @@ Only enabled supported modules permit the extension's opt-in switch to be saved.
 The extension validates the configured backend again on each enabled save.
 
 `POST /integrations/kdownloader/v1/resolve` accepts exactly `{link}` (16 KiB
-request maximum). Only HTTPS public Google Drive/Dropbox module links are
+request maximum). Only HTTPS public Google Drive/Dropbox/MediaFire module links are
 eligible; no headers, cookies, names, output paths or executable options are
 accepted. The module receives a 25-second deadline and retains its immutable
 selection across concurrent settings changes. There is no ordinary HTTP fallback.
@@ -31,4 +31,5 @@ repeat automatically. Users can unmark selected links to retry them.
 
 `GET /system/download-issues` is a read-only counter snapshot for the native
 notification monitor. It exposes a core epoch and counters for ordinary,
-Dropbox and Google Drive issues. It contains no task URLs or raw errors.
+Dropbox and Google Drive issues. MediaFire resolution and transfer failures use
+the ordinary download counter. It contains no task URLs or raw errors.

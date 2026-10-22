@@ -16,7 +16,7 @@ func (m *Manager) ResolveIntegrationLink(ctx context.Context, link string) (Modu
 		return ModuleAddResult{}, "unavailable"
 	}
 	if module == nil {
-		for _, id := range []string{DropboxModuleID, GoogleDriveModuleID} {
+		for _, id := range []string{DropboxModuleID, GoogleDriveModuleID, MediaFireModuleID} {
 			if candidate := m.modules.module(id); candidate != nil && candidate.matches(link) {
 				m.recordModuleIssue(id)
 				return ModuleAddResult{ModuleID: id}, "disabled"
@@ -25,7 +25,7 @@ func (m *Manager) ResolveIntegrationLink(ctx context.Context, link string) (Modu
 		return ModuleAddResult{}, "unsupported"
 	}
 	id := module.info().ID
-	if id != DropboxModuleID && id != GoogleDriveModuleID {
+	if id != DropboxModuleID && id != GoogleDriveModuleID && id != MediaFireModuleID {
 		return ModuleAddResult{}, "unsupported"
 	}
 	// Keep the immutable module selected above across concurrent enablement changes.

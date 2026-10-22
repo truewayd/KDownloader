@@ -14,7 +14,7 @@ let state = idle, fail = false, reads = 0, restarts = 0;
 let limit = 0, runtimeFail = false;
 let moduleState = { running: false, version: "0.2.0" };
 let nextResult = null;
-const retries = { truedown: 0, "next-engine": 0, mega: 0, dropbox: 0, "google-drive": 0 };
+const retries = { truedown: 0, "next-engine": 0, mediafire: 0, mega: 0, dropbox: 0, "google-drive": 0 };
 let summary = {};
 const server = http.createServer(async (request, response) => {
   const name = new URL(request.url, "http://localhost").pathname;
@@ -25,7 +25,7 @@ const server = http.createServer(async (request, response) => {
       let body = "";
       for await (const chunk of request) body += chunk;
       kind = JSON.parse(body).id;
-      assert.ok(["mega", "dropbox", "google-drive"].includes(kind));
+      assert.ok(["mega", "dropbox", "google-drive", "mediafire"].includes(kind));
       moduleState = { id: kind, running: true, phase: "installing", version: "" };
     } else {
       state = kind === "next-engine" && nextResult ? nextResult : { ...idle, busy: kind };
@@ -190,9 +190,9 @@ try {
     await page.evaluate(() => scheduleSystemUpdateRefresh(true));
     await page.waitForFunction(() => systemUpdateState.error !== "");
     assert.equal(await page.evaluate(() => workspaceNoticeTarget), "restart", "a separate update failure cannot hide a verified restart");
-    for (const kind of ["truedown", "next-engine", "mega", "google-drive", "dropbox"]) {
+    for (const kind of ["truedown", "next-engine", "mega", "google-drive", "dropbox", "mediafire"]) {
       state = { ...idle, trueDown: { ...idle.trueDown, error: kind === "truedown" ? "Program install failed" : "" }, engine: { error: kind === "next-engine" ? "Engine verification failed" : "" } };
-      moduleState = { id: ["mega", "google-drive", "dropbox"].includes(kind) ? kind : "mega", running: false, error: ["mega", "google-drive", "dropbox"].includes(kind) ? "Module installation failed" : "" };
+      moduleState = { id: ["mega", "google-drive", "dropbox", "mediafire"].includes(kind) ? kind : "mega", running: false, error: ["mega", "google-drive", "dropbox", "mediafire"].includes(kind) ? "Module installation failed" : "" };
       await page.evaluate(() => scheduleSystemUpdateRefresh(true));
       await page.waitForFunction(expected => workspaceNoticeCommand?.kind === expected, kind);
       const command = page.locator("#workspace-notice-command");

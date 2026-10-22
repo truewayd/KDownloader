@@ -990,7 +990,7 @@ function renderResolverModules() {
 		update.setAttribute("aria-label", `检查 ${module.name} 模块更新`);
 		update.textContent = "检查更新";
 		actions.append(toggle, update);
-		if (module.id !== "mega") {
+		if (!module.capabilities?.includes("executable") && !module.capabilities?.includes("artifact")) {
 			const upload = document.createElement("button");
 			upload.type = "button";
 			upload.className = "kd-button secondary compact";
@@ -1152,8 +1152,8 @@ let moduleUpdatePending = false;
 let moduleUpdateNotifyPending = false;
 function renderModuleUpdateStatus() {
   const update = moduleUpdateState;
-  for (const id of ["mega", "dropbox", "google-drive"]) {
-    const name = ({ mega: "MEGA", dropbox: "Dropbox", "google-drive": "Google Drive" })[id];
+  for (const id of ["mega", "dropbox", "google-drive", "mediafire"]) {
+    const name = ({ mediafire: "MediaFire", mega: "MEGA", dropbox: "Dropbox", "google-drive": "Google Drive" })[id];
     const status = els.moduleList?.querySelector(`[data-module-update-status="${id}"]`);
     const button = els.moduleList?.querySelector(`[data-module-update="${id}"]`);
     const own = update?.id === id ? update : null;
@@ -1175,7 +1175,7 @@ function renderModuleUpdateStatus() {
 function normalizeModuleUpdateState(value) {
   const source = value && typeof value === "object" ? value : {};
   const download = source.download && typeof source.download === "object" ? source.download : null;
-  return { id: ["mega", "dropbox", "google-drive"].includes(source.id) ? source.id : "", running: source.running === true,
+  return { id: ["mega", "dropbox", "google-drive", "mediafire"].includes(source.id) ? source.id : "", running: source.running === true,
     phase: ["checking", "downloading", "installing"].includes(source.phase) ? source.phase : "",
     version: stringValue(source.version), error: stringValue(source.error),
     download: download ? { status: stringValue(download.status),
@@ -1195,7 +1195,7 @@ async function refreshModuleUpdateState() {
       moduleUpdatePending = update.running;
       if (completed && (moduleUpdateNotifyPending || (currentPage === "settings" && currentSettingsPage === "engine"))) {
         if (currentPage === "settings" && currentSettingsPage === "engine") loadResolverModules().catch(() => {});
-        const name = ({ mega: "MEGA", dropbox: "Dropbox", "google-drive": "Google Drive" })[update.id] || "解析";
+        const name = ({ mediafire: "MediaFire", mega: "MEGA", dropbox: "Dropbox", "google-drive": "Google Drive" })[update.id] || "解析";
         showToast(update.error ? `${name} 模块更新失败，已保留原版本。` : `${name} 模块已就绪：v${update.version}`, update.error ? "error" : "announcement");
         moduleUpdateNotifyPending = false;
       }
@@ -1207,9 +1207,9 @@ async function refreshModuleUpdateState() {
 
 function requestUpdateOperation(kind) {
   if (updateOperationsPending.has(kind)) return updateOperationsPending.get(kind);
-  const commands = { truedown: "/system/update/check?background=true", "next-engine": "/system/engine/next?background=true", mega: "/modules/update", dropbox: "/modules/update", "google-drive": "/modules/update" };
+  const commands = { truedown: "/system/update/check?background=true", "next-engine": "/system/engine/next?background=true", mediafire: "/modules/update", mega: "/modules/update", dropbox: "/modules/update", "google-drive": "/modules/update" };
   if (!Object.hasOwn(commands, kind)) return Promise.reject(new Error("未知更新操作"));
-  const moduleUpdate = ["mega", "dropbox", "google-drive"].includes(kind);
+  const moduleUpdate = ["mega", "dropbox", "google-drive", "mediafire"].includes(kind);
   const key = moduleUpdate ? "module-update" : "engine";
   invalidateSettingRead(key);
   const operation = (async () => {

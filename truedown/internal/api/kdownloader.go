@@ -24,9 +24,9 @@ func registerKDownloader(mux *http.ServeMux, dm *downloader.Manager) {
 			http.Error(w, "method not allowed", 405)
 			return
 		}
-		modules := make([]map[string]any, 0, 2)
+		modules := make([]map[string]any, 0, 3)
 		for _, module := range dm.Modules() {
-			if module.ID == downloader.DropboxModuleID || module.ID == downloader.GoogleDriveModuleID {
+			if module.ID == downloader.DropboxModuleID || module.ID == downloader.GoogleDriveModuleID || module.ID == downloader.MediaFireModuleID {
 				modules = append(modules, map[string]any{"id": module.ID, "enabled": module.Installed})
 			}
 		}

@@ -70,8 +70,8 @@ function renderWorkspaceNotice() {
       }
     } else if (moduleUpdateState?.running) {
       workspaceNoticeTarget = "engine";
-      const name = ({ mega: "MEGA", dropbox: "Dropbox", "google-drive": "Google Drive" })[moduleUpdateState.id] || "解析";
-      icon = moduleUpdateState.id || "download";
+      const name = ({ mediafire: "MediaFire", mega: "MEGA", dropbox: "Dropbox", "google-drive": "Google Drive" })[moduleUpdateState.id] || "解析";
+      icon = moduleUpdateState.id === "mediafire" ? "cloud" : moduleUpdateState.id || "download";
       title = `${moduleUpdateState.phase === "installing" ? "安装" : "更新"} ${name} 模块`;
       tooltip = title + "，查看详情";
       const moduleDownload = moduleUpdateState.download;
@@ -98,10 +98,10 @@ function renderWorkspaceNotice() {
       workspaceNoticeTarget = "engine";
       workspaceNoticeCommand = { kind: "next-engine", label: "重试 NEXT 更新", icon: "retry" };
     } else if (moduleUpdateState?.error) {
-      const name = ({ mega: "MEGA", dropbox: "Dropbox", "google-drive": "Google Drive" })[moduleUpdateState.id] || "解析";
+      const name = ({ mediafire: "MediaFire", mega: "MEGA", dropbox: "Dropbox", "google-drive": "Google Drive" })[moduleUpdateState.id] || "解析";
       title = `${name} 更新失败`;
       tooltip = `${name} 模块更新失败，已保留原版本。`;
-      icon = moduleUpdateState.id || "download";
+      icon = moduleUpdateState.id === "mediafire" ? "cloud" : moduleUpdateState.id || "download";
       workspaceNoticeTarget = "engine";
       workspaceNoticeCommand = { kind: moduleUpdateState.id, label: `重试 ${name} 模块更新`, icon: "retry" };
     } else if (engine.restartRequired) {
