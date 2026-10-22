@@ -18,6 +18,14 @@ import (
 )
 
 func TestAriaCollectionRestartPauseAndRemoval(t *testing.T) {
+	testAriaCollectionRestartPauseAndRemoval(t, false)
+}
+
+func TestAriaCollectionLegacyProgressRestart(t *testing.T) {
+	testAriaCollectionRestartPauseAndRemoval(t, true)
+}
+
+func testAriaCollectionRestartPauseAndRemoval(t *testing.T, legacyProgress bool) {
 	if os.Getenv("TRUEDOWN_INTEGRATION") == "" {
 		t.Skip("real aria2 integration opt-in")
 	}
@@ -58,7 +66,17 @@ func TestAriaCollectionRestartPauseAndRemoval(t *testing.T) {
 		return m
 	}
 	m := newManager()
-	defer func() { m.Stop() }()
+	defer func() {
+		if t.Failed() {
+			// Only this synthetic fixture's private failure, never real module data.
+			m.artifacts.mu.Lock()
+			for _, job := range m.artifacts.jobs {
+				t.Logf("collection fixture phase=%s failure=%v", job.phase, job.failure)
+			}
+			m.artifacts.mu.Unlock()
+		}
+		m.Stop()
+	}()
 	opts := Aria2Opts{Connections: 1, MaxSpeedBps: 512 * 1024, ProxyMode: "none"}.WithStartPaused(true)
 	result, _, err := m.AddWithModules(context.Background(), "https://mega.nz/folder/fixture#fixture", "", "", nil, "", 0, opts, nil)
 	if err != nil || len(result.Tasks) != 1 {
@@ -84,6 +102,14 @@ func TestAriaCollectionRestartPauseAndRemoval(t *testing.T) {
 	if completedRequests == 0 {
 		t.Fatal("first collection member was not transferred")
 	}
+	if legacyProgress {
+		// Old application versions have the immutable ownership journal but
+		// no native-completion cursor. Preserve/recover the partial checkpoint;
+		// a full-sized file alone cannot authorize skipping a member.
+		if err := os.Remove(filepath.Join(artifactDirectory(current), "collection-progress.json")); err != nil {
+			t.Fatal(err)
+		}
+	}
 	m = newManager()
 	if err := m.ResumeTask(task.ID); err != nil {
 		t.Fatal(err)
@@ -93,8 +119,11 @@ func TestAriaCollectionRestartPauseAndRemoval(t *testing.T) {
 	if !resumed.Load() {
 		t.Fatal("collection restart did not resume a member with Range")
 	}
-	if firstMemberRequests.Load() != completedRequests {
+	if !legacyProgress && firstMemberRequests.Load() != completedRequests {
 		t.Fatal("collection restart downloaded an already completed member")
+	}
+	if legacyProgress && firstMemberRequests.Load() <= completedRequests {
+		t.Fatal("legacy collection trusted file length without a completion receipt")
 	}
 	archivePath := filepath.Join(current.Folder, current.OutputName)
 	archive, err := zip.OpenReader(archivePath)

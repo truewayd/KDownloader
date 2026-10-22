@@ -402,7 +402,7 @@ func (a *artifactTransfers) remove(task *Task) error {
 	if modulehost.Decode(raw, &journal) != nil || journal.Identity != artifactIdentity(task) || journal.Output != filepath.Join(task.Folder, task.OutputName) {
 		return fmt.Errorf("artifact ownership mismatch")
 	}
-	names := []string{"ciphertext", "ciphertext.aria2", "payload", "state.json"}
+	names := []string{"ciphertext", "ciphertext.aria2", "payload", "collection-progress.json", "state.json"}
 	var identity requestIdentity
 	if json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.Collection != nil {
 		if _, err := modulehost.ValidateCollection(identity.Collection); err != nil {
@@ -451,7 +451,7 @@ func (a *artifactTransfers) completed(task *Task) {
 	}
 	directory := job.directory
 	a.mu.Unlock()
-	names := []string{"ciphertext", "ciphertext.aria2"}
+	names := []string{"ciphertext", "ciphertext.aria2", "collection-progress.json"}
 	if job.plan.Collection != nil {
 		for index, entry := range job.plan.Collection.Entries {
 			if !entry.Directory {

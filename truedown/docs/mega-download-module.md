@@ -68,7 +68,22 @@ module, public link, frozen child metadata and reserved output. aria2 owns
 `ciphertext` (a file) or fixed `ciphertext-NNNNNN` members (an archive), and their
 native checkpoint/control files. Changing task options does not change staging identity.
 Metadata refresh validates name/size before resume. File length never proves
-plaintext integrity.
+transport completion or plaintext integrity: NEXT can preallocate an incomplete
+member to its final length. A bounded `collection-progress.json` receipt binds
+the next member index to the frozen artifact identity. It is committed only
+after native transfer completion, before the native result/checkpoint is retired.
+Restart skips a member only with that receipt and an intact regular output of
+the expected size; all members still require module MAC verification.
+
+The receipt is separate from the existing ownership/publication journal, so
+its format stays readable by older application builds. Missing legacy receipts
+start with no confirmed members. Preserve each engine's resume policy: NEXT 3
+loads matching native checkpoints with `continue=false`; NEXT 2 retains its
+native checkpoint loading. Without completion evidence, only the exact private
+journal-owned ciphertext may be overwritten for a fresh transfer. User outputs are never
+granted this permission. Malformed, mismatched or unpersistable receipts fail
+closed. Cleanup includes this fixed receipt name and retains the usual durable
+completion and writer-retirement gates.
 
 Engine completion starts local verification rather than declaring the task done.
 At most two verification processes run concurrently. The module reads fixed

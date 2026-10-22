@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"truedown/internal/modulehost"
+	"truedown/internal/safefile"
 )
 
 // A ZIP occupies one manager admission and at most one native aria2 transfer.
@@ -36,10 +38,49 @@ type collectionTransport struct {
 	options   map[string]any
 	state     ariaStatus
 	finished  int64
+	completed int
 	paused    bool
 	child     string
 	cancel    context.CancelFunc
 	done      chan struct{}
+}
+
+// Separate from state.json so old application builds can still read the
+// artifact ownership/publication journal. This is transport completion only;
+// the module must still verify every member before publishing the archive.
+type collectionProgress struct {
+	Schema   int    `json:"schema"`
+	Identity string `json:"identity"`
+	Next     int    `json:"next"`
+}
+
+func (job *collectionTransport) loadProgress() error {
+	raw, err := safefile.ReadFile(filepath.Join(job.directory, "collection-progress.json"), 1024)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var progress collectionProgress
+	if modulehost.Decode(raw, &progress) != nil || progress.Schema != 1 || progress.Identity != artifactIdentity(job.task) || progress.Next < 0 || progress.Next > len(job.plan.Collection.Entries) {
+		return fmt.Errorf("invalid collection transport progress")
+	}
+	job.completed = progress.Next
+	return nil
+}
+
+func (job *collectionTransport) saveProgress(next int) error {
+	progress := collectionProgress{Schema: 1, Identity: artifactIdentity(job.task), Next: next}
+	raw, err := json.Marshal(progress)
+	if err != nil {
+		return err
+	}
+	if err := safefile.WriteFile(filepath.Join(job.directory, "collection-progress.json"), raw, 0600); err != nil {
+		return err
+	}
+	job.completed = next
+	return nil
 }
 
 func newCollectionTransports(ctx context.Context, rpc *ariaClient, artifacts *artifactTransfers) *collectionTransports {
@@ -65,6 +106,9 @@ func (c *collectionTransports) add(task *Task, options map[string]any) (bool, er
 	job := &collectionTransport{task: cloneTask(artifact.task), plan: artifact.plan, directory: artifact.directory, options: map[string]any{}, paused: artifact.paused, done: make(chan struct{})}
 	verified := artifact.journal.Verified != nil
 	c.artifacts.mu.Unlock()
+	if err := job.loadProgress(); err != nil {
+		return true, err
+	}
 	for key, value := range options {
 		job.options[key] = value
 	}
@@ -161,20 +205,14 @@ func (c *collectionTransports) run(ctx context.Context, job *collectionTransport
 				job.mu.Unlock()
 				continue
 			}
-			if outputExists && !controlExists {
+			if index < job.completed {
 				info, err := os.Lstat(filepath.Join(child.Folder, child.OutputName))
-				if err != nil || !info.Mode().IsRegular() {
+				if err != nil || !outputExists || controlExists || !info.Mode().IsRegular() || info.Size() != entry.Size {
 					job.mu.Unlock()
-					return fmt.Errorf("collection member output changed")
+					return fmt.Errorf("completed collection member output changed")
 				}
-				if info.Size() == entry.Size {
-					// The private journal binds this completed ciphertext to the
-					// immutable collection. NEXT refuses re-admitting an existing
-					// file without a control file. Reuse it; every member still
-					// passes module MAC verification before ZIP publication.
-					job.mu.Unlock()
-					break
-				}
+				job.mu.Unlock()
+				break
 			}
 			if entry.Size == 0 {
 				file, err := os.OpenFile(filepath.Join(child.Folder, child.OutputName), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -190,7 +228,19 @@ func (c *collectionTransports) run(ctx context.Context, job *collectionTransport
 				if err != nil {
 					return err
 				}
+				if err := job.saveProgress(index + 1); err != nil {
+					return err
+				}
 				break
+			}
+			// NEXT 3 preallocates even partial ciphertext to the final length.
+			// With no completion receipt it must load its checkpoint, or safely
+			// redownload this private journal-owned member if that state is gone
+			// (including a completed member from an older application build).
+			// NEXT 2 also requires overwrite permission when native state is gone.
+			// Keep the engine-specific continue policy (NEXT 3 forbids prefixes).
+			if outputExists {
+				options["allow-overwrite"] = "true"
 			}
 			c.mu.Lock()
 			c.children[child.GID] = true
@@ -238,6 +288,11 @@ func (c *collectionTransports) run(ctx context.Context, job *collectionTransport
 					return ctx.Err()
 				case <-time.After(250 * time.Millisecond):
 				}
+			}
+			// Commit before retiring the native result/checkpoint. A crash after
+			// retirement must not leave only file length as evidence of completion.
+			if err := job.saveProgress(index + 1); err != nil {
+				return err
 			}
 			job.mu.Lock()
 			job.child = ""
