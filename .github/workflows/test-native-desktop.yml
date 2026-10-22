@@ -77,7 +77,21 @@ jobs:
       - name: Audit build and core dependencies
         working-directory: truedown
         run: |
-          npm audit --prefix desktop --audit-level=low
+          audit_report="$RUNNER_TEMP/truedown-npm-audit.json"
+          for attempt in 1 2 3; do
+            if npm audit --prefix desktop --audit-level=low --json --fetch-timeout=30000 --fetch-retries=1 > "$audit_report"; then
+              cat "$audit_report"
+              break
+            fi
+            cat "$audit_report"
+            # Advisory findings fail immediately; only registry errors can retry.
+            if ! node -e 'const fs = require("node:fs"); const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.exit(report.error ? 0 : 1)' "$audit_report"; then
+              exit 1
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "npm audit registry request failed; retrying ($attempt/3)"
+            sleep 10
+          done
           go mod verify
           go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - name: Build native desktop and Go sidecars

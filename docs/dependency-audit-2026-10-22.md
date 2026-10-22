@@ -14,6 +14,14 @@ coverage. The local CLI executable reports 2.12.4 after installation.
 
 Source: [Tauri CLI 2.12.4 release](https://github.com/tauri-apps/tauri/releases/tag/%40tauri-apps%2Fcli-v2.12.4).
 
+The first Linux native CI run failed in npm's audit service after a five-minute
+request fell back to the retired quick-audit endpoint (HTTP 400). The same
+lockfile installed with zero audit findings, and the other native jobs passed
+the audit. Native CI now bounds audit requests to 30 seconds with one fetch
+retry and retries structured registry errors up to three audit attempts.
+Reports containing advisory findings, malformed reports and exhausted retries
+fail the job. The low-severity threshold and Go audit gates remain mandatory.
+
 ## Security evidence
 
 - Desktop npm audit: zero findings before and after the update.
