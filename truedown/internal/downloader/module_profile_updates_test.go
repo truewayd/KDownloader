@@ -15,7 +15,7 @@ import (
 
 func TestPublishedResolverProfiles(t *testing.T) {
 	for _, factory := range resolverComponentFactories() {
-		if factory.id == "mega" {
+		if executableModule(factory.id) {
 			continue
 		}
 		raw, err := os.ReadFile(filepath.Join("..", "..", "modules", "profiles", factory.id+".json"))

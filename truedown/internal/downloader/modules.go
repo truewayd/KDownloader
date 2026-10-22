@@ -133,6 +133,9 @@ func newModuleRegistryAt(settingsPath, packagesDir string) (*moduleRegistry, err
 		registry.baseline[factory.id] = baseline
 		registry.active[factory.id] = baseline
 		registry.installed[factory.id] = true
+		if executableModule(factory.id) {
+			continue
+		}
 
 		raw, err := readComponentPackage(registry.packagePath(factory.id))
 		if os.IsNotExist(err) {
@@ -252,7 +255,7 @@ func (registry *moduleRegistry) installPackageAt(raw json.RawMessage, expectedDi
 		return ModuleInfo{}, &ValidationError{Message: "invalid resolver component package"}
 	}
 	id := strings.TrimSpace(identity.ID)
-	if id == "mega" {
+	if executableModule(id) {
 		return ModuleInfo{}, &ValidationError{Message: "executable modules require a signed executable update"}
 	}
 	registry.writeMu.Lock()
@@ -388,8 +391,8 @@ func (registry *moduleRegistry) selectModule(link string, options map[string]jso
 func (m *Manager) Modules() []ModuleInfo {
 	infos := m.modules.list()
 	for i := range infos {
-		if infos[i].ID == "mega" {
-			if _, version, err := m.activeExecutable("mega"); err == nil {
+		if executableModule(infos[i].ID) {
+			if _, version, err := m.activeExecutable(infos[i].ID); err == nil {
 				infos[i].Version = version
 				infos[i].Source = "updated"
 			} else if !os.IsNotExist(err) {
@@ -420,7 +423,7 @@ func (m *Manager) ResetModulePackage(id string) (ModuleInfo, error) {
 	if m.moduleUpdateState.Running && m.moduleUpdateState.ID == id {
 		return ModuleInfo{}, fmt.Errorf("module update is running")
 	}
-	if id == "mega" {
+	if executableModule(id) {
 		if err := removeComponentPackage(filepath.Join(m.executableRoot(id), "active.json")); err != nil {
 			return ModuleInfo{}, err
 		}

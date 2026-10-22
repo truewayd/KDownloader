@@ -43,16 +43,17 @@ func (m *Manager) moduleCleanupReceipt(id, version string) (modulehost.Executabl
 // a module while downloads run only reclaims receipts, never executable paths
 // captured by an existing artifact operation.
 func (m *Manager) cleanupModuleCache(pruneVersions bool) {
-	_, current, err := m.activeExecutable("mega")
-	if err != nil {
-		current = ""
+	for _, id := range []string{"mega", MediaFireModuleID} {
+		_, current, err := m.activeExecutable(id)
+		if err != nil {
+			current = ""
+		}
+		m.cleanupExecutableCache(pruneVersions, id, current)
 	}
-	m.cleanupModuleCacheForVersion(pruneVersions, current)
 }
 
 // current is supplied only after activeExecutable verifies the selected package.
-func (m *Manager) cleanupModuleCacheForVersion(pruneVersions bool, current string) {
-	const id = "mega"
+func (m *Manager) cleanupExecutableCache(pruneVersions bool, id, current string) {
 	directory := m.executableRoot(id)
 	if pruneVersions {
 		if err := modulebundle.Cleanup(directory, id); err != nil {
@@ -101,7 +102,7 @@ func (m *Manager) cleanupModuleCacheForVersion(pruneVersions bool, current strin
 		}
 		if current != "" && (name == current || modulehost.Newer(current, name)) {
 			if receipt, err := m.moduleCleanupReceipt(id, name); err == nil {
-				if err := m.CleanupUpdateDownloads(filepath.Join(directory, "downloads"), "MEGA module "+name+".bin", receipt.SHA256, receipt.Size); err != nil {
+				if err := m.CleanupUpdateDownloads(filepath.Join(directory, "downloads"), moduleDownloadName(id, name), receipt.SHA256, receipt.Size); err != nil {
 					log.Printf("clean module download %s: %v", name, err)
 					continue
 				}

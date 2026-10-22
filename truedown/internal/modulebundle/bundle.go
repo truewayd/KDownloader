@@ -22,7 +22,7 @@ var extractMu sync.Mutex
 func Ensure(root, id string) (string, error) {
 	extractMu.Lock()
 	defer extractMu.Unlock()
-	if id != "mega" {
+	if id != "mega" && id != "mediafire" {
 		return "", fmt.Errorf("unknown bundled module")
 	}
 	data, err := assets.ReadFile("assets/" + id + "-" + runtime.GOOS + "-" + runtime.GOARCH + ".bin")

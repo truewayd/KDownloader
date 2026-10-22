@@ -180,32 +180,8 @@ func (r *executableResolver) resolveFolder(ctx context.Context, m *Manager, requ
 	if err != nil {
 		return result, true, err
 	}
-	collection := &modulehost.ArtifactCollection{}
-	total := -1
-	for offset := 0; ; {
-		var page modulehost.CollectionPage
-		if err := client.Call(ctx, "list", map[string]any{"source": request.Link, "proxy": proxy, "offset": offset, "limit": 100}, &page); err != nil {
-			return result, true, err
-		}
-		if page.Total < 0 || page.Total > 6000 || len(page.Entries) > 100 || (total >= 0 && (page.Total != total || page.Name != collection.Name)) || offset+len(page.Entries) > page.Total {
-			return result, true, fmt.Errorf("invalid folder page")
-		}
-		if total < 0 {
-			total, collection.Name = page.Total, page.Name
-		}
-		collection.Entries = append(collection.Entries, page.Entries...)
-		if page.Next == -1 {
-			if len(collection.Entries) != total {
-				return result, true, fmt.Errorf("incomplete folder listing")
-			}
-			break
-		}
-		if page.Next != offset+len(page.Entries) || page.Next <= offset {
-			return result, true, fmt.Errorf("invalid folder cursor")
-		}
-		offset = page.Next
-	}
-	if _, err := modulehost.ValidateCollection(collection); err != nil {
+	collection, err := modulehost.ListCollection(ctx, client, request.Link, proxy)
+	if err != nil {
 		return result, true, err
 	}
 	for _, entry := range collection.Entries {
@@ -284,7 +260,7 @@ func moduleHasArtifactCapability(info modulehost.Hello) bool {
 }
 
 func (m *Manager) moduleExecutable(id string) (string, error) {
-	if id != "mega" {
+	if !executableModule(id) {
 		return "", fmt.Errorf("unknown executable module")
 	}
 	root := m.moduleDirectory

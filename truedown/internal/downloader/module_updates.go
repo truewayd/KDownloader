@@ -104,7 +104,7 @@ func (m *Manager) ModuleUpdateStatus() ModuleUpdateState {
 	return state
 }
 func (m *Manager) StartModuleUpdate(id string) error {
-	if id != "mega" && id != DropboxModuleID && id != GoogleDriveModuleID {
+	if !executableModule(id) && id != DropboxModuleID && id != GoogleDriveModuleID {
 		return &ValidationError{Message: "unknown resolver module"}
 	}
 	m.moduleUpdateMu.Lock()
@@ -124,7 +124,7 @@ func (m *Manager) StartModuleUpdate(id string) error {
 		defer m.wg.Done()
 		var version string
 		var err error
-		if id == "mega" {
+		if executableModule(id) {
 			version, err = m.updateExecutable(m.lifecycleCtx, id)
 		} else {
 			version, err = m.updateResolverProfile(m.lifecycleCtx, id)
@@ -208,7 +208,7 @@ func (m *Manager) updateExecutable(ctx context.Context, id string) (string, erro
 		return "", modulehost.ErrPackage
 	}
 	root := m.executableRoot(id)
-	path, err := m.DownloadUpdate(ctx, base+stem+".bin", "MEGA module "+version+".bin", filepath.Join(root, "downloads"), manifest.Size, Aria2Opts{}, func(task TaskSnapshot) {
+	path, err := m.DownloadUpdate(ctx, base+stem+".bin", moduleDownloadName(id, version), filepath.Join(root, "downloads"), manifest.Size, Aria2Opts{}, func(task TaskSnapshot) {
 		m.moduleUpdateMu.Lock()
 		defer m.moduleUpdateMu.Unlock()
 		m.moduleUpdateState.Phase = "downloading"
@@ -283,7 +283,7 @@ func (m *Manager) activateExecutable(ctx context.Context, id, installed, version
 	if err != nil {
 		return err
 	}
-	healthy := process.Info.Version == version && moduleHasArtifactCapability(process.Info)
+	healthy := process.Info.Version == version && executableCapability(id, process.Info)
 	retireModule(process)
 	if !healthy {
 		return modulehost.ErrPackage

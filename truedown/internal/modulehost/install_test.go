@@ -14,10 +14,15 @@ import (
 )
 
 func TestSignedModuleInstallationRejectsTamperingAndRollback(t *testing.T) {
+	for _, id := range []string{"mega", "mediafire"} {
+		t.Run(id, func(t *testing.T) { testSignedModuleInstallation(t, id) })
+	}
+}
+func testSignedModuleInstallation(t *testing.T, id string) {
 	public, private, _ := ed25519.GenerateKey(rand.Reader)
 	data := []byte("signed module fixture")
 	hash := sha256.Sum256(data)
-	manifest := ExecutableManifest{SchemaVersion: 1, ID: "mega", Version: "0.2.0", OS: runtime.GOOS, Arch: runtime.GOARCH, Protocol: 1, Size: int64(len(data)), SHA256: hex.EncodeToString(hash[:])}
+	manifest := ExecutableManifest{SchemaVersion: 1, ID: id, Version: "0.2.0", OS: runtime.GOOS, Arch: runtime.GOARCH, Protocol: 1, Size: int64(len(data)), SHA256: hex.EncodeToString(hash[:])}
 	raw, _ := json.Marshal(manifest)
 	signature := ed25519.Sign(private, raw)
 	root, err := filepath.EvalSymlinks(t.TempDir())
@@ -36,7 +41,7 @@ func TestSignedModuleInstallationRejectsTamperingAndRollback(t *testing.T) {
 		{"rollback", raw, signature, data, "0.3.0"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := InstallSigned(root, "mega", test.current, test.raw, test.signature, public, bytes.NewReader(test.binary)); err == nil {
+			if _, err := InstallSigned(root, id, test.current, test.raw, test.signature, public, bytes.NewReader(test.binary)); err == nil {
 				t.Fatal("invalid update installed")
 			}
 			entries, _ := os.ReadDir(root)
@@ -45,7 +50,7 @@ func TestSignedModuleInstallationRejectsTamperingAndRollback(t *testing.T) {
 			}
 		})
 	}
-	path, err := InstallSigned(root, "mega", "0.1.0", raw, signature, public, bytes.NewReader(data))
+	path, err := InstallSigned(root, id, "0.1.0", raw, signature, public, bytes.NewReader(data))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,13 +61,13 @@ func TestSignedModuleInstallationRejectsTamperingAndRollback(t *testing.T) {
 	if filepath.Dir(path) != filepath.Join(root, "0.2.0") {
 		t.Fatal("version directory mismatch")
 	}
-	if recovered, err := InstallSigned(root, "mega", "0.1.0", raw, signature, public, bytes.NewReader(data)); err != nil || recovered != path {
+	if recovered, err := InstallSigned(root, id, "0.1.0", raw, signature, public, bytes.NewReader(data)); err != nil || recovered != path {
 		t.Fatal("identical interrupted activation was not recoverable")
 	}
 	if err := os.WriteFile(path, []byte("tampered"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := InstallSigned(root, "mega", "0.1.0", raw, signature, public, bytes.NewReader(data)); err == nil {
+	if _, err := InstallSigned(root, id, "0.1.0", raw, signature, public, bytes.NewReader(data)); err == nil {
 		t.Fatal("tampered immutable version accepted")
 	}
 }

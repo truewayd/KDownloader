@@ -54,6 +54,7 @@ type loadedComponent struct {
 
 func resolverComponentFactories() []resolverComponentFactory {
 	return []resolverComponentFactory{
+		{id: MediaFireModuleID, engine: "executable-http-v1", baselinePath: "module_baselines/mediafire.json", build: newHTTPExecutableResolver},
 		{id: "mega", engine: "executable-artifact-v1", baselinePath: "module_baselines/mega.json", build: newExecutableResolver},
 		{
 			id: DropboxModuleID, engine: "dropbox-v1",

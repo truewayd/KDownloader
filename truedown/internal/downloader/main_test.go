@@ -9,6 +9,10 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if os.Getenv("TRUEDOWN_TEST_HTTP_MODULE_HELPER") == "1" {
+		runHTTPModuleTestHelper()
+		os.Exit(0)
+	}
 	if os.Getenv("TRUEDOWN_TEST_ARTIFACT_HELPER") == "1" {
 		runArtifactTestHelper()
 		os.Exit(0)

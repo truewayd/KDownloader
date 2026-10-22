@@ -136,73 +136,9 @@ func (s *service) handle(method string, body json.RawMessage) (any, string) {
 }
 
 func run(input io.Reader, output io.Writer) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	readerDone := make(chan struct{})
-	defer func() { close(readerDone); cancel() }()
-	s := &service{ctx: ctx, client: mega.NewClient()}
-	type incoming struct {
-		request modulehost.Request
-		err     error
-	}
-	requests := make(chan incoming, 1)
-	// EOF cancels a currently running local transform even when the parent dies.
-	go func() {
-		for {
-			var request modulehost.Request
-			err := modulehost.ReadFrame(input, &request)
-			if err != nil {
-				cancel()
-			}
-			select {
-			case requests <- incoming{request, err}:
-			case <-readerDone:
-				return
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	var session string
-	var previous uint64
-	for {
-		message := <-requests
-		if message.err != nil {
-			if message.err == io.EOF {
-				return nil
-			}
-			return modulehost.ErrProtocol
-		}
-		request := message.request
-		if request.ID <= previous || len(request.Session) != 32 {
-			return modulehost.ErrProtocol
-		}
-		for _, r := range request.Session {
-			if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
-				return modulehost.ErrProtocol
-			}
-		}
-		if session == "" {
-			if request.Method != "hello" {
-				return modulehost.ErrProtocol
-			}
-			session = request.Session
-		} else if request.Session != session || request.Method == "hello" {
-			return modulehost.ErrProtocol
-		}
-		previous = request.ID
-		value, code := s.handle(request.Method, request.Body)
-		body, err := json.Marshal(value)
-		if err != nil {
-			return modulehost.ErrProtocol
-		}
-		if err := modulehost.WriteFrame(output, modulehost.Response{ID: request.ID, Session: session, Body: body, Error: code}); err != nil {
-			return err
-		}
-		if request.Method == "shutdown" && code == "" {
-			return nil
-		}
-	}
+	return modulehost.Serve(input, output, func(ctx context.Context) modulehost.Handler {
+		return (&service{ctx: ctx, client: mega.NewClient()}).handle
+	})
 }
 
 func main() {

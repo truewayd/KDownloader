@@ -9,6 +9,11 @@ import (
 )
 
 func TestModuleRetentionOnlyPrunesBeforeProcessesStart(t *testing.T) {
+	for _, id := range []string{"mega", MediaFireModuleID} {
+		t.Run(id, func(t *testing.T) { testModuleRetention(t, id) })
+	}
+}
+func testModuleRetention(t *testing.T, id string) {
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -18,7 +23,7 @@ func TestModuleRetentionOnlyPrunesBeforeProcessesStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer m.Stop()
-	root := m.executableRoot("mega")
+	root := m.executableRoot(id)
 	entry := "provider"
 	if runtime.GOOS == "windows" {
 		entry += ".exe"
@@ -42,11 +47,11 @@ func TestModuleRetentionOnlyPrunesBeforeProcessesStart(t *testing.T) {
 		t.Fatal("invalid active pointer authorized cleanup", err)
 	}
 	// A verified activation while tasks run must not unlink captured executables.
-	m.cleanupModuleCacheForVersion(false, "0.4.0")
+	m.cleanupExecutableCache(false, id, "0.4.0")
 	if _, err := os.Stat(filepath.Join(root, "0.2.0", entry)); err != nil {
 		t.Fatal("live executable removed", err)
 	}
-	m.cleanupModuleCacheForVersion(true, "0.4.0")
+	m.cleanupExecutableCache(true, id, "0.4.0")
 	if _, err := os.Stat(filepath.Join(root, "0.2.0")); !os.IsNotExist(err) {
 		t.Fatal("old version retained", err)
 	}
@@ -62,7 +67,7 @@ func TestModuleRetentionOnlyPrunesBeforeProcessesStart(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "previous.json"), []byte(`{"version":"0.3.0"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	m.cleanupModuleCacheForVersion(true, "0.5.0")
+	m.cleanupExecutableCache(true, id, "0.5.0")
 	if _, err := os.Stat(filepath.Join(root, "0.3.0", entry)); err != nil {
 		t.Fatal("previous selection removed", err)
 	}
