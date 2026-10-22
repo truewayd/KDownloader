@@ -36,8 +36,8 @@ jobs:
           node-version: '22'
       - name: Test module and protocol
         working-directory: truedown
-        run: go test -race ./internal/modulehost ./modules/mediafire/...
-      - name: Build and sign four independent binaries
+        run: go test -race ./internal/modulehost ./modules/mediafire/... ./modules/tools/sign
+      - name: Rebuild and verify four signed independent binaries
         working-directory: truedown
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
@@ -47,18 +47,23 @@ jobs:
           set -euo pipefail
           version="${REQUESTED_VERSION:-${REF_NAME#truedown-module-mediafire-v}}"
           [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          if [[ -z "$TRUEDOWN_MODULE_SIGNING_KEY" ]]; then
-            echo '::error::TRUEDOWN_MODULE_SIGNING_KEY must contain the publisher key matching internal/modulehost/trust.go'
-            exit 1
-          fi
           mkdir -p ../dist/mediafire-release
           go build -o ../dist/module-sign ./modules/tools/sign
           for target in windows/amd64 linux/amd64 linux/arm64 darwin/arm64; do
             os="${target%/*}"; arch="${target#*/}"; stem="mediafire-$os-$arch"
-            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.version=$version" -o "../dist/mediafire-release/$stem.bin" ./modules/mediafire
-            ../dist/module-sign sign "../dist/mediafire-release/$stem.bin" mediafire "$version" "$os" "$arch" ../dist/module-manifest
-            cp ../dist/module-manifest/executable.json "../dist/mediafire-release/$stem.json"
-            cp ../dist/module-manifest/executable.sig "../dist/mediafire-release/$stem.sig"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -buildvcs=false -trimpath -ldflags "-s -w -X main.version=$version" -o "../dist/mediafire-release/$stem.bin" ./modules/mediafire
+            manifest="modules/mediafire/releases/$version/$os-$arch"
+            if [[ ! -d "$manifest" ]]; then
+              if [[ -z "$TRUEDOWN_MODULE_SIGNING_KEY" ]]; then
+                echo "::error::Missing offline publisher signatures at $manifest and TRUEDOWN_MODULE_SIGNING_KEY is unavailable"
+                exit 1
+              fi
+              manifest=../dist/module-manifest
+              ../dist/module-sign sign "../dist/mediafire-release/$stem.bin" mediafire "$version" "$os" "$arch" "$manifest"
+            fi
+            ../dist/module-sign verify "../dist/mediafire-release/$stem.bin" mediafire "$version" "$os" "$arch" "$manifest"
+            cp "$manifest/executable.json" "../dist/mediafire-release/$stem.json"
+            cp "$manifest/executable.sig" "../dist/mediafire-release/$stem.sig"
           done
           cp ../LICENSE ../dist/mediafire-release/LICENSE
           cp "$(go env GOROOT)/LICENSE" ../dist/mediafire-release/GO-LICENSE
