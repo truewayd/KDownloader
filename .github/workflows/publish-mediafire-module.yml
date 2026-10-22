@@ -1,0 +1,105 @@
+name: Publish independent MediaFire module
+
+on:
+  push:
+    tags: ["truedown-module-mediafire-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Independent module version (major.minor.patch)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-mediafire-module
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: truedown/go.mod
+          cache-dependency-path: truedown/go.sum
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: Test module and protocol
+        working-directory: truedown
+        run: go test -race ./internal/modulehost ./modules/mediafire/...
+      - name: Build and sign four independent binaries
+        working-directory: truedown
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          TRUEDOWN_MODULE_SIGNING_KEY: ${{ secrets.TRUEDOWN_MODULE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          version="${REQUESTED_VERSION:-${REF_NAME#truedown-module-mediafire-v}}"
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          if [[ -z "$TRUEDOWN_MODULE_SIGNING_KEY" ]]; then
+            echo '::error::TRUEDOWN_MODULE_SIGNING_KEY must contain the publisher key matching internal/modulehost/trust.go'
+            exit 1
+          fi
+          mkdir -p ../dist/mediafire-release
+          go build -o ../dist/module-sign ./modules/tools/sign
+          for target in windows/amd64 linux/amd64 linux/arm64 darwin/arm64; do
+            os="${target%/*}"; arch="${target#*/}"; stem="mediafire-$os-$arch"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.version=$version" -o "../dist/mediafire-release/$stem.bin" ./modules/mediafire
+            ../dist/module-sign sign "../dist/mediafire-release/$stem.bin" mediafire "$version" "$os" "$arch" ../dist/module-manifest
+            cp ../dist/module-manifest/executable.json "../dist/mediafire-release/$stem.json"
+            cp ../dist/module-manifest/executable.sig "../dist/mediafire-release/$stem.sig"
+          done
+          cp ../LICENSE ../dist/mediafire-release/LICENSE
+          cp "$(go env GOROOT)/LICENSE" ../dist/mediafire-release/GO-LICENSE
+          cp "$(go list -m -f '{{.Dir}}' golang.org/x/sys)/LICENSE" ../dist/mediafire-release/X_SYS_LICENSE
+          cat licenses/MD_API.txt licenses/MD_DOWNLOADER.txt > ../dist/mediafire-release/MediaFire-REFERENCES.txt
+          printf 'MODULE_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+      - name: Verify signed package installation and baseline restore
+        working-directory: truedown
+        run: |
+          set -euo pipefail
+          node tools/prepare-download-modules.mjs
+          fixture="$RUNNER_TEMP/mediafire-signed-test"
+          mkdir -p "$fixture"
+          cp ../dist/mediafire-release/mediafire-linux-amd64.bin "$fixture/provider.bin"
+          cp ../dist/mediafire-release/mediafire-linux-amd64.json "$fixture/executable.json"
+          cp ../dist/mediafire-release/mediafire-linux-amd64.sig "$fixture/executable.sig"
+          TRUEDOWN_SIGNED_MODULE_TEST_ID=mediafire TRUEDOWN_SIGNED_MODULE_TEST_PACKAGE="$fixture" go test -v ./internal/downloader -run '^TestSignedExecutableRoundTrip$' -count=1
+      - name: Publish immutable module release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="truedown-module-mediafire-v$MODULE_VERSION"
+          if gh release view "$tag" --json isDraft > "$RUNNER_TEMP/mediafire-release.json"; then
+            [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)" == "$GITHUB_SHA" ]]
+            if jq -e '.isDraft == false' "$RUNNER_TEMP/mediafire-release.json" >/dev/null; then
+              mkdir -p "$RUNNER_TEMP/mediafire-published"
+              gh release download "$tag" --dir "$RUNNER_TEMP/mediafire-published"
+              diff -r dist/mediafire-release "$RUNNER_TEMP/mediafire-published"
+              exit 0
+            fi
+            gh release upload "$tag" dist/mediafire-release/* --clobber
+          else
+            gh release create "$tag" dist/mediafire-release/* --target "$GITHUB_SHA" --draft --title "MediaFire module $MODULE_VERSION" --notes "Independent pure-Go MediaFire module. aria2 owns file transfer and resume; this module owns public-link metadata, paginated folder listing and temporary URL resolution."
+          fi
+          gh release view "$tag" --json assets --jq '.assets | length == 16' | grep -qx true
+          gh release edit "$tag" --draft=false --latest=false
+      - name: Verify anonymous production update and restart
+        working-directory: truedown
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y aria2
+          TRUEDOWN_TEST_PUBLISHED_MEDIAFIRE_VERSION="$MODULE_VERSION" go test -v ./internal/downloader -run '^TestPublishedMediaFireUpdate$' -count=1 -timeout=5m

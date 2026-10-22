@@ -34,6 +34,7 @@ truedown/desktop/gen/
 !truedown/docs/context-menus.md
 !truedown/docs/preview-security.md
 !truedown/docs/task-list-performance.md
+!truedown/docs/mediafire-download-module.md
 !truedown/docs/mega-download-module.md
 !truedown/docs/resolver-modules.md
 truedown/internal/modulebundle/assets/*.bin

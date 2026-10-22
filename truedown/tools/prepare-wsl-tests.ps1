@@ -17,7 +17,8 @@ foreach ($path in @($distRoot, $outputRoot, $testRoot)) {
 }
 
 $outputs = @(
-  @{ Package = "./modules/mega"; Path = (Join-Path $projectRoot "internal/modulebundle/assets/mega-linux-amd64.bin"); Module = $true },
+  @{ Package = "./modules/mega"; Path = (Join-Path $projectRoot "internal/modulebundle/assets/mega-linux-amd64.bin"); Module = 'mega' },
+  @{ Package = "./modules/mediafire"; Path = (Join-Path $projectRoot "internal/modulebundle/assets/mediafire-linux-amd64.bin"); Module = 'mediafire' },
   @{ Package = "./cmd/truedown-core"; Path = (Join-Path $outputRoot "truedown-core") },
   @{ Package = "./cmd/truedown"; Path = (Join-Path $outputRoot "truedown-cli") },
   @{ Package = "./internal/app"; Path = (Join-Path $testRoot "truedown.test"); Test = $true },
@@ -35,7 +36,9 @@ $outputs = @(
   @{ Package = "./internal/modulehost"; Path = (Join-Path $testRoot "modulehost.test"); Test = $true },
   @{ Package = "./internal/netproxy"; Path = (Join-Path $testRoot "netproxy.test"); Test = $true },
   @{ Package = "./modules/mega"; Path = (Join-Path $testRoot "mega-module.test"); Test = $true },
-  @{ Package = "./modules/mega/internal/mega"; Path = (Join-Path $testRoot "mega-crypto.test"); Test = $true }
+  @{ Package = "./modules/mega/internal/mega"; Path = (Join-Path $testRoot "mega-crypto.test"); Test = $true },
+  @{ Package = "./modules/mediafire"; Path = (Join-Path $testRoot "mediafire-module.test"); Test = $true },
+  @{ Package = "./modules/mediafire/internal/mediafire"; Path = (Join-Path $testRoot "mediafire-resolver.test"); Test = $true }
 )
 
 foreach ($output in $outputs) {
@@ -56,15 +59,13 @@ try {
   $env:GOARCH = "amd64"
   Push-Location $projectRoot
   try {
-    $megaBaseline = Get-Content -LiteralPath (Join-Path $projectRoot "internal/downloader/module_baselines/mega.json") -Raw | ConvertFrom-Json
-    if ($megaBaseline.id -ne 'mega' -or $megaBaseline.version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
-      throw 'Invalid MEGA baseline version'
-    }
     foreach ($output in $outputs) {
       if ($output.Test) {
         & go test -c -o $output.Path $output.Package
       } elseif ($output.Module) {
-        & go build -trimpath -ldflags "-s -w -X main.version=$($megaBaseline.version)" -o $output.Path $output.Package
+        $baseline = Get-Content -LiteralPath (Join-Path $projectRoot "internal/downloader/module_baselines/$($output.Module).json") -Raw | ConvertFrom-Json
+        if ($baseline.id -ne $output.Module -or $baseline.version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'Invalid module baseline version' }
+        & go build -trimpath -ldflags "-s -w -X main.version=$($baseline.version)" -o $output.Path $output.Package
       } else {
         & go build -trimpath -o $output.Path $output.Package
       }
@@ -81,5 +82,5 @@ try {
   $env:GOARCH = $previousGoarch
 }
 
-Write-Output "WSL2 binary: $($outputs[1].Path)"
+Write-Output "WSL2 binary: $(Join-Path $outputRoot 'truedown-core')"
 Write-Output "WSL2 tests: $testRoot"

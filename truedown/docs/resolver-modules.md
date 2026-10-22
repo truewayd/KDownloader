@@ -10,11 +10,12 @@
 | Dropbox profile | Folder endpoint, CSRF cookie names and user agent | Independent JSON release |
 | Google Drive/Dropbox parsers | Confirmation flow, bounded folder enumeration and URL validation | Compiled host code |
 | MEGA provider | Metadata, decryption and MAC verification over private framed IPC | Independent signed executable |
+| MediaFire provider | Public metadata, folder pagination and transient HTTP URL resolution over private framed IPC | Independent signed executable |
 | Task links UI | Context menu and selected-task clipboard writes | TrueDown desktop |
 
 Google Drive and Dropbox are declarative compatibility components, not arbitrary
 code plugins. Naming them modules does not make their compiled parsers independently
-updatable. MEGA already has that stronger executable boundary.
+updatable. MEGA and MediaFire have that stronger executable boundary.
 
 The filename fix previously branched on Google Drive inside the manager. The host
 now accepts a provider-declared `NameSource` instead. Google Drive's profile chooses
@@ -42,7 +43,7 @@ its existing legacy fallback. The manager needs no Google/MEGA name special case
 
 Profile data is fetched only from the fixed project repository over HTTPS with
 a SHA-256 consistency check. This is not an executable publisher signature.
-Only MEGA's executable path can install code, after Ed25519 verification and a
+The MEGA and MediaFire executable paths can install code, after Ed25519 verification and a
 successful protocol/version/capability handshake. Profiles cannot choose arbitrary
 hosts, scripts, paths, commands or executable downloads.
 
@@ -64,24 +65,24 @@ new Google `nameSource` field and retain their active profile; a profile release
 cannot retroactively add missing host behavior. Copy-link UI also needs that
 application update.
 
-## Further code independence
+## HTTP executable modules
 
-The remaining coupling is explicit: resolver methods still receive `*Manager`,
-and Google/Dropbox protocol parsing lives in the downloader package. A future
-code-level module migration should replace that with bounded Resolve/List/Prepare
-messages carrying source, selected format and host-approved proxy data. Providers
-should return stable source IDs, relative path components, remote metadata and
-transient transfer URLs, never manager/store handles or arbitrary output paths.
-The host must retain filtering, task admission, local ownership and publication.
+MediaFire uses `http-resolver-v1` and `public-folder-v1` through the existing
+private framed protocol. `resolve` normalizes a durable source without network
+I/O; `list` returns a bounded snapshot of relative paths and sources; `prepare`
+refreshes metadata and the transient CDN URL before each transfer admission.
+The host adapter accepts no remote headers, output paths or commands. Its fixed
+source/CDN policy, shared collection validation, live suffix filtering and
+atomic task admission remain outside the provider. File bytes go through aria2.
 
-Extend the existing `modulehost` framed protocol with an HTTP-resolution capability
-and validate every returned URL/header/path before aria2 admission. Version that
-capability separately from MEGA's artifact verification, use its existing signed
-installation/handshake/immutable-selection mechanism, and keep old providers for
-in-flight calls. Migrate one provider with parity fixtures covering confirmation,
-native exports, folder limits, credentials, cancellation and retries before
-removing the compiled implementation. Do not turn a JSON compatibility package
-into an executable loader or move output ownership into provider code.
+The same process server, collection-page validator, Ed25519 installer, immutable
+selection, health handshake, baseline fallback and cleanup machinery serve both
+executable modules. Each has its own version, release tag and selection pointer.
+`prepare-download-modules.mjs` bundles both offline baselines. The old preparation
+entry point delegates to it so existing build commands remain compatible.
+See [MediaFire module](mediafire-download-module.md) for the exact protocol,
+release workflow and acceptance boundaries.
 
-This change implements the generic filename boundary and independent configuration
-delivery. The remaining parser migration is future work.
+Google Drive and Dropbox parsing still lives in the host. A future migration can
+use this HTTP capability after parity fixtures cover their confirmation/native
+export behavior; their JSON profiles cannot install executable code.
