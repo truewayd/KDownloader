@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "repository": "truewayd/KDownloader",
+  "sourceCommit": "d29aa191714f234b8b857e120260a7f362019bd4",
+  "workflowRun": 39800337013,
+  "artifactId": 12436245002,
+  "artifactName": "mediafire-candidate-0.1.3",
+  "artifactSHA256": "9812f38760d9b616331909ae8cbce4524c462e3acb403f9a3e158416688aa176",
+  "goVersion": "1.26.10",
+  "signing": "offline; existing publisher trust root; no private key in repository or CI"
+}
