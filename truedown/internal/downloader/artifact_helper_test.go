@@ -319,9 +319,9 @@ func TestArtifactPublicationAndRecovery(t *testing.T) {
 }
 
 func TestArtifactPauseIntegrityAndOutputCollision(t *testing.T) {
+	root, data := artifactHelper(t)
 	for _, scenario := range []string{"pause", "corrupt", "collision"} {
 		t.Run(scenario, func(t *testing.T) {
-			root, data := artifactHelper(t)
 			entry := "truedown-mega"
 			if runtime.GOOS == "windows" {
 				entry += ".exe"
