@@ -2,7 +2,7 @@ name: Publish independent MediaFire module
 
 on:
   push:
-    tags: ["truedown-module-mediafire-v*"]
+    tags: ["truedown-module-mediafire-v*", "truedown-module-mediafire-candidate-v*"]
   workflow_dispatch:
     inputs:
       version:
@@ -21,6 +21,8 @@ jobs:
   publish:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      CANDIDATE: ${{ startsWith(github.ref_name, 'truedown-module-mediafire-candidate-v') }}
     permissions:
       contents: write
     steps:
@@ -45,13 +47,14 @@ jobs:
           TRUEDOWN_MODULE_SIGNING_KEY: ${{ secrets.TRUEDOWN_MODULE_SIGNING_KEY }}
         run: |
           set -euo pipefail
-          version="${REQUESTED_VERSION:-${REF_NAME#truedown-module-mediafire-v}}"
+          version="${REQUESTED_VERSION:-${REF_NAME##*-v}}"
           [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           mkdir -p ../dist/mediafire-release
           go build -o ../dist/module-sign ./modules/tools/sign
           for target in windows/amd64 linux/amd64 linux/arm64 darwin/arm64; do
             os="${target%/*}"; arch="${target#*/}"; stem="mediafire-$os-$arch"
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -buildvcs=false -trimpath -ldflags "-s -w -X main.version=$version" -o "../dist/mediafire-release/$stem.bin" ./modules/mediafire
+            if [[ "$CANDIDATE" == true ]]; then continue; fi
             manifest="modules/mediafire/releases/$version/$os-$arch"
             if [[ ! -d "$manifest" ]]; then
               if [[ -z "$TRUEDOWN_MODULE_SIGNING_KEY" ]]; then
@@ -70,7 +73,16 @@ jobs:
           cp "$(go list -m -f '{{.Dir}}' golang.org/x/sys)/LICENSE" ../dist/mediafire-release/X_SYS_LICENSE
           cat licenses/MD_API.txt licenses/MD_DOWNLOADER.txt > ../dist/mediafire-release/MediaFire-REFERENCES.txt
           printf 'MODULE_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+      - name: Retain unsigned candidate for offline publisher review
+        if: env.CANDIDATE == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mediafire-candidate-${{ env.MODULE_VERSION }}
+          path: dist/mediafire-release/*
+          retention-days: 7
+          if-no-files-found: error
       - name: Verify signed package installation and baseline restore
+        if: env.CANDIDATE != 'true'
         working-directory: truedown
         run: |
           set -euo pipefail
@@ -82,6 +94,7 @@ jobs:
           cp ../dist/mediafire-release/mediafire-linux-amd64.sig "$fixture/executable.sig"
           TRUEDOWN_SIGNED_MODULE_TEST_ID=mediafire TRUEDOWN_SIGNED_MODULE_TEST_PACKAGE="$fixture" go test -v ./internal/downloader -run '^TestSignedExecutableRoundTrip$' -count=1
       - name: Publish immutable module release
+        if: env.CANDIDATE != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -102,6 +115,7 @@ jobs:
           gh release view "$tag" --json assets --jq '.assets | length == 16' | grep -qx true
           gh release edit "$tag" --draft=false --latest=false
       - name: Verify anonymous production update and restart
+        if: env.CANDIDATE != 'true'
         working-directory: truedown
         run: |
           set -euo pipefail

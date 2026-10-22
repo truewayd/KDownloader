@@ -98,8 +98,11 @@ func run() error {
 // Compare the complete canonical manifest to the independently rebuilt binary
 // and requested identity before accepting the publisher's signature.
 func verifyManifest(raw, signature, expected []byte, public ed25519.PublicKey) error {
-	if !bytes.Equal(raw, expected) || len(public) != ed25519.PublicKeySize || !ed25519.Verify(public, raw, signature) {
-		return fmt.Errorf("publisher signature or reproducible build does not match")
+	if !bytes.Equal(raw, expected) {
+		return fmt.Errorf("reproducible build does not match; rebuilt public manifest: %s", expected)
+	}
+	if len(public) != ed25519.PublicKeySize || !ed25519.Verify(public, raw, signature) {
+		return fmt.Errorf("publisher signature does not match")
 	}
 	return nil
 }

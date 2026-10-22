@@ -2,7 +2,8 @@ param(
   [Parameter(Mandatory)][ValidatePattern('^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')][string]$Version,
   [Parameter(Mandatory)][string]$SigningKeyPath,
   [Parameter(Mandatory)][string]$OutputDirectory,
-  [string]$GoPath = 'go'
+  [string]$GoPath = 'go',
+  [string]$CandidateDirectory = ''
 )
 $ErrorActionPreference = 'Stop'
 $project = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -26,6 +27,7 @@ $previous = @{}
 foreach ($name in @('CGO_ENABLED','GOOS','GOARCH','GOTOOLCHAIN','GOFLAGS','GOEXPERIMENT','TRUEDOWN_MODULE_SIGNING_KEY')) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 $repository = [IO.Path]::GetDirectoryName($project)
+if (-not $CandidateDirectory) {
 & git -C $repository diff --quiet HEAD -- truedown/go.mod truedown/go.sum truedown/internal/modulehost truedown/internal/netproxy truedown/modules/mediafire
 if ($LASTEXITCODE -ne 0) { throw 'Commit provider and protocol source changes before signing' }
 # Build canonical Git bytes, independent of Windows core.autocrlf settings.
@@ -35,6 +37,9 @@ if ((Test-Path -LiteralPath $sourceArchive) -or (Test-Path -LiteralPath $sourceR
 & git -C $repository archive --format=zip --output $sourceArchive HEAD truedown/go.mod truedown/go.sum truedown/internal truedown/modules
 if ($LASTEXITCODE -ne 0) { throw 'Cannot export committed source' }
 Expand-Archive -LiteralPath $sourceArchive -DestinationPath $sourceRoot
+} else {
+  $CandidateDirectory = [IO.Path]::GetFullPath($CandidateDirectory)
+}
 Push-Location $project
 try {
   $env:CGO_ENABLED='0'; $env:GOTOOLCHAIN='local'; $env:GOFLAGS=''; $env:GOEXPERIMENT=''
@@ -44,11 +49,18 @@ try {
     $platform="$($parts[0])-$($parts[1])"
     $binary=Join-Path $output "mediafire-$platform.bin"
     if (Test-Path -LiteralPath $binary) { throw "Release output already exists: $binary" }
+    if ($CandidateDirectory) {
+      $inputBinary = Join-Path $CandidateDirectory "mediafire-$platform.bin"
+      $item = Get-Item -LiteralPath $inputBinary
+      if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Candidate must be a regular binary' }
+      Copy-Item -LiteralPath $inputBinary -Destination $binary
+    } else {
     Push-Location (Join-Path $sourceRoot 'truedown')
     try {
       & $GoPath build -buildvcs=false -trimpath -ldflags "-s -w -X main.version=$Version" -o $binary ./modules/mediafire
       if ($LASTEXITCODE -ne 0) { throw "Build failed: $target" }
     } finally { Pop-Location }
+    }
     $env:GOOS=$previous.GOOS; $env:GOARCH=$previous.GOARCH
     $fixture=Join-Path $output $platform
     if (Test-Path -LiteralPath $fixture) { throw "Manifest output already exists: $fixture" }
