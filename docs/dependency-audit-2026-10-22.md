@@ -22,6 +22,20 @@ retry and retries structured registry errors up to three audit attempts.
 Reports containing advisory findings, malformed reports and exhausted retries
 fail the job. The low-severity threshold and Go audit gates remain mandatory.
 
+Further Windows CI evidence showed that npm 10 exhausted those retries while
+still using the retired quick-audit endpoint. Native CI therefore installs
+the pinned npm 11.19.0 client, whose supported Node range includes Node 22.
+npm 11 removes the legacy endpoint fallback; registry failures still exhaust
+the bounded retry policy and fail closed. Local audit/build validation already
+used npm 11.19.0 with Node 22.22.2.
+
+Source: [npm CLI changelog](https://docs.npmjs.com/cli/v11/using-npm/changelog/).
+
+An independent Windows Go test hit the existing artifact collision completion
+deadline. The sequential pause/corruption/collision test now reuses one module
+executable instead of copying it into three fresh executable paths. Each case
+keeps its separate task directory and all existing timing/integrity assertions.
+
 ## Security evidence
 
 - Desktop npm audit: zero findings before and after the update.
