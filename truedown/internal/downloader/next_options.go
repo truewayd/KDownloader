@@ -37,11 +37,16 @@ func (m *Manager) validateEngineOptions(opts Aria2Opts) error {
 	if err := validateMediaExtraArgs(opts); err != nil {
 		return err
 	}
-	if !m.aria2Next || !aria2NextVersionAtLeast(m.aria2NextVersion, 3, 0, 0) {
-		return nil
-	}
 	for _, raw := range opts.ExtraArgs {
 		name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimSpace(raw), "--"), "=")
+		// Output reservation and cleanup own the exact payload/control pair.
+		// Reject on every engine so saved tasks cannot enable a suffix on upgrade.
+		if strings.EqualFold(name, "incomplete-suffix") {
+			return &ValidationError{Message: "incomplete-suffix is not supported by managed output reservation and cleanup"}
+		}
+		if !m.usesNext3() {
+			continue
+		}
 		switch strings.ToLower(name) {
 		case "stream-max-range-size":
 			return &ValidationError{Message: "NEXT 3 removed stream-max-range-size; remove this option before retrying"}

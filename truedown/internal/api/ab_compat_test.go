@@ -61,6 +61,7 @@ func TestABUnsupportedRequestsHaveNoSideEffects(t *testing.T) {
 		{"/start-headless-download", `{"downloadSource":{"type":"http","link":"https://example.test/file"},"categoryId":1}`},
 		{"/start-headless-download", `{"downloadSource":{"link":"https://example.test/file"},"startQueue":true}`},
 		{"/start-headless-download", `{"downloadSource":{"link":"https://example.test/file"},"startDownload":"false"}`},
+		{"/start-headless-download", `{"downloadSource":{"type":"http","link":"https://example.test/file"},"opts":{"extraArgs":["--incomplete-suffix=.part"]}}`},
 		{"/add", `[{"link":"https://example.test/file","unknown":true}]`},
 		{"/add", `[{"link":"https://example.test/file"}] {}`},
 		{"/add", `{"items":[{"link":"https://example.test/file","type":"http"}],"options":{"unknown":true}}`},

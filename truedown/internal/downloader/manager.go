@@ -3478,6 +3478,7 @@ func ariaOptions(task *Task, recheck bool) map[string]any {
 func isProtectedAriaOption(name string) bool {
 	switch name {
 	case "gid", "dir", "out", "pause", "continue", "conditional-get", "allow-overwrite", "auto-file-renaming",
+		"incomplete-suffix",
 		"always-resume", "remove-control-file", "allow-piece-length-change", "force-save",
 		"max-concurrent-downloads", "max-overall-download-limit",
 		"bt-user-agent", "bt-peer-id-prefix",
