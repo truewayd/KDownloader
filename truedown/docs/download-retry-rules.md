@@ -122,6 +122,17 @@ automatic renaming, discard piece maps, or overwrite another output.
 
 ## Existing numbered leftovers
 
+Cancellation retires both the current GID and any retained previous retry GID.
+It waits for both generations' writers before removing partial files, even if
+the new GID was never submitted or the task restarted in an error state. A
+completed engine generation preserves the output. Stop and retirement failures
+keep the durable task record so cancellation can be repeated safely.
+Complete/error results are retired last, preserving their evidence when another
+generation cannot be retired. Missing engine state is ambiguous (unsubmitted,
+completed and evicted, or engine restart), so cancellation stops remaining
+writers but keeps payload/control files. This includes a queued retry whose new
+GID has not been submitted. Retained files require explicit user review later.
+
 Before destructive HTTP cleanup, physical directory and file identities are
 compared with other task outputs as well as lexical reservations. This protects
 Windows short-path aliases and existing hard links. If another existing output

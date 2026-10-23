@@ -1648,6 +1648,12 @@ func (m *Manager) removeTasks(ids []int64, allowActive bool) TaskOperationResult
 	var targets []rpcTarget
 	active := make(map[int64]bool)
 	m.mu.RLock()
+	engineOwners := make(map[string][]int64)
+	for id, task := range m.tasks {
+		for _, gid := range removalGIDs(task) {
+			engineOwners[gid] = append(engineOwners[gid], id)
+		}
+	}
 	for _, id := range uniqueTaskIDs(ids) {
 		task, ok := m.tasks[id]
 		if !ok {
@@ -1659,71 +1665,42 @@ func (m *Manager) removeTasks(ids []int64, allowActive bool) TaskOperationResult
 			result.fail(id, fmt.Errorf("task %d is still active", id))
 			continue
 		}
+		conflict := false
+		for _, gid := range removalGIDs(task) {
+			for _, owner := range engineOwners[gid] {
+				if owner == id {
+					continue
+				}
+				result.fail(id, fmt.Errorf("engine task belongs to task %d", owner))
+				conflict = true
+				break
+			}
+			if conflict {
+				break
+			}
+		}
+		if conflict {
+			continue
+		}
 		targets = append(targets, rpcTarget{id: id, gid: task.GID, task: cloneTask(task)})
 		active[id] = isActive
 	}
 	m.mu.RUnlock()
 
 	partialPaths := make(map[int64]string)
+	retirementGIDs := make(map[int64][]string)
 	var partialPathsMu sync.Mutex
 	errorsByID := runRPCOperations(targets, 8, func(target rpcTarget) error {
-		if m.artifacts != nil {
-			if err := m.artifacts.retire(target.gid); err != nil {
-				return err
-			}
+		path, partial, retirement, err := m.stopRemovalWriters(target.task, active[target.id])
+		if err != nil {
+			return err
 		}
-		if m.rpc == nil {
-			if active[target.id] {
-				return fmt.Errorf("aria2 is not running")
-			}
-			return nil
+		partialPathsMu.Lock()
+		retirementGIDs[target.id] = retirement
+		if partial {
+			partialPaths[target.id] = path
 		}
-		if active[target.id] {
-			state, err := m.rpc.status(target.gid)
-			if err != nil {
-				if isGIDNotFound(err) {
-					return nil
-				}
-				return err
-			}
-			switch state.Status {
-			case "active", "waiting", "paused":
-				if err := m.rpc.forceRemove(target.gid); err != nil {
-					if isGIDNotFound(err) {
-						return nil
-					}
-					return err
-				}
-				stopped, err := waitForAriaStop(m.rpc, target.gid)
-				if err != nil {
-					return err
-				}
-				if stopped.Status == "complete" || stopped.Status == "error" {
-					return nil
-				}
-				path := ""
-				if len(stopped.Files) > 0 {
-					path = stopped.Files[0].Path
-				} else if len(state.Files) > 0 {
-					path = state.Files[0].Path
-				}
-				partialPathsMu.Lock()
-				partialPaths[target.id] = path
-				partialPathsMu.Unlock()
-			case "removed":
-				path := ""
-				if len(state.Files) > 0 {
-					path = state.Files[0].Path
-				}
-				partialPathsMu.Lock()
-				partialPaths[target.id] = path
-				partialPathsMu.Unlock()
-			case "complete", "error":
-				// The aria2 state is authoritative when the local poller lags.
-			default:
-				return fmt.Errorf("unexpected aria2 status %q", state.Status)
-			}
-		}
+		partialPathsMu.Unlock()
 		return nil
 	})
 	for _, target := range targets {
@@ -1754,8 +1731,10 @@ func (m *Manager) removeTasks(ids []int64, allowActive bool) TaskOperationResult
 		if m.rpc == nil {
 			return nil
 		}
-		if err := m.rpc.removeResult(target.gid); err != nil && !isGIDNotFound(err) {
-			return fmt.Errorf("remove engine state: %w", err)
+		for _, gid := range retirementGIDs[target.id] {
+			if err := m.rpc.removeResult(gid); err != nil && !isGIDNotFound(err) {
+				return fmt.Errorf("remove engine state %s: %w", gid, err)
+			}
 		}
 		return nil
 	})
@@ -3792,7 +3771,7 @@ func waitForAriaStop(rpc ariaRPC, gid string) (ariaStatus, error) {
 		state, err := rpc.status(gid)
 		if err != nil {
 			if isGIDNotFound(err) {
-				return ariaStatus{GID: gid, Status: "removed"}, nil
+				return ariaStatus{GID: gid, Status: "missing"}, nil
 			}
 			return ariaStatus{}, err
 		}

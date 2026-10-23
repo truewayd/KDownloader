@@ -3,6 +3,7 @@ package downloader
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -96,5 +97,31 @@ func TestRemovingOrReassigningOneOwnerPreservesOtherReservation(t *testing.T) {
 				t.Fatal("remaining owner lost its reservation")
 			}
 		})
+	}
+}
+
+func TestCleanupPreservesFilesWhenAnotherOwnerCannotBeInspected(t *testing.T) {
+	m, tasks := restoredOverlappingTasksWith(t, func(tasks []*Task) {
+		folder := tasks[0].Folder
+		if err := os.MkdirAll(folder, 0700); err != nil {
+			t.Fatal(err)
+		}
+		blocked := filepath.Join(folder, "not-a-directory")
+		if err := os.WriteFile(blocked, []byte("blocker"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		tasks[1].Folder = blocked
+	})
+	task := tasks[0]
+	path := filepath.Join(task.Folder, task.OutputName)
+	if err := os.WriteFile(path, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result := m.RemoveTasks([]int64{task.ID})
+	if len(result.Failed) != 1 || !strings.Contains(result.Failed[0].Error, "cannot verify output owner") {
+		t.Fatalf("inspection failure ignored: %+v", result)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "keep" {
+		t.Fatalf("bytes lost: %q %v", data, err)
 	}
 }
