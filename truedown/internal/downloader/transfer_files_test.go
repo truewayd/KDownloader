@@ -208,7 +208,8 @@ func TestHTTPOutputReservationRollsBackOnPersistenceFailure(t *testing.T) {
 		t.Fatal("failed persistence was ignored")
 	}
 	after, _ := m.GetTask(task.ID)
-	if !reflect.DeepEqual(before, after) || m.outputNames[outputNameKey(task.Folder, task.OutputName)] != task.ID {
+	_, owned := m.outputNames[outputNameKey(task.Folder, task.OutputName)][task.ID]
+	if !reflect.DeepEqual(before, after) || !owned {
 		t.Fatal("failed persistence changed output ownership")
 	}
 }
@@ -400,7 +401,7 @@ func TestHTTPRestartRefusesAnotherTasksRecordedOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.mu.Lock()
-	m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID + 1
+	m.reserveOutputLocked(task.Folder, task.OutputName, task.ID+1)
 	m.mu.Unlock()
 	if m.submit(submission{id: task.ID}) {
 		t.Fatal("shared legacy output was deleted")

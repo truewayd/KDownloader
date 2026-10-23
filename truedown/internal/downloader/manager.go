@@ -275,7 +275,7 @@ type Manager struct {
 	tasks                      map[int64]*Task
 	fingerprints               map[string]int64
 	gids                       map[string]int64
-	outputNames                map[string]int64
+	outputNames                map[string]map[int64]struct{}
 	orderedIDs                 []int64
 	statusCounts               map[Status]int
 	groupCounts                map[string]int
@@ -399,7 +399,7 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		tasks:             make(map[int64]*Task, len(tasks)),
 		fingerprints:      make(map[string]int64, len(tasks)),
 		gids:              make(map[string]int64, len(tasks)),
-		outputNames:       make(map[string]int64, len(tasks)),
+		outputNames:       make(map[string]map[int64]struct{}, len(tasks)),
 		orderedIDs:        make([]int64, 0, len(tasks)),
 		statusCounts:      make(map[Status]int, 5),
 		ariaAdmitted:      make(map[int64]bool, ariaBacklogLimit),
@@ -427,7 +427,7 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		m.fingerprints[task.Fingerprint] = task.ID
 		m.gids[task.GID] = task.ID
 		if task.OutputName != "" {
-			m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID
+			m.reserveOutputLocked(task.Folder, task.OutputName, task.ID)
 		}
 		m.orderedIDs = append(m.orderedIDs, task.ID)
 		m.statusCounts[task.Status]++
@@ -762,7 +762,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 	m.fingerprints[fingerprint] = task.ID
 	m.gids[task.GID] = task.ID
 	if task.OutputName != "" {
-		m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID
+		m.reserveOutputLocked(task.Folder, task.OutputName, task.ID)
 	}
 	m.statusCounts[task.Status]++
 	m.orderedIDs = append(m.orderedIDs, task.ID)
@@ -2457,7 +2457,7 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 		}
 		if task.OutputName == "" && (!isMediaTask(task) || task.Status == StatusDone) && len(state.Files) > 0 && state.Files[0].Path != "" {
 			task.OutputName = taskOutputRootName(task.Folder, state.Files[0].Path)
-			m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID
+			m.reserveOutputLocked(task.Folder, task.OutputName, task.ID)
 		}
 		if totalLength, err := strconv.ParseInt(state.TotalLength, 10, 64); err == nil && totalLength >= 0 {
 			task.TotalLength = totalLength
@@ -2566,10 +2566,7 @@ func (m *Manager) replaceTaskLocked(task, replacement *Task) {
 		delete(m.gids, task.GID)
 	}
 	if task.OutputName != "" {
-		key := outputNameKey(task.Folder, task.OutputName)
-		if m.outputNames[key] == task.ID {
-			delete(m.outputNames, key)
-		}
+		m.releaseOutputLocked(task.Folder, task.OutputName, task.ID)
 	}
 
 	oldGID := task.GID
@@ -2583,7 +2580,7 @@ func (m *Manager) replaceTaskLocked(task, replacement *Task) {
 	m.fingerprints[task.Fingerprint] = task.ID
 	m.gids[task.GID] = task.ID
 	if task.OutputName != "" {
-		m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID
+		m.reserveOutputLocked(task.Folder, task.OutputName, task.ID)
 	}
 	if oldStatus != task.Status {
 		m.statusCounts[oldStatus]--
@@ -2609,7 +2606,7 @@ func (m *Manager) removeTaskLocked(id int64) bool {
 	delete(m.fingerprints, task.Fingerprint)
 	delete(m.gids, task.GID)
 	if task.OutputName != "" {
-		delete(m.outputNames, outputNameKey(task.Folder, task.OutputName))
+		m.releaseOutputLocked(task.Folder, task.OutputName, task.ID)
 	}
 	m.statusCounts[task.Status]--
 	m.revision++
@@ -3321,7 +3318,7 @@ func (m *Manager) applyRemoteMetadata(id int64, metadata remoteMetadata, enforce
 			m.mu.Unlock()
 			return nil, fmt.Errorf("no available output name for %q", metadata.Name)
 		}
-		m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID
+		m.reserveOutputLocked(task.Folder, task.OutputName, task.ID)
 		var identity requestIdentity
 		if task.RequestJSON != "" && json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.Name == "" {
 			task.Name = metadata.Name
@@ -3697,8 +3694,10 @@ func (m *Manager) conflictingOutputOwnerLocked(dir, name string, excludeID int64
 		names = append(names, name[:len(name)-len(".aria2")])
 	}
 	for _, candidate := range names {
-		if id, occupied := m.outputNames[outputNameKey(dir, candidate)]; occupied && id != excludeID {
-			return id, true
+		for id := range m.outputNames[outputNameKey(dir, candidate)] {
+			if id != excludeID {
+				return id, true
+			}
 		}
 	}
 	return 0, false
@@ -3740,6 +3739,10 @@ func pathExists(path string) bool {
 }
 
 func removePartialFiles(task *Task, ariaPath string) error {
+	return removePartialFilesChecked(task, ariaPath, nil)
+}
+
+func removePartialFilesChecked(task *Task, ariaPath string, check func(*os.Root) error) error {
 	if task == nil {
 		return fmt.Errorf("missing task metadata for partial-file cleanup")
 	}
@@ -3767,25 +3770,20 @@ func removePartialFiles(task *Task, ariaPath string) error {
 	if task.OutputName != "" && !samePathName(relative, task.OutputName) {
 		return fmt.Errorf("partial download path does not match the task output name")
 	}
-	paths := []string{target, target + ".aria2"}
-	for _, path := range paths {
-		info, statErr := os.Lstat(path)
-		if os.IsNotExist(statErr) {
-			continue
-		}
-		if statErr != nil {
-			return fmt.Errorf("inspect partial download %q: %w", filepath.Base(path), statErr)
-		}
-		if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
-			return fmt.Errorf("refuse to remove non-file partial download %q", filepath.Base(path))
+	root, err := openCleanupDirectory(folder)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open partial download directory: %w", err)
+	}
+	defer root.Close()
+	if check != nil {
+		if err := check(root); err != nil {
+			return err
 		}
 	}
-	for _, path := range paths {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove partial download %q: %w", filepath.Base(path), err)
-		}
-	}
-	return nil
+	return removePartialPair(root, relative)
 }
 
 func waitForAriaStop(rpc ariaRPC, gid string) (ariaStatus, error) {

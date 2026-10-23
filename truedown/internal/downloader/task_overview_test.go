@@ -3,7 +3,7 @@ package downloader
 import "testing"
 
 func TestTaskOverviewFollowsMutationsAndIgnoresViewFilters(t *testing.T) {
-	m := &Manager{tasks: map[int64]*Task{}, statusCounts: map[Status]int{}, gids: map[string]int64{}, fingerprints: map[string]int64{}, outputNames: map[string]int64{}}
+	m := &Manager{tasks: map[int64]*Task{}, statusCounts: map[Status]int{}, gids: map[string]int64{}, fingerprints: map[string]int64{}, outputNames: map[string]map[int64]struct{}{}}
 	for id, task := range map[int64]*Task{
 		1: {ID: 1, Name: "movie.mp4", Status: StatusDownloading, DownloadSpeed: 1024},
 		2: {ID: 2, Name: "movie-2.mp4", Status: StatusDone},

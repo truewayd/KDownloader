@@ -84,6 +84,13 @@ engine restart, while the profile's native state directory holds the ranges.
 Task deletion first stops the engine writer and waits for its terminal state.
 HTTP cancellation uses the same payload/control-file ownership checks as retry;
 overlapping legacy records keep both files and the task record for diagnosis.
+Reservations retain all overlapping owners after restart and when one record is
+removed or assigned a different output. Cleanup traverses retained directory
+handles and rejects parent symlinks/junctions and directory replacement during
+inspection. Windows automatic cleanup requires a local drive directory. A
+rejected cleanup preserves its record for diagnosis instead of following an alias.
+The final regular-file identity check and unlink are not an atomic operation;
+external programs must not replace download entries during cancellation or retry.
 Removing a BitTorrent task stops and retires its engine task but preserves both
 single-file payloads and multi-file trees. Invalid stored request identities fail
 cleanup without deleting files.
@@ -114,6 +121,12 @@ TrueDown reserves those options so custom arguments cannot silently enable
 automatic renaming, discard piece maps, or overwrite another output.
 
 ## Existing numbered leftovers
+
+Before destructive HTTP cleanup, physical directory and file identities are
+compared with other task outputs as well as lexical reservations. This protects
+Windows short-path aliases and existing hard links. If another existing output
+directory cannot be inspected, cleanup keeps the task and reports the problem.
+The ownership check and deletion retain the same directory handle.
 
 Retry repairs only the output recorded for that task. Old sibling files such as
 `photo(1).png` and `photo(2).png` may belong to different downloads, contain useful

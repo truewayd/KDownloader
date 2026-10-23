@@ -63,7 +63,7 @@ func TestHTTPLegacyControlFileConflictsPreserveBothFiles(t *testing.T) {
 				task := transferTestTask(t, m, names[0])
 				// Older records could reserve a payload as another task's control file.
 				m.mu.Lock()
-				m.outputNames[outputNameKey(task.Folder, names[1])] = task.ID + 1
+				m.reserveOutputLocked(task.Folder, names[1], task.ID+1)
 				m.mu.Unlock()
 				for _, suffix := range []string{"", ".aria2"} {
 					if err := os.WriteFile(filepath.Join(task.Folder, task.OutputName+suffix), []byte("owned data"), 0600); err != nil {

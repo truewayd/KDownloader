@@ -108,7 +108,7 @@ func TestUpdateCleanupVerifiesPayloadAndOwnsTaskRemoval(t *testing.T) {
 			case "overlap":
 				// Model a legacy record overlapping the payload's control file.
 				m.mu.Lock()
-				m.outputNames[outputNameKey(folder, name+".aria2")] = task.ID + 1
+				m.reserveOutputLocked(folder, name+".aria2", task.ID+1)
 				m.mu.Unlock()
 			case "foreign-file":
 				if err := os.WriteFile(filepath.Join(folder, "keep.txt"), []byte("user file"), 0600); err != nil {

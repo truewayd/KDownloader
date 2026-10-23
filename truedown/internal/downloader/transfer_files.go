@@ -94,7 +94,9 @@ func (m *Manager) prepareHTTPOutput(id int64, recheck bool) (*Task, error) {
 	// range checkpoints in state-dir. NEXT 3 gets continue=false to reject
 	// prefix adoption when its checkpoint is missing.
 	if !recheck && !m.usesNativeHTTPState() && output != control {
-		if err := removePartialFiles(proposed, ""); err != nil {
+		if err := removePartialFilesChecked(proposed, "", func(root *os.Root) error {
+			return m.checkPhysicalOutputOwnershipLocked(proposed, root)
+		}); err != nil {
 			return nil, fmt.Errorf("restart incomplete download without valid resume files: %w", err)
 		}
 	}
@@ -159,5 +161,9 @@ func (m *Manager) removeOwnedPartialFiles(task *Task, path string) error {
 	if _, _, err := inspectHTTPOutput(&inspection); err != nil {
 		return err
 	}
-	return removePartialFiles(task, path)
+	return removePartialFilesChecked(task, path, func(root *os.Root) error {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		return m.checkPhysicalOutputOwnershipLocked(&inspection, root)
+	})
 }

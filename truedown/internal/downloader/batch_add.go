@@ -134,7 +134,7 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 		m.fingerprints[task.Fingerprint] = task.ID
 		m.gids[task.GID] = task.ID
 		if task.OutputName != "" {
-			m.outputNames[outputNameKey(task.Folder, task.OutputName)] = task.ID
+			m.reserveOutputLocked(task.Folder, task.OutputName, task.ID)
 		}
 		m.statusCounts[task.Status]++
 		m.orderedIDs = append(m.orderedIDs, task.ID)
