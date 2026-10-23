@@ -1740,7 +1740,7 @@ func (m *Manager) removeTasks(ids []int64, allowActive bool) TaskOperationResult
 		if !shouldRemove || isMediaTask(target.task) {
 			continue
 		}
-		if err := removePartialFiles(target.task, path); err != nil {
+		if err := m.removeOwnedPartialFiles(target.task, path); err != nil {
 			errorsByID[target.id] = err
 		}
 	}

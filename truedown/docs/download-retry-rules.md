@@ -82,6 +82,11 @@ resubmission. TrueDown's task database restores the original GID and URL on
 engine restart, while the profile's native state directory holds the ranges.
 
 Task deletion first stops the engine writer and waits for its terminal state.
+HTTP cancellation uses the same payload/control-file ownership checks as retry;
+overlapping legacy records keep both files and the task record for diagnosis.
+Removing a BitTorrent task stops and retires its engine task but preserves both
+single-file payloads and multi-file trees. Invalid stored request identities fail
+cleanup without deleting files.
 Native result/state retirement uses engine RPCs; failures preserve the manager
 record for another attempt. Engine-native state directories are never walked
 or edited by the manager. The engine does not unlink ordinary HTTP output files,

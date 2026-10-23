@@ -131,6 +131,19 @@ func inspectHTTPOutput(task *Task) (bool, bool, error) {
 }
 
 func (m *Manager) removeOwnedPartialFiles(task *Task, path string) error {
+	if task == nil {
+		return fmt.Errorf("missing task metadata for partial-file cleanup")
+	}
+	if task.RequestJSON != "" {
+		var identity requestIdentity
+		if err := json.Unmarshal([]byte(task.RequestJSON), &identity); err != nil {
+			return fmt.Errorf("invalid task identity; refusing partial-file cleanup")
+		}
+		// Torrent payloads remain engine-owned, including single-file torrents.
+		if identity.BitTorrent != nil {
+			return nil
+		}
+	}
 	name := task.OutputName
 	if name == "" && path != "" {
 		name = filepath.Base(path)
