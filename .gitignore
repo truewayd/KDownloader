@@ -6,6 +6,7 @@ __pycache__/
 *.pyo
 dist/
 work/runs/
+/deliverables/
 truedown/desktop/target/
 truedown/desktop/binaries/
 truedown/desktop/node_modules/
