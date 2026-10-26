@@ -13,5 +13,7 @@ Direct2D/DirectWrite 渲染器。采用 HostBackdropBrush 与 Acrylic 风格中�
 键盘呼出、系统读屏/高对比度、超出工作区或图形错误时保留 HMENU 路径。
 关闭系统透明效果时使用纯色。标题栏系统菜单以及 macOS/Linux 菜单保持原有实现。
 
+## Verification
+
 按用户要求仅构建和更新安装，不运行界面、交互、连续开关或黑帧测试；
 流畅度和材质的实际显示由用户验收。
