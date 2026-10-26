@@ -291,11 +291,15 @@ pub fn handle(app: &tauri::AppHandle, event: TrayIconEvent) {
     {
         let state = app.state::<Arc<TraySettings>>();
         state.inner.lock().unwrap().pending = None;
-        match crate::context_menus::show_tray_menu(app, position.x, position.y) {
-            Ok(Some(action)) => menu_action(app, &action),
-            Ok(None) => {}
-            Err(error) => eprintln!("Cannot open tray menu: {error}"),
-        }
+        let app = app.clone();
+        let (x, y) = (position.x, position.y);
+        tauri::async_runtime::spawn(async move {
+            match crate::context_menus::show_tray_menu(&app, x, y).await {
+                Ok(Some(action)) => menu_action(&app, &action),
+                Ok(None) => {}
+                Err(error) => eprintln!("Cannot open tray menu: {error}"),
+            }
+        });
         return;
     }
     let state = app.state::<Arc<TraySettings>>();

@@ -4291,12 +4291,21 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tempfile",
  "tokio",
+ "truedown-native-menu",
  "urlpattern",
  "webkit2gtk",
  "window-vibrancy",
  "windows 0.61.3",
  "windows-sys 0.61.2",
  "winreg",
+]
+
+[[package]]
+name = "truedown-native-menu"
+version = "0.1.0"
+dependencies = [
+ "windows 0.62.2",
+ "windows-numerics 0.3.1",
 ]
 
 [[package]]

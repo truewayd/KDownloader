@@ -1,8 +1,8 @@
-//! Windows owns capture, keyboard navigation and dismissal; no popup WebView.
+//! Shared retained Composition menus; HMENU remains the accessibility fallback.
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
 };
@@ -15,6 +15,7 @@ use windows_sys::Win32::{
     Foundation::{POINT, RECT},
     Graphics::Gdi::ClientToScreen,
     UI::{
+        Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW},
         HiDpi::{
             GetDpiForWindow, GetWindowDpiAwarenessContext, SetThreadDpiAwarenessContext,
             DPI_AWARENESS_CONTEXT,
@@ -29,6 +30,8 @@ pub struct Menus {
     // Win32 has one active menu loop on the application UI thread.
     active: Mutex<Option<Request>>,
     cancelled: Mutex<HashMap<String, u32>>,
+    generation: AtomicU64,
+    idle: tokio::sync::Notify,
 }
 struct Request {
     caller: String,
@@ -36,6 +39,46 @@ struct Request {
     cancelled: Arc<AtomicBool>,
 }
 impl Menus {
+    async fn reserve(
+        &self,
+        app: &tauri::AppHandle,
+        caller: &str,
+        id: u32,
+    ) -> Option<Arc<AtomicBool>> {
+        let generation = self
+            .generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1);
+        self.idle.notify_waiters();
+        loop {
+            let notified = self.idle.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let previous = {
+                let mut active = self.active.lock().unwrap();
+                if self.generation.load(Ordering::SeqCst) != generation
+                    || self.cancelled.lock().unwrap().get(caller) == Some(&id)
+                {
+                    return None;
+                }
+                if let Some(request) = active.as_ref() {
+                    request.cancelled.clone()
+                } else {
+                    let token = Arc::new(AtomicBool::new(false));
+                    *active = Some(Request {
+                        caller: caller.into(),
+                        id,
+                        cancelled: token.clone(),
+                    });
+                    return Some(token);
+                }
+            };
+            // Complete the old native loop before another content/tray menu can
+            // reuse its HWND. Newer requests supersede waiting ones without polling.
+            Self::cancel(app, previous);
+            notified.await;
+        }
+    }
     fn cancel(app: &tauri::AppHandle, token: Arc<AtomicBool>) {
         token.store(true, Ordering::SeqCst);
         let handle = app.clone();
@@ -48,6 +91,7 @@ impl Menus {
                 .is_some_and(|request| Arc::ptr_eq(&request.cancelled, &token))
             {
                 unsafe {
+                    truedown_native_menu::dismiss();
                     style::dismiss();
                 }
             }
@@ -79,21 +123,9 @@ pub async fn show_context_menu(
         return Err("Native menus are suppressed during hidden acceptance".into());
     }
     let state = app.state::<Menus>();
-    let token = Arc::new(AtomicBool::new(false));
-    {
-        let mut active = state.active.lock().unwrap();
-        if active.is_some() {
-            return Err("A context menu is already open".into());
-        }
-        if state.cancelled.lock().unwrap().get(window.label()) == Some(&request_id) {
-            return Ok(None);
-        }
-        *active = Some(Request {
-            caller: window.label().into(),
-            id: request_id,
-            cancelled: token.clone(),
-        });
-    }
+    let Some(token) = state.reserve(&app, window.label(), request_id).await else {
+        return Ok(None);
+    };
     let _cleanup = Cleanup {
         app: app.clone(),
         token: token.clone(),
@@ -104,8 +136,7 @@ pub async fn show_context_menu(
         let result = if token.load(Ordering::SeqCst) || sender.is_closed() {
             Ok(None)
         } else {
-            let _ = keyboard; // The OS tracks both mouse and keyboard invocation.
-            unsafe { track(&window, &actions, x, y, &token) }
+            unsafe { track(&window, &actions, x, y, &token, keyboard.unwrap_or(false)) }
         };
         let state = handle.state::<Menus>();
         let mut active = state.active.lock().unwrap();
@@ -116,10 +147,12 @@ pub async fn show_context_menu(
             *active = None;
         }
         drop(active);
+        state.idle.notify_waiters();
         let _ = sender.send(result);
     });
     if let Err(error) = scheduled {
         state.active.lock().unwrap().take();
+        state.idle.notify_waiters();
         return Err(error.to_string());
     }
     receiver
@@ -151,6 +184,7 @@ unsafe fn track(
     x: f64,
     y: f64,
     cancelled: &AtomicBool,
+    keyboard: bool,
 ) -> Result<Option<String>, String> {
     let hwnd = window.hwnd().map_err(|error| error.to_string())?.0;
     if IsWindowVisible(hwnd) == 0 || IsWindowEnabled(hwnd) == 0 || GetForegroundWindow() != hwnd {
@@ -176,7 +210,7 @@ unsafe fn track(
     if ClientToScreen(hwnd, &mut point) == 0 {
         return Err("Menu position unavailable".into());
     }
-    track_at(window, hwnd, actions, point, cancelled, true)
+    track_at(window, hwnd, actions, point, cancelled, true, keyboard)
 }
 
 unsafe fn track_at(
@@ -186,7 +220,38 @@ unsafe fn track_at(
     point: POINT,
     cancelled: &AtomicBool,
     visible_owner: bool,
+    keyboard: bool,
 ) -> Result<Option<String>, String> {
+    // Keep USER32 accessibility and scrolling on the fallback route. Only native
+    // allowlisted labels/icons reach Composition; the WebView supplies no pixels.
+    if !keyboard && composition_allowed() {
+        match truedown_native_menu::track(
+            hwnd as isize,
+            (point.x, point.y),
+            window.theme().ok() == Some(tauri::Theme::Dark),
+            visible_owner,
+            actions,
+            cancelled,
+            || composition_model(actions),
+        ) {
+            Ok(selected) => {
+                return Ok(selected
+                    .filter(|_| {
+                        !cancelled.load(Ordering::SeqCst)
+                            && IsWindow(hwnd) != 0
+                            && GetForegroundWindow() == hwnd
+                            && (!visible_owner
+                                || (IsWindowVisible(hwnd) != 0 && IsWindowEnabled(hwnd) != 0))
+                    })
+                    .and_then(|index| actions.get(index))
+                    .cloned())
+            }
+            Err(error) => eprintln!("[native-menu] Composition unavailable; using HMENU: {error}"),
+        }
+    }
+    if cancelled.load(Ordering::SeqCst) {
+        return Ok(None);
+    }
     let menu = Menu(CreatePopupMenu());
     if menu.0.is_null() {
         return Err("Cannot create context menu".into());
@@ -223,8 +288,72 @@ unsafe fn track_at(
         .cloned())
 }
 
+unsafe fn composition_allowed() -> bool {
+    let mut contrast = HIGHCONTRASTW {
+        cbSize: std::mem::size_of::<HIGHCONTRASTW>() as u32,
+        ..Default::default()
+    };
+    let mut reader = 0i32;
+    SystemParametersInfoW(
+        SPI_GETHIGHCONTRAST,
+        contrast.cbSize,
+        (&mut contrast as *mut HIGHCONTRASTW).cast(),
+        0,
+    ) != 0
+        && contrast.dwFlags & HCF_HIGHCONTRASTON == 0
+        && SystemParametersInfoW(SPI_GETSCREENREADER, 0, (&mut reader as *mut i32).cast(), 0) != 0
+        && reader == 0
+}
+
+fn composition_model(actions: &[String]) -> Result<truedown_native_menu::Model, String> {
+    use truedown_native_menu::{
+        style::{ITEM_INSET, ROW_HEIGHT},
+        Icon, Item, Model,
+    };
+    let mut model = Model {
+        width: 256.,
+        height: 0.,
+        row_height: ROW_HEIGHT,
+        items: Vec::with_capacity(actions.len()),
+        tops: Vec::with_capacity(actions.len()),
+        separators: vec![],
+    };
+    let mut top = ITEM_INSET;
+    for (index, action) in actions.iter().enumerate() {
+        let text = label(action).ok_or("Unavailable menu action")?;
+        let (label, shortcut) = text.split_once('\t').unwrap_or((text, ""));
+        let danger = matches!(action.as_str(), "remove" | "clear-done");
+        if (danger || action == "tray-exit") && index > 0 {
+            model.separators.push(top + 4.);
+            top += 9.;
+        }
+        let image = style::icon(action, true)?;
+        model.width = model.width.max(
+            label.chars().count() as f32 * 14. + 64. + if shortcut.is_empty() { 0. } else { 84. },
+        );
+        model.tops.push(top);
+        model.items.push(Item {
+            label: label.into(),
+            shortcut: shortcut.into(),
+            danger,
+            icon: Icon::Rgba {
+                pixels: image.rgba().to_vec(),
+                width: image.width(),
+                height: image.height(),
+            },
+        });
+        top += model.row_height;
+    }
+    model.height = top + ITEM_INSET;
+    Ok(model)
+}
+
 // Native-only tray entry: these actions are never accepted from a WebView.
-pub fn show_tray_menu(app: &tauri::AppHandle, x: f64, y: f64) -> Result<Option<String>, String> {
+pub async fn show_tray_menu(
+    app: &tauri::AppHandle,
+    x: f64,
+    y: f64,
+) -> Result<Option<String>, String> {
     if app.state::<crate::windows::Windows>().suppress {
         return Ok(None);
     }
@@ -232,63 +361,90 @@ pub fn show_tray_menu(app: &tauri::AppHandle, x: f64, y: f64) -> Result<Option<S
         .get_webview_window("main")
         .ok_or("Main window unavailable")?;
     let state = app.state::<Menus>();
-    let token = Arc::new(AtomicBool::new(false));
-    {
-        let mut active = state.active.lock().unwrap();
-        if active.is_some() {
-            return Ok(None);
-        }
-        *active = Some(Request {
-            caller: "tray".into(),
-            id: 0,
-            cancelled: token.clone(),
-        });
+    let Some(token) = state.reserve(app, "tray", 0).await else {
+        return Ok(None);
+    };
+    let _cleanup = Cleanup {
+        app: app.clone(),
+        token: token.clone(),
+    };
+    let handle = app.clone();
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    if let Err(error) = app.run_on_main_thread(move || {
+        let result = if token.load(Ordering::SeqCst) || sender.is_closed() {
+            Ok(None)
+        } else {
+            unsafe { track_tray(&window, x, y, &token) }
+        };
+        let state = handle.state::<Menus>();
+        state.active.lock().unwrap().take();
+        state.idle.notify_waiters();
+        let _ = sender.send(result);
+    }) {
+        state.active.lock().unwrap().take();
+        state.idle.notify_waiters();
+        return Err(error.to_string());
     }
-    let result = unsafe { track_tray(&window, x, y, &token) };
-    state.active.lock().unwrap().take();
-    result
+    receiver
+        .await
+        .map_err(|_| "Menu window closed".to_string())?
 }
 
+struct TrayOwner(windows_sys::Win32::Foundation::HWND);
+impl Drop for TrayOwner {
+    fn drop(&mut self) {
+        unsafe {
+            DestroyWindow(self.0);
+        }
+    }
+}
+thread_local! {
+    static TRAY_OWNER: std::cell::RefCell<Option<TrayOwner>> = const { std::cell::RefCell::new(None) };
+}
+unsafe fn tray_owner() -> Result<windows_sys::Win32::Foundation::HWND, String> {
+    TRAY_OWNER.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if let Some(owner) = slot.as_ref() {
+            return Ok(owner.0);
+        }
+        // A dedicated hidden top-level owner lets the tray work with every product
+        // window hidden, without raising the main window just to display a menu.
+        let owner = TrayOwner(CreateWindowExW(
+            WS_EX_TOOLWINDOW,
+            windows_sys::w!("STATIC"),
+            windows_sys::w!("TrueDown tray menu"),
+            WS_POPUP,
+            0,
+            0,
+            0,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        ));
+        if owner.0.is_null() {
+            return Err("Cannot create tray menu owner".into());
+        }
+        let hwnd = owner.0;
+        *slot = Some(owner);
+        Ok(hwnd)
+    })
+}
 unsafe fn track_tray(
     window: &WebviewWindow,
     x: f64,
     y: f64,
     token: &AtomicBool,
 ) -> Result<Option<String>, String> {
-    struct Owner(windows_sys::Win32::Foundation::HWND);
-    impl Drop for Owner {
-        fn drop(&mut self) {
-            unsafe {
-                DestroyWindow(self.0);
-            }
-        }
-    }
-    // A dedicated hidden top-level owner lets the tray work with every product
-    // window hidden, without raising the main window just to display a menu.
-    let owner = Owner(CreateWindowExW(
-        WS_EX_TOOLWINDOW,
-        windows_sys::w!("STATIC"),
-        windows_sys::w!("TrueDown tray menu"),
-        WS_POPUP,
-        x as i32,
-        y as i32,
-        0,
-        0,
-        std::ptr::null_mut(),
-        std::ptr::null_mut(),
-        std::ptr::null_mut(),
-        std::ptr::null(),
-    ));
-    if owner.0.is_null() {
-        return Err("Cannot create tray menu owner".into());
-    }
-    if SetForegroundWindow(owner.0) == 0 {
+    let owner = tray_owner()?;
+    if SetForegroundWindow(owner) == 0 {
         return Err("Cannot activate tray menu".into());
     }
     let actions = ["tray-new", "tray-open", "settings", "tray-exit"].map(str::to_string);
     let result = track_at(
         window,
-        owner.0,
+        owner,
         &actions,
         POINT {
             x: x as i32,
@@ -296,9 +452,10 @@ unsafe fn track_tray(
         },
         token,
         false,
+        false,
     );
     // Required by the notification-area menu lifecycle for reliable dismissal.
-    PostMessageW(owner.0, WM_NULL, 0, 0);
+    PostMessageW(owner, WM_NULL, 0, 0);
     result
 }
 
@@ -325,9 +482,10 @@ pub fn context_menu_cancel(
     if let Some(token) = token {
         Menus::cancel(&app, token);
     }
+    state.idle.notify_waiters();
     Ok(())
 }
-// Keep the cross-platform IPC surface closed on Windows. Only HMENU can answer.
+// Only the native tracking loop can answer; a WebView cannot choose an action.
 #[tauri::command]
 pub fn context_menu_init() -> Option<Vec<String>> {
     None
@@ -343,13 +501,31 @@ pub fn context_menu_answer(action: Option<String>) -> Result<(), String> {
 }
 #[tauri::command]
 pub fn context_menu_key(
+    app: tauri::AppHandle,
     window: WebviewWindow,
     request_id: u32,
     key: super::MenuKey,
 ) -> Result<(), String> {
     crate::editing::authorize(window.label())?;
-    let _ = (request_id, key);
-    Ok(()) // Windows consumes navigation keys inside TrackPopupMenuEx.
+    let caller = window.label().to_string();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let state = handle.state::<Menus>();
+        let active = state.active.lock().unwrap();
+        if active.as_ref().is_some_and(|r| {
+            r.caller == caller && r.id == request_id && !r.cancelled.load(Ordering::SeqCst)
+        }) {
+            truedown_native_menu::key(match key {
+                super::MenuKey::ArrowDown => 0x28,
+                super::MenuKey::ArrowUp => 0x26,
+                super::MenuKey::Home => 0x24,
+                super::MenuKey::End => 0x23,
+                super::MenuKey::Enter => 0x0d,
+                super::MenuKey::Space => 0x20,
+            });
+        }
+    })
+    .map_err(|e| e.to_string())
 }
 
 fn label(action: &str) -> Option<&'static str> {

@@ -35,22 +35,14 @@ const fn rgb(r: u32, g: u32, b: u32) -> COLORREF {
 }
 impl Palette {
     fn new(dark: bool) -> Self {
-        if dark {
-            Self {
-                surface: rgb(43, 43, 43),
-                hover: rgb(59, 59, 59),
-                text: rgb(245, 245, 245),
-                muted: rgb(188, 188, 188),
-                danger: rgb(255, 153, 164),
-            }
-        } else {
-            Self {
-                surface: rgb(252, 252, 252),
-                hover: rgb(239, 239, 239),
-                text: rgb(32, 32, 32),
-                muted: rgb(96, 96, 96),
-                danger: rgb(196, 43, 28),
-            }
+        let palette = truedown_native_menu::style::palette(dark);
+        let value = |[r, g, b]: [u8; 3]| rgb(r.into(), g.into(), b.into());
+        Self {
+            surface: value(palette.surface),
+            hover: value(palette.hover),
+            text: value(palette.text),
+            muted: value(palette.muted),
+            danger: value(palette.danger),
         }
     }
 }
@@ -962,7 +954,7 @@ fn matte(rgba: &[u8], foreground: COLORREF, background: COLORREF) -> Vec<u8> {
         })
         .collect()
 }
-fn icon(action: &str, large: bool) -> Result<Image<'static>, String> {
+pub(super) fn icon(action: &str, large: bool) -> Result<Image<'static>, String> {
     macro_rules! bytes {
         ($name:literal) => {
             if large {

@@ -1,6 +1,7 @@
 // Resolve the clicked surface before collecting its currently available actions.
 (() => {
   let current = null, disposed = false;
+  let nativePending = Promise.resolve();
   let requestID = Date.now() % 0x80000000;
   const role = () => typeof nativeWindowRole === "undefined" ? "browser" : nativeWindowRole;
   const report = error => { if (!disposed) showToast(String(error?.message || error), "error"); };
@@ -149,10 +150,15 @@
       current = context;
       context.observer = new MutationObserver(() => { if (!available(target)) close(false); });
       context.observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["inert", "hidden"] });
-      invokeNative("show_context_menu", {
-        requestId: context.requestId, actions, keyboard,
-        x: keyboard || !Number.isFinite(event.clientX) ? rect.left : event.clientX,
-        y: keyboard || !Number.isFinite(event.clientY) ? rect.bottom : event.clientY,
+      // Wait for the previous native loop to settle after cancellation. A rapid
+      // right-click elsewhere must hide the old menu before opening this one.
+      nativePending = nativePending.then(() => {
+        if (current !== context || disposed) return null;
+        return invokeNative("show_context_menu", {
+          requestId: context.requestId, actions, keyboard,
+          x: keyboard || !Number.isFinite(event.clientX) ? rect.left : event.clientX,
+          y: keyboard || !Number.isFinite(event.clientY) ? rect.bottom : event.clientY,
+        });
       }).then(action => {
         if (current !== context) return;
         // Activation closes the menu before running the chosen operation.

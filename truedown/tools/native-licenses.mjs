@@ -131,6 +131,10 @@ const metadata = JSON.parse(run("cargo", ["metadata", "--locked", "--format-vers
 const active = new Set(metadata.resolve.nodes.map(node => node.id));
 const packages = metadata.packages.filter(pkg => {
   if (!active.has(pkg.id) || path.resolve(pkg.manifest_path) === path.join(desktop, "Cargo.toml")) return false;
+  // First-party renderer shared with the independent prototype. Match both its
+  // identity and exact in-repository manifest; keep rejecting unknown local crates.
+  if (!pkg.source && pkg.name === "truedown-native-menu" && pkg.version === "0.1.0"
+      && path.resolve(pkg.manifest_path) === path.join(project, "native-menu", "Cargo.toml")) return false;
   const patch = patches.get(`${pkg.name}@${pkg.version}`);
   if (patch ? pkg.source || path.dirname(path.resolve(pkg.manifest_path)) !== patch.path : !pkg.source) {
     throw new Error(`Unreviewed local dependency or missing patch: ${pkg.name}@${pkg.version}`);

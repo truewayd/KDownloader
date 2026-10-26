@@ -1,4 +1,4 @@
-//! Caller-bound context menus. Windows uses HMENU; other desktops use owned WebViews.
+//! Caller-bound menus. Windows uses native Composition with an HMENU fallback.
 #[cfg(not(windows))]
 use std::{
     collections::HashMap,

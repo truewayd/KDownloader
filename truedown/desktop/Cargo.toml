@@ -33,6 +33,7 @@ window-vibrancy = "0.6"
 tokio = { version = "1", features = ["process", "io-util", "time", "sync", "rt-multi-thread"] }
 
 [target.'cfg(windows)'.dependencies]
+truedown-native-menu = { path = "../native-menu" }
 windows = { version = "=0.61.3", features = ["Data_Xml_Dom", "UI_Notifications", "Win32_System_WinRT"] }
 # Reparent only the retained WebView; no extra frontend permissions are granted.
 tauri = { version = "2.11.6", features = ["macos-private-api", "unstable"] }
