@@ -3,7 +3,7 @@
 TrueDown uses independent project-themed confirmation windows and native windows for
 large forms. Compact input/icon pickers, Toasts and content-area menus retain the
 project surface. System caption menus and file/directory pickers are OS-owned.
-Windows tray menus share the project's native HMENU rendering; macOS/Linux retain
+Windows tray menus share the project's native Composition rendering; macOS/Linux retain
 their system tray menus. All tray menus contain exactly New, Open, Settings and Exit.
 
 ## Dialogs
@@ -25,14 +25,14 @@ with meaningful captions; Windows/macOS title strips include decorative role ico
 ## Menus
 
 `web/context-menu.js` collects eligible actions and retains the caller's selection.
-Desktop views invoke `show_context_menu`: Windows uses an owned HMENU; other desktops
+Desktop views invoke `show_context_menu`: Windows uses a retained Composition popup; other desktops
 use an independent frameless WebView (`context-menu-window.html`). They render project icons,
-labels and shortcut hints and is clamped to the monitor work area, rather than the
+labels and shortcut hints and are clamped to the monitor work area, rather than the
 parent WebView bounds. The parent stays enabled. A browser-only fallback retains
 the page menu; native failures never fall back to it.
 
 Rust bounds the actions, coordinates and per-caller concurrency. Each request has
-a unique native window identity and caller-bound cancellation ID. The popup may
+a caller-bound cancellation ID; Windows reuses its native popup only after the previous loop settles. The popup may
 only read its own offered actions and return one of them; core access and arbitrary
 menu/tray mutations remain denied. Task actions revalidate the original row and
 editing restores the selection in the original caller before native dispatch.
@@ -64,8 +64,8 @@ revision conflict reloads the latest groups for a new user attempt. Editor draft
 merge with newer order snapshots. Internal navigation and decorative controls do
 not export browser drag payloads, and internal text drags do not import downloads.
 
-Windows tray tracking uses the same HMENU rendering and input hook as content menus,
-with a dedicated hidden top-level owner at the tray event's physical coordinates.
+Windows tray tracking uses the same Composition renderer and request coordinator as content menus,
+with a retained hidden top-level owner and the tray event's physical coordinates.
 It sets the owner foreground before tracking and posts WM_NULL afterwards as required
 by the [notification-area menu lifecycle](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-trackpopupmenu).
 This never shows the main WebView. Tray-only actions cannot pass the WebView menu
@@ -109,6 +109,39 @@ queued requests do not dispatch. Hidden native acceptance suppresses editing.
 No selected text or clipboard contents cross IPC, and no clipboard-read or
 menu/tray mutation capability is granted to the WebView.
 
+
+### Windows retained rendering
+
+`truedown/native-menu` is shared with the independent Composition prototype.
+Windows content and tray menus use Direct2D/DirectWrite over a HostBackdropBrush
+with neutral Acrylic-style tint, without a menu WebView or a Mica controller.
+The native variant uses 14 DIP regular text, existing Lucide icons, 32 DIP rows,
+16 DIP outer corners, 10 DIP selection corners, product shadow and a one-physical-pixel
+border. `native-menu/src/style.rs` projects the web baseline: neutral panel tint, 8% text-color hover, muted shortcut labels, product danger colors and 4 DIP shadow offset. Danger actions are separated.
+
+The UI thread retains one popup, compositor, D3D/D2D device and the current menu's
+light/dark surfaces. Reopening the same action sequence at the same DPI does not
+redecode icons, create text layouts or repaint its text/border. Hover changes only
+the selection visual. Switching action sequences replaces the bounded content cache
+while retaining the graphics device. Geometry writes are skipped when unchanged;
+pure moves do not resize. Every opening separately calls SetWindowPos(HWND_TOPMOST) with SWP_NOACTIVATE and SWP_NOOWNERZORDER, even when position/size are unchanged. Closing hides and detaches the popup before HWND_NOTOPMOST, so a pinned owner keeps its setting. Foreground loss still dismisses the menu. The hidden tray owner is also retained. No normal-use
+frame timer, polling worker, global mouse hook or custom animation is added.
+
+Requests across content and tray menus cancel and await the previous tracking loop.
+Waiting requests are superseded by newer ones; cancellation and forwarded navigation
+remain caller/request/session-bound. Outside clicks close before their original
+message is dispatched. Foreground loss, caller disappearance, Escape and cancellation
+hide immediately. The WebView continues to revalidate each chosen task/edit action.
+
+Keyboard invocation, Windows screen-reader/high-contrast settings, oversized menus
+and graphics failures retain HMENU accessibility and work-area scrolling. Disabled
+transparency produces a solid Composition surface. A failed/device-lost renderer
+is discarded and the next request can recreate it. Full UI Automation for the custom
+surface is not implemented; keyboard invocation deliberately retains the OS path.
+
+This change was built without launching either application or running interaction,
+performance or black-frame tests. Those acceptance checks remain with the user.
+
 ## Validation
 
 ### Native menu customization options (2026-09-24)
@@ -124,10 +157,10 @@ DPI, high contrast, disabled/selected states and keyboard behavior; CSS cannot
 style native menus. A separate popup WebView window could extend outside the
 parent content, but adds focus, activation, monitor and dismissal lifecycle work.
 
-Content menus now use separate themed native WebView windows. Keep consistent
+Non-Windows content menus use separate themed native WebView windows. Keep consistent
 icon/label/shortcut alignment and meaningful action groups. Add submenus only for
 actual grouped actions, with arrow-key navigation and monitor-aware placement.
-Title-strip and tray menus retain their existing OS implementations.
+Title-strip menus remain OS-owned; Windows tray menus use the same native renderer as content menus.
 
 Sources: [Tauri menus](https://v2.tauri.app/learn/window-menu/),
 [Microsoft owner-drawn menus](https://learn.microsoft.com/en-us/windows/win32/menurc/using-menus#creating-owner-drawn-menu-items).
