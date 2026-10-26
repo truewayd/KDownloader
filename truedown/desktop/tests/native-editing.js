@@ -14,10 +14,11 @@ function installNativeEditingAcceptance({ keyboardMenu = false } = {}) {
   document.body.append(source, target);
   let pending = false, completed = false, failed = false;
   let failureReason = '';
-  let menuRequests = 0, menuError = "", menuResult;
+  let menuRequests = 0, menuError = "", menuResult, menuActions = [];
   window.invokeNative = async (command, args) => {
     if (command === 'show_context_menu') {
       menuRequests++;
+      menuActions = [...args.actions];
       try { return menuResult = await original(command, args); }
       catch (error) { menuError = String(error); throw error; }
     }
@@ -41,6 +42,7 @@ function installNativeEditingAcceptance({ keyboardMenu = false } = {}) {
     } finally { pending = false; }
   };
   window.__nativeEditing = {
+    offeredActions() { return [...menuActions]; },
     debug() { return { menuRequests, menuError, menuResult, visible: source.checkVisibility(), inert: Boolean(source.closest('[inert]')), pageMenus: document.querySelectorAll('[role="menu"]').length }; },
     async start(action) {
       if (pending) throw new Error('Overlapping editor actions');

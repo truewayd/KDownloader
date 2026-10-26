@@ -219,6 +219,16 @@ try {
   const typingRequest = await native.evaluate(() => calls.filter(call => call.command === 'show_context_menu').at(-1).args.requestId);
   await native.keyboard.press("a");
   assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'context_menu_cancel').at(-1).args.requestId), typingRequest, "typing dismisses a mouse menu before editing the caller");
+  const beforeReplacement = await native.evaluate(() => calls.filter(call => call.command === 'show_context_menu').length);
+  await openNative();
+  assert.equal(await native.evaluate(() => calls.filter(call => call.command === 'show_context_menu').length), beforeReplacement,
+    'replacement waits for the cancelled native loop to settle');
+  // The mock owns native-loop completion separately from cancellation, just as
+  // the real renderer releases its window before returning the pending request.
+  await native.evaluate(() => answerMenu('pause'));
+  await native.waitForFunction(before => calls.filter(call => call.command === 'show_context_menu').length === before + 1, beforeReplacement);
+  assert.equal(await native.evaluate(() => clicked), 0, 'cancelled loop cannot deliver an action to its replacement');
+  await native.evaluate(() => answerMenu(null));
   for (const [selector, action, command] of [
     ["[data-task-category]", "group-edit", "open_group_settings"],
     ["[data-task-category]", "group-add", "open_group_settings"],
@@ -239,6 +249,7 @@ try {
     window.dispatchEvent(new Event("resize"));
   });
   assert.equal(await native.evaluate(() => calls.filter(call => call.command === "context_menu_cancel").length), beforeResize + 1, "scale changes cancel stale native geometry");
+  await native.evaluate(() => answerMenu(null));
   await openNative();
   await native.setViewportSize({ width: 1200, height: 800 });
   await native.waitForFunction(before => calls.filter(call => call.command === "context_menu_cancel").length === before + 2, beforeResize);

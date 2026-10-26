@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { menuLabels } from "./windows-native-menu.mjs";
+import { menuLabels, nativeMenuSelection } from "./windows-native-menu.mjs";
 
 assert.equal(process.platform, "win32");
 assert.equal(process.argv[2], "--visible", "Visible popup checks require explicit opt-in");
@@ -71,6 +71,7 @@ try {
     window.addEventListener("blur", () => contextCalls.push({ event: "caller-blur" }));
     invokeNative = async (command, args) => {
       contextCalls.push({ command });
+      if (command === "show_context_menu") window.offeredMenuActions = [...args.actions];
       try { const result = await original(command, args); if (command === "show_context_menu") contextCalls.push({ result }); return result; }
       catch (error) { contextCalls.push({ command, error: error.message }); throw error; }
     };
@@ -78,9 +79,11 @@ try {
   const chooseMainMenu = async (selector, action) => {
     await capture(await main.title(), null);
     await main.locator(selector).click({ button: "right" });
-    await until(() => nativeMenu().catch(() => false));
+    const menu = await until(() => nativeMenu().catch(() => false));
     assert.ok(menuLabels[action]);
-    await nativeMenu({ label: menuLabels[action] });
+    await nativeMenu(menu.renderer === 'composition'
+      ? nativeMenuSelection(await main.evaluate(() => offeredMenuActions), action)
+      : { label: menuLabels[action] });
     await until(() => nativeMenu().then(() => false, () => true));
   };
   await chooseMainMenu('[data-task-category="project"] .nav-label', "group-edit");

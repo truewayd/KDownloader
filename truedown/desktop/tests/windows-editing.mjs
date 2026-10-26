@@ -7,7 +7,7 @@ import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
 import { acceptNativeEditing, nativeEditingDocumentReady } from './native-editing.mjs';
-import { nativeMenuDriver, menuLabels } from './windows-native-menu.mjs';
+import { nativeMenuDriver, nativeMenuSelection, menuLabels } from './windows-native-menu.mjs';
 
 assert.equal(process.platform, 'win32');
 assert.equal(process.argv[2], '--visible', 'Editing acceptance requires explicit --visible (uses the system clipboard)');
@@ -84,9 +84,11 @@ try {
   phase = 'editor fixture initialization';
   await acceptNativeEditing(evaluate, until, async action => {
     phase = `editor menu ${action}`;
-    await until(() => menus.request(child.pid).catch(() => false));
-    assert.ok(menuLabels[action], `Unknown native menu action: ${action}`);
-    await menus.request(child.pid, { label: menuLabels[action] });
+    const menu = await until(() => menus.request(child.pid).catch(() => false));
+    const selection = menu.renderer === 'composition'
+      ? nativeMenuSelection(await evaluate('return window.__nativeEditing.offeredActions()'), action)
+      : { label: menuLabels[action] };
+    await menus.request(child.pid, selection);
     await until(() => menus.request(child.pid).then(() => false, () => true));
   }, { concurrentMenuSelection: true });
   console.log('windows_native_editing=ok clipboard_round_trip=ok editor_actions=ok');
