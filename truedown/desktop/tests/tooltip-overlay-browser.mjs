@@ -82,6 +82,29 @@ try {
     await page.locator("#anchor").focus();
     await page.locator("#kd-tooltip").waitFor({ state: "visible" });
     assert.ok((await page.locator("#kd-tooltip").boundingBox()).y >= 48, "failed native adapter retains usable caption-safe tooltips");
+    const measurements = await page.evaluate(async () => {
+      const anchor = document.getElementById("anchor");
+      const measure = anchor.getBoundingClientRect.bind(anchor);
+      let reads = 0;
+      anchor.getBoundingClientRect = () => { reads++; return measure(); };
+      const progress = document.createElement("span");
+      document.body.append(progress);
+      for (let index = 0; index < 80; index++) {
+        progress.textContent = String(index);
+        await Promise.resolve();
+      }
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+      anchor.getBoundingClientRect = measure;
+      progress.remove();
+      return reads;
+    });
+    console.log(`${scale * 100}%: tooltip geometry reads for 80 progress mutations: ${measurements}`);
+    assert.ok(measurements <= 2, "progress bursts coalesce tooltip layout work into animation frames");
+    await page.locator("#anchor").evaluate(node => { node.dataset.tooltip = "Updated caption tooltip"; });
+    await page.waitForFunction(() => document.getElementById("kd-tooltip").textContent === "Updated caption tooltip");
+    await page.locator("#anchor").evaluate(node => { node.style.display = "none"; });
+    await page.locator("#kd-tooltip").waitFor({ state: "hidden", timeout: 1500 });
     await page.close();
   }
   console.log("Caption tooltip placement, composition readiness, accessibility, delayed dismissal and failure recovery OK at 100/125/150/200% scale");

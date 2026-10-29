@@ -1009,7 +1009,7 @@
     tip.setAttribute("popover", "manual");
     tip.hidden = true;
     ownerDocument.body.append(tip);
-    let anchor = null, timer = 0, leaveTimer = 0, layoutRevision = 0, layoutKey = "";
+    let anchor = null, timer = 0, leaveTimer = 0, layoutFrame = 0, layoutRevision = 0, layoutKey = "";
     const publishBounds = bounds => {
       const pending = [];
       const event = new view.CustomEvent("kd-tooltip-layout", { detail: bounds });
@@ -1023,6 +1023,8 @@
     const hide = () => {
       view.clearTimeout(timer);
       view.clearTimeout(leaveTimer);
+      view.cancelAnimationFrame(layoutFrame);
+      layoutFrame = 0;
       layoutRevision++;
       layoutKey = "";
       if (anchor) {
@@ -1100,8 +1102,14 @@
     const key = event => { if (event.key === "Escape") hide(); };
     const scroll = event => { if (!tip.contains(event.target)) hide(); };
     const visibility = () => { if (ownerDocument.hidden) hide(); };
-    // Only inspect the active anchor, including keyed-row updates and removal.
-    const observer = new view.MutationObserver(() => { if (anchor && !tip.hidden) render(); });
+    // Progress bursts may produce many observer deliveries before one paint.
+    const observer = new view.MutationObserver(records => {
+      if (!anchor || tip.hidden || layoutFrame || records.every(record => tip.contains(record.target))) return;
+      layoutFrame = view.requestAnimationFrame(() => {
+        layoutFrame = 0;
+        if (anchor && !tip.hidden) render();
+      });
+    });
     observer.observe(ownerDocument.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-tooltip", "data-tooltip-kind", "hidden"] });
     const listeners = [["pointerover", over], ["pointerout", out], ["focusin", focus], ["focusout", out], ["pointerdown", press], ["keydown", key], ["scroll", scroll], ["visibilitychange", visibility]];
     for (const [name, callback] of listeners) ownerDocument.addEventListener(name, callback, true);
