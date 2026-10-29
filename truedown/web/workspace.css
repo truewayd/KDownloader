@@ -146,7 +146,7 @@
 #settings-general-title, #settings-file-title, #settings-application-title, #settings-update-title { display: none; }
 .settings-section-heading h3 { margin: 0; font-size: var(--kd-font-section); font-weight: 600; line-height: 1.5; }
 .settings-content .form-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-.settings-group { min-width: 0; width: 100%; margin: 0; padding: 16px; border: 1px solid var(--kd-border); border-radius: var(--kd-radius); background: transparent; }
+.settings-group { min-width: 0; width: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .settings-group legend:not(.visually-hidden) { float: left; width: 100%; padding: 0; margin-bottom: 16px; font-size: 14px; font-weight: 600; }
 .settings-group legend + * { clear: both; }
 .settings-content .hint { margin: 0; line-height: 1.6; overflow-wrap: anywhere; }
@@ -155,7 +155,6 @@
 .settings-section-heading > .kd-notice { margin-top: 12px; }
 .settings-content .kd-notice .hint { margin: 0; }
 .settings-section-heading:has(> h3:only-child:is(#settings-general-title, #settings-file-title, #settings-application-title, #settings-update-title)) { display: none; }
-.settings-content > .settings-section:not(:has(.settings-group)):not(.log-page):not(.settings-about) { padding: 16px; border: 1px solid var(--kd-border); border-radius: var(--kd-radius); background: transparent; }
 .settings-content > .settings-section:not(:has(.settings-group)):not(.log-page):not(.settings-about) { gap: 16px; }
 .settings-group > * + * { margin-top: 16px; }
 .settings-group > .hint { margin-top: 0; margin-bottom: 16px; }

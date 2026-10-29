@@ -459,7 +459,8 @@ try {
         await page.locator("#open-source-licenses summary").click();
       }
       await page.locator(".settings-content").evaluate(element => { element.scrollTop = 0; });
-      await page.screenshot({ path: path.join(screenshots, `${name}-${category}.png`) });
+      // Capture final contrast instead of a partial first-read fade.
+      await page.screenshot({ path: path.join(screenshots, `${name}-${category}.png`), animations: "disabled" });
     }
     await page.locator('[data-settings-link="experimental"]').click();
     // Wheel-scroll the content without a bottom action bar covering the fields.
