@@ -102,6 +102,31 @@ try {
     await page.locator("#picker-scroll").evaluate(node => { node.scrollTop += 24; });
     await list.waitFor({ state: "detached" });
     assert.equal(await select.inputValue(), "d", "actual anchor movement dismisses without committing");
+    for (const mutation of ["hidden", "disabled", "removed"]) {
+      await page.locator("#picker-scroll").evaluate(node => { node.scrollTop = 0; });
+      await select.focus();
+      await select.press("Home");
+      await page.evaluate(kind => {
+        const select = document.getElementById("choice");
+        const fieldset = document.createElement("fieldset");
+        select.before(fieldset);
+        fieldset.append(select);
+        window.pickerFieldset = fieldset;
+        if (kind === "removed") fieldset.remove();
+        else fieldset[kind] = true;
+      }, mutation);
+      await list.waitFor({ state: "detached", timeout: 1500 });
+      const state = await page.evaluate(() => {
+        const fieldset = window.pickerFieldset;
+        const select = fieldset.querySelector("select");
+        const value = select.value;
+        const expanded = select.getAttribute("aria-expanded");
+        document.querySelector("form").prepend(select);
+        fieldset.remove();
+        return { value, expanded };
+      });
+      assert.deepEqual(state, { value: "d", expanded: "false" }, `${mutation} anchors close without changing their value`);
+    }
     assert.deepEqual(errors, []);
     console.log(`${colorScheme}: custom picker values, cancellation, focus, disabled states and viewport bounds OK`);
     await page.close();

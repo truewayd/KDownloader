@@ -29,7 +29,7 @@
     if (!current) return;
     const { select } = current;
     const option = select.options[index];
-    if (select.matches(":disabled") || !option || !enabled(option)) { close(); return; }
+    if (!select.isConnected || select.matches(":disabled") || !select.getClientRects().length || !option || !enabled(option)) { close(); return; }
     const changed = select.selectedIndex !== index;
     select.selectedIndex = index;
     close();
@@ -76,8 +76,14 @@
       list.append(item);
     }
     if (!list.childElementCount) return;
-    const observer = new MutationObserver(close);
-    observer.observe(select, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["disabled", "hidden", "selected", "label"] });
+    const observer = new MutationObserver(records => {
+      if (!select.isConnected || records.some(record => select.contains(record.target))) { close(); return; }
+      // Ancestor visibility/fieldset changes must dismiss the top-layer picker.
+      if (records.some(record => record.target.contains(select))
+        && (select.matches(":disabled") || !select.getClientRects().length)) close();
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true,
+      attributeFilter: ["disabled", "hidden", "selected", "label", "class", "style"] });
     current = { select, list, observer, active: -1, query: "", queryAt: 0 };
     select.setAttribute("aria-expanded", "true");
     select.setAttribute("aria-controls", list.id);
