@@ -62,6 +62,19 @@ test("mutation invalidation cannot repopulate pages from an older pending read",
   assert.equal(pages.peek("/tasks?offset=0"), null);
 });
 
+test("a replacement body without an ETag cannot inherit the previous validator", async () => {
+  const requests = [];
+  let reply = response(1);
+  const pages = store(async (_url, options) => { requests.push(options); return reply; });
+  await pages.request("/tasks?offset=0");
+  reply = response(2, 2);
+  reply.headers.delete("ETag");
+  await pages.request("/tasks?offset=0");
+  reply = response(3, 3);
+  await pages.request("/tasks?offset=0");
+  assert.equal(requests[2].headers["If-None-Match"], undefined);
+});
+
 test("structural changes discard incompatible cached ranges and late replies", async () => {
   const reads = [];
   const pages = store(url => new Promise(resolve => reads.push({ url, resolve })));

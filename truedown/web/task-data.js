@@ -85,7 +85,8 @@ class TaskPageStore {
           this.overview = { revision: page.revision, groups: page.groups, summary: page.summary };
         }
       }
-      const result = { page, etag: response.headers?.get("ETag") || entry?.etag, time: Date.now(), size: JSON.stringify(page).length };
+      const result = { page, etag: response.headers?.get("ETag") || (response.status === 304 ? entry?.etag : null), time: Date.now(),
+        size: response.status === 304 ? entry.size : JSON.stringify(page).length };
       this.cache.delete(job.url);
       this.cache.set(job.url, result);
       let size = [...this.cache.values()].reduce((sum, item) => sum + item.size, 0);
