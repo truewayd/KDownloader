@@ -243,3 +243,86 @@ test("one route renderer failure does not starve later handlers", async () => {
   assert.equal(harness.context.laterRenderCount, 1);
   assert.equal(harness.warnings.length, 1);
 });
+
+test("pagehide invalidates pending renders and suspends work until bfcache restoration", async t => {
+  const harness = createContext({ invalidationMode: "silent" });
+  vm.runInContext(helpersSource, harness.context);
+  vm.runInContext("CONFIG.INIT_DELAY = 0", harness.context);
+  let finish, firstContext, renders = 0, accepted = 0;
+  t.after(() => { finish?.(); harness.context.window.dispatchEvent(new Event("kd:extensioncontextinvalidated")); });
+  harness.context.renderFixture = async context => {
+    renders++;
+    if (renders === 1) {
+      firstContext = context;
+      await new Promise(resolve => { finish = resolve; });
+    }
+    if (context.isCurrent()) accepted++;
+  };
+  vm.runInContext(routerSource, harness.context);
+  harness.context.window.KDRouteWatcher.register({ name: "lifecycle", render: harness.context.renderFixture });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  harness.context.window.dispatchEvent(new Event("pagehide"));
+  assert.equal(firstContext.isCurrent(), false, "leaving the page retires its pending reads immediately");
+  assert.equal(harness.observerDisconnected, true);
+  harness.context.window.KDRouteWatcher.schedule("hidden", 0);
+  finish();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(renders, 1);
+  assert.equal(accepted, 0);
+  harness.context.window.dispatchEvent(new Event("pageshow"));
+  await new Promise(resolve => setTimeout(resolve, 260));
+  assert.equal(renders, 2);
+  assert.equal(accepted, 1);
+});
+
+test("same-URL HTMX replacements invalidate a pending render before the next run", async t => {
+  const harness = createContext({ invalidationMode: "silent" });
+  vm.runInContext(helpersSource, harness.context);
+  vm.runInContext("CONFIG.INIT_DELAY = 0", harness.context);
+  let finish, firstContext, renders = 0;
+  t.after(() => { finish?.(); harness.context.window.dispatchEvent(new Event("kd:extensioncontextinvalidated")); });
+  harness.context.renderFixture = async context => {
+    renders++;
+    if (renders === 1) {
+      firstContext = context;
+      await new Promise(resolve => { finish = resolve; });
+    }
+  };
+  vm.runInContext(routerSource, harness.context);
+  harness.context.window.KDRouteWatcher.register({ name: "htmx", render: harness.context.renderFixture });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  harness.context.document.dispatchEvent(new Event("htmx:afterSwap"));
+  assert.equal(firstContext.isCurrent(), false);
+  finish();
+  await new Promise(resolve => setTimeout(resolve, 230));
+  assert.equal(renders, 2);
+});
+
+test("a slow renderer drains one latest rerun without polling timers", async t => {
+  const harness = createContext({ invalidationMode: "silent" });
+  const timers = new Map();
+  let id = 0, finish, renders = 0;
+  harness.context.setTimeout = callback => { timers.set(++id, callback); return id; };
+  harness.context.clearTimeout = timer => timers.delete(timer);
+  vm.runInContext(helpersSource, harness.context);
+  vm.runInContext(routerSource, harness.context);
+  t.after(() => { finish?.(); harness.context.window.dispatchEvent(new Event("kd:extensioncontextinvalidated")); });
+  const fire = () => {
+    const [timer, callback] = timers.entries().next().value;
+    timers.delete(timer);
+    return callback();
+  };
+  harness.context.window.KDRouteWatcher.register({ name: "slow", render: async () => {
+    if (++renders === 1) await new Promise(resolve => { finish = resolve; });
+  } });
+  const first = fire();
+  harness.context.window.KDRouteWatcher.schedule("latest", 0);
+  await fire();
+  assert.equal(timers.size, 0, "waiting on a renderer must not poll every 250ms");
+  finish();
+  await first;
+  assert.equal(timers.size, 1);
+  await fire();
+  assert.equal(renders, 2);
+  assert.equal(timers.size, 0);
+});

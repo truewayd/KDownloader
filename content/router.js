@@ -12,6 +12,7 @@
     lastHref: location.href,
     generation: 0,
     stopped: false,
+    suspended: false,
     listenerController: null,
     targetSelector: "",
     historyPatch: null,
@@ -128,26 +129,42 @@
 
   function ensureObserver() {
     const target = document.documentElement || document.body;
-    if (state.stopped || !target || state.observer) return;
+    if (state.stopped || state.suspended || !target || state.observer) return;
     state.observer = new MutationObserver((mutations) => {
-      if (mutationLooksRelevant(mutations)) schedule("mutation", 180);
+      if (mutationLooksRelevant(mutations)) refresh("mutation", 180);
     });
     state.observer.observe(target, { childList: true, subtree: true });
   }
 
   function schedule(reason = "manual", delayMs = 250) {
-    if (state.stopped) return;
+    if (state.stopped || state.suspended) return;
     state.pendingReason = reason;
     if (state.timer) clearTimeout(state.timer);
     state.scheduled = true;
     state.timer = setTimeout(run, delayMs);
   }
 
+  function refresh(reason, delayMs) {
+    state.generation += 1;
+    schedule(reason, delayMs);
+  }
+
+  function suspend() {
+    state.suspended = true;
+    state.generation += 1;
+    clearTimeout(state.timer);
+    state.timer = null;
+    state.scheduled = false;
+    state.pendingReason = null;
+    state.observer?.disconnect();
+    state.observer = null;
+  }
+
   async function run() {
-    if (state.stopped) return;
+    if (state.stopped || state.suspended) return;
     state.timer = null;
     if (state.running) {
-      schedule("rerun", 250);
+      // The active render schedules the latest pending work when it settles.
       return;
     }
 
@@ -164,12 +181,13 @@
       href,
       urlChanged,
       generation,
-      isCurrent: () => !state.stopped && generation === state.generation && href === location.href,
+      isCurrent: () => !state.stopped && !state.suspended && generation === state.generation && href === location.href,
     };
     let needsRetry = false;
 
     try {
       for (const handler of handlers) {
+        if (!context.isCurrent()) break;
         try {
           const matches = typeof handler.match === "function" ? handler.match() : true;
           if (!matches) {
@@ -211,7 +229,8 @@
       if (typeof pruneActiveDownloadRequests === "function") {
         pruneActiveDownloadRequests();
       }
-      if (needsRetry && !state.stopped) schedule("wait-targets", 300);
+      if (state.pendingReason && !state.timer) schedule(state.pendingReason, 0);
+      else if (needsRetry && !state.pendingReason) schedule("wait-targets", 300);
     }
   }
 
@@ -224,10 +243,15 @@
     chrome.runtime.onMessage?.addListener(onRuntimeMessage);
     window.addEventListener(EXTENSION_CONTEXT_INVALIDATED_EVENT, stop, { once: true, signal });
 
-    window.addEventListener("kd:locationchange", () => schedule("history", 220), { signal });
-    window.addEventListener("popstate", () => schedule("popstate", 220), { signal });
-    window.addEventListener("hashchange", () => schedule("hashchange", 220), { signal });
-    window.addEventListener("pageshow", () => schedule("pageshow", 220), { signal });
+    window.addEventListener("kd:locationchange", () => refresh("history", 220), { signal });
+    window.addEventListener("popstate", () => refresh("popstate", 220), { signal });
+    window.addEventListener("hashchange", () => refresh("hashchange", 220), { signal });
+    window.addEventListener("pagehide", suspend, { signal });
+    window.addEventListener("pageshow", () => {
+      state.suspended = false;
+      ensureObserver();
+      refresh("pageshow", 220);
+    }, { signal });
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) schedule("visible", 220);
     }, { signal });
@@ -238,7 +262,7 @@
       "htmx:load",
       "htmx:historyRestore",
     ]) {
-      document.addEventListener(eventName, () => schedule(eventName, 180), { signal });
+      document.addEventListener(eventName, () => refresh(eventName, 180), { signal });
     }
 
     if (document.readyState === "loading") {
@@ -257,7 +281,7 @@
   }
 
   function onRuntimeMessage(message) {
-    if (message?.action === "updateUI") schedule("updateUI", 100);
+    if (message?.action === "updateUI") refresh("updateUI", 100);
   }
 
   function register(handler) {
