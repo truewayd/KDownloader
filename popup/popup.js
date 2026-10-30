@@ -47,6 +47,9 @@ const siteSearchQuery = document.getElementById("site-search-query");
 let backendReady = false;
 let loadingDepth = 0;
 let popupRequestSequence = 0;
+let backendReadRevision = 0;
+let featureReadRevision = 0;
+let statsReadRevision = 0;
 
 try {
     const manifest = chrome.runtime.getManifest();
@@ -136,20 +139,25 @@ function setCreatorFetchAvailability(config) {
 }
 
 async function loadBackendState() {
+    const revision = ++backendReadRevision;
     try {
         const response = await safeSendMessage({ action: "backend.getConfig" }, 3000, { retries: 1, retryDelay: 200 });
+        if (revision !== backendReadRevision) return;
         setCreatorFetchAvailability(response.config);
     } catch (err) {
+        if (revision !== backendReadRevision) return;
         console.warn("[Popup] backend.getConfig failed", err);
         setCreatorFetchAvailability(null);
     }
 }
 
 async function loadFeatureVisibility() {
+    const revision = ++featureReadRevision;
     const [creatorsResult, gistResult] = await Promise.allSettled([
         safeSendMessage({ action: "creators.ensureRuleState" }, 3000, { retries: 1, retryDelay: 200 }),
         safeSendMessage({ action: "gist.getConfig" }, 3000, { retries: 1, retryDelay: 200 }),
     ]);
+    if (revision !== featureReadRevision) return;
     if (creatorsResult.status === "fulfilled") {
         const creators = creatorsResult.value;
         searchCachePanel?.classList.toggle("kd-hidden", !creators.enabled);
@@ -168,8 +176,10 @@ async function loadFeatureVisibility() {
 }
 
 async function loadStats() {
+    const revision = ++statsReadRevision;
     try {
         const response = await safeSendMessage({ action: "db.stats" }, 10000, { retries: 1, retryDelay: 200 });
+        if (revision !== statsReadRevision) return;
         const stats = response.stats || response;
         const bytes = Math.max(0, Number(stats.bytes || 0));
         const records = Math.max(0, Number(stats.records || 0));
@@ -180,6 +190,7 @@ async function loadStats() {
         storageUsed.textContent = `${size} · ${recordCount}`;
         storageUsed.title = `${t("historyTitle")}: ${recordCount}`;
     } catch (err) {
+        if (revision !== statsReadRevision) return;
         console.warn("[Popup] loadStats failed", err);
         if (storageUsed) storageUsed.textContent = t("statusError");
     }

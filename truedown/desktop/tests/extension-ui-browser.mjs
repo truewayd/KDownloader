@@ -48,11 +48,31 @@ try {
     assert.equal(geometry.viewport, 360, "the real action popup owns its native 360px viewport");
     assert.equal(geometry.overflow, false);
     assert.ok(geometry.height <= 600);
+    const ordering = await send("Runtime.evaluate", { expression: `(${async function () {
+      const original = KDUI, requests = [];
+      await Promise.all([loadBackendState(), loadFeatureVisibility(), loadStats()]);
+      globalThis.KDUI = { ...original, sendMessage: () => new Promise((resolve, reject) => requests.push({ resolve, reject })) };
+      try {
+        const start = () => Promise.all([loadBackendState(), loadFeatureVisibility(), loadStats()]);
+        const first = start(), second = start();
+        if (requests.length !== 8) throw new Error("Popup fixture did not intercept all reads");
+        requests.slice(4).forEach(({ resolve }) => resolve({ enabled: true, config: { enabled: true }, stats: { bytes: 2048, records: 42 } }));
+        await second;
+        requests.slice(0, 4).forEach(({ reject }) => reject(new Error("stale fixture response")));
+        await first;
+        return { ready: backendReady, cache: !searchCachePanel.classList.contains("kd-hidden"), gist: !gistPanel.classList.contains("kd-hidden"), stats: storageUsed.textContent };
+      } finally {
+        globalThis.KDUI = original;
+        await Promise.all([loadBackendState(), loadFeatureVisibility(), loadStats()]);
+      }
+    }} )()`, awaitPromise: true, returnByValue: true });
+    assert.equal(ordering.exceptionDetails, undefined);
+    assert.deepEqual(ordering.result.value, { ready: true, cache: true, gist: true, stats: "2.00 KB · 42" });
     const screenshot = await send("Page.captureScreenshot");
     await writeFile(path.join(output, `popup-${colorScheme}.png`), Buffer.from(screenshot.data, "base64"));
     if (colorScheme === "dark") await send("Runtime.evaluate", { expression: "window.close()" });
     else await protocol.send("Target.detachFromTarget", { sessionId });
-    console.log(`${colorScheme}: real action popup is 360px, bounded and without horizontal overflow`);
+    console.log(`${colorScheme}: real action popup read ordering, 360px width and overflow OK`);
   }
 
   const fixtures = [
