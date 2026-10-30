@@ -95,6 +95,7 @@ The site action scripts are `actions.js`, `paw_actions.js`, and `coomerfans_acti
 - Creator Fetch exposes non-persistent `default`, `full`, `links`, and Pawchive-only `dms` modes. Links and DMs modes may run without a media backend and declare their TXT directly through `chrome.downloads`; DMs scrape only the creator's fixed Pawchive `/dms` HTML page and export published dates, text, and links without post-history writes. Complete exported links participate in the separate shared link ledger.
 - Popup shows Creator Fetch and History by default; Search Cache and Gist panels are visibility-controlled by their settings. Destructive history maintenance remains in settings.
 - Popup global progress is hidden when `total <= 0` and visible only for active work.
+- Popup backend, feature-visibility and history-stat reads each reject superseded successes and failures before updating controls.
 - Settings uses RPCs for every persisted setting. Do not write `chrome.storage` directly from page scripts. Restore defaults preserves IndexedDB history and `pawchiveWatches`.
 
 ## Storage And Configuration
@@ -108,6 +109,8 @@ Download rules are stored in sync storage as `{ enabled, filterMode, excludedExt
 Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps avatar data outside exports. A manual add establishes the current profile update baseline before notifications are enabled. Scheduled checks aggregate updates/failures and preserve baselines on failure.
 
 ## TrueDown Runtime
+
+- Task-detail settings retain at most 32 drafts, reclaiming only clean entries without a pending save. Information-only views allocate no draft. Capacity pressure preserves edits and shows an explicit editing limit until a retained draft is saved. Log-copy availability combines current content and the pending clipboard write; refreshes cannot re-enable a busy copy control.
 
 - Cancellation and retry share HTTP output ownership checks. Conflicting payload/control-file reservations and invalid persisted request identities fail cleanup without removing files or task records. BitTorrent cancellation stops and retires the engine task but preserves both single-file payloads and multi-file trees.
 - Output reservations retain every owner when legacy records overlap; deleting or reassigning one record cannot clear another owner's reservation. Partial cleanup walks directories through retained Root handles, rejects parent links/reparse points and changed directory identities, and removes only validated direct-child entries. Windows automatic cleanup requires a local drive path.
