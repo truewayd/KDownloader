@@ -77,6 +77,7 @@ try {
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.address().port}/index.html?window=task-details`);
     await page.waitForFunction(() => taskDetailData?.id === 1);
+    assert.equal(await page.evaluate(() => taskDetailDrafts.size), 0, "info views allocate no settings draft");
     assert.equal(await page.locator(".sidebar").isVisible(), false);
     const panel = await page.locator(".task-detail-page").boundingBox();
     assert.ok(panel && Math.abs(panel.x - 8) <= 1 && Math.abs(width - panel.x - panel.width - 8) <= 1,
@@ -138,10 +139,39 @@ try {
     await page.waitForFunction(() => taskDetailDrafts.get(2)?.message.includes("\u8349\u7a3f"));
     assert.equal(await page.locator("#task-setting-tries").inputValue(), "9");
     await page.screenshot({ path: path.join(screenshots, `settings-${width}-${colorScheme}.png`) });
+    for (let id = 3; id <= 36; id++) {
+      await page.evaluate(id => {
+        fixtureTasks.push({ ...fixtureTasks[1], id, name: `Task ${id}.zip`, outputName: `Task ${id}.zip`, settings: { ...fixtureTasks[1].settings } });
+        emitDetailState({ id, open: true, revision: detailState.revision + 1 });
+      }, id);
+      await page.waitForFunction(id => taskDetailData?.id === id, id);
+      await page.locator("#task-settings-tab").click();
+      await page.waitForFunction(id => taskDetailTab === "settings" && taskDetailDrafts.has(id), id);
+    }
+    await page.evaluate(() => emitDetailState({ id: 2, open: true, revision: detailState.revision + 1 }));
+    await page.waitForFunction(() => taskDetailData?.id === 2);
+    await page.locator("#task-settings-tab").click();
+    await page.waitForFunction(() => taskDetailTab === "settings" && !document.getElementById("task-settings-fields").disabled);
+    assert.equal(await page.locator("#task-setting-tries").inputValue(), "9", "unsaved draft survives 34 other task settings");
+    assert.equal(await page.evaluate(() => taskDetailDrafts.size), 32);
+    await page.evaluate(() => {
+      for (const draft of taskDetailDrafts.values()) draft.dirty = true;
+      fixtureTasks.push({ ...fixtureTasks[1], id: 37, name: "Task 37.zip", outputName: "Task 37.zip" });
+      emitDetailState({ id: 37, open: true, revision: detailState.revision + 1 });
+    });
+    await page.waitForFunction(() => taskDetailData?.id === 37);
+    await page.locator("#task-settings-tab").click();
+    await page.waitForFunction(() => document.getElementById("task-settings-status").textContent.includes("32"));
+    assert.equal(await page.locator("#task-settings-save").isDisabled(), true);
+    assert.equal(await page.locator("#task-setting-tries").inputValue(), "");
+    assert.equal(await page.locator("#task-settings-fields").isVisible(), false);
+    const capacityStatus = await page.locator("#task-settings-status").boundingBox();
+    assert.ok(capacityStatus && capacityStatus.y >= 0 && capacityStatus.y + capacityStatus.height <= height, "capacity feedback stays in view");
+    await page.screenshot({ path: path.join(screenshots, `draft-capacity-${width}-${colorScheme}.png`), animations: "disabled" });
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => !nativeDetailOpen);
     assert.deepEqual(errors, []);
     await context.close();
-    console.log(`${width} ${colorScheme}: details layout, actions, drafts, hide/reopen, stale reads, conflicts and keyboard OK`);
+    console.log(`${width} ${colorScheme}: details layout, actions, bounded drafts, hide/reopen, stale reads, conflicts and keyboard OK`);
   }
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

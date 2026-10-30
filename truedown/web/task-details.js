@@ -232,7 +232,7 @@ function renderTaskDetails(task) {
   document.getElementById("task-detail-percent").textContent = taskProgressLabel(task);
   renderTaskProgress(document.getElementById("task-detail-progress"), task);
   renderTaskDetailActions(task);
-  renderTaskSettings(task);
+  if (taskDetailTab === "settings") renderTaskSettings(task);
 }
 
 function renderTaskFacts(id, facts) {
@@ -272,23 +272,37 @@ function renderTaskDetailActions(task) {
 
 function renderTaskSettings(task) {
   let draft = taskDetailDrafts.get(task.id);
+  if (!draft && taskDetailDrafts.size >= 32) {
+    // Only clean snapshots may be reclaimed; dirty and in-flight drafts are owned by the user.
+    const disposable = [...taskDetailDrafts].find(([, value]) => !value.dirty && !value.saving);
+    if (disposable) taskDetailDrafts.delete(disposable[0]);
+    else {
+      for (const id of Object.values(taskSettingControls)) document.getElementById(id).value = "";
+      document.getElementById("task-settings-fields").disabled = true;
+      document.getElementById("task-settings-fields").hidden = true;
+      syncTaskSettingsBusy();
+      document.getElementById("task-settings-status").textContent = "已有 32 个任务保留未保存或正在保存的设置。请先返回其中一个任务完成保存，再编辑此任务。";
+      return;
+    }
+  }
   const latest = Object.fromEntries(Object.entries(task.settings).map(([key, value]) => [key, String(value)]));
   if (!draft || !draft.dirty && !draft.saving && draft.revision !== task.settingsRevision) {
     draft = { revision: task.settingsRevision, values: { ...latest }, base: latest, dirty: false, message: "" };
-    taskDetailDrafts.set(task.id, draft);
-    while (taskDetailDrafts.size > 32) taskDetailDrafts.delete(taskDetailDrafts.keys().next().value);
   } else if (draft.dirty && !draft.saving && draft.revision !== task.settingsRevision) {
     draft.values = reconcileReadDraft(draft.base || {}, draft.values, latest);
     draft.base = latest;
     draft.revision = task.settingsRevision;
     draft.message = "已同步最新设置，草稿已保留，请确认后保存。";
   }
+  taskDetailDrafts.delete(task.id);
+  taskDetailDrafts.set(task.id, draft);
   for (const [key, id] of Object.entries(taskSettingControls)) {
     const control = document.getElementById(id);
     if (document.activeElement !== control && control.value !== String(draft.values[key])) control.value = draft.values[key];
     control.disabled = task.status === "done" || task.status === "downloading" && key !== "maxSpeedBps";
   }
   document.getElementById("task-settings-fields").disabled = Boolean(draft.saving);
+  document.getElementById("task-settings-fields").hidden = false;
   syncTaskSettingsBusy();
   document.getElementById("task-settings-status").textContent = draft.message || "";
 }
@@ -296,7 +310,7 @@ function renderTaskSettings(task) {
 function syncTaskSettingsBusy() {
   const saving = Boolean(taskDetailDrafts.get(taskDetailID)?.saving);
   const button = document.getElementById("task-settings-save");
-  button.disabled = saving || !taskDetailData || taskDetailData.status === "done";
+  button.disabled = saving || !taskDetailDrafts.has(taskDetailID) || !taskDetailData || taskDetailData.status === "done";
   KDComponents.setBusyState(button, saving, { manageDisabled: false });
 }
 

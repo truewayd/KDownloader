@@ -11,6 +11,49 @@ function declarations(...names) {
   }).join("\n");
 }
 
+test("draft capacity reclaims clean entries but preserves edits and pending saves", () => {
+  const controls = new Map();
+  const context = vm.createContext({
+    taskDetailID: 1, taskDetailData: null, taskDetailDrafts: new Map(),
+    taskSettingControls: { connections: "connections" },
+    document: { getElementById(id) { if (!controls.has(id)) controls.set(id, {}); return controls.get(id); } },
+    KDComponents: { setBusyState() {} }, reconcileReadDraft: (_base, values) => values,
+  });
+  vm.runInContext(declarations("renderTaskSettings", "syncTaskSettingsBusy"), context);
+  const visit = id => {
+    context.taskDetailID = id;
+    context.taskDetailData = { id, settings: { connections: 16 }, settingsRevision: "1", status: "paused" };
+    context.renderTaskSettings(context.taskDetailData);
+  };
+  visit(1);
+  Object.assign(context.taskDetailDrafts.get(1), { dirty: true, values: { connections: "23" } });
+  visit(2);
+  context.taskDetailDrafts.get(2).saving = true;
+  for (let id = 3; id <= 100; id++) visit(id);
+  assert.equal(context.taskDetailDrafts.size, 32);
+  assert.equal(context.taskDetailDrafts.get(2).saving, true);
+  visit(1);
+  assert.equal(controls.get("connections").value, "23");
+  for (const draft of context.taskDetailDrafts.values()) draft.dirty = true;
+  visit(101);
+  assert.equal(context.taskDetailDrafts.size, 32);
+  assert.equal(context.taskDetailDrafts.has(101), false);
+  assert.equal(controls.get("task-settings-fields").disabled, true);
+  assert.equal(controls.get("task-settings-fields").hidden, true);
+  assert.equal(controls.get("task-settings-save").disabled, true);
+  assert.match(controls.get("task-settings-status").textContent, /32/);
+  assert.equal(controls.get("connections").value, "");
+  context.taskDetailDrafts.get(2).dirty = false;
+  visit(101);
+  assert.equal(context.taskDetailDrafts.has(2), true, "even a clean pending save is retained");
+  context.taskDetailDrafts.get(2).saving = false;
+  visit(101);
+  assert.equal(context.taskDetailDrafts.has(101), true);
+  assert.equal(controls.get("task-settings-save").disabled, false);
+  assert.equal(controls.get("task-settings-fields").hidden, false);
+  assert.equal(context.taskDetailDrafts.get(1).values.connections, "23");
+});
+
 test("opening native details preserves the main task route and rejects invalid IDs", async () => {
   const calls = [];
   const context = vm.createContext({
