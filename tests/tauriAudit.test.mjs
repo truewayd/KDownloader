@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
+import { readFileSync } from "node:fs";
 import { dashboardSource } from "./helpers/truedownSource.mjs";
 
 function declarations(...names) {
@@ -9,6 +10,45 @@ function declarations(...names) {
     assert.ok(found, name);
     return found[0];
   }).join("\n");
+}
+
+for (const content of ["", "new log"]) for (const failed of [false, true]) {
+  test(`log copy settles against refreshed content (${content || "empty"}, failure=${failed})`, async () => {
+    const attributes = new Map(), copies = [], notices = [];
+    let finish, reject;
+    const button = { disabled: false, setAttribute: (key, value) => attributes.set(key, value), removeAttribute: key => attributes.delete(key) };
+    const context = vm.createContext({
+      applicationLogRequest: 0, applicationLogAbort: null, applicationLogTimer: 0,
+      applicationLogContent: "original log", applicationLogCopying: false,
+      currentPage: "settings", currentSettingsPage: "logs", routeEpoch: 1,
+      document: { hidden: false, getElementById: () => ({ checked: false }) },
+      els: { copyApplicationLogBtn: button, applicationLogOutput: {}, applicationLogStatus: {} },
+      AbortController, clearTimeout() {}, setTimeout() { return 1; }, stringValue: String,
+      requestJSON: async () => ({ content, updatedAt: "" }),
+      writeClipboard: value => { copies.push(value); return new Promise((resolve, fail) => { finish = resolve; reject = fail; }); },
+      showToast: (...args) => notices.push(args), busyControlLabels: new WeakMap(),
+    });
+    const components = readFileSync(new URL("../shared/components.js", import.meta.url), "utf8");
+    vm.runInContext(components.slice(components.indexOf("  function setBusyState("), components.indexOf("  function prepareDecorativeIcons(")), context);
+    context.KDComponents = { setBusyState: context.setBusyState };
+    vm.runInContext(declarations("isApplicationLogPage", "stopApplicationLog", "loadApplicationLog", "syncApplicationLogCopyState", "copyApplicationLog"), context);
+    const copy = context.copyApplicationLog();
+    await context.loadApplicationLog();
+    await context.copyApplicationLog();
+    assert.deepEqual(copies, ["original log"], "refresh cannot start a second clipboard write");
+    assert.equal(button.disabled, true);
+    assert.equal(attributes.get("aria-disabled"), "true");
+    assert.equal(attributes.get("aria-busy"), "true");
+    context.currentPage = "tasks";
+    context.stopApplicationLog();
+    failed ? reject(new Error("fixture denial")) : finish();
+    await copy;
+    assert.equal(button.disabled, !content);
+    assert.equal(attributes.get("aria-disabled"), String(!content));
+    assert.equal(attributes.has("aria-busy"), false);
+    assert.equal(notices.length, 1);
+    if (failed) assert.equal(notices[0][1], "error");
+  });
 }
 
 test("settings loaded after navigation initialize once on return and retain later drafts", async () => {

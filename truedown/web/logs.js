@@ -1,6 +1,13 @@
 let applicationLogRequest = 0;
 let applicationLogAbort = null;
 let applicationLogTimer = 0;
+let applicationLogContent = "";
+let applicationLogCopying = false;
+
+function syncApplicationLogCopyState() {
+  els.copyApplicationLogBtn.disabled = applicationLogCopying || !applicationLogContent;
+  KDComponents.setBusyState(els.copyApplicationLogBtn, applicationLogCopying, { manageDisabled: false });
+}
 
 function isApplicationLogPage() { return currentPage === "settings" && currentSettingsPage === "logs"; }
 function stopApplicationLog() {
@@ -33,7 +40,8 @@ async function loadApplicationLog() {
     els.applicationLogStatus.textContent = response.truncated === true
       ? `仅显示最新 256 KiB${updated ? `；更新时间：${formatUpdateTime(updated)}` : ""}。`
       : `显示当前日志${updated ? `；更新时间：${formatUpdateTime(updated)}` : ""}。`;
-    els.copyApplicationLogBtn.disabled = !content;
+    applicationLogContent = content;
+    syncApplicationLogCopyState();
     if (follow) output.scrollTop = output.scrollHeight;
   } catch (error) {
     if (request !== applicationLogRequest || epoch !== routeEpoch || !isApplicationLogPage() || error.name === "AbortError") return;
@@ -46,15 +54,17 @@ async function loadApplicationLog() {
 }
 
 async function copyApplicationLog() {
-	KDComponents.setBusyState(els.copyApplicationLogBtn, true);
+	if (applicationLogCopying || !applicationLogContent) return;
+	applicationLogCopying = true;
+	syncApplicationLogCopyState();
 	try {
-		const content = els.applicationLogOutput.textContent || "";
-		if (!content || content === "当前还没有应用日志。") throw new Error("当前没有可复制的日志");
+		const content = applicationLogContent;
 		await writeClipboard(content);
 		showToast("应用日志已复制。");
 	} catch (error) {
 		showToast(`复制应用日志失败：${error.message}`, "error");
 	} finally {
-		KDComponents.setBusyState(els.copyApplicationLogBtn, false);
+		applicationLogCopying = false;
+		syncApplicationLogCopyState();
 	}
 }

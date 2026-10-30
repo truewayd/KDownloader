@@ -388,6 +388,34 @@ try {
         }
       }
       if (category === "logs") {
+        await page.waitForFunction(() => Boolean(applicationLogContent));
+        const copyStates = await page.evaluate(async () => {
+          const originalClipboard = writeClipboard, originalRequest = requestJSON;
+          const states = [];
+          stopApplicationLog();
+          try {
+            for (const content of ["new fixture log", ""]) {
+              let finish;
+              requestJSON = async () => ({ content: "original fixture log", updatedAt: "" });
+              await loadApplicationLog();
+              writeClipboard = () => new Promise(resolve => { finish = resolve; });
+              const copying = copyApplicationLog();
+              requestJSON = async () => ({ content, updatedAt: "" });
+              await loadApplicationLog();
+              const during = { disabled: els.copyApplicationLogBtn.disabled, aria: els.copyApplicationLogBtn.getAttribute("aria-disabled"), busy: els.copyApplicationLogBtn.getAttribute("aria-busy") };
+              finish();
+              await copying;
+              states.push({ during, after: els.copyApplicationLogBtn.disabled, busyAfter: els.copyApplicationLogBtn.hasAttribute("aria-busy") });
+            }
+          } finally {
+            stopApplicationLog();
+            writeClipboard = originalClipboard;
+            requestJSON = originalRequest;
+            await loadApplicationLog();
+          }
+          return states;
+        });
+        assert.deepEqual(copyStates, [false, true].map(after => ({ during: { disabled: true, aria: "true", busy: "true" }, after, busyAfter: false })));
         const followBox = await page.locator("#application-log-follow").boundingBox();
         assert.equal(followBox.width, 34, `${name}: log-follow switch keeps its track width`);
         assert.equal(followBox.height, 20, `${name}: log-follow switch keeps its track height`);
