@@ -66,6 +66,47 @@ func TestPathOpenHelperFailureReachesCaller(t *testing.T) {
 	t.Logf("private helper startup and path validation: %s", time.Since(started))
 }
 
+func TestPathOpenerDelegatesToItsLiveChildBeforeDispatch(t *testing.T) {
+	previous := grantPathForeground
+	defer func() { grantPathForeground = previous }()
+	calls := 0
+	grantPathForeground = func(pid uint32) {
+		calls++
+		if pid == 0 || pid == uint32(os.Getpid()) {
+			t.Errorf("invalid foreground target: %d", pid)
+			return
+		}
+		handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, pid)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer windows.CloseHandle(handle)
+		state, err := windows.WaitForSingleObject(handle, 0)
+		if err != nil || state != uint32(windows.WAIT_TIMEOUT) {
+			t.Error("path opener was not alive before target delivery")
+		}
+		var name [32768]uint16
+		size := uint32(len(name))
+		if err := windows.QueryFullProcessImageName(handle, 0, &name[0], &size); err != nil {
+			t.Error(err)
+			return
+		}
+		self, _ := os.Executable()
+		selfInfo, selfErr := os.Stat(self)
+		childInfo, childErr := os.Stat(windows.UTF16ToString(name[:size]))
+		if selfErr != nil || childErr != nil || !os.SameFile(selfInfo, childInfo) {
+			t.Error("foreground delegation did not target the private executable")
+		}
+	}
+	// A missing target exercises real child startup and the private pipe without
+	// opening any UI in ordinary hidden tests.
+	err := systemOpenPath(filepath.Join(t.TempDir(), "missing-file.txt"))
+	if err == nil || !strings.Contains(err.Error(), "inspect open target") || calls != 1 {
+		t.Fatalf("calls=%d error=%v", calls, err)
+	}
+}
+
 func TestPathOpenRejectsForeignParentAndOversizedInput(t *testing.T) {
 	self, err := os.Executable()
 	if err != nil {

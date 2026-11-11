@@ -215,6 +215,20 @@ pub async fn read_frame<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<Vec<u
     }
 }
 impl Bridge {
+    #[cfg(windows)]
+    pub async fn allow_path_foreground(&self) {
+        if !self.owned {
+            return;
+        }
+        let Some(pid) = self.child.lock().await.id() else {
+            return;
+        };
+        // Windows rejects this if the user has moved focus elsewhere.
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(pid);
+        }
+    }
+
     pub async fn spawn(
         executable: PathBuf,
         data_dir: Option<&str>,

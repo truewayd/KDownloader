@@ -22,6 +22,9 @@ const openWithHelperFlag = "--internal-open-with"
 
 var pathOpenSlots = make(chan struct{}, 4)
 var shellExecuteEx = windows.NewLazySystemDLL("shell32.dll").NewProc("ShellExecuteExW")
+var pathOpenerUser32 = windows.NewLazySystemDLL("user32.dll")
+var pathAllowForeground = pathOpenerUser32.NewProc("AllowSetForegroundWindow")
+var grantPathForeground = func(pid uint32) { pathAllowForeground.Call(uintptr(pid)) }
 
 func systemOpenPath(path string) error {
 	return runPathHelper(path, false)
@@ -49,14 +52,33 @@ func runPathHelper(path string, choose bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, executable, flag)
-	command.Stdin = strings.NewReader(path)
 	// Shell-launched applications must not inherit the core's kill-on-close job.
 	// This small helper skips core/profile startup and avoids Explorer bootstrap.
 	configurePathOpenProcess(command)
 	command.WaitDelay = 500 * time.Millisecond
 	var output pathOpenOutput
 	command.Stderr = &output
-	if err := command.Run(); err != nil {
+	input, err := command.StdinPipe()
+	if err != nil {
+		return err
+	}
+	if err := command.Start(); err != nil {
+		_ = input.Close()
+		return err
+	}
+	// Send the target only after the foreground core has delegated this click's
+	// activation rights to its exact child. Never grant rights to all processes.
+	grantPathForeground(uint32(command.Process.Pid))
+	_, writeErr := io.WriteString(input, path)
+	_ = input.Close()
+	if writeErr != nil {
+		_ = command.Process.Kill()
+	}
+	err = command.Wait()
+	if writeErr != nil {
+		return fmt.Errorf("send system path opener request: %w", writeErr)
+	}
+	if err != nil {
 		if ctx.Err() != nil {
 			return fmt.Errorf("system path opener timed out: %w", ctx.Err())
 		}
@@ -134,6 +156,18 @@ func RunPathOpenHelper(args []string) (bool, error) {
 		return true, nil
 	}
 	verb := windows.StringToUTF16Ptr("open")
+	if target, err := os.Stat(path); err == nil && target.IsDir() {
+		// Explorer normally reuses an existing process. A newly launched helper
+		// alone cannot make that existing folder window foreground.
+		shell, _, _ := pathOpenerUser32.NewProc("GetShellWindow").Call()
+		if shell != 0 {
+			var pid uint32
+			pathOpenerUser32.NewProc("GetWindowThreadProcessId").Call(shell, uintptr(unsafe.Pointer(&pid)))
+			if pid != 0 {
+				grantPathForeground(pid)
+			}
+		}
+	}
 	info := shellExecuteInfo{
 		// NOASYNC completes shell/DDE dispatch before the helper exits; it does
 		// not wait for the opened application to exit. NO_UI reports errors here.

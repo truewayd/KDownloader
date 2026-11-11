@@ -186,6 +186,18 @@ pub async fn core_request(
         && request.method == "POST"
         && ["/tasks/detail", "/tasks/batch"].contains(&path);
     let bridge = core.connect().await?;
+    #[cfg(windows)]
+    if request.method == "POST"
+        && [
+            "/system/open-downloads",
+            "/tasks/open-folder",
+            "/tasks/open-file",
+            "/tasks/open-with",
+        ]
+        .contains(&path)
+    {
+        bridge.allow_path_foreground().await;
+    }
     let mut response = bridge.request(request).await?;
     if task_changed && (200..300).contains(&response.status) {
         let _ = app.emit_to("main", "truedown:task-changed", ());
