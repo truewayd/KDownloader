@@ -15,7 +15,7 @@ import (
 
 func TestPublishedResolverProfiles(t *testing.T) {
 	for _, factory := range resolverComponentFactories() {
-		if executableModule(factory.id) {
+		if executableModule(factory.id) || factory.id == TelegraphModuleID {
 			continue
 		}
 		raw, err := os.ReadFile(filepath.Join("..", "..", "modules", "profiles", factory.id+".json"))

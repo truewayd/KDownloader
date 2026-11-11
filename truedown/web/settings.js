@@ -989,8 +989,9 @@ function renderResolverModules() {
 		update.dataset.moduleUpdate = module.id;
 		update.setAttribute("aria-label", `检查 ${module.name} 模块更新`);
 		update.textContent = "检查更新";
-		actions.append(toggle, update);
-		if (!module.capabilities?.includes("executable") && !module.capabilities?.includes("artifact")) {
+		actions.append(toggle);
+		if (module.hotReload) actions.append(update);
+		if (module.hotReload && !module.capabilities?.includes("executable") && !module.capabilities?.includes("artifact")) {
 			const upload = document.createElement("button");
 			upload.type = "button";
 			upload.className = "kd-button secondary compact";

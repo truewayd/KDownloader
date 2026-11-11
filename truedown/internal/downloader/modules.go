@@ -332,7 +332,7 @@ func (registry *moduleRegistry) infoLocked(id string, component loadedComponent)
 	info.Installed = registry.installed[id]
 	info.Source = component.source
 	info.Digest = component.digest
-	info.HotReload = true
+	info.HotReload = id != TelegraphModuleID
 	info.UpdateError = registry.updateErrors[id]
 	return info
 }

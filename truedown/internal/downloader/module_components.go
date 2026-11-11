@@ -54,6 +54,7 @@ type loadedComponent struct {
 
 func resolverComponentFactories() []resolverComponentFactory {
 	return []resolverComponentFactory{
+		{id: TelegraphModuleID, engine: "telegraph-v1", baselinePath: "module_baselines/telegraph.json", build: newTelegraphResolver},
 		{id: MediaFireModuleID, engine: "executable-http-v1", baselinePath: "module_baselines/mediafire.json", build: newHTTPExecutableResolver},
 		{id: "mega", engine: "executable-artifact-v1", baselinePath: "module_baselines/mega.json", build: newExecutableResolver},
 		{
