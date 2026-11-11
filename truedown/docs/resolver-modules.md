@@ -2,6 +2,25 @@
 
 ## Current scope
 
+Telegraph is a small compiled media-collection resolver, with a fixed empty
+baseline profile. It uses `api.telegra.ph/getPage?return_content=true`, traverses
+bounded content nodes and extracts native image/video/audio sources under the
+Telegraph `/file/` namespace. It shares host validation, proxy transport and task
+admission, with no browser or third-party runtime. External players and arbitrary
+third-party media URLs are not resolved. Its parser ships with the application;
+there is no independent profile update button for this fixed configuration.
+
+Google Drive public directory enumeration follows explicit `rel=next` links only
+for the same HTTPS endpoint and directory ID. Unknown continuation markers cause
+an explicit failure, not a partial successful collection. This is not an official
+Drive API pagination client: Google pages that expose no usable continuation need
+new provider compatibility evidence before support can be claimed. Transient
+requests retry at most three times, each bounded to 25 seconds within the existing
+five-minute scan budget. The complete collection still precedes task admission.
+Resource keys are carried independently for each parent and child link. Capacity
+is bounded to 50,000 files, 5,000 directories, depth 64 and 16 MiB per HTML page;
+failures record only category/count/duration, never resource URLs or credentials.
+
 | Layer | Owns | Update unit |
 | --- | --- | --- |
 | Host manager | Queue, durable task identity, local path ownership, retry cleanup and aria2 admission | TrueDown application |

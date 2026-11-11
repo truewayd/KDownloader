@@ -3,6 +3,26 @@
 The task list separates data scheduling from its bounded 100-row DOM window.
 The implementation stays in classic JavaScript and adds no runtime dependencies.
 
+Selection now uses `GET /tasks/selection`, rather than DOM rows or cached pages.
+It captures a fixed status/search/category result under one manager read lock.
+The bounded response contains IDs, status, update ownership and copyable source
+links; it never fetches full row presentation for offscreen tasks. The main native
+window alone may read it. Limits are 50,000 rows and a conservative 6 MiB estimate;
+larger results fail explicitly and require narrower filters. Filters clear the
+selection; sorting and scrolling preserve it. New tasks are not implicitly selected.
+Selected operations use 1,000-ID chunks, report progress and retain failures.
+An interrupted mutation is never retried automatically. Deletion always confirms,
+because captured statuses may have changed while offscreen. Recycled focused rows
+return focus to the viewport without moving scroll position. Ctrl/Cmd+A applies
+to the task list only, leaving input/text selection intact; Escape clears selection.
+
+Ordinary aria2 pause dispatch and settlement checks use 128-call multicalls with
+per-call authentication. Acknowledgement alone does not establish paused state.
+Artifact/collection transports retain their own control path. Completed ordinary
+removal avoids per-record engine RPC, matching ClearDone's bounded result eviction.
+Active removals still stop writers and check live output ownership; file cleanup
+uses four workers. Database deletion uses 256-ID statements in a single transaction.
+
 ## Design references
 
 - [TanStack Virtual](https://tanstack.com/virtual/latest/docs/api/virtualizer): stable item keys and bounded overscan.
