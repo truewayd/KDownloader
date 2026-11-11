@@ -6,6 +6,7 @@
 - Submit selected mutations in bounded chunks with progress and no automatic replay. Batch ordinary aria2 pause requests and writer-settlement checks through authenticated multicalls. Avoid per-task engine-result retirement for completed ordinary removals, parallelize guarded active cleanup with four workers, and delete database rows in 256-ID statements within one transaction.
 - Preserve update-task confirmations, completed output, conflicting ownership protection, torrent payloads and failure reporting.
 - Default new downloads to the operating system's Downloads directory, honoring Windows Known Folder redirection and Linux XDG user directories while retaining profile layout compatibility.
+- Preserve module update controls for older metadata that omits the hot-reload capability; explicitly fixed modules can opt out.
 
 ## Verification
 

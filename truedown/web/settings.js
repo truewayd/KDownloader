@@ -902,7 +902,7 @@ function normalizeResolverModule(module) {
 		installed: module.installed === true,
 		source: module.source === "updated" ? "updated" : "baseline",
 		digest: stringValue(module.digest),
-		hotReload: module.hotReload === true,
+		hotReload: module.hotReload !== false,
 		updateError: stringValue(module.updateError),
 	};
 	return normalized.id && normalized.name ? normalized : null;
