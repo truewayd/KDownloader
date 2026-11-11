@@ -5,6 +5,7 @@ let taskScrollDirection = 1;
 let taskScrollTop = 0;
 
 function resetTaskViewport() {
+  syncSelectionControls();
   cancelAnimationFrame(taskViewportFrame);
   taskViewportFrame = 0;
   currentOffset = taskViewportOffset = 0;

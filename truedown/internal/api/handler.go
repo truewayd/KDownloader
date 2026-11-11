@@ -830,6 +830,31 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		writeJSON(w, http.StatusOK, page)
 	})
 
+	mux.HandleFunc("/tasks/selection", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		status, err := taskStatusFilter(r.URL.Query().Get("status"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		search, category := r.URL.Query().Get("search"), r.URL.Query().Get("category")
+		if len(search) > 512 || len(category) > 64 {
+			http.Error(w, "invalid selection filters", http.StatusBadRequest)
+			return
+		}
+		entries, err := dm.SelectTasks(status, search, category)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusOK, map[string]any{"tasks": entries})
+	})
+
 	mux.HandleFunc("/tasks/batch", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)

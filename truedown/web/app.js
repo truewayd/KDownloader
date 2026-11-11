@@ -1,7 +1,12 @@
 const ACTIVE_POLL_INTERVAL_MS = 2500;
 const IDLE_POLL_INTERVAL_MS = 10000;
 const PAGE_SIZE = 100;
-const MAX_SELECTED_TASKS = 1000;
+const MAX_SELECTED_TASKS = 50000;
+let taskSelectionSerial = 0;
+let taskSelectionLoading = false;
+let selectedTaskScope = "";
+let taskBatchRunning = false;
+let taskBatchProgress = "";
 const LEGACY_THEME_KEY = "truedown-theme";
 const DOWNLOAD_DEFAULTS_KEY = "truedown-download-defaults-v1";
 const MAX_SPEED_BPS = 2 ** 50;
@@ -377,7 +382,16 @@ function initTheme() {
 function onDocumentKeydown(event) {
   const activeOverlay = els.dialogOverlay.classList.contains("open") ? els.dialogOverlay :
     !isNativeTaskWindow() && els.overlay.classList.contains("open") ? els.overlay : null;
-  if (!activeOverlay) return;
+  if (!activeOverlay) {
+    if (typeof currentPage !== "undefined" && currentPage === "tasks" && els.tasksWrap?.contains(event.target)) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a" && !event.target.matches("input:not([type=checkbox]), textarea, [contenteditable=true]")) {
+        event.preventDefault();
+        const checkbox = els.tasksContainer.querySelector("[data-select-page]");
+        if (checkbox && !checkbox.disabled) { checkbox.checked = true; void onTaskSelection({ target: checkbox }); }
+      } else if (event.key === "Escape") { event.preventDefault(); clearTaskSelection(); }
+    }
+    return;
+  }
   if (event.key === "Escape") {
     event.preventDefault();
     if (activeOverlay === els.dialogOverlay) cancelDialog();
@@ -837,6 +851,8 @@ async function confirmUpdateTaskAction(action) {
 }
 
 function clearTaskSelection() {
+  taskSelectionSerial++;
+  taskSelectionLoading = false;
   selectedTaskIDs.clear();
   els.tasksContainer.querySelectorAll("[data-select-task]").forEach(input => { input.checked = false; });
   els.tasksWrap.focus({ preventScroll: true });
@@ -870,20 +886,31 @@ function setTaskActionBusy(id, busy) {
   });
 }
 
-function onTaskSelection(event) {
+async function onTaskSelection(event) {
+  if (taskBatchRunning) return;
   const checkbox = event.target;
   if (checkbox.matches("[data-select-page]")) {
-    const visibleIDs = currentTasks.map((task) => task.id);
-    if (checkbox.checked && selectedTaskIDs.size + visibleIDs.filter((id) => !selectedTaskIDs.has(id)).length > MAX_SELECTED_TASKS) {
-      checkbox.checked = false;
-      showToast(`最多选择 ${MAX_SELECTED_TASKS} 个任务。`, "error");
-      return;
-    }
-    visibleIDs.forEach((id) => checkbox.checked ? selectedTaskIDs.add(id) : selectedTaskIDs.delete(id));
-    els.tasksContainer.querySelectorAll("[data-select-task]").forEach((input) => {
-      input.checked = checkbox.checked;
-    });
+    if (!checkbox.checked) { clearTaskSelection(); return; }
+    const serial = ++taskSelectionSerial;
+    const scope = taskSelectionScope();
+    taskSelectionLoading = true;
     syncSelectionControls();
+    try {
+      const params = new URLSearchParams({ status: currentFilter, search: currentSearch, category: currentCategory });
+      const result = await requestJSON(`/tasks/selection?${params}`);
+      if (serial !== taskSelectionSerial || scope !== taskSelectionScope() || currentPage !== "tasks") return;
+      selectedTaskIDs.clear();
+      for (const task of result.tasks) {
+        selectedTaskIDs.add(task.id);
+        taskStatusByID.set(task.id, task.status);
+        taskLinkByID.set(task.id, task.link);
+        if (task.updateDownload) updateTaskIDs.add(task.id); else updateTaskIDs.delete(task.id);
+      }
+    } catch (error) {
+      if (serial === taskSelectionSerial) showToast(`全选失败：${error.message}`, "error");
+    } finally {
+      if (serial === taskSelectionSerial) { taskSelectionLoading = false; syncSelectionControls(); }
+    }
     return;
   }
   if (!checkbox.matches("[data-select-task]")) return;
@@ -900,15 +927,15 @@ function onTaskSelection(event) {
 }
 
 async function runSelectedAction(action, label, requiresConfirmation = false) {
+  if (taskSelectionLoading || taskBatchRunning) return;
   const ids = [...selectedTaskIDs];
   if (!ids.length) {
     showToast("请先选择任务。", "error");
     return;
   }
-  const allDownloaded = ids.every((id) => taskStatusByID.get(id) === "done");
   const includesUpdate = ids.some(id => updateTaskIDs.has(id));
   if (includesUpdate && action === "pause" && !await confirmUpdateTaskAction(action)) return;
-  if (requiresConfirmation && (!allDownloaded || includesUpdate) && !await confirmAction({
+  if (requiresConfirmation && !await confirmAction({
     title: `移除 ${ids.length} 个任务`,
     message: "已完成文件会保留；活动任务会停止，并删除未完成文件。此操作无法撤销。" + (includesUpdate ? "所选任务包含更新下载：未完成的更新会中断，需要时请从设置重新发起；已验证的更新不会因此撤销。" : ""),
     confirmLabel: "批量移除",
@@ -916,11 +943,18 @@ async function runSelectedAction(action, label, requiresConfirmation = false) {
   })) return;
   setBatchBusy(true);
   try {
-    const result = await requestJSON("/tasks/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, ids }),
-    });
+    const result = { succeeded: [], failed: [] };
+    for (let offset = 0; offset < ids.length; offset += 1000) {
+      const batch = await requestJSON("/tasks/batch", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ids: ids.slice(offset, offset + 1000) }),
+      });
+      result.succeeded.push(...(batch.succeeded || []));
+      result.failed.push(...(batch.failed || []));
+      if (action === "remove") (batch.succeeded || []).forEach(id => selectedTaskIDs.delete(id));
+      taskBatchProgress = `已处理 ${Math.min(offset + 1000, ids.length)} / ${ids.length} 项`;
+      els.batchSelectionCount.textContent = taskBatchProgress;
+    }
     if (action === "remove") {
       (result.succeeded || []).forEach((id) => {
         selectedTaskIDs.delete(id);
@@ -933,19 +967,22 @@ async function runSelectedAction(action, label, requiresConfirmation = false) {
     const failed = result.failed?.length || 0;
     const detail = failed ? `；${result.failed[0].error}` : "";
     showToast(`${label}成功 ${succeeded} 项${failed ? `，失败 ${failed} 项${detail}` : ""}`, failed ? "error" : "success");
-    await loadTasks({ force: true });
   } catch (error) {
-    showToast(`${label}失败：${error.message}`, "error");
+    showToast(`${label}中断${taskBatchProgress ? `（${taskBatchProgress}）` : ""}：${error.message}；请检查任务状态后再操作。`, "error");
   } finally {
     setBatchBusy(false);
+    await loadTasks({ force: true });
     schedulePoll();
   }
 }
 
 function setBatchBusy(busy) {
-  [els.batchPauseBtn, els.batchResumeBtn, els.batchRemoveBtn].forEach((button) => {
+  taskBatchRunning = busy;
+  if (!busy) taskBatchProgress = "";
+  [els.batchPauseBtn, els.batchResumeBtn, els.batchRemoveBtn, els.batchCopyBtn].forEach((button) => {
     KDComponents.setBusyState(button, busy);
   });
+  syncSelectionControls();
 }
 
 async function runQueueAction(action) {
@@ -1206,7 +1243,7 @@ function renderTasks(tasks, epoch = "") {
         <col class="col-progress"><col class="col-size"><col class="col-speed"><col class="col-created"><col class="col-actions">
       </colgroup>
       <thead><tr>
-        <th scope="col" class="select-cell"><input type="checkbox" data-select-page aria-label="选择当前加载的任务"></th>
+        <th scope="col" class="select-cell"><input type="checkbox" data-select-page aria-label="全选当前筛选结果中的任务"></th>
         ${sortableHeading("file", "文件")}${sortableHeading("status", "状态")}
         ${sortableHeading("progress", "进度")}<th scope="col">大小</th><th scope="col">速度 / 剩余</th><th scope="col">添加时间</th><th scope="col" class="align-right">操作</th>
       </tr></thead>
@@ -1237,7 +1274,7 @@ function renderTasks(tasks, epoch = "") {
   if (focusKey && document.activeElement !== focused) {
     const controls = Array.from(els.tasksContainer.querySelectorAll("button, input"));
     const nextFocus = controls.find((control) => taskControlKey(control) === focusKey)
-      || els.tasksContainer.querySelector("[data-select-page]");
+      || els.tasksWrap;
     nextFocus?.focus({ preventScroll: true });
   }
 }
@@ -1323,19 +1360,32 @@ function iconMarkup(name) {
 }
 
 function syncSelectionControls() {
+  const scope = taskSelectionScope();
+  if (selectedTaskScope !== scope) {
+    selectedTaskScope = scope;
+    selectedTaskIDs.clear();
+    taskSelectionSerial++;
+    taskSelectionLoading = false;
+  }
+  els.tasksContainer.querySelectorAll("[data-select-task]").forEach(input => {
+    input.checked = selectedTaskIDs.has(Number(input.value));
+    input.disabled = taskSelectionLoading || taskBatchRunning;
+  });
   els.tasksContainer.querySelectorAll("tr[data-task-id]").forEach(row => {
     row.classList.toggle("is-selected", selectedTaskIDs.has(Number(row.dataset.taskId)));
   });
-  const visibleIDs = currentTasks.map((task) => task.id);
-  const selectedVisible = visibleIDs.filter((id) => selectedTaskIDs.has(id)).length;
   const selectPage = els.tasksContainer.querySelector("[data-select-page]");
   if (selectPage) {
-    selectPage.checked = visibleIDs.length > 0 && selectedVisible === visibleIDs.length;
-    selectPage.indeterminate = selectedVisible > 0 && selectedVisible < visibleIDs.length;
+    selectPage.checked = currentTotal > 0 && selectedTaskIDs.size === currentTotal && currentTasks.every(task => selectedTaskIDs.has(task.id));
+    selectPage.indeterminate = selectedTaskIDs.size > 0 && !selectPage.checked;
+    selectPage.disabled = taskSelectionLoading || taskBatchRunning;
+    KDComponents.setBusyState(selectPage, taskSelectionLoading, { manageDisabled: false, busyLabel: "正在选择全部筛选结果" });
   }
-  els.batchToolbar.hidden = selectedTaskIDs.size === 0;
-  els.batchSelectionCount.textContent = `已选择 ${selectedTaskIDs.size} 项`;
+  els.batchToolbar.hidden = selectedTaskIDs.size === 0 && !taskBatchRunning;
+  els.batchSelectionCount.textContent = taskBatchProgress || `已选择 ${selectedTaskIDs.size} 项（含未显示任务）`;
 }
+
+function taskSelectionScope() { return JSON.stringify([currentFilter, currentSearch, currentCategory]); }
 
 function updateMetrics(summary) {
   els.taskCount.textContent = summary.total;
@@ -1477,6 +1527,7 @@ async function copyTaskLink(link) {
 }
 
 async function copySelectedTaskLinks() {
+  if (taskSelectionLoading) return;
   const links = [...selectedTaskIDs].map(id => taskLinkByID.get(id));
   if (!links.length || links.some(link => !link)) {
     showToast("所选任务中有不可复制的下载链接。", "error");

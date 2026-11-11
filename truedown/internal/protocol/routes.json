@@ -71,6 +71,7 @@
     "GET"
   ],
   "/tasks/changes": ["GET"],
+  "/tasks/selection": ["GET"],
   "/tasks/detail": [
     "GET",
     "POST"

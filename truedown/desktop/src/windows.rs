@@ -111,6 +111,7 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
             "GET" => [
                 "/tasks",
                 "/tasks/changes",
+                "/tasks/selection",
                 "/settings/file-groups",
                 "/system/info",
                 "/system/update",

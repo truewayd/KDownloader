@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -278,8 +279,14 @@ func (s *recordStore) DeleteBatch(ids []int64) error {
 	if _, err := s.db.Exec(`BEGIN IMMEDIATE`); err != nil {
 		return err
 	}
-	for _, id := range ids {
-		if _, err := s.db.Exec(`DELETE FROM download_records WHERE id=?`, id); err != nil {
+	for offset := 0; offset < len(ids); offset += 256 {
+		batch := ids[offset:min(offset+256, len(ids))]
+		args := make([]any, len(batch))
+		for index, id := range batch {
+			args[index] = id
+		}
+		query := `DELETE FROM download_records WHERE id IN (` + strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",") + `)`
+		if _, err := s.db.Exec(query, args...); err != nil {
 			_, _ = s.db.Exec(`ROLLBACK`)
 			return err
 		}

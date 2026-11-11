@@ -103,7 +103,9 @@ func (c *ariaClient) callContext(ctx context.Context, method string, params []an
 
 func (c *ariaClient) callWithHTTP(ctx context.Context, client *http.Client, method string, params []any, result any) error {
 	requestParams := make([]any, 0, len(params)+1)
-	requestParams = append(requestParams, "token:"+c.secret)
+	if method != "system.multicall" {
+		requestParams = append(requestParams, "token:"+c.secret)
+	}
 	requestParams = append(requestParams, params...)
 	body, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",

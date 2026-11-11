@@ -1546,7 +1546,7 @@ func (m *Manager) changePauseState(ids []int64, pause bool) TaskOperationResult 
 
 	missingGIDs := make(map[int64]bool)
 	var missingMu sync.Mutex
-	errorsByID := runRPCOperations(targets, 8, func(target rpcTarget) error {
+	operation := func(target rpcTarget) error {
 		if m.artifacts != nil {
 			if handled, err := m.artifacts.control(target.gid, pause); handled {
 				return err
@@ -1571,7 +1571,30 @@ func (m *Manager) changePauseState(ids []int64, pause bool) TaskOperationResult 
 			return nil
 		}
 		return err
-	})
+	}
+	var errorsByID map[int64]error
+	if client, ok := m.rpc.(*ariaClient); pause && ok {
+		var native, special []rpcTarget
+		for _, target := range targets {
+			if m.isArtifactTask(target.task) || client.collections.job(target.gid) != nil {
+				special = append(special, target)
+			} else {
+				native = append(native, target)
+			}
+		}
+		errorsByID = client.pauseBatch(native)
+		for id, err := range runRPCOperations(special, 8, operation) {
+			errorsByID[id] = err
+		}
+		for id, err := range errorsByID {
+			if isGIDNotFound(err) {
+				missingGIDs[id] = true
+				delete(errorsByID, id)
+			}
+		}
+	} else {
+		errorsByID = runRPCOperations(targets, 8, operation)
+	}
 
 	var updates []*Task
 	persistedIDs := make(map[int64]struct{})
@@ -1703,22 +1726,25 @@ func (m *Manager) removeTasks(ids []int64, allowActive bool) TaskOperationResult
 		partialPathsMu.Unlock()
 		return nil
 	})
+	var cleanupTargets []rpcTarget
 	for _, target := range targets {
-		if errorsByID[target.id] != nil {
-			continue
+		if errorsByID[target.id] == nil {
+			cleanupTargets = append(cleanupTargets, target)
 		}
+	}
+	cleanupErrors := runRPCOperations(cleanupTargets, 4, func(target rpcTarget) error {
 		if m.isArtifactTask(target.task) {
-			if err := m.artifacts.remove(target.task); err != nil {
-				errorsByID[target.id] = err
-			}
-			continue
+			return m.artifacts.remove(target.task)
 		}
 		path, shouldRemove := partialPaths[target.id]
 		if !shouldRemove || isMediaTask(target.task) {
-			continue
+			return nil
 		}
-		if err := m.removeOwnedPartialFiles(target.task, path); err != nil {
-			errorsByID[target.id] = err
+		return m.removeOwnedPartialFiles(target.task, path)
+	})
+	for id, err := range cleanupErrors {
+		if err != nil {
+			errorsByID[id] = err
 		}
 	}
 	resultTargets := make([]rpcTarget, 0, len(targets))
@@ -1728,6 +1754,11 @@ func (m *Manager) removeTasks(ids []int64, allowActive bool) TaskOperationResult
 		}
 	}
 	retirementErrors := runRPCOperations(resultTargets, 8, func(target rpcTarget) error {
+		// Completed ordinary tasks have no writers to stop. The engine already
+		// bounds completed results, just as for ClearDone; avoid one RPC per row.
+		if target.task.Status == StatusDone && target.task.PreviousGID == "" && !m.isArtifactTask(target.task) {
+			return nil
+		}
 		if m.rpc == nil {
 			return nil
 		}
