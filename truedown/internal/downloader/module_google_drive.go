@@ -46,9 +46,10 @@ type googleDriveModuleOptions struct {
 }
 
 type googleDriveReference struct {
-	ID         string
-	Folder     bool
-	NativeType string
+	ID          string
+	ResourceKey string
+	Folder      bool
+	NativeType  string
 }
 
 func newGoogleDriveResolverModule(pkg componentPackage) (resolverModule, error) {
@@ -136,7 +137,7 @@ func (module *googleDriveResolverModule) resolve(
 	}
 
 	format := googleNativeFormat(reference.NativeType, options)
-	stableLink := module.profile.stableLink(reference.ID, reference.NativeType, format)
+	stableLink := module.profile.stableLink(reference.ID, reference.NativeType, format, reference.ResourceKey)
 	probeTask := &Task{Link: stableLink, Headers: identity.Headers, Name: identity.Name, Opts: identity.Opts}
 	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -259,13 +260,17 @@ func parseGoogleDriveReference(value string) (googleDriveReference, bool) {
 		return googleDriveReference{}, false
 	}
 	segments := splitURLPath(parsed.Path)
+	resourceKey := parsed.Query().Get("resourcekey")
+	if len(resourceKey) > 256 || strings.ContainsAny(resourceKey, "\r\n\x00") {
+		return googleDriveReference{}, false
+	}
 	queryID := strings.TrimSpace(parsed.Query().Get("id"))
 	if queryID != "" && googleDriveIDPattern.MatchString(queryID) {
-		return googleDriveReference{ID: queryID}, true
+		return googleDriveReference{ID: queryID, ResourceKey: resourceKey}, true
 	}
 	for index := 0; index+1 < len(segments); index++ {
 		if segments[index] == "folders" && googleDriveIDPattern.MatchString(segments[index+1]) {
-			return googleDriveReference{ID: segments[index+1], Folder: true}, true
+			return googleDriveReference{ID: segments[index+1], Folder: true, ResourceKey: resourceKey}, true
 		}
 	}
 	for index := 0; index+1 < len(segments); index++ {
@@ -279,7 +284,7 @@ func parseGoogleDriveReference(value string) (googleDriveReference, bool) {
 				nativeType = segment
 			}
 		}
-		return googleDriveReference{ID: segments[index+1], NativeType: nativeType}, true
+		return googleDriveReference{ID: segments[index+1], NativeType: nativeType, ResourceKey: resourceKey}, true
 	}
 	return googleDriveReference{}, false
 }
@@ -299,7 +304,7 @@ func googleDriveStableLink(id, nativeType, format string) string {
 	return googleDriveBaselineProfile.stableLink(id, nativeType, format)
 }
 
-func (profile googleDriveComponentConfig) stableLink(id, nativeType, format string) string {
+func (profile googleDriveComponentConfig) stableLink(id, nativeType, format string, resourceKey ...string) string {
 	query := url.Values{"id": []string{id}, "export": []string{"download"}}
 	if nativeType != "" {
 		query.Set("type", nativeType)
@@ -307,7 +312,18 @@ func (profile googleDriveComponentConfig) stableLink(id, nativeType, format stri
 	if format != "" {
 		query.Set("format", format)
 	}
-	return "https://drive.google.com" + profile.StableDownloadPath + "?" + query.Encode()
+	return googleDriveResourceLink("https://drive.google.com"+profile.StableDownloadPath+"?"+query.Encode(), resourceKey...)
+}
+
+func googleDriveResourceLink(value string, key ...string) string {
+	if len(key) == 0 || key[0] == "" {
+		return value
+	}
+	u, _ := url.Parse(value)
+	query := u.Query()
+	query.Set("resourcekey", key[0])
+	u.RawQuery = query.Encode()
+	return u.String()
 }
 
 func (profile googleDriveComponentConfig) openLink(id string) string {
@@ -361,7 +377,7 @@ func resolveGoogleDriveFolder(
 	defer cancel()
 	client, closeIdle := clientForTaskProxy(m.googleDriveClient, identity.Opts)
 	defer closeIdle()
-	files, rootName, err := crawlGoogleDriveFolderWithProfile(crawlCtx, client, reference.ID, profile)
+	files, rootName, err := crawlGoogleDriveFolderReference(crawlCtx, client, reference, profile)
 	if err != nil {
 		return ModuleAddResult{}, true, err
 	}
@@ -390,7 +406,7 @@ func resolveGoogleDriveFolder(
 			targetFolder = filepath.Join(append([]string{targetFolder}, file.Relative...)...)
 		}
 		requests = append(requests, taskAddRequest{
-			Link: profile.stableLink(file.ID, file.NativeType, googleNativeFormat(file.NativeType, options)),
+			Link: profile.stableLink(file.ID, file.NativeType, googleNativeFormat(file.NativeType, options), file.ResourceKey),
 			Name: name, Folder: targetFolder, Headers: identity.Headers,
 			DownloadPage: identity.DownloadPage, QueueID: identity.QueueID,
 			Opts: identity.Opts, ModuleID: GoogleDriveModuleID,

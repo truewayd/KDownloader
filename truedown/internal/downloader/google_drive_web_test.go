@@ -322,7 +322,7 @@ func TestGoogleDriveFolderBoundsParsedEntries(t *testing.T) {
 	_, _, err := fetchGoogleDriveFolder(
 		context.Background(), client, "root-folder-id-123456789012345", googleDriveBaselineProfile,
 	)
-	if err == nil || !strings.Contains(err.Error(), "exceeds 6000 entries") {
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("exceeds %d entries", googleDriveMaxFolderEntries)) {
 		t.Fatalf("oversized Google Drive folder error=%v", err)
 	}
 }
