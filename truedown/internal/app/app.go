@@ -156,7 +156,10 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	if err != nil {
 		return err
 	}
-	downloads := location.Paths.Downloads
+	downloads, err := profile.DefaultDownloadDirectory()
+	if err != nil {
+		return fmt.Errorf("resolve default download directory: %w", err)
+	}
 	database := location.Paths.File(profile.Database)
 	auth, err := newAuthController(
 		location.Paths.Config,

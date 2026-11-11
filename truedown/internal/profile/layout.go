@@ -33,6 +33,8 @@ type Paths struct {
 	State     string `json:"state"`
 	Logs      string `json:"logs"`
 	Cache     string `json:"cache"`
+	// Downloads retains the legacy profile-local location for layout compatibility.
+	// New tasks use DefaultDownloadDirectory unless the user supplies a folder.
 	Downloads string `json:"downloads"`
 }
 
