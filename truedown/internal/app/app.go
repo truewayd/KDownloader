@@ -110,7 +110,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	if err != nil {
 		return err
 	}
-	applicationLog, err := applog.Open(location.Paths.Logs)
+	applicationLog, err := applog.OpenDisabled(location.Paths.Logs)
 	if err != nil {
 		return err
 	}

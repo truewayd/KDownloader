@@ -27,13 +27,28 @@ type Logger struct {
 	stop     chan struct{}
 	done     chan struct{}
 	stopOnce sync.Once
+	enabled  bool
 }
 
-func Open(dataDir string) (*Logger, error) {
+func Open(dataDir string) (*Logger, error) { return open(dataDir, true) }
+
+func OpenDisabled(dataDir string) (*Logger, error) { return open(dataDir, false) }
+
+func open(dataDir string, defaultEnabled bool) (*Logger, error) {
 	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		return nil, fmt.Errorf("create TrueDown data directory: %w", err)
 	}
-	logger := &Logger{path: filepath.Join(dataDir, fileName)}
+	logger := &Logger{path: filepath.Join(dataDir, fileName), enabled: defaultEnabled}
+	if _, err := os.Stat(filepath.Join(dataDir, ".enabled")); err == nil {
+		logger.enabled = true
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	if !logger.enabled {
+		logger.stop, logger.done = make(chan struct{}), make(chan struct{})
+		go logger.runMaintenance()
+		return logger, nil
+	}
 	if info, err := regularFileInfo(logger.path); err == nil && info.Size() >= maximumBytes {
 		if err := logger.rotate(); err != nil {
 			return nil, err
@@ -114,6 +129,9 @@ func (logger *Logger) Write(input []byte) (int, error) {
 	defer logger.mu.Unlock()
 
 	originalLength := len(input)
+	if !logger.enabled {
+		return originalLength, nil
+	}
 	data := input
 	if len(data) > maximumWrite {
 		cut := maximumWrite
@@ -158,6 +176,9 @@ func (logger *Logger) ReadTail(limit int64) (content string, truncated bool, upd
 	}
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
+	if !logger.enabled {
+		return "", false, time.Time{}, nil
+	}
 
 	if logger.file == nil {
 		return "", false, time.Time{}, fmt.Errorf("TrueDown application log is closed")
@@ -211,6 +232,64 @@ func (logger *Logger) ReadTail(limit int64) (content string, truncated bool, upd
 		truncated = true
 	}
 	return string(data), truncated, openedInfo.ModTime().UTC(), nil
+}
+
+func (logger *Logger) Enabled() bool {
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+	return logger.enabled
+}
+
+func (logger *Logger) SetEnabled(enabled bool) error {
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+	if logger.enabled == enabled {
+		return nil
+	}
+	marker := filepath.Join(filepath.Dir(logger.path), ".enabled")
+	if enabled {
+		if err := os.WriteFile(marker, []byte("1\n"), 0600); err != nil {
+			return err
+		}
+		if err := logger.open(); err != nil {
+			_ = os.Remove(marker)
+			return err
+		}
+		logger.enabled = true
+		return nil
+	}
+	logger.enabled = false
+	if logger.file != nil {
+		if err := logger.file.Close(); err != nil {
+			return err
+		}
+		logger.file = nil
+	}
+	return os.Remove(marker)
+}
+
+func (logger *Logger) Clear() error {
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+	if logger.file != nil {
+		if err := logger.file.Close(); err != nil {
+			return err
+		}
+		logger.file = nil
+	}
+	for index := 0; index <= maximumBackups; index++ {
+		path := logger.path
+		if index > 0 {
+			path = fmt.Sprintf("%s.%d", logger.path, index)
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if logger.enabled {
+		return logger.open()
+	}
+	return nil
 }
 
 func (logger *Logger) Close() error {

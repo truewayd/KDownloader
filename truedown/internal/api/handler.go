@@ -40,6 +40,9 @@ type UpdateService interface {
 
 type ApplicationLogService interface {
 	ReadTail(limit int64) (content string, truncated bool, updatedAt time.Time, err error)
+	Enabled() bool
+	SetEnabled(bool) error
+	Clear() error
 }
 
 type downloadSourceReq struct {
@@ -990,26 +993,46 @@ func RegisterDiagnostics(mux *http.ServeMux, applicationLog ApplicationLogServic
 		return
 	}
 	mux.HandleFunc("/system/logs", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", http.MethodGet)
+		switch r.Method {
+		case http.MethodGet:
+			content, truncated, updatedAt, err := applicationLog.ReadTail(maxApplicationLogResponseBytes)
+			if err != nil {
+				http.Error(w, "failed to read application log", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Cache-Control", "no-store")
+			writeJSON(w, http.StatusOK, struct {
+				Content   string    `json:"content"`
+				Truncated bool      `json:"truncated"`
+				UpdatedAt time.Time `json:"updatedAt"`
+				Enabled   bool      `json:"enabled"`
+			}{content, truncated, updatedAt, applicationLog.Enabled()})
+		case http.MethodPost:
+			var req struct {
+				Enabled *bool `json:"enabled"`
+				Clear   bool  `json:"clear"`
+			}
+			if !decodeJSONRequest(w, r, 1024, &req) {
+				return
+			}
+			var err error
+			if req.Clear {
+				err = applicationLog.Clear()
+			} else if req.Enabled != nil {
+				err = applicationLog.SetEnabled(*req.Enabled)
+			} else {
+				http.Error(w, "enabled or clear is required", http.StatusBadRequest)
+				return
+			}
+			if err != nil {
+				http.Error(w, "failed to update application log", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]bool{"enabled": applicationLog.Enabled()})
+		default:
+			w.Header().Set("Allow", "GET, POST")
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
 		}
-		content, truncated, updatedAt, err := applicationLog.ReadTail(maxApplicationLogResponseBytes)
-		if err != nil {
-			http.Error(w, "failed to read application log", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Cache-Control", "no-store")
-		writeJSON(w, http.StatusOK, struct {
-			Content   string    `json:"content"`
-			Truncated bool      `json:"truncated"`
-			UpdatedAt time.Time `json:"updatedAt"`
-		}{
-			Content:   content,
-			Truncated: truncated,
-			UpdatedAt: updatedAt,
-		})
 	})
 }
 

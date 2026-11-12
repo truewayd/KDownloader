@@ -18,13 +18,17 @@ import (
 )
 
 type testApplicationLog struct {
-	limit int64
+	limit   int64
+	enabled bool
 }
 
 func (service *testApplicationLog) ReadTail(limit int64) (string, bool, time.Time, error) {
 	service.limit = limit
 	return "TrueDown started\n", true, time.Date(2026, 9, 3, 1, 2, 3, 0, time.UTC), nil
 }
+func (service *testApplicationLog) Enabled() bool               { return service.enabled }
+func (service *testApplicationLog) SetEnabled(value bool) error { service.enabled = value; return nil }
+func (service *testApplicationLog) Clear() error                { return nil }
 
 type testTokenAuth struct {
 	enabled bool
@@ -99,9 +103,11 @@ func TestApplicationLogEndpointIsBoundedAndReadOnly(t *testing.T) {
 	}
 
 	postResponse := httptest.NewRecorder()
-	mux.ServeHTTP(postResponse, httptest.NewRequest(http.MethodPost, "/system/logs", nil))
-	if postResponse.Code != http.StatusMethodNotAllowed || postResponse.Header().Get("Allow") != http.MethodGet {
-		t.Fatalf("log POST status=%d allow=%q", postResponse.Code, postResponse.Header().Get("Allow"))
+	postRequest := httptest.NewRequest(http.MethodPost, "/system/logs", strings.NewReader(`{}`))
+	postRequest.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(postResponse, postRequest)
+	if postResponse.Code != http.StatusBadRequest {
+		t.Fatalf("log POST status=%d", postResponse.Code)
 	}
 }
 
