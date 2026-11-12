@@ -182,6 +182,8 @@ function cacheElements() {
     "clear-done-btn",
 	"check-truedown-update-btn",
 	"copy-application-log-btn",
+	"clear-application-log-btn",
+	"application-log-enabled",
     "copy-api-token-btn",
     "download-form",
     "dialog-cancel-btn",
@@ -350,6 +352,8 @@ function bindEvents() {
   els.cfgProxyMode.addEventListener("change", renderProxyMode);
   els.checkTruedownUpdateBtn.addEventListener("click", checkTrueDownUpdate);
 	els.copyApplicationLogBtn.addEventListener("click", copyApplicationLog);
+	els.clearApplicationLogBtn.addEventListener("click", clearApplicationLog);
+	els.applicationLogEnabled.addEventListener("change", updateApplicationLogEnabled);
   els.restartTruedownUpdateBtn.addEventListener("click", restartForTrueDownUpdate);
   els.installNextEngineBtn.addEventListener("click", installNextEngine);
   els.selectStableEngineBtn.addEventListener("click", () => selectDownloadEngine("stable"));
