@@ -181,7 +181,11 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
             _ => false,
         },
         "task-preview" => match method {
-            "GET" => path == "/tasks/preview" || path == "/tasks/preview/stream" || path == "/tasks/archive-preview",
+            "GET" => {
+                path == "/tasks/preview"
+                    || path == "/tasks/preview/stream"
+                    || path == "/tasks/archive-preview"
+            }
             "POST" => {
                 ["/tasks/open-file", "/tasks/open-folder", "/tasks/open-with"].contains(&path)
             }
