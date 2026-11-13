@@ -102,7 +102,7 @@
 .tasks-table .col-file { width: 24%; }
 .tasks-table .col-status { width: 88px; }
 .tasks-table .col-link { width: 18%; }
-.tasks-table .col-actions { width: 126px; }
+.tasks-table .col-actions { width: 190px; }
 .tasks-table th { font-weight: 500; letter-spacing: 0; }
 .tasks-table .sort-button { white-space: nowrap; }
 .tasks-table .task-name { font-weight: 600; }

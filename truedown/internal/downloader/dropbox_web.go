@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -133,16 +132,13 @@ func (m *Manager) addDropboxFolderWithProfile(
 
 	requests := make([]taskAddRequest, 0, len(files))
 	for _, file := range files {
-		targetFolder := filepath.Join(baseFolder, rootName)
-		if len(file.Relative) > 0 {
-			targetFolder = filepath.Join(append([]string{targetFolder}, file.Relative...)...)
-		}
+		collectionPath := append([]string{rootName}, file.Relative...)
 		fileName := sanitizeDropboxPathComponent(file.Name)
 		if fileName == "" {
 			fileName = "file"
 		}
 		requests = append(requests, taskAddRequest{
-			Link: file.Link, Name: fileName, Folder: targetFolder,
+			Link: file.Link, Name: fileName, Folder: baseFolder, CollectionPath: collectionPath,
 			Headers: identity.Headers, DownloadPage: identity.DownloadPage,
 			QueueID: identity.QueueID, Opts: identity.Opts, ModuleID: DropboxModuleID,
 		})

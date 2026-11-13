@@ -30,8 +30,9 @@ boundary. Header checks reduce resource abuse; they do not prove arbitrary codec
   points, device/UNC/alternate-stream paths and executable signatures, then opens the held file.
   Unix walks components with descriptor-relative `openat`, `O_NOFOLLOW` and nonblocking final opens.
   Both readers reject hard links and non-regular files. No validate-then-follow-symlink fallback exists.
-- Two concurrent reads maximum; each response contains at most 512 KiB before base64 encoding.
-  Files are limited to 64 MiB and text to 2 MiB. Metadata versions and before/after stat checks reject
+- Two concurrent JSON reads maximum; each response contains at most 512 KiB before base64 encoding.
+  Images are limited to 64 MiB and text to 2 MiB. Audio/video use the native HTTP Range stream and
+  have no artificial file-size cap; metadata versions, held handles and before/after stat checks reject
   ordinary changes. The first read hashes the full bounded file; the frontend verifies the assembled
   SHA-256 before handing any content to a decoder. This is consistency checking, not an authenticity
   signature. A process able to rewrite task files and metadata as the same user is not a trusted signer.
@@ -47,7 +48,7 @@ boundary. Header checks reduce resource abuse; they do not prove arbitrary codec
 - MP4/WebM and MP3/WAV/Ogg/FLAC/M4A use signature-checked, blob-backed media elements without
   autoplay. Project-owned controls operate those elements only; no extra IPC/capability or network
   access is granted. Decoder availability varies by OS. Unsupported codecs remain an ordinary preview error.
-- UTF-8 text, JSON, XML, CSV, Markdown and logs render via `textContent`, with no HTML or Markdown
+- UTF-8 text, JSON, XML, CSV, Markdown, YAML, TOML, INI, dotenv, CSS, TypeScript and logs render via `textContent`, with no HTML or Markdown
   evaluation. HTML, SVG, PDF, AVIF, scripts, executables and unknown formats have no embedded viewer.
 - Images have no drag payload. Hiding, switching tasks or unloading aborts reads, pauses/unloads media,
   clears DOM content and revokes blob URLs. The only way to launch another application is an explicit
@@ -55,6 +56,25 @@ boundary. Header checks reduce resource abuse; they do not prove arbitrary codec
   helper and the same data-file guard as Open; callers cannot choose a program, verb or argument.
 
 ## Verification
+
+Archive preview returns metadata only through `/tasks/archive-preview`. ZIP central directories,
+TAR headers and the first GZIP header are inspected without inflating member content. A 256 MiB
+actual-I/O budget permits large archives whose directory structures fit the budget; TAR member
+bodies are skipped with seeks. At most two JSON/structural reads run concurrently. Each page has
+at most 200 entries; subsequent pages require the original metadata version and revalidate the
+file and completed task after scanning. Names are normalized before duplicate detection; traversal,
+drive/stream paths, invalid UTF-8, linked/special entries, excessive depth, entry count and declared
+size are rejected. GZIP raw size is unknown and its content/checksum and additional members are not
+validated by this metadata viewer. The UI states that limitation explicitly. Archive metadata does
+not establish that member payloads are valid or safe to extract. Pagination rescans bounded metadata
+and does not cache filesystem handles between requests.
+
+`go test ./internal/downloader ./internal/api -run Archive -count=1` covers pagination, changed files,
+malformed archives, normalized duplicate names, path attacks, declared sizes, links and entry limits.
+The large sparse ZIP/TAR fixtures assert structural reads instead of whole-payload reads.
+`desktop/tests/archive-preview-browser.mjs` covers three pages, retries, changed-file errors,
+stale completions after task switching, literal hostile names and narrow layouts. It accepts
+`TRUEDOWN_PLAYWRIGHT_MODULE` and `TRUEDOWN_CHROME_PATH` to reuse installed test tools.
 
 Go tests cover unfinished/missing/oversized/changed files, aligned chunk bounds, full digest,
 symlinks/hard links, MIME spoofing, malformed/truncated PNG, image bombs and GIF animation budgets.

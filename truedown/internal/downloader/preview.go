@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -40,17 +41,25 @@ func previewMIME(name string) string {
 		return "video/mp4"
 	case ".webm":
 		return "video/webm"
+	case ".ogv":
+		return "video/ogg"
 	case ".mp3":
 		return "audio/mpeg"
 	case ".wav":
 		return "audio/wav"
 	case ".ogg", ".opus":
 		return "audio/ogg"
+	case ".oga":
+		return "audio/ogg"
 	case ".flac":
 		return "audio/flac"
+	case ".aac":
+		return "audio/aac"
+	case ".aif", ".aiff":
+		return "audio/aiff"
 	case ".m4a":
 		return "audio/mp4"
-	case ".txt", ".log", ".csv", ".json", ".xml", ".md":
+	case ".txt", ".log", ".csv", ".json", ".xml", ".md", ".yaml", ".yml", ".toml", ".ini", ".conf", ".env", ".css", ".ts":
 		return "text/plain"
 	}
 	return ""
@@ -95,10 +104,12 @@ func (m *Manager) PreviewTask(id, offset int64, version string) (PreviewChunk, e
 		return result, &ValidationError{Message: "Preview requires a regular file"}
 	}
 	limit := int64(MaxPreviewSize)
-	if mime == "text/plain" {
+	if strings.HasPrefix(mime, "audio/") || strings.HasPrefix(mime, "video/") {
+		limit = 0
+	} else if mime == "text/plain" {
 		limit = 2 * 1024 * 1024
 	}
-	if info.Size() > limit {
+	if limit > 0 && info.Size() > limit {
 		return result, &ValidationError{Message: fmt.Sprintf("Preview supports files up to %d MiB; use Open or Open with", limit/(1024*1024))}
 	}
 	if offset > info.Size() {
@@ -113,12 +124,14 @@ func (m *Manager) PreviewTask(id, offset int64, version string) (PreviewChunk, e
 		if err := validatePreviewMedia(file, info.Size(), mime); err != nil {
 			return result, &ValidationError{Message: err.Error()}
 		}
-		hash := sha256.New()
-		count, err := io.Copy(hash, io.NewSectionReader(file, 0, info.Size()))
-		if err != nil || count != info.Size() {
-			return result, &ValidationError{Message: "File changed during preview"}
+		if !strings.HasPrefix(mime, "audio/") && !strings.HasPrefix(mime, "video/") {
+			hash := sha256.New()
+			count, err := io.Copy(hash, io.NewSectionReader(file, 0, info.Size()))
+			if err != nil || count != info.Size() {
+				return result, &ValidationError{Message: "File changed during preview"}
+			}
+			digest = fmt.Sprintf("%x", hash.Sum(nil))
 		}
-		digest = fmt.Sprintf("%x", hash.Sum(nil))
 	}
 	data := make([]byte, min(int64(PreviewChunkSize), info.Size()-offset))
 	if len(data) > 0 {
@@ -135,4 +148,44 @@ func (m *Manager) PreviewTask(id, offset int64, version string) (PreviewChunk, e
 		return result, &ValidationError{Message: "Task changed during preview"}
 	}
 	return PreviewChunk{Name: name, MIME: mime, Size: info.Size(), Version: stamp, Offset: offset, Data: base64.StdEncoding.EncodeToString(data), SHA256: digest}, nil
+}
+
+// OpenPreviewStream validates a completed media task and returns a held file for
+// native HTTP Range streaming. The caller must release and close the file.
+func (m *Manager) OpenPreviewStream(id int64, version string) (*os.File, func(), os.FileInfo, string, error) {
+	task, ok := m.GetTask(id)
+	if !ok || task.Status != StatusDone || task.OutputName == "" {
+		return nil, nil, nil, "", &ValidationError{Message: "Download must be completed before previewing"}
+	}
+	name := task.OutputName
+	mime := previewMIME(name)
+	if mime == "" || (!strings.HasPrefix(mime, "audio/") && !strings.HasPrefix(mime, "video/")) {
+		return nil, nil, nil, "", &ValidationError{Message: "Only audio and video files can be streamed"}
+	}
+	path, err := filepath.Abs(filepath.Join(task.Folder, name))
+	if err != nil {
+		return nil, nil, nil, "", err
+	}
+	file, release, err := openPreviewFile(path)
+	if err != nil {
+		return nil, nil, nil, "", &ValidationError{Message: "Downloaded file is unavailable or is a linked path"}
+	}
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		file.Close()
+		release()
+		return nil, nil, nil, "", &ValidationError{Message: "Preview requires a regular file"}
+	}
+	stamp := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%s\x00%d\x00%d", path, info.Size(), info.ModTime().UnixNano()))))
+	if version != "" && version != stamp {
+		file.Close()
+		release()
+		return nil, nil, nil, "", &ValidationError{Message: "File changed during preview; reopen the preview"}
+	}
+	if err := validatePreviewMedia(file, info.Size(), mime); err != nil {
+		file.Close()
+		release()
+		return nil, nil, nil, "", &ValidationError{Message: err.Error()}
+	}
+	return file, release, info, mime, nil
 }

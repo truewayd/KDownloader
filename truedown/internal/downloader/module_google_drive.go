@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -401,13 +400,10 @@ func resolveGoogleDriveFolder(
 			filtered++
 			continue
 		}
-		targetFolder := filepath.Join(identity.Folder, rootName)
-		if len(file.Relative) > 0 {
-			targetFolder = filepath.Join(append([]string{targetFolder}, file.Relative...)...)
-		}
+		collectionPath := append([]string{rootName}, file.Relative...)
 		requests = append(requests, taskAddRequest{
 			Link: profile.stableLink(file.ID, file.NativeType, googleNativeFormat(file.NativeType, options), file.ResourceKey),
-			Name: name, Folder: targetFolder, Headers: identity.Headers,
+			Name: name, Folder: identity.Folder, CollectionPath: collectionPath, Headers: identity.Headers,
 			DownloadPage: identity.DownloadPage, QueueID: identity.QueueID,
 			Opts: identity.Opts, ModuleID: GoogleDriveModuleID,
 		})

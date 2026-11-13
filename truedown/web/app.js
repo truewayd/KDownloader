@@ -1322,8 +1322,9 @@ function taskRow(task) {
   const progress = task.error ? `! ${formatTaskError(task)}` : task.progress || "-";
   const fileName = task.outputName || task.name || `任务 #${task.id}`;
   const actions = [];
-  actions.push(actionButton("open-folder", task.id, "打开下载目录", false, "folder-open"));
   if (status === "done") actions.push(actionButton("preview", task.id, "预览文件", false, "search"), actionButton("open-file", task.id, "打开文件", false, "file"));
+  actions.push(actionButton("open-folder", task.id, "打开下载目录", false, "folder-open"));
+  if (status === "done") actions.push(actionButton("details", task.id, "任务详情", false, "info"));
   if (status === "error") actions.push(actionButton("requeue", task.id, "重试", false, "retry"));
   if (status === "queued" || status === "downloading") actions.push(actionButton("pause", task.id, "暂停", false, "pause"));
   if (status === "paused") actions.push(actionButton("resume", task.id, "继续", false, "play"));
@@ -1331,7 +1332,7 @@ function taskRow(task) {
   return `
     <tr data-task-id="${task.id}" data-update-download="${task.updateDownload === true}" data-status="${status}">
       <td class="select-cell"><input type="checkbox" data-select-task value="${task.id}" aria-label="选择任务 ${esc(fileName)}"${selectedTaskIDs.has(task.id) ? " checked" : ""}></td>
-      <td><div class="task-file-cell">${iconMarkup(task.updateDownload ? "refresh" : taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="details" data-id="${task.id}" data-tooltip="${esc(fileName)}">${esc(fileName)}</button><div class="task-folder">${task.updateDownload ? '<span class="update-task-label">应用更新</span> · ' + (status === "done" ? '下载完成，安装状态见设置' : status === "error" ? '请从设置重新发起' : '下载后自动校验') : esc(taskCategoryMeta(task.category).label)}</div></div></div></td>
+      <td><div class="task-file-cell">${iconMarkup(task.updateDownload ? "refresh" : taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="${status === "done" ? "preview" : "details"}" data-id="${task.id}" aria-label="${status === "done" ? "预览文件" : "任务详情"}：${esc(fileName)}" data-tooltip="${esc(fileName)}">${esc(fileName)}</button><div class="task-folder">${task.updateDownload ? '<span class="update-task-label">应用更新</span> · ' + (status === "done" ? '下载完成，安装状态见设置' : status === "error" ? '请从设置重新发起' : '下载后自动校验') : esc(taskCategoryMeta(task.category).label)}</div></div></div></td>
       <td><span class="status-badge status-${status}">${statusLabel}</span></td>
       <td><div class="progress-line" data-tooltip="${esc(progress)}">${esc(taskProgressLabel(task))}</div><progress class="task-progress" max="100" value="${taskProgressPercent(task)}" aria-label="下载进度"></progress></td>
       <td class="task-size">${taskBytes(task.totalLength)}</td>

@@ -10,12 +10,31 @@ wav.write("RIFF"); wav.writeUInt32LE(wav.length - 8, 4); wav.write("WAVEfmt ", 8
 wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
 wav.writeUInt32LE(44100, 24); wav.writeUInt32LE(88200, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
 wav.write("data", 36); wav.writeUInt32LE(wav.length - 44, 40);
+let streamVideo = Buffer.alloc(0);
+const streamRanges = [];
 const server = http.createServer(async (request, response) => {
+  const requestURL = new URL(request.url, "http://localhost");
+  if (requestURL.pathname === "/tasks/preview/stream") {
+    const total = 80 * 1024 * 1024;
+    const range = request.headers.range;
+    let start = 0, end = total - 1;
+    if (range) {
+      const match = /^bytes=(\d+)-(\d*)$/.exec(range);
+      if (!match) { response.writeHead(416).end(); return; }
+      start = Number(match[1]); end = match[2] ? Number(match[2]) : Math.min(total - 1, start + 1024 * 1024 - 1);
+      if (start >= total || end < start) { response.writeHead(416).end(); return; }
+      end = Math.min(end, total - 1); streamRanges.push({ start, end });
+      response.writeHead(206, { "Content-Type": "video/webm", "Accept-Ranges": "bytes", "Content-Range": `bytes ${start}-${end}/${total}`, "Content-Length": end - start + 1 });
+    } else response.writeHead(200, { "Content-Type": "video/webm", "Accept-Ranges": "bytes", "Content-Length": total });
+    const body = Buffer.alloc(end - start + 1);
+    if (start < streamVideo.length) streamVideo.copy(body, 0, start, Math.min(end + 1, streamVideo.length));
+    response.end(body); return;
+  }
   const name = new URL(request.url, "http://localhost").pathname.slice(1);
   if (!/^[a-z0-9-]+\.(html|css|js|svg)$/.test(name)) { response.writeHead(404).end(); return; }
   try {
     response.setHeader("Content-Type", { html: "text/html", css: "text/css", js: "text/javascript", svg: "image/svg+xml" }[name.split(".").at(-1)]);
-    response.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src blob:; object-src 'none'; frame-src 'none'");
+    response.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; frame-src 'none'");
     response.end(await readFile(new URL(name, assets)));
   } catch { response.writeHead(404).end(); }
 });
@@ -35,6 +54,7 @@ try {
     stream.getTracks().forEach(track => track.stop());
     return btoa(String.fromCharCode(...new Uint8Array(await new Blob(chunks).arrayBuffer())));
   });
+  streamVideo = Buffer.from(video, "base64");
   await encoder.close();
   const page = await browser.newPage({ viewport: { width: 1000, height: 760 } });
   const errors = [];
@@ -58,7 +78,7 @@ try {
         const data = id === 1 ? atob(image) : id === 4 ? atob(audio) : id === 5 ? atob(video) : '<script>window.injected=true</script>\nplain text';
         const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(data, char => char.charCodeAt(0)));
         const sha256 = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-        return { status: 200, body: JSON.stringify({ name: id === 1 ? "preview.png" : id === 4 ? "sample.wav" : id === 5 ? "sample.webm" : "notes.txt", mime: id === 1 ? "image/png" : id === 4 ? "audio/wav" : id === 5 ? "video/webm" : "text/plain", size: data.length, sha256, version: "a".repeat(64), offset, data: btoa((id === 3 ? data.replace("plain", "other") : data).slice(offset, offset + 512 * 1024)) }) };
+        return { status: 200, body: JSON.stringify({ name: id === 1 ? "preview.png" : id === 4 ? "sample.wav" : id === 5 ? "sample.webm" : "notes.txt", mime: id === 1 ? "image/png" : id === 4 ? "audio/wav" : id === 5 ? "video/webm" : "text/plain", size: id === 5 ? 80 * 1024 * 1024 : data.length, sha256, version: "a".repeat(64), offset, data: btoa((id === 3 ? data.replace("plain", "other") : data).slice(offset, offset + 512 * 1024)) }) };
       } },
     };
   }, { image: png.toString("base64"), audio: wav.toString("base64"), video });
@@ -197,6 +217,12 @@ try {
   await page.evaluate(() => { window.retiredMedia = document.querySelector("audio"); });
   await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 5, revision: 6, open: true } }));
   await page.waitForFunction(() => document.querySelector("video")?.readyState >= 2);
+  assert.ok(await page.evaluate(() => document.querySelector("video").src.includes("/tasks/preview/stream")), "large video uses the native stream endpoint");
+  assert.ok(streamRanges.length > 0, "video playback issued a Range request");
+  const rangeBeforeSeek = streamRanges.length;
+  await page.locator(".player-seek").evaluate(input => { input.value = "1"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })); });
+  await page.waitForTimeout(100);
+  assert.ok(streamRanges.length >= rangeBeforeSeek, "video seek keeps the stream path available");
   assert.equal(await page.evaluate(() => retiredMedia.paused && !retiredMedia.hasAttribute("src")), true);
   assert.equal(await page.locator("video").evaluate(media => media.controls), false);
   await page.setViewportSize({width:1000,height:760});

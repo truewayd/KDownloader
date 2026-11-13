@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+  <script src="/i18n-en.js" defer></script>
+  <script src="/i18n.js" defer></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark light">
@@ -201,6 +203,7 @@
         <section class="settings-section" data-settings-page="application" aria-labelledby="settings-application-title" hidden>
           <div class="settings-section-heading"><h3 id="settings-application-title">应用与连接</h3></div>
           <fieldset class="settings-group"><legend>启动</legend>
+          <div class="field settings-row" data-settings-independent><label for="application-language">应用语言</label><select class="kd-select" id="application-language"><option value="system">跟随系统</option><option value="zh-CN">简体中文</option><option value="en">English</option></select></div>
           <label class="setting-toggle" for="startup-enabled"><input id="startup-enabled" type="checkbox" role="switch" class="kd-switch" disabled><span><strong>开机启动</strong><small>登录后在后台运行。</small></span></label>
             <p class="hint" id="startup-status" role="status" data-kd-notice="info">正在读取启动设置…</p>
           </fieldset>

@@ -198,6 +198,7 @@ func IsEngineStartError(err error) bool {
 }
 
 type requestIdentity struct {
+	CollectionPath []string                       `json:"collectionPath,omitempty"`
 	UpdateDownload bool                           `json:"updateDownload,omitempty"`
 	Link           string                         `json:"link"`
 	Name           string                         `json:"name"`
@@ -707,7 +708,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		return result, true, nil
 	}
 
-	folder := m.groupedFolderLocked(identity.Folder, identity.Name, identity.Link)
+	folder := m.groupedRequestFolderLocked(identity)
 	if len(folder) > 4096 {
 		m.mu.Unlock()
 		return nil, false, &ValidationError{Message: "grouped download folder is too long"}
@@ -2979,6 +2980,14 @@ func normalizeRequest(link, name, folder, defaultDir string, headers map[string]
 func validateRequest(identity requestIdentity) error {
 	invalid := func(format string, args ...any) error {
 		return &ValidationError{Message: fmt.Sprintf(format, args...)}
+	}
+	if len(identity.CollectionPath) > 64 {
+		return invalid("collection path is too deep")
+	}
+	for _, part := range identity.CollectionPath {
+		if part == "" || part == "." || part == ".." || sanitizeModulePathComponent(part) != part {
+			return invalid("invalid collection path")
+		}
 	}
 	if identity.BitTorrent != nil {
 		if identity.Opts.Media != nil {

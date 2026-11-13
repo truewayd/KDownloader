@@ -80,6 +80,8 @@
     "POST"
   ],
   "/tasks/preview": ["GET"],
+  "/tasks/preview/stream": ["GET"],
+  "/tasks/archive-preview": ["GET"],
   "/tasks/open-with": ["POST"],
   "/tasks/open-file": [
     "POST"

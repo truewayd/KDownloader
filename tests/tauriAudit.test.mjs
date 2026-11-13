@@ -22,9 +22,9 @@ for (const content of ["", "new log"]) for (const failed of [false, true]) {
       applicationLogContent: "original log", applicationLogCopying: false,
       currentPage: "settings", currentSettingsPage: "logs", routeEpoch: 1,
       document: { hidden: false, getElementById: () => ({ checked: false }) },
-      els: { copyApplicationLogBtn: button, applicationLogOutput: {}, applicationLogStatus: {} },
+      els: { clearApplicationLogBtn: {}, applicationLogEnabled: { checked: true }, copyApplicationLogBtn: button, applicationLogOutput: {}, applicationLogStatus: {} },
       AbortController, clearTimeout() {}, setTimeout() { return 1; }, stringValue: String,
-      requestJSON: async () => ({ content, updatedAt: "" }),
+      requestJSON: async () => ({ enabled: true, content, updatedAt: "" }),
       writeClipboard: value => { copies.push(value); return new Promise((resolve, fail) => { finish = resolve; reject = fail; }); },
       showToast: (...args) => notices.push(args), busyControlLabels: new WeakMap(),
     });

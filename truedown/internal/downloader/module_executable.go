@@ -219,8 +219,8 @@ func (r *executableResolver) resolveFolder(ctx context.Context, m *Manager, requ
 			result.Filtered++
 			continue
 		}
-		folder := filepath.Join(append([]string{identity.Folder, collection.Name}, entry.Path[:len(entry.Path)-1]...)...)
-		requests = append(requests, taskAddRequest{Link: entry.Source, Name: name, Folder: folder, QueueID: request.QueueID, Opts: request.Opts, ModuleID: "mega", ModuleData: entry.Data})
+		collectionPath := append([]string{collection.Name}, entry.Path[:len(entry.Path)-1]...)
+		requests = append(requests, taskAddRequest{Link: entry.Source, Name: name, Folder: identity.Folder, CollectionPath: collectionPath, QueueID: request.QueueID, Opts: request.Opts, ModuleID: "mega", ModuleData: entry.Data})
 	}
 	added, err := m.addTasksBatch(requests)
 	if err != nil {

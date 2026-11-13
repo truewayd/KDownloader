@@ -127,6 +127,11 @@
     const current = () => !disposed && target === snapshot && !abort.signal.aborted;
     message("正在读取文件…");
     try {
+      // Archive preview is metadata-only and paged; unsupported files fall back to the media/text path.
+      try {
+        const archive = await requestJSON(`/tasks/archive-preview?id=${snapshot.id}&cursor=0`, { signal: abort.signal });
+        if (current() && archive?.format) { renderArchive(snapshot, archive, abort); return; }
+      } catch (error) { if (error.status !== 415) throw error; }
       let offset = 0, version = "", metadata, digest;
       const chunks = [];
       do {
@@ -137,11 +142,23 @@
           || !/^[a-f0-9]{64}$/.test(chunk.version) || (version && chunk.version !== version)
           || typeof chunk.data !== "string" || chunk.data.length > 700000
           || (metadata && (chunk.size !== metadata.size || chunk.mime !== metadata.mime || chunk.name !== metadata.name))) throw new Error("文件预览响应无效");
-        if (offset === 0) {
+        const streamedMedia = offset === 0 && (chunk.mime.startsWith("audio/") || chunk.mime.startsWith("video/"));
+        if (offset === 0 && !streamedMedia) {
           if (!/^[a-f0-9]{64}$/.test(chunk.sha256)) throw new Error("文件校验信息无效");
           digest = chunk.sha256;
         }
         metadata = chunk; version = chunk.version;
+        if (streamedMedia) {
+          const type = chunk.mime.startsWith("audio/") ? "audio" : "video";
+          stage.dataset.kind = type; kindLabel.textContent = type === "audio" ? "音频" : "视频";
+          kindIcon.setAttribute("href", `/icons.svg#icon-${type === "audio" ? "music" : "video"}`);
+          const element = document.createElement(type);
+          player = TrueDownPreviewPlayer.create(element, metadata.name, text => { if (current()) message(text); });
+          element.onerror = () => { if (current()) message("当前 WebView 无法解码此文件，请选择打开文件或打开方式。"); };
+          element.src = `/tasks/preview/stream?id=${encodeURIComponent(snapshot.id)}&version=${encodeURIComponent(version)}`;
+          stage.append(player.element); info.textContent = `${metadata.name} · ${(metadata.size / 1024 / 1024).toFixed(2)} MiB`;
+          message(""); return;
+        }
         const bytes = Uint8Array.from(atob(chunk.data), char => char.charCodeAt(0));
         if (bytes.length !== Math.min(512 * 1024, chunk.size - offset)) throw new Error("文件预览不完整");
         chunks.push(bytes); offset += bytes.length;
@@ -196,6 +213,43 @@
         }
       }
     }
+  }
+  function renderArchive(snapshot, archive, abort) {
+    const current = () => !disposed && target === snapshot && !abort.signal.aborted;
+    stage.dataset.kind = "archive"; kindLabel.textContent = `${String(archive.format).toUpperCase()} 归档`;
+    kindIcon.setAttribute("href", "/icons.svg#icon-archive");
+    info.textContent = `${archive.name} · ${(archive.size / 1024 / 1024).toFixed(2)} MiB · ${archive.files} 个文件 · ${archive.directories} 个目录`;
+    const table = document.createElement("div"); table.className = "archive-tree";
+    table.setAttribute("role", "list"); table.setAttribute("aria-label", "归档条目");
+    const append = page => {
+      for (const entry of page.entries) {
+        const row = document.createElement("div"); row.className = "archive-entry"; row.setAttribute("role", "listitem");
+        const icon = document.createElement("span"); icon.textContent = entry.directory ? "▸" : "•"; icon.setAttribute("aria-hidden", "true");
+        const name = document.createElement("span"); name.className = "kd-selectable archive-entry-name"; name.textContent = entry.name;
+        const size = document.createElement("span"); size.className = "archive-entry-size";
+        size.textContent = entry.directory ? "目录" : archive.format === "gzip" ? "原始大小未知" : `${entry.declaredSize.toLocaleString()} B`;
+        row.append(icon, name, size); table.append(row);
+      }
+    };
+    append(archive); stage.append(table);
+    const summary = () => message(`${archive.encrypted ? "加密归档 · " : ""}已显示 ${table.childElementCount} 个条目${archive.format === "gzip" ? " · 仅检查头部，未验证内容或扫描后续成员" : ""}`);
+    summary();
+    if (archive.nextCursor == null) return;
+    const more = document.createElement("button"); more.type = "button"; more.className = "kd-button secondary archive-more"; more.textContent = "加载更多";
+    more.onclick = async () => {
+      if (more.disabled || !current()) return;
+      more.disabled = true; more.setAttribute("aria-busy", "true");
+      try {
+        const next = await requestJSON(`/tasks/archive-preview?id=${snapshot.id}&cursor=${archive.nextCursor}&version=${encodeURIComponent(archive.version)}`, { signal: abort.signal });
+        if (!current()) return;
+        if (next.version !== archive.version || next.cursor !== archive.nextCursor || !Array.isArray(next.entries)) throw new Error("归档分页响应无效");
+        append(next); archive.nextCursor = next.nextCursor; more.hidden = archive.nextCursor == null;
+        if (more.hidden) { table.tabIndex = -1; table.focus({ preventScroll: true }); }
+        summary();
+      } catch (error) { if (current()) message(`无法读取归档目录：${error.message}`); }
+      finally { if (current()) { more.disabled = false; more.removeAttribute("aria-busy"); } }
+    };
+    stage.append(more);
   }
   window.addEventListener("pagehide", () => { disposed = true; release(); observer.disconnect(); }, { once: true });
   KDComponents.installTooltips(); release();

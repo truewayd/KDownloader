@@ -4,19 +4,21 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"path/filepath"
 	"time"
 )
 
 type taskAddRequest struct {
-	Link         string
-	Name         string
-	Folder       string
-	Headers      map[string]string
-	DownloadPage string
-	QueueID      int
-	Opts         Aria2Opts
-	ModuleID     string
-	ModuleData   json.RawMessage
+	CollectionPath []string
+	Link           string
+	Name           string
+	Folder         string
+	Headers        map[string]string
+	DownloadPage   string
+	QueueID        int
+	Opts           Aria2Opts
+	ModuleID       string
+	ModuleData     json.RawMessage
 }
 
 type taskAddResult struct {
@@ -42,8 +44,26 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 			request.Link, request.Name, request.Folder, m.defaultDir, request.Headers,
 			request.DownloadPage, request.QueueID, request.Opts,
 		)
+		identity.CollectionPath = append([]string(nil), request.CollectionPath...)
 		identity.ModuleID = request.ModuleID
 		identity.ModuleData = request.ModuleData
+		// Recognize pre-grouping collection requests so existing tasks keep their paths.
+		if len(identity.CollectionPath) > 0 {
+			legacy := identity
+			legacy.Folder = filepath.Join(append([]string{identity.Folder}, identity.CollectionPath...)...)
+			legacy.CollectionPath = nil
+			encoded, err := json.Marshal(legacy)
+			if err != nil {
+				return nil, err
+			}
+			digest := sha256.Sum256(encoded)
+			m.mu.RLock()
+			_, exists := m.fingerprints[hex.EncodeToString(digest[:])]
+			m.mu.RUnlock()
+			if exists {
+				identity = legacy
+			}
+		}
 		if err := validateRequest(identity); err != nil {
 			return nil, err
 		}
@@ -51,7 +71,7 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 			return nil, err
 		}
 		m.mu.RLock()
-		folder := m.groupedFolderLocked(identity.Folder, identity.Name, identity.Link)
+		folder := m.groupedRequestFolderLocked(identity)
 		m.mu.RUnlock()
 		if len(folder) > 4096 {
 			return nil, &ValidationError{Message: "grouped download folder is too long"}
@@ -147,11 +167,10 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 	m.enqueueAdmissions(newIDs)
 
 	for _, index := range fallback {
-		request := prepared[index].request
-		task, duplicate, err := m.addModuleTask(
-			request.Link, request.Name, request.Folder, request.Headers,
-			request.DownloadPage, request.QueueID, request.Opts, request.ModuleID, request.ModuleData, nil,
-		)
+		item := prepared[index]
+		m.opMu.Lock()
+		task, duplicate, err := m.addIdentityLocked(item.identity, item.request.ModuleID)
+		m.opMu.Unlock()
 		if err != nil {
 			return nil, err
 		}

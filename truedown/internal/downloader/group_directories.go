@@ -69,3 +69,10 @@ func (m *Manager) groupedFolderLocked(folder, name, link string) string {
 	}
 	return filepath.Join(folder, "Other")
 }
+
+// Collection children are grouped at the selected root, preserving their remote
+// hierarchy below the group. The private identity pins that hierarchy for replay.
+func (m *Manager) groupedRequestFolderLocked(identity requestIdentity) string {
+	folder := m.groupedFolderLocked(identity.Folder, identity.Name, identity.Link)
+	return filepath.Join(append([]string{folder}, identity.CollectionPath...)...)
+}

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -175,7 +174,7 @@ func (r *telegraphResolver) resolve(ctx context.Context, m *Manager, request mod
 	for index, link := range links {
 		mediaURL, _ := url.Parse(link)
 		name := fmt.Sprintf("%04d-%s", index+1, sanitizeModulePathComponent(path.Base(mediaURL.Path)))
-		requests = append(requests, taskAddRequest{Link: link, Name: name, Folder: filepath.Join(identity.Folder, title), QueueID: request.QueueID, Opts: identity.Opts, ModuleID: TelegraphModuleID})
+		requests = append(requests, taskAddRequest{Link: link, Name: name, Folder: identity.Folder, CollectionPath: []string{title}, QueueID: request.QueueID, Opts: identity.Opts, ModuleID: TelegraphModuleID})
 	}
 	added, err := m.addTasksBatch(requests)
 	if err != nil {

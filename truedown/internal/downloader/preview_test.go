@@ -130,3 +130,11 @@ func TestPreviewRejectsActiveFormatsAndLinkedPaths(t *testing.T) {
 		t.Fatal("symlink accepted")
 	}
 }
+
+func TestPreviewMIMESupportsSafeTextAndCommonOggTypes(t *testing.T) {
+	for _, name := range []string{"config.yaml", "config.toml", ".env", "theme.css", "types.ts", "clip.ogv", "sound.oga", "sound.aac", "sound.aiff"} {
+		if previewMIME(name) == "" {
+			t.Fatalf("preview MIME missing for %s", name)
+		}
+	}
+}

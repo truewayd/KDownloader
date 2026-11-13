@@ -691,6 +691,29 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		}
 		writeJSON(w, http.StatusOK, chunk)
 	})
+	mux.HandleFunc("/tasks/preview/stream", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id, err := taskID(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		file, release, info, mediaMIME, err := dm.OpenPreviewStream(id, r.URL.Query().Get("version"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		defer release()
+		defer file.Close()
+		w.Header().Set("Content-Type", mediaMIME)
+		http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+	})
+	mux.HandleFunc("/tasks/archive-preview", archivePreviewHandler(dm.ArchivePreview))
 
 	mux.HandleFunc("/tasks/open-with", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -1307,4 +1330,42 @@ func taskID(r *http.Request) (int64, error) {
 		return 0, fmt.Errorf("invalid id")
 	}
 	return id, nil
+}
+
+func archivePreviewHandler(preview func(int64, int, string) (downloader.ArchivePreview, error)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		for key, values := range r.URL.Query() {
+			if (key != "id" && key != "cursor" && key != "version") || len(values) != 1 {
+				http.Error(w, "Invalid archive preview query", http.StatusBadRequest)
+				return
+			}
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id, err := taskID(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		cursor, err := boundedQueryInt(r, "cursor", 0, 0, 100000)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		result, err := preview(id, int(cursor), r.URL.Query().Get("version"))
+		if err != nil {
+			if err.Error() == "This archive format cannot be previewed" {
+				http.Error(w, err.Error(), http.StatusUnsupportedMediaType)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+
+	}
 }
