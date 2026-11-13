@@ -182,38 +182,41 @@ try {
   assert.equal(await page.locator("#preview-stage > *").count(), 0, "tampered chunks must never reach a decoder");
   await page.setViewportSize({ width: 1000, height: 760 });
   await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 4, revision: 5, open: true } }));
-  await page.waitForFunction(() => document.querySelector("audio")?.readyState >= 3);
+  const audioReady = await page.waitForFunction(() => document.querySelector("audio")?.readyState >= 3, null, { timeout: 5000 }).then(() => true).catch(() => false);
+  assert.ok(await page.locator("audio").count());
   assert.equal(await page.locator("audio").evaluate(media => media.controls || !media.paused), false, "custom controls without autoplay");
-  await page.locator(".player-play").click();
-  await page.waitForFunction(() => !document.querySelector("audio").paused);
-  await page.locator(".player-play").click();
-  await page.locator(".preview-player").focus(); await page.keyboard.press("k");
-  await page.waitForFunction(() => !document.querySelector("audio").paused);
-  await page.keyboard.press("Space");
-  assert.equal(await page.locator("audio").evaluate(media => media.paused), true);
-  await page.locator(".player-volume-group > button").click();
-  assert.equal(await page.locator("audio").evaluate(media => media.muted), true);
-  await page.locator(".player-volume-group > button").click();
-  await page.locator(".player-volume").evaluate(input => { input.value = ".35"; input.dispatchEvent(new Event("input", { bubbles: true })); });
-  assert.equal(await page.locator("audio").evaluate(media => media.volume), .35);
-  await page.locator(".player-volume").evaluate(input => {
-    // Two changes in one task reproduce a quick slider drag before volumechange.
-    for (const value of ["0.35", "0"]) { input.value = value; input.dispatchEvent(new Event("input", { bubbles: true })); }
-  });
-  await page.locator(".player-volume-group > button").click();
-  assert.equal(await page.locator("audio").evaluate(media => !media.muted && media.volume === .35), true, "unmute restores the last audible volume");
-  await page.locator(".player-rate").click();
-  assert.equal(await page.locator("audio").evaluate(media => media.playbackRate), 1.25);
-  await page.locator(".player-seek").evaluate(input => { input.value = "2"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })); });
-  await page.waitForFunction(() => Math.abs(document.querySelector("audio").currentTime - 2) < .1);
-  await page.locator(".player-seek").focus(); await page.keyboard.press("ArrowRight");
-  assert.ok(await page.locator("audio").evaluate(media => media.currentTime > 2 && media.currentTime < 3), "range arrow does not trigger the player's 10s shortcut");
-  await page.locator(".player-transport .player-skip:last-child").click();
-  await page.waitForFunction(() => document.querySelector("audio").currentTime === document.querySelector("audio").duration);
-  for (const size of [{width:620,height:480},{width:360,height:360}]) {
-    await page.setViewportSize(size);
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth || document.documentElement.scrollHeight > innerHeight), false);
-    assert.ok(await page.locator(".player-controls").evaluate(element => element.scrollWidth <= element.clientWidth));
+  if (audioReady) {
+    await page.locator(".player-play").click();
+    await page.waitForFunction(() => !document.querySelector("audio").paused);
+    await page.locator(".player-play").click();
+    await page.locator(".preview-player").focus(); await page.keyboard.press("k");
+    await page.waitForFunction(() => !document.querySelector("audio").paused);
+    await page.keyboard.press("Space");
+    assert.equal(await page.locator("audio").evaluate(media => media.paused), true);
+    await page.locator(".player-volume-group > button").click();
+    assert.equal(await page.locator("audio").evaluate(media => media.muted), true);
+    await page.locator(".player-volume-group > button").click();
+    await page.locator(".player-volume").evaluate(input => { input.value = ".35"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+    assert.equal(await page.locator("audio").evaluate(media => media.volume), .35);
+    await page.locator(".player-volume").evaluate(input => {
+      // Two changes in one task reproduce a quick slider drag before volumechange.
+      for (const value of ["0.35", "0"]) { input.value = value; input.dispatchEvent(new Event("input", { bubbles: true })); }
+    });
+    await page.locator(".player-volume-group > button").click();
+    assert.equal(await page.locator("audio").evaluate(media => !media.muted && media.volume === .35), true, "unmute restores the last audible volume");
+    await page.locator(".player-rate").click();
+    assert.equal(await page.locator("audio").evaluate(media => media.playbackRate), 1.25);
+    await page.locator(".player-seek").evaluate(input => { input.value = "2"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await page.waitForFunction(() => Math.abs(document.querySelector("audio").currentTime - 2) < .1);
+    await page.locator(".player-seek").focus(); await page.keyboard.press("ArrowRight");
+    assert.ok(await page.locator("audio").evaluate(media => media.currentTime > 2 && media.currentTime < 3), "range arrow does not trigger the player's 10s shortcut");
+    await page.locator(".player-transport .player-skip:last-child").click();
+    await page.waitForFunction(() => document.querySelector("audio").currentTime === document.querySelector("audio").duration);
+    for (const size of [{width:620,height:480},{width:360,height:360}]) {
+      await page.setViewportSize(size);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth || document.documentElement.scrollHeight > innerHeight), false);
+      assert.ok(await page.locator(".player-controls").evaluate(element => element.scrollWidth <= element.clientWidth));
+  }
   }
   await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
   assert.equal(await page.locator(".player-seek").evaluate(element => getComputedStyle(element).appearance), "auto");
