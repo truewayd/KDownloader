@@ -5,6 +5,7 @@
   const supported = new Set(['system', 'zh-CN', 'en']);
   const normalize = value => supported.has(value) ? value : 'system';
   let preference = 'system';
+  let appliedLanguage = '';
   try { preference = normalize(localStorage.getItem(key)); } catch (_) { }
   const language = () => preference === 'system'
     ? (/^zh\b/i.test(navigator.language || '') ? 'zh-CN' : 'en') : preference;
@@ -64,9 +65,17 @@
     for (const child of root.childNodes) localize(child);
   }
   function apply() {
-    document.documentElement.lang = language();
+    const currentLanguage = language();
+    document.documentElement.lang = currentLanguage;
+    if (currentLanguage !== 'en' && appliedLanguage !== 'en') {
+      appliedLanguage = currentLanguage;
+      const select = document.getElementById('application-language');
+      if (select) select.value = preference;
+      return;
+    }
     localize(document.body);
     localize(document.querySelector?.("title"));
+    appliedLanguage = currentLanguage;
     const select = document.getElementById('application-language');
     if (select) select.value = preference;
   }
