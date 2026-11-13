@@ -119,7 +119,7 @@ GPL version 3 text.
 ## Lucide icons
 
 TrueDown uses selected icons from [Lucide](https://lucide.dev), pinned to
-`lucide-static@1.42.0`. The dashboard, native controls and
+`lucide-static@1.65.0`. The dashboard, native controls and
 tray menu share these source shapes. The original TrueDown logo remains
 project artwork. Icons are generated at build time; no icon JavaScript library
 or network request runs in the application.
