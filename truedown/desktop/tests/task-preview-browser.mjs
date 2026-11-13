@@ -223,8 +223,8 @@ try {
   await page.emulateMedia({ forcedColors: "none" });
   await page.evaluate(() => { window.retiredMedia = document.querySelector("audio"); });
   await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 5, revision: 6, open: true } }));
+  await page.waitForFunction(() => document.querySelector("video") !== null, null, { timeout: 30000 });
   const videoReady = await page.waitForFunction(() => document.querySelector("video")?.readyState >= 2, null, { timeout: 5000 }).then(() => true).catch(() => false);
-  assert.ok(await page.locator("video").count());
   assert.ok(await page.evaluate(() => document.querySelector("video").src.includes("/tasks/preview/stream")), "large video uses the native stream endpoint");
   if (videoReady) {
     assert.ok(streamRanges.length > 0, "video playback issued a Range request");
