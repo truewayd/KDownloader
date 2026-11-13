@@ -47,7 +47,7 @@ try {
       "/auth/settings": { enabled: false, managed: false },
       "/system/storage": { dataDirectory: `C:\\Users\\${"LongProfileName".repeat(8)}\\AppData\\Local\\TrueDown`, paths: Object.fromEntries(["config", "data", "state", "logs", "cache"].map(role => [role, `C:\\Users\\Example\\AppData\\Local\\TrueDown\\${role}`])) },
       "/system/info": { product: "TrueDown", productVersion: "1.5.0", version: "truedown-build-42", buildNumber: "42", commit: "a".repeat(40) },
-      "/system/logs": { content: "entry\n".repeat(300), updatedAt: "2026-09-08T05:35:34Z" },
+      "/system/logs": { enabled: true, content: "entry\n".repeat(300), updatedAt: "2026-09-08T05:35:34Z" },
       "/system/update": { trueDown: { version: "truedown-build-42", build: 42, supported: true, autoUpdate: true, lastCheckedAt: "2026-09-08T05:35:34Z" }, engine: { preference: "next", active: "next", activeVersion: "3.0.2", stableVersion: "1.37.0", nextInstalled: true, nextInstalledVersion: "3.0.2", nextRecommendedVersion: "3.0.2", nextRollbackVersion: "3.0.0", autoUpdateSupported: true, autoUpdate: true } },
       "/system/engine/select": {},
       "/modules": { modules: ["google-drive", "dropbox", "mega", "mediafire"].map(id => ({ id, capabilities: ["mega", "mediafire"].includes(id) ? ["executable"] : [], name: id === "mediafire" ? "MediaFire" : id === "dropbox" ? "Dropbox" : id === "mega" ? "MEGA" : "Google Drive", version: "1.0.0", installed: true, source: "baseline" })) },
@@ -396,11 +396,11 @@ try {
           try {
             for (const content of ["new fixture log", ""]) {
               let finish;
-              requestJSON = async () => ({ content: "original fixture log", updatedAt: "" });
+              requestJSON = async () => ({ enabled: true, content: "original fixture log", updatedAt: "" });
               await loadApplicationLog();
               writeClipboard = () => new Promise(resolve => { finish = resolve; });
               const copying = copyApplicationLog();
-              requestJSON = async () => ({ content, updatedAt: "" });
+              requestJSON = async () => ({ enabled: true, content, updatedAt: "" });
               await loadApplicationLog();
               const during = { disabled: els.copyApplicationLogBtn.disabled, aria: els.copyApplicationLogBtn.getAttribute("aria-disabled"), busy: els.copyApplicationLogBtn.getAttribute("aria-busy") };
               finish();

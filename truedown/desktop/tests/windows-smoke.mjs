@@ -17,6 +17,9 @@ const fixture = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "trued
 const installation = path.join(fixture, "Application with spaces");
 const profile = path.join(fixture, "Profile with spaces");
 await fs.mkdir(installation);
+// This isolated acceptance profile verifies startup and shutdown log evidence.
+await fs.mkdir(path.join(profile, "logs"), { recursive: true });
+await fs.writeFile(path.join(profile, "logs", ".enabled"), "");
 for (const name of [shellName, "truedown-core.exe", "truedown-cli.exe", "aria2c.exe"]) {
   await fs.copyFile(path.join(source, name), path.join(installation, name));
 }
@@ -263,6 +266,8 @@ try {
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { timeout: 15000 });
   const context = browser.contexts()[0];
   main = await waitUntil(() => context.pages()[0]);
+  await waitForNativeCondition(main, () => Boolean(window.TrueDownI18n));
+  await main.evaluate(() => TrueDownI18n.setLanguage("zh-CN"));
   const observe = page => {
     page.setDefaultTimeout(10000);
     page.on("pageerror", error => errors.push(error.message));
