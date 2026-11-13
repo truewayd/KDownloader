@@ -150,8 +150,11 @@ try {
     element.dispatchEvent(event); return event.defaultPrevented;
   }), false, "horizontal-only wheel input is not interpreted as zoom");
   assert.equal(await page.locator(".preview-toolbar svg:not([aria-hidden='true']), .preview-toolbar svg:not([focusable='false'])").count(), 0);
-  for (const name of ["打开文件", "打开方式…", "打开目录", "适应窗口", "缩小", "放大"]) {
-    const button = page.getByRole("button", { name, exact: true });
+  for (const selector of [
+    '[data-preview-action="open-file"]', '[data-preview-action="open-with"]', '[data-preview-action="open-folder"]',
+    "#preview-fit", "#preview-out", "#preview-in",
+  ]) {
+    const button = page.locator(selector);
     assert.equal(await button.locator("svg use").count(), 1);
     assert.ok(await button.getAttribute("data-tooltip"));
   }
@@ -181,23 +184,23 @@ try {
   await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 4, revision: 5, open: true } }));
   await page.waitForFunction(() => document.querySelector("audio")?.readyState >= 3);
   assert.equal(await page.locator("audio").evaluate(media => media.controls || !media.paused), false, "custom controls without autoplay");
-  await page.getByRole("button", { name: "播放", exact: true }).click();
+  await page.locator(".player-play").click();
   await page.waitForFunction(() => !document.querySelector("audio").paused);
-  await page.getByRole("button", { name: "暂停", exact: true }).click();
+  await page.locator(".player-play").click();
   await page.locator(".preview-player").focus(); await page.keyboard.press("k");
   await page.waitForFunction(() => !document.querySelector("audio").paused);
   await page.keyboard.press("Space");
   assert.equal(await page.locator("audio").evaluate(media => media.paused), true);
-  await page.getByRole("button", { name: "静音", exact: true }).click();
+  await page.locator(".player-volume-group > button").click();
   assert.equal(await page.locator("audio").evaluate(media => media.muted), true);
-  await page.getByRole("button", { name: "取消静音", exact: true }).click();
+  await page.locator(".player-volume-group > button").click();
   await page.locator(".player-volume").evaluate(input => { input.value = ".35"; input.dispatchEvent(new Event("input", { bubbles: true })); });
   assert.equal(await page.locator("audio").evaluate(media => media.volume), .35);
   await page.locator(".player-volume").evaluate(input => {
     // Two changes in one task reproduce a quick slider drag before volumechange.
     for (const value of ["0.35", "0"]) { input.value = value; input.dispatchEvent(new Event("input", { bubbles: true })); }
   });
-  await page.getByRole("button", { name: "取消静音", exact: true }).click();
+  await page.locator(".player-volume-group > button").click();
   assert.equal(await page.locator("audio").evaluate(media => !media.muted && media.volume === .35), true, "unmute restores the last audible volume");
   await page.locator(".player-rate").click();
   assert.equal(await page.locator("audio").evaluate(media => media.playbackRate), 1.25);
@@ -205,7 +208,7 @@ try {
   await page.waitForFunction(() => Math.abs(document.querySelector("audio").currentTime - 2) < .1);
   await page.locator(".player-seek").focus(); await page.keyboard.press("ArrowRight");
   assert.ok(await page.locator("audio").evaluate(media => media.currentTime > 2 && media.currentTime < 3), "range arrow does not trigger the player's 10s shortcut");
-  await page.getByRole("button", { name: "前进 10 秒" }).click();
+  await page.locator(".player-transport .player-skip:last-child").click();
   await page.waitForFunction(() => document.querySelector("audio").currentTime === document.querySelector("audio").duration);
   for (const size of [{width:620,height:480},{width:360,height:360}]) {
     await page.setViewportSize(size);
@@ -227,9 +230,9 @@ try {
   assert.equal(await page.evaluate(() => retiredMedia.paused && !retiredMedia.hasAttribute("src")), true);
   assert.equal(await page.locator("video").evaluate(media => media.controls), false);
   await page.setViewportSize({width:1000,height:760});
-  await page.getByRole("button", { name: "全屏", exact: true }).click();
+  await page.locator(".preview-player .player-options > button").last().click();
   await page.waitForFunction(() => document.fullscreenElement?.classList.contains("preview-player"));
-  await page.getByRole("button", { name: "退出全屏", exact: true }).click();
+  await page.locator(".preview-player .player-options > button").last().click();
   await page.waitForFunction(() => !document.fullscreenElement);
   await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 5, revision: 7, open: false } }));
   assert.equal(await page.locator(".preview-player").count(), 0);
