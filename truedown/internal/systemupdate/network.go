@@ -90,7 +90,20 @@ func (m *Manager) updateTrueDown(ctx context.Context) error {
 	if available == nil {
 		return nil
 	}
+	// A staged build is already a complete, verified installer payload. A
+	// repeated manual check must not download and unpack the same installer
+	// again while that payload is waiting for restart.
+	m.mu.RLock()
+	pending := m.state.PendingUpdate
+	m.mu.RUnlock()
+	if !shouldStageTrueDownUpdate(pending, available.Build) {
+		return nil
+	}
 	return m.stageTrueDown(ctx, available)
+}
+
+func shouldStageTrueDownUpdate(pending *pendingAppUpdate, availableBuild int64) bool {
+	return pending == nil || availableBuild > pending.Build
 }
 
 func (m *Manager) discoverTrueDownRelease(ctx context.Context) (*availableAppUpdate, error) {
@@ -241,6 +254,12 @@ func (m *Manager) installNext(ctx context.Context, automatic bool) error {
 	}
 	m.availableNext = available
 	installed := m.state.NextEngine
+	if installed != nil && compareEngineVersions(available.Version, installed.Version) <= 0 {
+		if _, resolveErr := m.resolveNextEngineLocked(installed); resolveErr == nil {
+			m.mu.Unlock()
+			return nil
+		}
+	}
 	skip := automatic && (!m.state.AutoUpdateNext || installed == nil || m.state.NextFailedVersion == available.Version || compareEngineVersions(available.Version, installed.Version) <= 0)
 	m.mu.Unlock()
 	if skip {
