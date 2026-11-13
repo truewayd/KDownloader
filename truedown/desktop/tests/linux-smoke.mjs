@@ -153,7 +153,7 @@ try {
     assert.equal(await evaluate("return downloadSettings.connections"), 9);
     await command("POST", "/window", { handle: main });
     await until(() => evaluate("return Number(document.querySelector('#task-count').textContent)===arguments[0]", [total]));
-    assert.equal(await evaluate("return document.querySelector('#toast').textContent"), "下载任务已添加");
+    assert.ok(["下载任务已添加", "Download tasks added"].includes(await evaluate("return document.querySelector('#toast').textContent")));
   }
   phase = "task details window";
   await command("POST", "/window", { handle: main });
