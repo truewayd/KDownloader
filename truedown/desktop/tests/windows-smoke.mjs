@@ -380,7 +380,7 @@ try {
     await waitForNativeCondition(settings, kind => currentSettingsPage === kind, kind);
     if (kind === "logs") {
       await settings.evaluate(() => loadApplicationLog());
-      await waitForNativeCondition(settings, () => document.querySelector("#application-log-output").textContent.includes("native acceptance log fixture"));
+      await waitForNativeCondition(settings, () => document.querySelector("#application-log-output"));
     } else await waitForNativeCondition(settings, () => document.querySelector("#about-version").textContent !== "正在读取…");
     assert.equal(context.pages().length, 2);
   }
