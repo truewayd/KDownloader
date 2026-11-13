@@ -72,6 +72,7 @@ try {
         if (command !== "core_request") return;
         window.previewRequests.push(args.request);
         const url = new URL(args.request.path, location.origin);
+        if (url.pathname === "/tasks/archive-preview") return { status: 415, body: "unsupported" };
         if (url.pathname !== "/tasks/preview") return { status: 200, body: "OK" };
         const id = Number(url.searchParams.get("id"));
         const offset = Number(url.searchParams.get("offset"));
