@@ -369,12 +369,13 @@ try {
   await waitUntil(() => context.pages().length === 2);
   const storage = await api(main, "GET", "/system/storage");
   assert.equal(storage.layoutVersion, 1);
-  // The settings window owns the opt-in POST route; the main window is read-only.
   await fs.appendFile(path.join(storage.paths.logs, "truedown.log"), "native acceptance log fixture\n");
   assert.equal(storage.paths.cache.toLowerCase(), path.join(profile, "cache").toLowerCase());
   await fs.access(path.join(storage.paths.cache, "webview", "EBWebView"));
   assert.equal((await fs.readdir(installation)).some(name => name.includes("WebView")), false);
   await waitForNativeCondition(settings, () => currentSettingsPage === "general");
+  await api(settings, "POST", "/system/logs", { enabled: true });
+  await fs.appendFile(path.join(storage.paths.logs, "truedown.log"), "native acceptance log fixture\n");
   for (const kind of ["logs", "about"]) {
     await invoke(main, "open_auxiliary", { kind });
     await waitForNativeCondition(settings, kind => currentSettingsPage === kind, kind);
