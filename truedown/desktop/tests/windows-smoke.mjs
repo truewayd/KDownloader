@@ -9,6 +9,13 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { readToastPlacement, assertToastBounds } from "./toast-layout.mjs";
 
+// Keep the exact failing assertion available through the public Checks API.
+// This observer does not catch the error or change the process exit status.
+process.on("uncaughtExceptionMonitor", error => {
+  const message = `${error.stack || error.message}${error.condition ? `\nCondition: ${error.condition}` : ""}`;
+  console.error(`::error::${message.slice(0, 16000).replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A")}`);
+});
+
 if (process.platform !== "win32") throw new Error("This acceptance test requires Windows WebView2");
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = path.resolve(process.argv[2] || path.join(desktop, "target/debug"));
