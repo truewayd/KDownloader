@@ -222,7 +222,11 @@ try {
   assert.equal(await page.locator(".player-seek").evaluate(element => getComputedStyle(element).appearance), "auto");
   await page.emulateMedia({ forcedColors: "none" });
   await page.evaluate(() => { window.retiredMedia = document.querySelector("audio"); });
-  await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 5, revision: 6, open: true } }));
+  if (!audioReady) {
+    await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 4, revision: 6, open: false } }));
+    await page.waitForFunction(() => !document.querySelector(".preview-player"));
+  }
+  await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 5, revision: 7, open: true } }));
   await page.waitForFunction(() => document.querySelector("video") !== null, null, { timeout: 30000 });
   const videoReady = await page.waitForFunction(() => document.querySelector("video")?.readyState >= 2, null, { timeout: 5000 }).then(() => true).catch(() => false);
   assert.ok(await page.evaluate(() => document.querySelector("video").src.includes("/tasks/preview/stream")), "large video uses the native stream endpoint");
@@ -242,7 +246,7 @@ try {
   } else {
     assert.equal(await page.locator("video").evaluate(media => media.controls), false);
   }
-  await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 5, revision: 7, open: false } }));
+  await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 5, revision: 8, open: false } }));
   assert.equal(await page.locator(".preview-player").count(), 0);
   assert.deepEqual(errors, []);
   console.log("Preview security, fit/zoom, inert text, custom media playback/seek/volume/rate/fullscreen, responsive controls and cleanup passed");
