@@ -60,7 +60,8 @@ function launchDesktop() { return spawn(path.join(installation, shellName), ["--
 const child = launchDesktop();
 let launchError;
 child.on("error", error => { launchError = error; });
-child.stdout.resume(); child.stderr.resume();
+let startupDiagnostics = "";
+for (const stream of [child.stdout, child.stderr]) stream.on("data", chunk => { startupDiagnostics = (startupDiagnostics + chunk.toString()).slice(-16000); });
 let browser, main, downloadFixture;
 const invoke = (page, command, args) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
 const isNavigationContextError = error => /\bExecution context was destroyed\b|\bCannot find context with specified id\b/.test(error?.message || "");
@@ -268,7 +269,7 @@ try {
   // starts only after it completes, so readiness must cover both phases.
   }, 90000).catch(async error => {
     const coreReady = await fetch(`http://127.0.0.1:${port}/system/info`, { signal: AbortSignal.timeout(2500) }).then(response => response.ok, () => false);
-    throw new Error(`Native startup failed: ${error.message}; coreHTTPReady=${coreReady}; fixture=${fixture}`, { cause: error });
+    throw new Error(`Native startup failed: ${error.message}; coreHTTPReady=${coreReady}; fixture=${fixture}; output=${startupDiagnostics}`, { cause: error });
   });
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { timeout: 15000 });
   const context = browser.contexts()[0];
