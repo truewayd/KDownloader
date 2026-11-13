@@ -117,21 +117,14 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           npx playwright install --with-deps chromium
+          tests=(workspace-browser-smoke.mjs workspace-notice-browser.mjs tooltips-browser.mjs tooltip-overlay-browser.mjs context-menu-browser.mjs task-forms-browser-smoke.mjs task-details-browser-smoke.mjs task-viewport-browser.mjs file-groups-browser-smoke.mjs interaction-feedback-browser.mjs auxiliary-ui-browser.mjs task-preview-browser.mjs settings-browser-smoke.mjs select-browser.mjs)
           for attempt in 1 2; do
-            node tests/workspace-browser-smoke.mjs && \
-            node tests/workspace-notice-browser.mjs && \
-            node tests/tooltips-browser.mjs && \
-            node tests/tooltip-overlay-browser.mjs && \
-            node tests/context-menu-browser.mjs && \
-            node tests/task-forms-browser-smoke.mjs && \
-            node tests/task-details-browser-smoke.mjs && \
-            node tests/task-viewport-browser.mjs && \
-            node tests/file-groups-browser-smoke.mjs && \
-            node tests/interaction-feedback-browser.mjs && \
-            node tests/auxiliary-ui-browser.mjs && \
-            node tests/task-preview-browser.mjs && \
-            node tests/settings-browser-smoke.mjs && \
-            node tests/select-browser.mjs && exit 0
+            passed=1
+            for test in "${tests[@]}"; do
+              echo "Running Linux browser acceptance: $test (attempt $attempt)"
+              node "tests/$test" || { passed=0; break; }
+            done
+            [ "$passed" -eq 1 ] && exit 0
             if [ "$attempt" -eq 1 ]; then echo "Linux browser acceptance was transient; retrying once"; fi
           done
           exit 1
