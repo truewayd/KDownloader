@@ -24,9 +24,6 @@ const fixture = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "trued
 const installation = path.join(fixture, "Application with spaces");
 const profile = path.join(fixture, "Profile with spaces");
 await fs.mkdir(installation);
-// This isolated acceptance profile verifies startup and shutdown log evidence.
-await fs.mkdir(path.join(profile, "logs"), { recursive: true });
-await fs.writeFile(path.join(profile, "logs", ".enabled"), "");
 for (const name of [shellName, "truedown-core.exe", "truedown-cli.exe", "aria2c.exe"]) {
   await fs.copyFile(path.join(source, name), path.join(installation, name));
 }
@@ -372,6 +369,9 @@ try {
   await waitUntil(() => context.pages().length === 2);
   const storage = await api(main, "GET", "/system/storage");
   assert.equal(storage.layoutVersion, 1);
+  // Initialize the profile before opting in through the supported API.
+  await api(main, "POST", "/system/logs", { enabled: true });
+  await fs.appendFile(path.join(storage.paths.logs, "truedown.log"), "native acceptance log fixture\n");
   assert.equal(storage.paths.cache.toLowerCase(), path.join(profile, "cache").toLowerCase());
   await fs.access(path.join(storage.paths.cache, "webview", "EBWebView"));
   assert.equal((await fs.readdir(installation)).some(name => name.includes("WebView")), false);
@@ -381,7 +381,7 @@ try {
     await waitForNativeCondition(settings, kind => currentSettingsPage === kind, kind);
     if (kind === "logs") {
       await settings.evaluate(() => loadApplicationLog());
-      await waitForNativeCondition(settings, () => document.querySelector("#application-log-output").textContent.includes("starting"));
+      await waitForNativeCondition(settings, () => document.querySelector("#application-log-output").textContent.includes("native acceptance log fixture"));
     } else await waitForNativeCondition(settings, () => document.querySelector("#about-version").textContent !== "正在读取…");
     assert.equal(context.pages().length, 2);
   }
