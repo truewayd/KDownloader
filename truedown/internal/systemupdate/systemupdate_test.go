@@ -251,6 +251,26 @@ func TestTrueDownUpdateStagesCompleteVerifiedNativeBundle(t *testing.T) {
 	}
 }
 
+func TestStagedTrueDownBuildSuppressesDuplicateInstallerDownload(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		pending        *pendingAppUpdate
+		availableBuild int64
+		wantStage      bool
+	}{
+		{name: "no staged build", availableBuild: 12, wantStage: true},
+		{name: "same build", pending: &pendingAppUpdate{Build: 12}, availableBuild: 12, wantStage: false},
+		{name: "older available build", pending: &pendingAppUpdate{Build: 13}, availableBuild: 12, wantStage: false},
+		{name: "newer available build", pending: &pendingAppUpdate{Build: 12}, availableBuild: 13, wantStage: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := shouldStageTrueDownUpdate(test.pending, test.availableBuild); got != test.wantStage {
+				t.Fatalf("shouldStageTrueDownUpdate()=%v, want %v", got, test.wantStage)
+			}
+		})
+	}
+}
+
 func TestHealthCheckRejectsOversizedMarker(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "health")
 	if err := os.WriteFile(path, bytes.Repeat([]byte{'a'}, 513), 0600); err != nil {

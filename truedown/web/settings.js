@@ -1320,7 +1320,7 @@ function renderSystemUpdateState() {
   els.truedownUpdateStatus.textContent = trueDownStatus;
   els.autoUpdateTruedown.checked = trueDown.autoUpdate;
   els.autoUpdateTruedown.disabled = !trueDown.supported || Boolean(busy);
-  els.checkTruedownUpdateBtn.disabled = !trueDown.supported || Boolean(busy);
+  els.checkTruedownUpdateBtn.disabled = !trueDown.supported || Boolean(busy) || trueDown.restartRequired;
   KDComponents.setBusyState(els.checkTruedownUpdateBtn, busy === "truedown", { manageDisabled: false });
   els.restartTruedownUpdateBtn.hidden = !trueDown.restartRequired;
   els.restartTruedownUpdateBtn.disabled = Boolean(busy) || restartingForUpdate || restartConfirmationPending;

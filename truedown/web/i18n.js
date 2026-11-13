@@ -24,7 +24,10 @@
       }).join('');
       return { pattern: new RegExp(`^${pattern}$`), indices, output };
     });
-  function english(value) {
+  const fragments = Object.entries(messages)
+    .filter(([key]) => key.trim().length >= 2 && /[\u4e00-\u9fff]/.test(key) && !/\{\d+\}/.test(key))
+    .sort(([a], [b]) => b.length - a.length);
+  function english(value, allowFragments = false) {
     if (Object.hasOwn(messages, value)) return messages[value];
     if (value.length > 4096 || !/[\u4e00-\u9fff]/.test(value)) return value;
     for (const template of templates) {
@@ -33,11 +36,25 @@
       const values = Object.fromEntries(template.indices.map((index, offset) => [index, match[offset + 1]]));
       return template.output.replace(/\{(\d+)\}/g, (_, index) => messages[values[index]] || values[index]);
     }
+    if (allowFragments) {
+      let output = value;
+      for (const template of templates) {
+        const pattern = new RegExp(template.pattern.source.replace(/^\^|\$$/g, ''), 'g');
+        output = output.replace(pattern, (...args) => {
+          const values = Object.fromEntries(template.indices.map((index, offset) => [index, args[offset + 1]]));
+          return template.output.replace(/\{(\d+)\}/g, (_, index) => messages[values[index]] || values[index]);
+        });
+      }
+      for (const [source, translated] of fragments) {
+        if (output.includes(source)) output = output.split(source).join(translated);
+      }
+      return output;
+    }
     return value;
   }
-  function translate(value) {
+  function translate(value, allowFragments = false) {
     const trimmed = value.trim();
-    return value.replace(trimmed, language() === 'en' ? english(trimmed) : trimmed);
+    return value.replace(trimmed, language() === 'en' ? english(trimmed, allowFragments) : trimmed);
   }
   function update(node, field, read, write) {
     const current = read();
@@ -45,7 +62,7 @@
     if (!fields) { fields = new Map(); originals.set(node, fields); }
     const previous = fields.get(field);
     const source = previous && current === previous.output ? previous.source : current;
-    const output = translate(source);
+    const output = translate(source, true);
     fields.set(field, { source, output });
     if (current !== output) write(output);
   }
