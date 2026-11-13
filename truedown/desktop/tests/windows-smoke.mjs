@@ -269,6 +269,9 @@ try {
   // starts only after it completes, so readiness must cover both phases.
   }, 90000).catch(async error => {
     const coreReady = await fetch(`http://127.0.0.1:${port}/system/info`, { signal: AbortSignal.timeout(2500) }).then(response => response.ok, () => false);
+    for (const log of [path.join(profile, "logs", "truedown.log"), path.join(profile, "truedown.log")]) {
+      startupDiagnostics += await fs.readFile(log, "utf8").then(text => `\nCore log: ${text.slice(-12000)}`, () => "");
+    }
     throw new Error(`Native startup failed: ${error.message}; coreHTTPReady=${coreReady}; fixture=${fixture}; output=${startupDiagnostics}`, { cause: error });
   });
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { timeout: 15000 });
