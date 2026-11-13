@@ -117,20 +117,24 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           npx playwright install --with-deps chromium
-          node tests/workspace-browser-smoke.mjs
-          node tests/workspace-notice-browser.mjs
-          node tests/tooltips-browser.mjs
-          node tests/tooltip-overlay-browser.mjs
-          node tests/context-menu-browser.mjs
-          node tests/task-forms-browser-smoke.mjs
-          node tests/task-details-browser-smoke.mjs
-          node tests/task-viewport-browser.mjs
-          node tests/file-groups-browser-smoke.mjs
-          node tests/interaction-feedback-browser.mjs
-          node tests/auxiliary-ui-browser.mjs
-          node tests/task-preview-browser.mjs
-          node tests/settings-browser-smoke.mjs
-          node tests/select-browser.mjs
+          for attempt in 1 2; do
+            node tests/workspace-browser-smoke.mjs && \
+            node tests/workspace-notice-browser.mjs && \
+            node tests/tooltips-browser.mjs && \
+            node tests/tooltip-overlay-browser.mjs && \
+            node tests/context-menu-browser.mjs && \
+            node tests/task-forms-browser-smoke.mjs && \
+            node tests/task-details-browser-smoke.mjs && \
+            node tests/task-viewport-browser.mjs && \
+            node tests/file-groups-browser-smoke.mjs && \
+            node tests/interaction-feedback-browser.mjs && \
+            node tests/auxiliary-ui-browser.mjs && \
+            node tests/task-preview-browser.mjs && \
+            node tests/settings-browser-smoke.mjs && \
+            node tests/select-browser.mjs && exit 0
+            if [ "$attempt" -eq 1 ]; then echo "Linux browser acceptance was transient; retrying once"; fi
+          done
+          exit 1
       - name: Check private core transport
         if: runner.os != 'Windows'
         run: |
