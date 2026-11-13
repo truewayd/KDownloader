@@ -69,6 +69,10 @@ if [[ "$ready" -ne 1 ]]; then
   exit 1
 fi
 [[ $(cat "$probe_root/ping.txt") == pong ]]
+# Application logs are opt-in. This isolated profile needs shutdown evidence.
+curl -fsS -X POST -H 'Content-Type: application/json' \
+  --data '{"enabled":true}' "http://127.0.0.1:$port/system/logs" >"$probe_root/logging.json"
+grep -q '"enabled":true' "$probe_root/logging.json"
 curl -fsS "http://127.0.0.1:$port/tasks?limit=1" >"$probe_root/tasks.json"
 curl -fsS "http://127.0.0.1:$port/system/info" >"$probe_root/info.json"
 grep -q '"product":"TrueDown"' "$probe_root/info.json"
