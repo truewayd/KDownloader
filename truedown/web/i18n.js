@@ -10,7 +10,7 @@
     ? (/^zh\b/i.test(navigator.language || '') ? 'zh-CN' : 'en') : preference;
   const originals = new WeakMap();
   // User-owned names, links, diagnostics and preview payloads remain literal.
-  const protectedSelector = 'script,style,textarea,pre,code,[contenteditable],.kd-selectable,.task-name,.task-link,.task-path,.task-detail-value,.detail-value,#preview-stage,#preview-content,#preview-text,#logs-content,#app-log-content,.task-file-name,.task-info-value,[data-i18n-ignore]';
+  const protectedSelector = 'script,style,textarea,pre,code,[contenteditable],.kd-selectable,#task-detail-title,#task-info-grid dd:first-of-type,#task-location-grid dd,.task-name,.task-link,.task-path,.task-detail-value,.detail-value,#preview-stage,#preview-content,#preview-text,#logs-content,#app-log-content,.task-file-name,.task-info-value,[data-i18n-ignore]';
   const attributes = ['title', 'aria-label', 'placeholder', 'data-tooltip', 'data-kd-notice-title'];
   const messages = window.TrueDownEnglish || {};
   const templates = Object.entries(messages).filter(([key]) => /\{\d+\}/.test(key))
@@ -55,6 +55,7 @@
       return;
     }
     if (root.nodeType !== 1 && root.nodeType !== 9) return;
+    if (root.tagName === "TITLE" && root.textContent === document.getElementById("task-detail-title")?.textContent) return;
     if (root.nodeType === 1 && root.closest(protectedSelector)) return;
     if (root.nodeType === 1) {
       for (const attr of attributes) if (root.hasAttribute(attr)) update(root, attr, () => root.getAttribute(attr), value => root.setAttribute(attr, value));
