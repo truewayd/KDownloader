@@ -30,7 +30,8 @@
 .navigation-indicator { position: absolute; top: 0; left: 3px; width: 3px; height: 18px; border-radius: 3px; background: var(--kd-accent); pointer-events: none; transition: transform 320ms cubic-bezier(.22, 1, .36, 1); }
 .primary-nav > *, .file-group-navigation { min-width: 0; }
 .nav-section-label { margin: 0 12px 6px; font-size: 11px; color: var(--kd-muted); }
-.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link { position: relative; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 8px 12px; }
+.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link { position: relative; display: flex; align-items: flex-start; gap: 10px; min-height: 36px; padding: 8px 12px; line-height: 1.35; }
+.settings-nav-link span { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 .sidebar .icon { flex: 0 0 18px; width: 18px; height: 18px; }
 .sidebar-footer { margin-top: auto; font-size: 11px; }
 .nav-count { margin-left: auto; color: var(--kd-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -100,13 +101,13 @@
 .tasks-table { font-variant-numeric: tabular-nums; }
 .tasks-table .col-select { width: 36px; }
 .tasks-table .col-file { width: 24%; }
-.tasks-table .col-status { width: 88px; }
+.tasks-table .col-status { width: 128px; }
 .tasks-table .col-link { width: 18%; }
 .tasks-table .col-actions { width: 190px; }
 .tasks-table th { font-weight: 500; letter-spacing: 0; }
 .tasks-table .sort-button { white-space: nowrap; }
 .tasks-table .task-name { font-weight: 600; }
-.tasks-table .status-badge { font-weight: 500; }
+.tasks-table .status-badge { max-width: 100%; overflow-wrap: anywhere; text-align: center; white-space: normal; font-weight: 500; }
 .tasks-table tbody tr { contain: layout style; }
 .settings-page { display: flex; flex-direction: column; width: 100%; min-width: 0; overflow: hidden; }
 .settings-layout { display: flex; flex: 1; min-height: 0; }
@@ -124,7 +125,7 @@
 .settings-search-result:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -2px; }
 .settings-search-highlight { outline: 2px solid var(--kd-focus); outline-offset: 4px; border-radius: var(--kd-control-radius); scroll-margin: 20px; }
 .settings-content { background: var(--kd-bg); }
-.log-follow { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
+.log-follow { display: flex; min-width: 0; align-items: flex-start; gap: 6px; font-size: 12px; line-height: 1.35; }
 .settings-content:has([data-settings-page="logs"]:not([hidden])) { display: flex; flex-direction: column; overflow: hidden; }
 .settings-content > .settings-section.log-page { display: flex; flex: 1; min-height: 0; max-width: none; padding: 0; }
 .settings-content .application-log-output { flex: 1; min-height: 100px; max-height: none; }
@@ -195,7 +196,7 @@
 .dropbox-settings > .field:first-of-type { margin-top: 0; }
 #dropbox-suffix-editor .group-suffix-chip { background: var(--kd-surface-raised); }
 .file-group-editor-row > button { margin-top: 26px; }
-.file-group-editor-row .field > label { white-space: nowrap; }
+.file-group-editor-row .field > label { overflow-wrap: anywhere; }
 .group-editor-actions { display: flex; gap: 12px; flex-wrap: wrap; position: sticky; top: calc(-1 * var(--settings-top-inset)); z-index: 2; padding-block: 8px; background: var(--kd-surface); }
 @container settings (max-width: 680px) {
   .settings-content .extension-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -280,12 +281,12 @@
 
 /* One responsive toolbar; list scrolling is independent of its controls. */
 .task-panel { position: relative; container: task-workspace / inline-size; }
-.task-toolbar { align-items: center; gap: 8px; padding: 12px 16px; }
-.task-toolbar .task-query-controls { display: flex; flex: 0 1 360px; min-width: 0; gap: 8px; }
+.task-toolbar { align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
+.task-toolbar .task-query-controls { display: flex; flex: 1 1 360px; min-width: 0; gap: 8px; }
 .task-toolbar .search-control { width: auto; flex: 1; min-width: 80px; }
-.task-toolbar .filter-control { flex: 0 0 108px; }
+.task-toolbar .filter-control { flex: 0 1 124px; min-width: 112px; }
 .task-toolbar .filter-control .kd-select { width: 100%; }
-.task-toolbar .task-queue-actions { flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; }
+.task-toolbar .task-queue-actions { flex: 0 1 auto; min-width: 0; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .task-toolbar .kd-button { height: 36px; min-height: 36px; padding: 6px 8px; font-size: 12px; }
 .task-toolbar > #open-downloads-btn { margin-left: auto; width: 36px; height: 36px; }
 .task-panel #tasks-wrap { min-height: 0; flex: 1; overflow-anchor: none; }
