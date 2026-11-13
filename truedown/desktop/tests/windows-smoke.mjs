@@ -369,8 +369,7 @@ try {
   await waitUntil(() => context.pages().length === 2);
   const storage = await api(main, "GET", "/system/storage");
   assert.equal(storage.layoutVersion, 1);
-  // Initialize the profile before opting in through the supported API.
-  await api(main, "POST", "/system/logs", { enabled: true });
+  // The settings window owns the opt-in POST route; the main window is read-only.
   await fs.appendFile(path.join(storage.paths.logs, "truedown.log"), "native acceptance log fixture\n");
   assert.equal(storage.paths.cache.toLowerCase(), path.join(profile, "cache").toLowerCase());
   await fs.access(path.join(storage.paths.cache, "webview", "EBWebView"));
