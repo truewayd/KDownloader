@@ -79,7 +79,7 @@ try {
         const data = id === 1 ? atob(image) : id === 4 ? atob(audio) : id === 5 ? atob(video) : '<script>window.injected=true</script>\nplain text';
         const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(data, char => char.charCodeAt(0)));
         const sha256 = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-        return { status: 200, body: JSON.stringify({ name: id === 1 ? "preview.png" : id === 4 ? "sample.wav" : id === 5 ? "sample.webm" : "notes.txt", mime: id === 1 ? "image/png" : id === 4 ? "audio/wav" : id === 5 ? "video/webm" : "text/plain", size: id === 5 ? 80 * 1024 * 1024 : data.length, sha256, version: "a".repeat(64), offset, data: btoa((id === 3 ? data.replace("plain", "other") : data).slice(offset, offset + 512 * 1024)) }) };
+        return { status: 200, body: JSON.stringify({ name: id === 1 ? "preview.png" : id === 4 ? "sample.wav" : id === 5 ? "sample.webm" : "notes.txt", mime: id === 1 ? "image/png" : id === 4 ? "audio/wav" : id === 5 ? "video/webm" : "text/plain", size: id === 5 ? 80 * 1024 * 1024 : data.length, sha256, version: "a".repeat(64), offset, data: id === 5 ? "" : btoa((id === 3 ? data.replace("plain", "other") : data).slice(offset, offset + 512 * 1024)) }) };
       } },
     };
   }, { image: png.toString("base64"), audio: wav.toString("base64"), video });
