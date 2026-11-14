@@ -30,6 +30,13 @@ test('all static HTML UI text has an English message',()=>{
 test('missing messages and user-supplied values remain literal',()=>{
  const {api}=runtime();for(const text of ['https://example.test/下载中','客户文件.png','<script>alert(1)</script>']) assert.equal(api.t(text),text);
 });
+test('composed status sentences do not get swallowed by template placeholders',()=>{
+ const {api}=runtime('en');
+ const status='当前使用随包提供的稳定内核 v1.37.0。 已安装 NEXT v3.0.8。跟随 TrueDown 推荐版本更新。 本次 TrueDown 推荐 v3.0.8。';
+ assert.equal(api.t(status,true),'Using the bundled stable engine v1.37.0. NEXT v3.0.8 installed. Automatic updates use the recommended version. TrueDown recommends v3.0.8.');
+ assert.equal(api.t('当前使用 NEXT v3.0.8。 尚未安装 NEXT。',true),'Using NEXT v3.0.8. NEXT is not installed.');
+ api.setLanguage('zh-CN');assert.equal(api.t(status,true),status);
+});
 test('group labels and menu wording follow language changes',()=>{
  const {api}=runtime('zh-CN');
  assert.equal(api.t('调整此分组'),'编辑分组');

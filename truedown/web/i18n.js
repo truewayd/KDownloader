@@ -38,6 +38,12 @@
   function english(value, allowFragments = false) {
     if (Object.hasOwn(messages, value)) return messages[value];
     if (value.length > 4096 || !/[\u4e00-\u9fff]/.test(value)) return value;
+    // Match composed status sentences separately: a version placeholder must
+    // not consume every following sentence up to the final full stop.
+    if (allowFragments) {
+      const sentences = (value.match(/[^。]*。|[^。]+$/g) || []).map(part => part.trim()).filter(Boolean);
+      if (sentences.length > 1) return sentences.map(part => english(part, true).trim()).join(' ');
+    }
     for (const template of templates) {
       const match = template.pattern.exec(value);
       if (!match) continue;
