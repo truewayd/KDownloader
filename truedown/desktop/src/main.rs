@@ -38,6 +38,10 @@ use tauri::{
 };
 use tokio::sync::Mutex;
 
+fn full_resolution_icon() -> Option<tauri::image::Image<'static>> {
+    tauri::image::Image::from_bytes(include_bytes!("../icons/notification.png")).ok()
+}
+
 fn show_main(app: &tauri::AppHandle) {
     if app.state::<windows::Windows>().suppress
         || app.state::<Arc<Core>>().closing.load(Ordering::SeqCst)
@@ -70,10 +74,10 @@ fn show_main(app: &tauri::AppHandle) {
                 && window.is_minimized().ok() == Some(false)
                 && window.is_maximized().ok() == Some(false)
             {
-                let Some(icon) = app
-                    .default_window_icon()
-                    .map(|icon| icon.clone().to_owned())
-                else {
+                let Some(icon) = full_resolution_icon().or_else(|| {
+                    app.default_window_icon()
+                        .map(|icon| icon.clone().to_owned())
+                }) else {
                     return;
                 };
                 match window_shell::renew(window, icon).await {
@@ -88,6 +92,9 @@ fn show_main(app: &tauri::AppHandle) {
             };
             if app.state::<Arc<Core>>().closing.load(Ordering::SeqCst) {
                 return;
+            }
+            if let Some(icon) = full_resolution_icon() {
+                let _ = window.set_icon(icon);
             }
             placement::fit(&window.as_ref().window(), false);
             let _ = window.show();
