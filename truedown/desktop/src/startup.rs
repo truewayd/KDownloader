@@ -157,7 +157,7 @@ impl Startup {
                 "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
             )
             .and_then(|key| key.get_raw_value(&self.name))
-            .map(|value| value.bytes)
+            .map(|value| value.bytes.to_vec())
         })?;
         let path = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
         let key = match root.open_subkey_with_flags(

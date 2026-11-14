@@ -115,7 +115,9 @@ pub fn before_start(base: &Path) -> Result<bool, String> {
             }
             hash.update(&buffer[..count]);
         }
-        if format!("{:x}", hash.finalize()) != marker.sha256 {
+        let digest = hash.finalize();
+        let actual: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+        if actual != marker.sha256 {
             return Err("Native recovery helper failed its SHA-256 check".into());
         }
         Command::new(helper)
