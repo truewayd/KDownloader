@@ -309,14 +309,24 @@ fn main() {
                 task_preview: Default::default(),
             });
             for config in &app.config().app.windows {
-                let window = frame::configure(
+                let builder = frame::configure(
                     app.state::<windows::Windows>()
                         .storage
                         .configure(tauri::WebviewWindowBuilder::from_config(app, config)?),
-                )
-                .visible(false)
-                .on_navigation(windows::local_navigation)
-                .build()?;
+                );
+                let builder = if config.label == "main" {
+                    if let Some(icon) = full_resolution_icon() {
+                        builder.icon(icon)?
+                    } else {
+                        builder
+                    }
+                } else {
+                    builder
+                };
+                let window = builder
+                    .visible(false)
+                    .on_navigation(windows::local_navigation)
+                    .build()?;
                 frame::install(&window).map_err(std::io::Error::other)?;
                 placement::fit(&window.as_ref().window(), true);
                 if config.visible && !background && !app.state::<windows::Windows>().suppress {
