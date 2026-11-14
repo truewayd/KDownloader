@@ -127,6 +127,16 @@ impl Aggregate {
             return None;
         }
         let [ordinary, dropbox, drive, engine] = self.counts;
+        if crate::locale::english() {
+            let mut body = String::new();
+            if ordinary > 0 || dropbox > 0 || drive > 0 {
+                body = format!("Download issues: {ordinary}. Dropbox issues: {dropbox}. Google Drive issues: {drive}. Check your downloads or module settings. ");
+            }
+            if engine > 0 {
+                body.push_str(&format!("{engine} media downloads are waiting for a compatible engine. Enable NEXT 3 in Settings. Paused downloads will stay paused."));
+            }
+            return Some((body, self.delivered.is_some()));
+        }
         let mut body = String::new();
         if ordinary > 0 || dropbox > 0 || drive > 0 {
             body = format!("下载问题：{ordinary}；Dropbox 模块或下载问题：{dropbox}；Google Drive 模块或下载问题：{drive}。请在任务列表或模块设置中查看。");
@@ -440,7 +450,10 @@ mod platform {
             }
             let mut notification = notify_rust::Notification::new();
             notification
-                .summary("TrueDown 下载提示")
+                .summary(crate::locale::text(
+                    "TrueDown 下载提示",
+                    "TrueDown downloads",
+                ))
                 .body(body)
                 .appname("TrueDown");
             #[cfg(target_os = "linux")]
@@ -479,7 +492,8 @@ fn toast_xml(body: &str, icon: Option<&str>) -> String {
             )
         })
         .unwrap_or_default();
-    format!("<toast><visual><binding template=\"ToastGeneric\">{image}<text>TrueDown 下载提示</text><text>{}</text></binding></visual><audio silent=\"true\"/></toast>", escape(body))
+    let title = crate::locale::text("TrueDown 下载提示", "TrueDown downloads");
+    format!("<toast><visual><binding template=\"ToastGeneric\">{image}<text>{title}</text><text>{}</text></binding></visual><audio silent=\"true\"/></toast>", escape(body))
 }
 
 #[cfg(test)]

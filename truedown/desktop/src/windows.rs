@@ -82,6 +82,16 @@ impl Kind {
         }
     }
     fn title(self) -> &'static str {
+        if crate::locale::english() {
+            return match self {
+                Self::Settings | Self::Engine => "Settings",
+                Self::Logs => "Application logs",
+                Self::About => "About TrueDown",
+                Self::NewTask => "New download",
+                Self::TaskDetails => "Task details",
+                Self::TaskPreview => "File preview",
+            };
+        }
         match self {
             Self::Settings => "设置",
             Self::Logs => "应用日志",

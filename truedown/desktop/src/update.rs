@@ -28,6 +28,8 @@ pub async fn desktop_ready(
     if !core.connect().await?.owned {
         return Err("An update must start its own matching core".into());
     }
+    // A working core alone must not commit an update with an unusable window.
+    crate::appearance::wait_ready(&window).await?;
     let mut temporary =
         tempfile::NamedTempFile::new_in(&health.directory).map_err(|error| error.to_string())?;
     temporary

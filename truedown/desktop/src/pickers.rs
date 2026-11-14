@@ -64,7 +64,10 @@ pub async fn choose_download_directory(
     let (sender, receiver) = oneshot::channel();
     app.dialog()
         .file()
-        .set_title("选择下载目录")
+        .set_title(crate::locale::text(
+            "选择下载目录",
+            "Choose download folder",
+        ))
         .set_parent(&window)
         .pick_folder(move |selected| {
             let _pending = pending;

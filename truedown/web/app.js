@@ -601,9 +601,15 @@ async function confirmAction(options) {
   if (window.__TAURI__?.core?.invoke) {
     const { title, message, confirmLabel = "确认", cancelLabel = "取消", danger = false,
       kind = danger ? "warning" : "info" } = options;
+    const translate = (value, fragments = false) => window.TrueDownI18n?.t(value, fragments) ?? value;
     try {
       return await invokeNative("confirm_action", {
-        options: { title, message, confirmLabel, cancelLabel, kind },
+        options: {
+          title: translate(title, true),
+          message: translate(message, true),
+          confirmLabel: translate(confirmLabel),
+          cancelLabel: translate(cancelLabel), kind,
+        },
       });
     } catch (error) {
       showToast(`无法打开确认窗口：${error.message || error}`, "error");

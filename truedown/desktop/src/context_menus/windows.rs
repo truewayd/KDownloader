@@ -473,7 +473,7 @@ unsafe fn track_tray(
         token,
         false,
         false,
-        false,
+        crate::locale::english(),
     );
     // Required by the notification-area menu lifecycle for reliable dismissal.
     PostMessageW(owner, WM_NULL, 0, 0);

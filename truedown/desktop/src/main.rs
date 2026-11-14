@@ -12,6 +12,7 @@ mod drops;
 mod editing;
 mod frame;
 mod lifecycle;
+mod locale;
 #[cfg(all(debug_assertions, target_os = "macos"))]
 mod macos_acceptance;
 mod menu_icons;
@@ -234,6 +235,7 @@ fn main() {
                 return true;
             }
             let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+                locale::set_application_language,
                 commands::core_request,
                 commands::desktop_state,
                 commands::copy_api_token,
@@ -355,6 +357,12 @@ fn main() {
             let settings = item("settings", "设置", menu_icons::Icon::Settings)?;
             let exit = item("tray-exit", "退出", menu_icons::Icon::Power)?;
             let menu = Menu::with_items(app, &[&new, &open, &settings, &exit])?;
+            app.manage(locale::TrayLabels(vec![
+                (new, "新建下载", "New download"),
+                (open, "打开", "Open TrueDown"),
+                (settings, "设置", "Settings"),
+                (exit, "退出", "Quit"),
+            ]));
             // macOS renders an 18pt status item using its exact Retina raster.
             let icon =
                 tray_image::image_for_pixels(if cfg!(target_os = "macos") { 36 } else { 32 })?;

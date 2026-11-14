@@ -14,7 +14,7 @@ pub struct Core {
     shutdown: Mutex<()>,
     executable: PathBuf,
     data_dir: Option<String>,
-    pub closing: AtomicBool,
+    pub closing: Arc<AtomicBool>,
     pub exited: AtomicBool,
     pub owned: AtomicBool,
     pub stop_requested: Arc<tokio::sync::Notify>,
@@ -66,7 +66,7 @@ impl Core {
             shutdown: Mutex::new(()),
             executable,
             data_dir,
-            closing: AtomicBool::new(false),
+            closing: Arc::new(AtomicBool::new(false)),
             exited: AtomicBool::new(false),
             owned: AtomicBool::new(false),
             stop_requested: Arc::new(tokio::sync::Notify::new()),
@@ -121,6 +121,7 @@ impl Core {
             session.attach_only,
             recovering,
             self.stop_requested.clone(),
+            self.closing.clone(),
         )
         .await
         {

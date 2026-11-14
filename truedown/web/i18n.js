@@ -92,6 +92,12 @@
   function apply() {
     const currentLanguage = language();
     document.documentElement.lang = currentLanguage;
+    if (window.__TAURI__?.core?.invoke) {
+      const role = new URLSearchParams(location.search).get('window') || 'main';
+      if (['main', 'settings'].includes(role)) {
+        window.__TAURI__.core.invoke('set_application_language', { language: currentLanguage }).catch(console.error);
+      }
+    }
     localize(document.body);
     localize(document.querySelector?.("title"));
     const select = document.getElementById('application-language');

@@ -235,6 +235,7 @@ impl Bridge {
         attach_only: bool,
         recovering: bool,
         stop_requested: Arc<tokio::sync::Notify>,
+        closing: Arc<AtomicBool>,
     ) -> Result<Arc<Self>, String> {
         let mut command = Command::new(executable);
         command.env(
@@ -316,6 +317,8 @@ impl Bridge {
                     && response.event == "stopping"
                     && response.protocol_version == 1
                 {
+                    // Block recovery before EOF can race the lifecycle task.
+                    closing.store(true, Ordering::SeqCst);
                     stop_requested.notify_one();
                     continue;
                 }

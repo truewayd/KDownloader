@@ -111,6 +111,7 @@ Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps
 ## TrueDown Runtime
 
 - Windows context-menu requests carry the resolved application language; both Composition and HMENU render labels from the same native action allowlist. Language changes must not alter action authorization or persisted user group names.
+- Main and settings windows synchronize their resolved language with native tray labels, notifications, pickers and auxiliary titles. An owned core's stopping event blocks recovery before notifying the exit coordinator; update health acknowledgement also requires a ready main-window surface.
 
 - User-initiated Windows path opens delegate foreground permission only from an owned native shell to its core, then to the exact live private helper before target delivery. Folder opens may delegate to the OS Shell process to activate an existing Explorer window. Never use ASFW_ANY, simulated input, foreground-lock settings or forced application focus to bypass Windows policy. Preserve the bounded private pipe, parent verification and local target guards; ordinary tests remain hidden.
 
