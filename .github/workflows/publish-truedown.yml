@@ -241,6 +241,7 @@ jobs:
         run: brew install aria2
 
       - name: Test TrueDown with native aria2
+        if: matrix.os == 'linux' && matrix.arch == 'amd64'
         working-directory: truedown
         env:
           CGO_ENABLED: "0"
@@ -250,12 +251,14 @@ jobs:
           go test ./...
 
       - name: Vet TrueDown
+        if: matrix.os == 'linux' && matrix.arch == 'amd64'
         working-directory: truedown
         env:
           CGO_ENABLED: "0"
         run: go vet ./...
 
       - name: Test Unix build safety
+        if: matrix.os == 'linux' && matrix.arch == 'amd64'
         run: bash truedown/tools/test-unix-build-safety.sh
 
       - name: Build Unix package

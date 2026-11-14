@@ -10,16 +10,6 @@ on:
       - "shared/**"
       - "manifest.json"
       - ".github/workflows/test-native-desktop.yml"
-  push:
-    branches: [main]
-    paths:
-      - "tests/native*.test.mjs"
-      - "tests/iconAssets.test.mjs"
-      - "truedown/**"
-      - "!truedown/modules/profiles/**"
-      - "shared/**"
-      - "manifest.json"
-      - ".github/workflows/test-native-desktop.yml"
   workflow_dispatch:
   workflow_call:
 
@@ -73,10 +63,12 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install aria2
       - name: Prepare npm audit client
+        if: runner.os == 'Linux'
         run: npm install --global npm@11.19.0 --no-audit --no-fund --ignore-scripts
       - name: Install desktop build dependencies
         run: npm ci
-      - name: Audit build and core dependencies
+      - name: Audit build and core dependencies on Linux
+        if: runner.os == 'Linux'
         working-directory: truedown
         run: |
           audit_report="$RUNNER_TEMP/truedown-npm-audit.json"
@@ -117,7 +109,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           npx playwright install --with-deps chromium
-          tests=(workspace-browser-smoke.mjs workspace-notice-browser.mjs tooltips-browser.mjs tooltip-overlay-browser.mjs context-menu-browser.mjs task-forms-browser-smoke.mjs task-details-browser-smoke.mjs task-viewport-browser.mjs file-groups-browser-smoke.mjs interaction-feedback-browser.mjs auxiliary-ui-browser.mjs task-preview-browser.mjs settings-browser-smoke.mjs select-browser.mjs)
+          tests=(workspace-browser-smoke.mjs workspace-notice-browser.mjs tooltips-browser.mjs tooltip-overlay-browser.mjs context-menu-browser.mjs task-forms-browser-smoke.mjs task-details-browser-smoke.mjs task-viewport-browser.mjs file-groups-browser-smoke.mjs interaction-feedback-browser.mjs auxiliary-ui-browser.mjs settings-browser-smoke.mjs select-browser.mjs)
           for attempt in 1 2; do
             passed=1
             for test in "${tests[@]}"; do

@@ -120,10 +120,11 @@ patched source rather than hidden with a global ignore rule.
 
 Dependabot checks the desktop npm and Cargo manifests and the core Go module
 weekly. Native validation audits npm build dependencies and runs
-`go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...` from `truedown` on each
-desktop OS, using the Go baseline in `go.mod`. A clean scan on a newer local
-toolchain does not establish that the CI baseline is secure. Review upstream
-security notices as well: advisory indexes can lag newly published fixes.
+`go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...` from `truedown` once on
+Linux, using the Go baseline in `go.mod`; native UI and runtime acceptance still
+runs on each desktop OS. A clean scan on a newer local toolchain does not
+establish that the CI baseline is secure. Review upstream security notices as
+well: advisory indexes can lag newly published fixes.
 
 The 2026-09-30 review raised the Go baseline to 1.26.8, updated x/sys and
 the Unix SQLite dependency, and raised Tauri's minimum runtime to 2.11.6 for
