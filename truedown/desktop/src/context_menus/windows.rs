@@ -109,6 +109,7 @@ impl Drop for Cleanup {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Preserve the flat IPC argument contract.
 pub async fn show_context_menu(
     app: tauri::AppHandle,
     window: WebviewWindow,
@@ -227,6 +228,7 @@ unsafe fn track(
     )
 }
 
+#[allow(clippy::too_many_arguments)] // Native tracking needs caller, placement and presentation context.
 unsafe fn track_at(
     window: &WebviewWindow,
     hwnd: windows_sys::Win32::Foundation::HWND,
