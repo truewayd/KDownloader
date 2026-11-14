@@ -318,6 +318,9 @@
   .task-toolbar .task-queue-actions .kd-button span { display: none; }
   .task-toolbar > #open-downloads-btn { width: 32px; }
 }
+@container task-workspace (max-width: 400px) {
+  .task-toolbar .task-query-controls { flex: 1 0 100%; }
+}
 @media (max-width: 520px) {
   [data-settings-search="true"] .settings-nav { flex: 1; }
   [data-settings-search="true"] #settings-form { display: none; }
