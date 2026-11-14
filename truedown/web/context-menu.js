@@ -155,7 +155,7 @@
       nativePending = nativePending.then(() => {
         if (current !== context || disposed) return null;
         return invokeNative("show_context_menu", {
-          requestId: context.requestId, actions, keyboard,
+          requestId: context.requestId, actions, keyboard, language: window.TrueDownI18n?.language || "en",
           x: keyboard || !Number.isFinite(event.clientX) ? rect.left : event.clientX,
           y: keyboard || !Number.isFinite(event.clientY) ? rect.bottom : event.clientY,
         });

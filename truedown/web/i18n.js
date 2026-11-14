@@ -5,7 +5,6 @@
   const supported = new Set(['system', 'zh-CN', 'en']);
   const normalize = value => supported.has(value) ? value : 'system';
   let preference = 'system';
-  let appliedLanguage = '';
   try { preference = normalize(localStorage.getItem(key)); } catch (_) { }
   const language = () => preference === 'system'
     ? (/^zh\b/i.test(navigator.language || '') ? 'zh-CN' : 'en') : preference;
@@ -14,6 +13,15 @@
   const protectedSelector = 'script,style,textarea,pre,code,[contenteditable],.kd-selectable,#task-detail-title,#task-info-grid dd:first-of-type,#task-location-grid dd,.task-name,.task-link,.task-path,.task-detail-value,.detail-value,#preview-stage,#preview-content,#preview-text,#logs-content,#app-log-content,.task-file-name,.task-info-value,[data-i18n-ignore]';
   const attributes = ['title', 'aria-label', 'placeholder', 'data-tooltip', 'data-kd-notice-title'];
   const messages = window.TrueDownEnglish || {};
+  const chinese = {
+    '调整此分组': '编辑分组',
+    '新增分组': '添加分组',
+    '暂停整个队列': '暂停全部下载',
+    '恢复整个队列': '继续全部下载',
+    '清理所有已完成记录': '清除已完成记录',
+    '最多创建 32 个分组。': '最多可添加 32 个分组。',
+    '分组已保存，已有任务会自动重新归类。': '分组已保存，现有任务会按新规则重新分类。',
+  };
   const templates = Object.entries(messages).filter(([key]) => /\{\d+\}/.test(key))
     .sort(([a], [b]) => b.replace(/\{\d+\}/g, '').length - a.replace(/\{\d+\}/g, '').length)
     .map(([key, output]) => {
@@ -54,7 +62,7 @@
   }
   function translate(value, allowFragments = false) {
     const trimmed = value.trim();
-    return value.replace(trimmed, language() === 'en' ? english(trimmed, allowFragments) : trimmed);
+    return value.replace(trimmed, language() === 'en' ? english(trimmed, allowFragments) : (chinese[trimmed] || trimmed));
   }
   function update(node, field, read, write) {
     const current = read();
@@ -84,15 +92,8 @@
   function apply() {
     const currentLanguage = language();
     document.documentElement.lang = currentLanguage;
-    if (currentLanguage !== 'en' && appliedLanguage !== 'en') {
-      appliedLanguage = currentLanguage;
-      const select = document.getElementById('application-language');
-      if (select) select.value = preference;
-      return;
-    }
     localize(document.body);
     localize(document.querySelector?.("title"));
-    appliedLanguage = currentLanguage;
     const select = document.getElementById('application-language');
     if (select) select.value = preference;
   }

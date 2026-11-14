@@ -30,3 +30,13 @@ test('all static HTML UI text has an English message',()=>{
 test('missing messages and user-supplied values remain literal',()=>{
  const {api}=runtime();for(const text of ['https://example.test/下载中','客户文件.png','<script>alert(1)</script>']) assert.equal(api.t(text),text);
 });
+test('group labels and menu wording follow language changes',()=>{
+ const {api}=runtime('zh-CN');
+ assert.equal(api.t('调整此分组'),'编辑分组');
+ assert.equal(api.t('恢复整个队列'),'继续全部下载');
+ api.setLanguage('en');
+ assert.equal(api.t('分组名称'),'Group name');
+ assert.equal(api.t('编辑分组'),'Edit group');
+ api.setLanguage('zh-CN');
+ assert.equal(api.t('调整此分组'),'编辑分组');
+});

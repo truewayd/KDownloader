@@ -114,6 +114,7 @@ pub async fn show_context_menu(
     window: WebviewWindow,
     request_id: u32,
     keyboard: Option<bool>,
+    language: Option<String>,
     actions: Vec<String>,
     x: f64,
     y: f64,
@@ -136,7 +137,17 @@ pub async fn show_context_menu(
         let result = if token.load(Ordering::SeqCst) || sender.is_closed() {
             Ok(None)
         } else {
-            unsafe { track(&window, &actions, x, y, &token, keyboard.unwrap_or(false)) }
+            unsafe {
+                track(
+                    &window,
+                    &actions,
+                    x,
+                    y,
+                    &token,
+                    keyboard.unwrap_or(false),
+                    language.as_deref() == Some("en"),
+                )
+            }
         };
         let state = handle.state::<Menus>();
         let mut active = state.active.lock().unwrap();
@@ -185,6 +196,7 @@ unsafe fn track(
     y: f64,
     cancelled: &AtomicBool,
     keyboard: bool,
+    english: bool,
 ) -> Result<Option<String>, String> {
     let hwnd = window.hwnd().map_err(|error| error.to_string())?.0;
     if IsWindowVisible(hwnd) == 0 || IsWindowEnabled(hwnd) == 0 || GetForegroundWindow() != hwnd {
@@ -210,7 +222,9 @@ unsafe fn track(
     if ClientToScreen(hwnd, &mut point) == 0 {
         return Err("Menu position unavailable".into());
     }
-    track_at(window, hwnd, actions, point, cancelled, true, keyboard)
+    track_at(
+        window, hwnd, actions, point, cancelled, true, keyboard, english,
+    )
 }
 
 unsafe fn track_at(
@@ -221,6 +235,7 @@ unsafe fn track_at(
     cancelled: &AtomicBool,
     visible_owner: bool,
     keyboard: bool,
+    english: bool,
 ) -> Result<Option<String>, String> {
     // Keep USER32 accessibility and scrolling on the fallback route. Only native
     // allowlisted labels/icons reach Composition; the WebView supplies no pixels.
@@ -232,7 +247,7 @@ unsafe fn track_at(
             visible_owner,
             actions,
             cancelled,
-            || composition_model(actions),
+            || composition_model(actions, english),
         ) {
             Ok(selected) => {
                 return Ok(selected
@@ -257,7 +272,7 @@ unsafe fn track_at(
         return Err("Cannot create context menu".into());
     }
     for (index, action) in actions.iter().enumerate() {
-        let text: Vec<u16> = label(action)
+        let text: Vec<u16> = localized_label(action, english)
             .ok_or("Unavailable menu action")?
             .encode_utf16()
             .chain(Some(0))
@@ -305,7 +320,10 @@ unsafe fn composition_allowed() -> bool {
         && reader == 0
 }
 
-fn composition_model(actions: &[String]) -> Result<truedown_native_menu::Model, String> {
+fn composition_model(
+    actions: &[String],
+    english: bool,
+) -> Result<truedown_native_menu::Model, String> {
     use truedown_native_menu::{
         style::{ITEM_INSET, ROW_HEIGHT},
         Icon, Item, Model,
@@ -320,7 +338,7 @@ fn composition_model(actions: &[String]) -> Result<truedown_native_menu::Model, 
     };
     let mut top = ITEM_INSET;
     for (index, action) in actions.iter().enumerate() {
-        let text = label(action).ok_or("Unavailable menu action")?;
+        let text = localized_label(action, english).ok_or("Unavailable menu action")?;
         let (label, shortcut) = text.split_once('\t').unwrap_or((text, ""));
         let danger = matches!(action.as_str(), "remove" | "clear-done");
         if (danger || action == "tray-exit") && index > 0 {
@@ -453,6 +471,7 @@ unsafe fn track_tray(
         token,
         false,
         false,
+        false,
     );
     // Required by the notification-area menu lifecycle for reliable dismissal.
     PostMessageW(owner, WM_NULL, 0, 0);
@@ -528,7 +547,52 @@ pub fn context_menu_key(
     .map_err(|e| e.to_string())
 }
 
+fn localized_label(action: &str, english: bool) -> Option<&'static str> {
+    if !english {
+        return label(action);
+    }
+    Some(match action {
+        "copy-link" => "Copy download link",
+        "preview" => "Preview file",
+        "details" => "Task details",
+        "pause" => "Pause",
+        "resume" => "Resume",
+        "requeue" => "Retry",
+        "open-file" => "Open file",
+        "open-folder" => "Open download folder",
+        "remove" => "Remove task",
+        "new-task" => "New download",
+        "settings" => "Settings",
+        "tray-new" => "New download",
+        "tray-open" => "Open",
+        "tray-exit" => "Quit",
+        "group-edit" => "Edit group",
+        "group-add" => "Add group",
+        "group-manage" => "Manage groups",
+        "pause-queue" => "Pause all downloads",
+        "resume-queue" => "Resume all downloads",
+        "retry-all" => "Retry all failed tasks",
+        "clear-done" => "Clear completed tasks",
+        "open-downloads" => "Open default download folder",
+        "undo" => "Undo\tCtrl+Z",
+        "redo" => "Redo\tCtrl+Y",
+        "cut" => "Cut\tCtrl+X",
+        "copy" => "Copy\tCtrl+C",
+        "paste" => "Paste\tCtrl+V",
+        "select-all" => "Select all\tCtrl+A",
+        _ => return None,
+    })
+}
+
 fn label(action: &str) -> Option<&'static str> {
+    match action {
+        "group-edit" => return Some("编辑分组"),
+        "group-add" => return Some("添加分组"),
+        "pause-queue" => return Some("暂停全部下载"),
+        "resume-queue" => return Some("继续全部下载"),
+        "clear-done" => return Some("清除已完成记录"),
+        _ => {}
+    }
     Some(match action {
         "copy-link" => "复制下载地址",
         "preview" => "预览文件",
@@ -567,6 +631,7 @@ mod tests {
     fn every_offered_action_has_a_native_label() {
         for action in super::super::ACTIONS {
             assert!(super::label(action).is_some());
+            assert!(super::localized_label(action, true).unwrap().is_ascii());
         }
         for action in ["tray-new", "tray-open", "tray-exit"] {
             assert!(super::label(action).is_some());

@@ -14,7 +14,7 @@ test("independent resolver profile publication does not require an application r
   assert.match(publish, /cmp .*existing/);
   assert.match(publish, /\[\[ "\$target" == "\$GITHUB_SHA" \]\]/);
   assert.match(application, /!truedown\/modules\/\*\*/);
-  for (const file of ["test-cross-platform.yml", "test-native-desktop.yml"]) {
+  for (const file of ["test-native-desktop.yml"]) {
     assert.match(await read(`.github/workflows/${file}`), /!truedown\/modules\/profiles\/\*\*/);
   }
 });

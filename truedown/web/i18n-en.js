@@ -907,4 +907,11 @@ window.TrueDownEnglish = Object.freeze({
   "切换到已保留的 NEXT v{0}，任务状态会保存。自动更新将暂时跳过当前版本，直到你手动恢复推荐版本或 TrueDown 推荐另一个版本。": "Switch to retained NEXT v{0}. Task state will be saved. Automatic updates will skip this version until you restore the recommended version manually or TrueDown recommends another version.",
   "安装本次 TrueDown 验证过的推荐内核{0}。下载任务可暂停或继续，安装前核对发布校验和与版本。如果已选择 NEXT，将保存任务状态并切换；上一版本会保留供回退使用。": "Install this TrueDown-verified recommended engine{0}. Downloads can be paused or resumed. Check the release checksum and version before installing. If NEXT is selected, task state is saved before switching. The previous version is retained for rollback.",
   "手动{0}": "Manually {0}",
+  "分组名称": "Group name",
+  "音乐": "Music",
+  "编辑分组": "Edit group",
+  "添加分组": "Add group",
+  "暂停全部下载": "Pause all downloads",
+  "继续全部下载": "Resume all downloads",
+  "清除已完成记录": "Clear completed tasks",
 });
