@@ -4,3 +4,8 @@
 - Turn off automatic application updates after native rollback, with an error explaining manual retry. Keep the state readable by previous builds.
 - Preserve immediate manual retry and explicit re-enabling of automatic updates.
 - Extend existing updater coverage for durable retry control, automatic rollback, and outgoing shell exit during Windows handoff.
+
+## Verification
+
+- Go updater and application tests.
+- Release workflow checks and Windows native update acceptance in CI.
