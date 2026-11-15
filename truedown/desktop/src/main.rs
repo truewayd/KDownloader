@@ -285,7 +285,17 @@ fn main() {
                 eprintln!("Cannot migrate login registration: {error}");
             }
             let core = app.state::<Arc<Core>>().inner().clone();
-            tauri::async_runtime::block_on(core.connect()).map_err(std::io::Error::other)?;
+            if let Err(error) = tauri::async_runtime::block_on(core.connect()) {
+                // The API can accept an update restart before the shell finishes
+                // its startup identity request. A stopping core may then return
+                // a draining response instead of identity JSON. Honor its stop
+                // event through the normal exit coordinator, not a setup panic.
+                if core.closing.load(Ordering::SeqCst) {
+                    lifecycle::request(app.handle());
+                    return Ok(());
+                }
+                return Err(std::io::Error::other(error).into());
+            }
             let profile = tauri::async_runtime::block_on(profile::Profile::resolve(
                 &base,
                 data_dir.as_deref(),
