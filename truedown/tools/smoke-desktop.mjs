@@ -91,7 +91,10 @@ try{
  await assert.rejects(fetch(endpoint+"/system/info"));
 
  const owned=launch(true),ownedRPC=rpc(owned);
- assert.equal((await bounded(ownedRPC.ready)).owned,true);
+ const ownedReady=await bounded(ownedRPC.ready);
+ assert.equal(ownedReady.owned,true);
+ assert.equal(JSON.parse(ownedReady.body).product,"TrueDown");
+ assert.equal(JSON.parse(ownedReady.body).protocolVersion,1);
  assert.equal((await ownedRPC.send("GET","/settings/task-defaults")).status,200);
  const enabled=await ownedRPC.send("POST","/auth/settings",JSON.stringify({enabled:true}));
  assert.equal(enabled.status,200);

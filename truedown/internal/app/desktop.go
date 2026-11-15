@@ -23,7 +23,7 @@ import (
 )
 
 type desktopCallbacks struct {
-	ready    func(http.Handler)
+	ready    func(http.Handler, protocol.Info)
 	stopping func()
 	attach   func(string, profile.Location) error
 }
@@ -40,11 +40,15 @@ func RunDesktop(ctx context.Context, options Options, input io.ReadCloser, outpu
 		stopping: func() {
 			_ = ownedBridge.Send(protocol.DesktopResponse{Event: "stopping", ProtocolVersion: protocol.Version, Owned: true})
 		},
-		ready: func(handler http.Handler) {
+		ready: func(handler http.Handler, identity protocol.Info) {
 			started = true
 			bridge := ownedBridge
+			body, err := json.Marshal(identity)
+			if err == nil {
+				// Publish identity before a restart can send the stopping event.
+				err = bridge.Send(protocol.DesktopResponse{Event: "ready", ProtocolVersion: protocol.Version, Owned: true, Body: string(body)})
+			}
 			go func() {
-				err := bridge.Send(protocol.DesktopResponse{Event: "ready", ProtocolVersion: protocol.Version, Owned: true})
 				if err == nil {
 					err = bridge.Serve(ctx, input, handler)
 				}

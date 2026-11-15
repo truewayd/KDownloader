@@ -72,6 +72,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		options.Build.Commit = "unknown"
 	}
 	version, buildNumber, commit := options.Build.Version, options.Build.BuildNumber, options.Build.Commit
+	identity := protocol.Info{Product: protocol.Product, ProtocolVersion: protocol.Version, ProductVersion: options.Build.ProductVersion, Version: version, BuildNumber: buildNumber, Commit: commit, Mode: "serve"}
 	base := exeDir()
 	stableAria2, err := resolveStableAria2(base)
 	if err != nil {
@@ -216,7 +217,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	routes := func(manager *downloader.Manager) http.Handler {
 		mux := http.NewServeMux()
 		api.Register(mux, manager, auth, controller)
-		api.RegisterInfo(mux, protocol.Info{Product: protocol.Product, ProtocolVersion: protocol.Version, ProductVersion: options.Build.ProductVersion, Version: version, BuildNumber: buildNumber, Commit: commit, Mode: "serve"})
+		api.RegisterInfo(mux, identity)
 		api.RegisterStorage(mux, location)
 		api.RegisterDiagnostics(mux, applicationLog)
 		api.RegisterStartup(mux)
@@ -322,7 +323,7 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		resetEngineRelaunchCircuitAfterHealthyPeriod()
 	}
 	if options.desktop != nil {
-		options.desktop.ready(host)
+		options.desktop.ready(host, identity)
 	}
 	reloadEngine := false
 	exitRequested := false

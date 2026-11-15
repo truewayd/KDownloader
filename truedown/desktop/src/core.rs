@@ -126,21 +126,8 @@ impl Core {
         .await
         {
             Ok(bridge) => {
-                if bridge.owned {
-                    let identity = bridge
-                        .request(crate::bridge::Request::new("GET", "/system/info"))
-                        .await
-                        .and_then(|response| {
-                            serde_json::from_str::<crate::build_info::Info>(&response.body)
-                                .map_err(|_| "Invalid core build identity".to_string())
-                        })
-                        .and_then(|identity| identity.verify());
-                    if let Err(error) = identity {
-                        bridge.shutdown().await;
-                        session.failure = Some(error.clone());
-                        return Err(error);
-                    }
-                }
+                // Owned identity is verified in the ready frame, before the
+                // core can start draining requests for an update restart.
                 session.retry_at = None;
                 self.owned.store(bridge.owned, Ordering::SeqCst);
                 session.recovery.healthy_since = Instant::now();

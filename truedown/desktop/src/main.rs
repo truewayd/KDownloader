@@ -287,20 +287,25 @@ fn main() {
             let core = app.state::<Arc<Core>>().inner().clone();
             if let Err(error) = tauri::async_runtime::block_on(core.connect()) {
                 // The API can accept an update restart before the shell finishes
-                // its startup identity request. A stopping core may then return
-                // a draining response instead of identity JSON. Honor its stop
-                // event through the normal exit coordinator, not a setup panic.
+                // its startup handshake. Honor the authenticated stop event
+                // through the normal exit coordinator, not a setup panic.
                 if core.closing.load(Ordering::SeqCst) {
                     lifecycle::request(app.handle());
                     return Ok(());
                 }
                 return Err(std::io::Error::other(error).into());
             }
-            let profile = tauri::async_runtime::block_on(profile::Profile::resolve(
+            let profile = match tauri::async_runtime::block_on(profile::Profile::resolve(
                 &base,
                 data_dir.as_deref(),
-            ))
-            .map_err(std::io::Error::other)?;
+            )) {
+                Ok(profile) => profile,
+                Err(_) if core.closing.load(Ordering::SeqCst) => {
+                    lifecycle::request(app.handle());
+                    return Ok(());
+                }
+                Err(error) => return Err(std::io::Error::other(error).into()),
+            };
             let tray_settings = Arc::new(
                 tray_actions::TraySettings::load(std::path::PathBuf::from(
                     &profile.tray_settings_file,

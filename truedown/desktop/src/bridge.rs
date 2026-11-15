@@ -285,6 +285,11 @@ impl Bridge {
         }
         .and_then(|value: Response| {
             if value.event == "ready" && value.protocol_version == 1 {
+                if value.owned {
+                    serde_json::from_str::<crate::build_info::Info>(&value.body)
+                        .map_err(|_| "Invalid core build identity".to_string())?
+                        .verify()?;
+                }
                 Ok(value)
             } else {
                 Err("Incompatible core protocol".into())
