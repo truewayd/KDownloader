@@ -73,10 +73,8 @@ func (m *Manager) UpdateTrueDown(ctx context.Context) (Snapshot, error) {
 }
 
 func (m *Manager) updateTrueDown(ctx context.Context) error {
-	available, err := m.discoverTrueDownRelease(ctx)
-	if err != nil {
-		return err
-	}
+	// Persist the attempt before network work. Restarting after an interrupted
+	// download or failed check must not reset the automatic retry interval.
 	m.mu.Lock()
 	next := m.state
 	next.LastCheckedAt = m.now().UTC()
@@ -85,6 +83,12 @@ func (m *Manager) updateTrueDown(ctx context.Context) error {
 		m.mu.Unlock()
 		return persistErr
 	}
+	m.mu.Unlock()
+	available, err := m.discoverTrueDownRelease(ctx)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
 	m.availableApp = available
 	m.mu.Unlock()
 	if available == nil {
@@ -468,8 +472,9 @@ func (m *Manager) runAutomaticCheck(ctx context.Context) {
 	m.mu.RLock()
 	enabled := m.state.AutoUpdateTrueDown
 	pending := m.state.PendingUpdate != nil && m.state.PendingUpdate.Build > m.currentBuild
+	lastChecked := m.state.LastCheckedAt
 	m.mu.RUnlock()
-	if !enabled || pending {
+	if !enabled || pending || (!lastChecked.IsZero() && m.now().Sub(lastChecked) < 12*time.Hour) {
 		return
 	}
 	_, _ = m.UpdateTrueDown(ctx)

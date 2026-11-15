@@ -135,6 +135,9 @@ func clearPendingUpdate(statePath string, build int64, updateError string) error
 	if state.PendingUpdate != nil && state.PendingUpdate.Build == build {
 		state.PendingUpdate = nil
 	}
+	// Use the existing preference so rollback binaries also honor the circuit
+	// breaker. A new schema field would be rejected by their strict decoder.
+	state.AutoUpdateTrueDown = false
 	state.LastUpdateError = truncate(updateError, 1024)
 	data, err = json.MarshalIndent(state, "", "  ")
 	if err != nil {

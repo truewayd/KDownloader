@@ -558,6 +558,9 @@ func (m *Manager) SetSettings(settings Settings) (Snapshot, error) {
 	next := m.state
 	if settings.AutoUpdateTrueDown != nil {
 		next.AutoUpdateTrueDown = *settings.AutoUpdateTrueDown
+		if next.AutoUpdateTrueDown && !m.state.AutoUpdateTrueDown {
+			next.LastCheckedAt = time.Time{}
+		}
 	}
 	if settings.AutoUpdateNext != nil {
 		next.AutoUpdateNext = *settings.AutoUpdateNext

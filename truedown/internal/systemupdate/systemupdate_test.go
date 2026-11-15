@@ -30,6 +30,73 @@ func TestRunAutomaticStopsWhenContextIsCanceled(t *testing.T) {
 	}
 }
 
+func TestAutomaticUpdateRetrySurvivesRestartAndRollback(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "release unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	now := time.Now().UTC()
+	path := filepath.Join(t.TempDir(), "updates.json")
+	m := &Manager{currentBuild: 1, statePath: path, client: server.Client(),
+		trueDownReleasesURL: server.URL, allowInsecureLoopback: true, now: func() time.Time { return now },
+		state: persistedState{SchemaVersion: stateSchemaVersion, AutoUpdateTrueDown: true, EnginePreference: EngineStable}}
+	if err := m.updateTrueDown(context.Background()); err == nil || requests != 1 {
+		t.Fatal("expected one failed release check", requests, err)
+	}
+	reload := func() {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.state = persistedState{}
+		if err := json.Unmarshal(data, &m.state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reload()
+	now = now.Add(time.Minute)
+	m.runAutomaticCheck(context.Background())
+	if requests != 1 {
+		t.Fatal("restart repeated the failed update check")
+	}
+	// Explicit manual requests remain available during the automatic cooldown.
+	if err := m.updateTrueDown(context.Background()); err == nil || requests != 2 {
+		t.Fatal("manual retry was blocked", requests, err)
+	}
+	if runtime.GOOS == "windows" {
+		now = now.Add(13 * time.Hour)
+		m.runAutomaticCheck(context.Background())
+		if requests != 3 {
+			t.Fatal("automatic retry did not resume after cooldown", requests)
+		}
+	}
+	beforeRollback := requests
+	m.state.PendingUpdate = &pendingAppUpdate{Build: 2}
+	if err := m.persistLocked(); err != nil {
+		t.Fatal(err)
+	}
+	if err := clearPendingUpdate(path, 2, "rolled back"); err != nil {
+		t.Fatal(err)
+	}
+	reload()
+	now = now.Add(24 * time.Hour)
+	m.runAutomaticCheck(context.Background())
+	if requests != beforeRollback || m.state.AutoUpdateTrueDown || m.state.PendingUpdate != nil || m.state.LastUpdateError != "rolled back" {
+		t.Fatal("rollback did not durably stop automatic retries", m.state, requests)
+	}
+	enabled := true
+	if _, err := m.SetSettings(Settings{AutoUpdateTrueDown: &enabled}); err != nil {
+		t.Fatal(err)
+	}
+	reload()
+	if !m.state.AutoUpdateTrueDown || !m.state.LastCheckedAt.IsZero() {
+		t.Fatal("explicit re-enable did not reset retry interval")
+	}
+}
+
 func TestAutomaticApplyHonorsSettingAndIdleState(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		for _, idle := range []bool{false, true} {

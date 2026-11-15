@@ -95,10 +95,11 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
       JSON.stringify([{ build: targetBuild, ...archive }]));
     const statePath = path.join(stateDirectory, "truedown.updates.json");
     const state = JSON.parse(await fs.readFile(statePath, "utf8"));
-    state.autoUpdateTrueDown = mode === "automatic-update";
+    state.autoUpdateTrueDown = mode !== "update";
     state.pendingUpdate = { version: `truedown-build-${targetBuild}`, build: targetBuild, file: path.basename(stage), sha256: "a".repeat(64), nativeFiles: files };
     await fs.writeFile(statePath, JSON.stringify(state));
     const markerPath = path.join(directory, "TrueDown.update.json");
+    let outgoing;
     if (mode === "interrupted-rollback") {
       const token = randomBytes(24).toString("hex");
       const transactionPath = path.join(updates, `native-apply-${token}.json`);
@@ -113,9 +114,9 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
       await fs.writeFile(transactionPath, JSON.stringify({ schemaVersion: 1, build: targetBuild, directory, stage, statePath,
         healthPath: path.join(updates, `native-health-${token}`), token, arguments: ["--background", "--data-dir", profile], files: replacements }));
       await fs.writeFile(markerPath, JSON.stringify({ schemaVersion: 1, transaction: transactionPath, helper, sha256: (await metadata(updates, path.basename(helper))).sha256, token }));
-      launch();
+      outgoing = launch();
     } else {
-      launch();
+      outgoing = launch();
       await until(async () => await build() === "1");
       const pending = await request("/system/update");
       assert.equal(pending.trueDown.pendingBuild, targetBuild);
@@ -125,6 +126,8 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
     await until(async () => !(await exists(markerPath)));
     const wanted = ["update", "automatic-update"].includes(mode) ? "2" : "1";
     await until(async () => await build() === wanted);
+    await until(() => outgoing.exitCode !== null);
+    assert.equal(outgoing.exitCode, 0, "the outgoing shell must exit after update handoff");
     for (const name of names) assert.deepEqual(await metadata(directory, name), await metadata(["update", "automatic-update"].includes(mode) ? next : previous, name));
     assert.deepEqual(await metadata(directory, "aria2c.exe"), engine);
     const saved = JSON.parse(await fs.readFile(statePath, "utf8"));

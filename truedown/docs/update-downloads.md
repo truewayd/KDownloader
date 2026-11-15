@@ -34,6 +34,13 @@ With automatic updates enabled, Windows checks about eight seconds after startup
 and every twelve hours thereafter, then downloads and verifies eligible updates.
 Pending updates are considered for application every thirty seconds while waiting
 for an idle queue.
+The check timestamp is persisted before network work, so restarting the core does
+not reset the twelve-hour interval after a failed or interrupted attempt. Manual
+checks and explicitly re-enabling automatic updates can retry immediately.
+If native installation rolls back, automatic application updates are switched off
+durably and the update error explains how to retry from Settings. This prevents
+the restored version from repeatedly downloading and applying the same package.
+NEXT's update preference is unchanged.
 The main sidebar reports the updater-owned task's progress, speed, queued/paused
 state and verification, even when task filters hide that download. A verified
 program update exposes a confirmed restart action; automatic idle restarts retain
