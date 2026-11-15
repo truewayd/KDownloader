@@ -65,7 +65,11 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
     TRUEDOWN_API_TOKEN: "", TRUEDOWN_REQUIRE_TOKEN: "", TRUEDOWN_TLS_CERT: "", TRUEDOWN_TLS_KEY: "" };
   const launch = () => {
     const child = spawn(path.join(directory, "TrueDown.exe"), ["--background", "--data-dir", profile], { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
-    child.stdout.resume(); child.stderr.resume(); return child;
+    child.diagnostics = "";
+    for (const stream of [child.stdout, child.stderr]) stream.on("data", data => {
+      child.diagnostics = (child.diagnostics + data.toString()).slice(-16384);
+    });
+    return child;
   };
   const request = async (route, method = "GET", body) => {
     const response = await fetch(origin + route, { method, signal: AbortSignal.timeout(method === "GET" ? 3000 : 30000), ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}) }).catch(error => { throw new Error(`${mode}: ${method} ${route}: ${error.message}`); });
@@ -127,7 +131,7 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
     const wanted = ["update", "automatic-update"].includes(mode) ? "2" : "1";
     await until(async () => await build() === wanted);
     await until(() => outgoing.exitCode !== null);
-    assert.equal(outgoing.exitCode, 0, "the outgoing shell must exit after update handoff");
+    assert.equal(outgoing.exitCode, 0, `the outgoing shell must exit after update handoff: ${outgoing.diagnostics}`);
     for (const name of names) assert.deepEqual(await metadata(directory, name), await metadata(["update", "automatic-update"].includes(mode) ? next : previous, name));
     assert.deepEqual(await metadata(directory, "aria2c.exe"), engine);
     const saved = JSON.parse(await fs.readFile(statePath, "utf8"));
