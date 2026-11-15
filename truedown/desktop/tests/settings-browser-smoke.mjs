@@ -27,7 +27,7 @@ await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 let browser;
 try {
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, executablePath: process.env.TRUEDOWN_TEST_CHROMIUM });
   for (const width of [1040, 820, 390]) for (const colorScheme of ["light", "dark"]) {
     const native = width === 1040;
     const name = `${native ? "native" : "browser"}-${width}-${colorScheme}`;
@@ -540,6 +540,19 @@ try {
     await page.evaluate(() => document.activeElement.blur());
     await page.waitForFunction(() => document.querySelector("#settings-save-status").textContent.includes("未保存"));
     assert.equal(await page.locator("#cfg-proxy").inputValue(), "http://127.0.0.1:7891");
+    await page.evaluate(() => window.TrueDownI18n.setLanguage('en'));
+    for (const category of ['general', 'files', 'application', 'engine', 'experimental']) {
+      await page.locator(`[data-settings-link="${category}"]`).click();
+      await page.waitForFunction(() => !document.querySelector('#settings-form').inert);
+      const clipped = await page.locator('.settings-content .kd-button, .settings-content .field > label, .settings-nav-link span').evaluateAll(nodes => nodes.filter(node => {
+        if (!node.checkVisibility() || getComputedStyle(node).position === 'absolute') return false;
+        return node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1;
+      }).map(node => node.textContent.trim()));
+      assert.deepEqual(clipped, [], `${name}: clipped English labels in ${category}`);
+      if (category === 'engine' || category === 'application') {
+        await page.screenshot({ path: path.join(screenshots, `${name}-${category}-en.png`) });
+      }
+    }
     assert.deepEqual(errors, [], `${name}: JavaScript errors`);
     console.log(`${name}: all categories, alignment, overflow, wheel, keyboard, drafts and save feedback OK`);
     await context.close();

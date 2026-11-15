@@ -165,6 +165,9 @@
 .settings-content .toggle-grid { grid-template-columns: minmax(0, 1fr); }
 .settings-content .field { gap: 8px; margin: 0; }
 .settings-content .field > label, .settings-content .field-label { font-size: 12px; font-weight: 500; }
+.settings-content :is(label, .field-label, legend, h3, .kd-button) { overflow-wrap: anywhere; }
+.settings-content .kd-button { height: auto; white-space: normal; line-height: 1.4; }
+.settings-category-header h2 { min-width: 0; overflow-wrap: anywhere; }
 .settings-content .setting-toggle { padding: 12px 0; gap: 16px; align-items: center; border: 0; background: transparent; }
 .setting-toggle > .kd-switch, .inline-update-toggle > .kd-switch { order: 1; margin-left: auto; }
 .setting-toggle > span, .inline-update-toggle > span { flex: 1; }

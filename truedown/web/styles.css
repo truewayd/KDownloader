@@ -1644,11 +1644,11 @@ label {
 }
 
 #modal-msg {
-  overflow: hidden;
+  min-width: 0;
   color: var(--kd-muted);
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 #modal-msg.err {
