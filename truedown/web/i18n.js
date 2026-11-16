@@ -14,6 +14,7 @@
   const attributes = ['title', 'aria-label', 'placeholder', 'data-tooltip', 'data-kd-notice-title'];
   const messages = window.TrueDownEnglish || {};
   const chinese = {
+    'the active engine does not support aria2.replaceBtTrackers': '当前引擎不支持替换 Tracker。',
     '调整此分组': '编辑分组',
     '新增分组': '添加分组',
     '暂停整个队列': '暂停全部下载',
@@ -48,7 +49,7 @@
       const match = template.pattern.exec(value);
       if (!match) continue;
       const values = Object.fromEntries(template.indices.map((index, offset) => [index, match[offset + 1]]));
-      return template.output.replace(/\{(\d+)\}/g, (_, index) => messages[values[index]] || values[index]);
+      return template.output.replace(/\{(\d+)\}/g, (_, index) => english(values[index], true));
     }
     if (allowFragments) {
       let output = value;
@@ -56,7 +57,7 @@
         const pattern = new RegExp(template.pattern.source.replace(/^\^|\$$/g, ''), 'g');
         output = output.replace(pattern, (...args) => {
           const values = Object.fromEntries(template.indices.map((index, offset) => [index, args[offset + 1]]));
-          return template.output.replace(/\{(\d+)\}/g, (_, index) => messages[values[index]] || values[index]);
+          return template.output.replace(/\{(\d+)\}/g, (_, index) => english(values[index], true));
         });
       }
       for (const [source, translated] of fragments) {
@@ -88,6 +89,11 @@
     }
     if (root.nodeType !== 1 && root.nodeType !== 9) return;
     if (root.tagName === "TITLE" && root.textContent === document.getElementById("task-detail-title")?.textContent) return;
+    if (root.nodeType === 1 && root.hasAttribute('data-i18n-text')) {
+      const output = translate(root.getAttribute('data-i18n-text'));
+      if (root.textContent !== output) root.textContent = output;
+      return;
+    }
     if (root.nodeType === 1 && root.closest(protectedSelector)) return;
     if (root.nodeType === 1) {
       for (const attr of attributes) if (root.hasAttribute(attr)) update(root, attr, () => root.getAttribute(attr), value => root.setAttribute(attr, value));
@@ -126,7 +132,7 @@
         else localize(record.target);
       }
     });
-    observer.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: attributes });
+    observer.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: [...attributes, 'data-i18n-text'] });
     document.getElementById('application-language')?.addEventListener('change', event => {
       try { setLanguage(event.target.value); }
       catch (error) { event.target.value = preference; window.showToast?.(error.message, 'error'); }

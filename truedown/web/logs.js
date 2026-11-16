@@ -37,7 +37,10 @@ async function loadApplicationLog() {
     const content = els.applicationLogEnabled.checked ? stringValue(response.content).slice(-(256 * 1024)) : "";
     const output = els.applicationLogOutput;
     const follow = document.getElementById("application-log-follow").checked;
-    if (output.textContent !== content) output.textContent = content || "当前还没有应用日志。";
+    if (content) output.removeAttribute("data-i18n-text");
+    else output.setAttribute("data-i18n-text", "当前还没有应用日志。");
+    const display = content || window.TrueDownI18n.t("当前还没有应用日志。");
+    if (output.textContent !== display) output.textContent = display;
     const updated = stringValue(response.updatedAt);
     els.applicationLogStatus.textContent = !els.applicationLogEnabled.checked
       ? "应用日志默认关闭；开启后才会保存和展示。"

@@ -10,6 +10,7 @@ async function loadAbout(initial = false) {
     document.getElementById("about-version").textContent = info.productVersion || info.version;
     document.getElementById("about-build").textContent = `${info.buildNumber} / ${String(info.commit || "").slice(0, 12)}`;
     document.getElementById("about-engine").textContent = `${update.engine?.active === "next" ? "Aria2 Next" : "aria2"} ${update.engine?.activeVersion || ""}`;
+    document.getElementById("about-connection").setAttribute("data-i18n-text", state ? state.owned ? "桌面托管" : "独立本地服务" : "HTTP 控制台");
     document.getElementById("about-connection").textContent = state ? state.owned ? "\u684c\u9762\u6258\u7ba1" : "\u72ec\u7acb\u672c\u5730\u670d\u52a1" : "HTTP \u63a7\u5236\u53f0";
     document.getElementById("about-status").textContent = "";
     cancelReadRetry("about");
@@ -42,6 +43,7 @@ function renderOpenSourceNotices() {
     link.append(icon);
     const license = document.createElement("span");
     license.className = "open-source-project-license kd-selectable";
+    license.setAttribute("data-i18n-text", project.license);
     license.textContent = project.license;
     const usage = document.createElement("p");
     usage.className = "hint";

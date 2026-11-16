@@ -633,9 +633,14 @@ function renderTrackerResearchSettings(settings = trackerResearchSettings) {
   const activity = settings.active
     ? `relay 已运行；已配置 ${settings.configuredTorrents} 个任务、改写 ${settings.rewrittenTrackers} 个 HTTP(S) tracker、转发 ${settings.forwardedAnnounces} 次请求`
     : (settings.enabled ? "已保存启用状态，但 relay 尚未运行" : "模块已关闭");
-  els.trackerResearchStatus.textContent = settings.lastError
-    ? `${support}；${activity}；错误：${settings.lastError}`
-    : `${support}；${activity}`;
+  // Translate each complete clause; semicolons inside a clause are not boundaries.
+  const clauses = [support, activity, ...(settings.lastError ? [settings.lastError] : [])];
+  els.trackerResearchStatus.replaceChildren(...clauses.flatMap((source, index) => {
+    const clause = document.createElement("span");
+    clause.setAttribute("data-i18n-text", source);
+    clause.textContent = window.TrueDownI18n.t(source);
+    return index ? [document.createTextNode(" · "), clause] : [clause];
+  }));
   els.trackerResearchStatus.dataset.error = String(Boolean(settings.lastError) || (settings.supportKnown && !settings.supported));
 }
 
