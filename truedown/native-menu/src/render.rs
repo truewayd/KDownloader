@@ -26,6 +26,28 @@ fn ink(r: u8, g: u8, b: u8, a: f32) -> D2D1_COLOR_F {
         a,
     }
 }
+
+/// Measure with the same DirectWrite formats used to draw the popup. These are
+/// logical pixels; the host applies the destination monitor's DPI exactly once.
+pub fn fit_width(model: &mut Model) -> Result<()> {
+    let mut probe = model.clone();
+    probe.width = 640.;
+    let (labels, _, _) = unsafe { Renderer::layouts(&probe)? };
+    let mut width: f32 = 200.;
+    for (item, layout) in model.items.iter().zip(labels) {
+        let mut metrics = DWRITE_TEXT_METRICS::default();
+        unsafe {
+            layout.GetMetrics(&mut metrics)?;
+        }
+        width = width.max(
+            metrics.widthIncludingTrailingWhitespace.ceil()
+                + 64.
+                + if item.shortcut.is_empty() { 0. } else { 84. },
+        );
+    }
+    model.width = width;
+    Ok(())
+}
 pub struct Renderer {
     _d3d: ID3D11Device,
     _factory: ID2D1Factory1,

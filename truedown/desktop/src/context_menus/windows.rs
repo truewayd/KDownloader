@@ -13,7 +13,9 @@ mod style;
 mod tracking;
 use windows_sys::Win32::{
     Foundation::{POINT, RECT},
-    Graphics::Gdi::ClientToScreen,
+    Graphics::Gdi::{
+        ClientToScreen, GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    },
     UI::{
         Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW},
         HiDpi::{
@@ -283,11 +285,20 @@ unsafe fn track_at(
             return Err("Cannot create context menu item".into());
         }
     }
-    let _style = style::attach(window, hwnd, menu.0, actions)?;
+    let menu_style = style::attach(window, hwnd, menu.0, actions, english)?;
+    let mut monitor: MONITORINFO = std::mem::zeroed();
+    monitor.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+    let flip = GetMonitorInfoW(
+        MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST),
+        &mut monitor,
+    ) != 0
+        && menu_style
+            .as_ref()
+            .is_some_and(|style| point.x + style.width() > monitor.rcWork.right);
     let tracking = tracking::Tracking::attach(menu.0, hwnd, actions.len(), visible_owner)?;
     let selected = TrackPopupMenuEx(
         menu.0,
-        TPM_LEFTALIGN
+        (if flip { TPM_RIGHTALIGN } else { TPM_LEFTALIGN })
             | TPM_WORKAREA
             | TPM_NOANIMATION
             | TPM_RETURNCMD
@@ -348,9 +359,6 @@ fn composition_model(
             top += 9.;
         }
         let image = style::icon(action, true)?;
-        model.width = model.width.max(
-            label.chars().count() as f32 * 14. + 64. + if shortcut.is_empty() { 0. } else { 84. },
-        );
         model.tops.push(top);
         model.items.push(Item {
             label: label.into(),
@@ -365,6 +373,7 @@ fn composition_model(
         top += model.row_height;
     }
     model.height = top + ITEM_INSET;
+    truedown_native_menu::render::fit_width(&mut model).map_err(|error| error.to_string())?;
     Ok(model)
 }
 
@@ -629,6 +638,16 @@ fn label(action: &str) -> Option<&'static str> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn english_background_menu_uses_rendered_text_width() {
+        let actions = ["new-task".to_string(), "open-downloads".to_string()];
+        let english = super::composition_model(&actions, true).unwrap();
+        let chinese = super::composition_model(&actions, false).unwrap();
+        assert!((200.0..320.0).contains(&english.width), "{}", english.width);
+        assert!((200.0..320.0).contains(&chinese.width), "{}", chinese.width);
+        english.validate().unwrap();
+        chinese.validate().unwrap();
+    }
     #[test]
     fn every_offered_action_has_a_native_label() {
         for action in super::super::ACTIONS {

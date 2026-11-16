@@ -210,11 +210,23 @@ pub async fn show_context_menu(
     let scale = monitor.scale_factor();
     let width = (256.0 * scale).min(area.size.width as f64);
     let height = (height * scale).min(area.size.height as f64);
-    let left = pointer_x.clamp(
+    let right = area.position.x as f64 + area.size.width as f64;
+    let bottom = area.position.y as f64 + area.size.height as f64;
+    let left = (if pointer_x + width > right {
+        pointer_x - width
+    } else {
+        pointer_x
+    })
+    .clamp(
         area.position.x as f64,
         area.position.x as f64 + area.size.width as f64 - width,
     );
-    let top = pointer_y.clamp(
+    let top = (if pointer_y + height > bottom {
+        pointer_y - height
+    } else {
+        pointer_y
+    })
+    .clamp(
         area.position.y as f64,
         area.position.y as f64 + area.size.height as f64 - height,
     );

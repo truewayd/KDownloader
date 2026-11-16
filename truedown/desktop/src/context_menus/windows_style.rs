@@ -100,6 +100,11 @@ pub struct Guard {
     attached: bool,
     hook: HHOOK,
 }
+impl Guard {
+    pub fn width(&self) -> i32 {
+        self.style.width as i32
+    }
+}
 impl Drop for Guard {
     fn drop(&mut self) {
         unsafe {
@@ -185,6 +190,7 @@ pub unsafe fn attach(
     hwnd: HWND,
     menu: HMENU,
     actions: &[String],
+    english: bool,
 ) -> Result<Option<Guard>, String> {
     let mut contrast = HIGHCONTRASTW {
         cbSize: std::mem::size_of::<HIGHCONTRASTW>() as u32,
@@ -257,7 +263,7 @@ pub unsafe fn attach(
         corner_result: Cell::new(i32::MIN),
         menu,
         dpi,
-        width: px(dpi, 240) as u32,
+        width: px(dpi, 200) as u32,
         height: px(dpi, 36).max(metrics.lfMenuFont.lfHeight.abs() + px(dpi, 16)) as u32,
         palette,
         font,
@@ -275,10 +281,10 @@ pub unsafe fn attach(
         return Err("Menu drawing resources unavailable".into());
     }
     for action in actions {
-        let (label, shortcut) = super::label(action)
+        let (label, shortcut) = super::localized_label(action, english)
             .ok_or("Unavailable menu action")?
             .split_once('\t')
-            .unwrap_or((super::label(action).unwrap(), ""));
+            .unwrap_or((super::localized_label(action, english).unwrap(), ""));
         style.items.push(Item {
             label: label.encode_utf16().collect(),
             shortcut: shortcut.encode_utf16().collect(),

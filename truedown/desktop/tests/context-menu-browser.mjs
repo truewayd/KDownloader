@@ -64,6 +64,10 @@ try {
     assert.deepEqual(await open("#readonly"), ["copy", "select-all"]);
     assert.deepEqual(await open("#editable"), ["undo", "redo", "paste", "select-all"]);
     assert.deepEqual(await open("#blank"), ["new-task", "pause-queue", "open-downloads"]);
+    await open("#blank", 280, 350);
+    const flipped = await page.locator('[role="menu"]').boundingBox();
+    assert.ok(Math.abs(flipped.x + flipped.width - 280) <= 1, "right-edge menu opens to the left of its trigger");
+    assert.ok(Math.abs(flipped.y + flipped.height - 350) <= 1, "bottom-edge menu opens above its trigger");
     await choose("pause-queue");
     assert.equal(await page.evaluate(() => calls.at(-1).command), "pause-queue");
     await open("#blank");

@@ -194,8 +194,10 @@
     const rect = target.getBoundingClientRect();
     const x = keyboard || !Number.isFinite(event.clientX) ? rect.left : event.clientX;
     const y = keyboard || !Number.isFinite(event.clientY) ? rect.bottom : event.clientY;
-    menu.style.left = `${Math.max(4, Math.min(x, innerWidth - menu.offsetWidth - 4))}px`;
-    menu.style.top = `${Math.max(4, Math.min(y, innerHeight - menu.offsetHeight - 4))}px`;
+    const left = x + menu.offsetWidth > innerWidth - 4 ? x - menu.offsetWidth : x;
+    const top = y + menu.offsetHeight > innerHeight - 4 ? y - menu.offsetHeight : y;
+    menu.style.left = `${Math.max(4, Math.min(left, innerWidth - menu.offsetWidth - 4))}px`;
+    menu.style.top = `${Math.max(4, Math.min(top, innerHeight - menu.offsetHeight - 4))}px`;
     current = context;
     context.observer = new MutationObserver(() => {
       if (!available(target) || !available(menu)) close(false);
