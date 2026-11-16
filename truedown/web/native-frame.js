@@ -80,6 +80,7 @@
   const title = document.createElement("span");
   title.className = "native-window-title";
   const syncTitle = () => {
+    if (title.textContent === document.title) return;
     title.textContent = document.title;
     invoke("frame_title", { title: [...title.textContent].slice(0, 160).join("").replace(/[\u0000-\u001f\u007f-\u009f]/g, " ") }).catch(report);
   };

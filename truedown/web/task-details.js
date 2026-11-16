@@ -190,10 +190,12 @@ async function loadTaskDetails() {
     const detail = await requestJSON(`/tasks/detail?id=${id}`, { signal: controller.signal });
     if (!current()) return;
     if (detail.id !== id || !detail.settings) throw new Error("\u4efb\u52a1\u54cd\u5e94\u65e0\u6548");
+    const unchanged = JSON.stringify(detail) === JSON.stringify(taskDetailData)
+      && !document.getElementById("task-detail-status").textContent;
     if (detail.groups) applyFileGroups(detail.groups);
     taskDetailData = detail;
     taskStatusByID.set(id, detail.status);
-    renderTaskDetails(detail);
+    if (!unchanged) renderTaskDetails(detail);
     const content = document.querySelector(".task-detail-scroll");
     KDComponents.setPageLoading(content, false);
     document.getElementById("task-detail-status").textContent = "";

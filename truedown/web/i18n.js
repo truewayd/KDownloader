@@ -31,7 +31,7 @@
         if (/^\{\d+\}$/.test(part)) { indices.push(part.slice(1, -1)); return '(.*?)'; }
         return part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       }).join('');
-      return { pattern: new RegExp(`^${pattern}$`), indices, output };
+      return { pattern: new RegExp(`^${pattern}$`), fragmentPattern: new RegExp(pattern, 'g'), indices, output };
     });
   const fragments = Object.entries(messages)
     .filter(([key]) => key.trim().length >= 2 && /[\u4e00-\u9fff]/.test(key) && !/\{\d+\}/.test(key))
@@ -54,8 +54,7 @@
     if (allowFragments) {
       let output = value;
       for (const template of templates) {
-        const pattern = new RegExp(template.pattern.source.replace(/^\^|\$$/g, ''), 'g');
-        output = output.replace(pattern, (...args) => {
+        output = output.replace(template.fragmentPattern, (...args) => {
           const values = Object.fromEntries(template.indices.map((index, offset) => [index, args[offset + 1]]));
           return template.output.replace(/\{(\d+)\}/g, (_, index) => english(values[index], true));
         });
@@ -67,9 +66,21 @@
     }
     return value;
   }
+  // Repeated status/attribute writes should not rescan the full catalog. Keep
+  // the cache bounded: dynamic diagnostics and progress strings are unbounded.
+  const translations = new Map();
   function translate(value, allowFragments = false) {
     const trimmed = value.trim();
-    return value.replace(trimmed, language() === 'en' ? english(trimmed, allowFragments) : (chinese[trimmed] || trimmed));
+    const cacheKey = `${language()}:${allowFragments}:${trimmed}`;
+    let output = translations.get(cacheKey);
+    if (output === undefined) {
+      output = language() === 'en' ? english(trimmed, allowFragments) : (chinese[trimmed] || trimmed);
+      if (trimmed.length <= 4096) {
+        if (translations.size >= 1024) translations.delete(translations.keys().next().value);
+        translations.set(cacheKey, output);
+      }
+    }
+    return value.replace(trimmed, () => output);
   }
   function update(node, field, read, write) {
     const current = read();
@@ -129,6 +140,12 @@
     const observer = new MutationObserver(records => {
       for (const record of records) {
         if (record.type === 'childList') for (const node of record.addedNodes) localize(node);
+        else if (record.type === 'attributes' && record.attributeName !== 'data-i18n-text') {
+          const node = record.target, attr = record.attributeName;
+          if (!node.closest(protectedSelector) && node.hasAttribute(attr)) {
+            update(node, attr, () => node.getAttribute(attr), value => node.setAttribute(attr, value));
+          }
+        }
         else localize(record.target);
       }
     });

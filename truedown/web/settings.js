@@ -1196,6 +1196,7 @@ async function refreshModuleUpdateState() {
     await readSettingSnapshot("module-update", "/modules/update", value => {
       if (systemUpdateDisposed || document.hidden || epoch !== routeEpoch) return;
       const update = normalizeModuleUpdateState(value);
+      const unchanged = JSON.stringify(update) === JSON.stringify(moduleUpdateState);
       const completed = moduleUpdatePending && !update.running;
       moduleUpdateState = update;
       moduleUpdatePending = update.running;
@@ -1205,8 +1206,10 @@ async function refreshModuleUpdateState() {
         showToast(update.error ? `${name} 模块更新失败，已保留原版本。` : `${name} 模块已就绪：v${update.version}`, update.error ? "error" : "announcement");
         moduleUpdateNotifyPending = false;
       }
-      renderModuleUpdateStatus();
-      renderWorkspaceNotice();
+      if (!unchanged || currentPage === "settings") {
+        renderModuleUpdateStatus();
+        renderWorkspaceNotice();
+      }
     });
   } catch { /* The visible-page update refresh retries this independent read. */ }
 }
@@ -1250,10 +1253,12 @@ async function loadSystemUpdateState() {
   const epoch = routeEpoch;
   await readSettingSnapshot("engine", "/system/update", (value) => {
     if (systemUpdateDisposed || document.hidden || epoch !== routeEpoch) return;
+    const update = normalizeSystemUpdateState(value);
+    const unchanged = !workspaceUpdateReadFailed && JSON.stringify(update) === JSON.stringify(systemUpdateState);
     systemUpdateFailures = 0;
     workspaceUpdateReadFailed = false;
-    systemUpdateState = normalizeSystemUpdateState(value);
-    renderSystemUpdateState();
+    systemUpdateState = update;
+    if (!unchanged || currentPage === "settings") renderSystemUpdateState();
   });
 }
 
