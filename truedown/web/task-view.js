@@ -1,4 +1,53 @@
 const TASK_ROW_HEIGHT = 64;
+
+// Keep the original light-DOM name intact for tooltips, accessibility and row
+// reconciliation; only the shadow text is fitted to the available column width.
+customElements.define("td-file-name", class extends HTMLElement {
+  connectedCallback() {
+    this.output ||= this.attachShadow({ mode: "open" });
+    this.observer ||= new ResizeObserver(() => this.fit());
+    this.observer.observe(this);
+    this.fit();
+  }
+
+  disconnectedCallback() {
+    this.observer.disconnect();
+  }
+
+  fit() {
+    const name = this.textContent;
+    const width = this.clientWidth;
+    if (!width) return;
+    const style = getComputedStyle(this);
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    context.font = style.font;
+    const spacing = parseFloat(style.letterSpacing) || 0;
+    const measure = text => context.measureText(text).width + Array.from(text).length * spacing;
+    let result = name;
+    if (measure(name) > width) {
+      const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+      const chars = Array.from(segmenter.segment(name), part => part.segment);
+      const dot = name.lastIndexOf(".");
+      // Prefer the entire extension, then split the remaining space between
+      // the beginning and end. Extremely long extensions still fit safely.
+      const extension = dot > 0 ? Array.from(segmenter.segment(name.slice(dot))).length : 0;
+      const candidate = count => {
+        const tail = Math.min(count - 1, Math.max(extension, Math.floor(count / 2)));
+        return chars.slice(0, count - tail).join("") + "…" + (tail ? chars.slice(-tail).join("") : "");
+      };
+      let low = 1, high = chars.length - 1;
+      result = measure("…") <= width ? "…" : "";
+      while (low <= high) {
+        const count = Math.floor((low + high) / 2);
+        const text = candidate(count);
+        if (measure(text) <= width) { result = text; low = count + 1; }
+        else high = count - 1;
+      }
+    }
+    if (this.output.textContent !== result) this.output.textContent = result;
+  }
+});
 let taskViewportFrame = 0;
 let taskViewportOffset = 0;
 let taskScrollDirection = 1;
