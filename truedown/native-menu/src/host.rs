@@ -309,8 +309,19 @@ impl Host {
             {
                 return Err(Error::new(E_FAIL, "Menu exceeds work area"));
             }
-            let x = point.x.clamp(monitor.rcWork.left, monitor.rcWork.right - w) - pad;
-            let y = point.y.clamp(monitor.rcWork.top, monitor.rcWork.bottom - h) - pad;
+            // Flip around the pointer before clamping, matching native popup placement.
+            let left = if point.x + w > monitor.rcWork.right {
+                point.x - w
+            } else {
+                point.x
+            };
+            let top = if point.y + h > monitor.rcWork.bottom {
+                point.y - h
+            } else {
+                point.y
+            };
+            let x = left.clamp(monitor.rcWork.left, monitor.rcWork.right - w) - pad;
+            let y = top.clamp(monitor.rcWork.top, monitor.rcWork.bottom - h) - pad;
             let mut rect = RECT::default();
             GetWindowRect(self.hwnd, &mut rect)?;
             if rect.left != x
