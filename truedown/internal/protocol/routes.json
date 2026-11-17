@@ -9,7 +9,8 @@
     "GET"
   ],
   "/system/logs": [
-    "GET"
+    "GET",
+    "POST"
   ],
   "/system/update": [
     "GET"

@@ -345,9 +345,9 @@
                   <option value="none">不预分配（速度优先）</option>
                   <option value="prealloc">预分配</option>
                   <option value="trunc">快速截断</option>
-                  <option value="falloc">falloc（Linux）</option>
+                  <option value="falloc">falloc（快速预分配）</option>
                 </select>
-                <p class="hint">提前分配文件空间，默认关闭。快速截断与 falloc 需操作系统和文件系统支持。</p>
+                <p class="hint">提前分配文件空间，默认关闭。falloc 支持 Linux 及 Windows MinGW 引擎下的 NTFS，具体取决于引擎构建和文件系统；快速截断仅设置文件长度，不保证预留磁盘空间。</p>
               </div>
             </div>
             <div class="toggle-grid">

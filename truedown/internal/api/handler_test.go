@@ -14,12 +14,14 @@ import (
 	"testing"
 	"time"
 	"truedown/internal/downloader"
+	"truedown/internal/protocol"
 	"truedown/internal/systemupdate"
 )
 
 type testApplicationLog struct {
 	limit   int64
 	enabled bool
+	clears  int
 }
 
 func (service *testApplicationLog) ReadTail(limit int64) (string, bool, time.Time, error) {
@@ -28,7 +30,7 @@ func (service *testApplicationLog) ReadTail(limit int64) (string, bool, time.Tim
 }
 func (service *testApplicationLog) Enabled() bool               { return service.enabled }
 func (service *testApplicationLog) SetEnabled(value bool) error { service.enabled = value; return nil }
-func (service *testApplicationLog) Clear() error                { return nil }
+func (service *testApplicationLog) Clear() error                { service.clears++; return nil }
 
 type testTokenAuth struct {
 	enabled bool
@@ -77,7 +79,7 @@ func (service *testUpdateService) RequestRestart() error {
 	return nil
 }
 
-func TestApplicationLogEndpointIsBoundedAndReadOnly(t *testing.T) {
+func TestApplicationLogEndpointIsBoundedAndSupportsDesktopControls(t *testing.T) {
 	mux := http.NewServeMux()
 	logs := &testApplicationLog{}
 	RegisterDiagnostics(mux, logs)
@@ -108,6 +110,21 @@ func TestApplicationLogEndpointIsBoundedAndReadOnly(t *testing.T) {
 	mux.ServeHTTP(postResponse, postRequest)
 	if postResponse.Code != http.StatusBadRequest {
 		t.Fatalf("log POST status=%d", postResponse.Code)
+	}
+	for _, body := range []string{`{"enabled":true}`, `{"clear":true}`, `{"enabled":false}`} {
+		if !protocol.AllowedDesktopRequest(protocol.DesktopRequest{ID: 1, Method: http.MethodPost, Path: "/system/logs", Body: body}) {
+			t.Fatalf("desktop transport rejected %s", body)
+		}
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/system/logs", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		mux.ServeHTTP(response, request)
+		if response.Code != http.StatusOK || logs.enabled != !strings.Contains(body, "false") {
+			t.Fatalf("log control %s: status=%d enabled=%v", body, response.Code, logs.enabled)
+		}
+	}
+	if logs.clears != 1 {
+		t.Fatalf("log clear calls=%d", logs.clears)
 	}
 }
 

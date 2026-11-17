@@ -2,6 +2,17 @@ package protocol
 
 import "testing"
 
+func TestApplicationLogDesktopControls(t *testing.T) {
+	for _, body := range []string{`{"enabled":true}`, `{"enabled":false}`, `{"clear":true}`} {
+		if !AllowedDesktopRequest(DesktopRequest{ID: 1, Method: "POST", Path: "/system/logs", Body: body}) {
+			t.Fatalf("rejected application log control %s", body)
+		}
+	}
+	if AllowedDesktopRequest(DesktopRequest{ID: 1, Method: "DELETE", Path: "/system/logs"}) {
+		t.Fatal("accepted unsupported application log method")
+	}
+}
+
 func TestDesktopRequestHeadersAndControlCharacters(t *testing.T) {
 	for _, path := range []string{"/tasks?search=\x00", "/tasks?search=\x7f", "/tasks?search=\n"} {
 		if AllowedDesktopRequest(DesktopRequest{ID: 1, Method: "GET", Path: path}) {

@@ -495,6 +495,21 @@ mod tests {
     }
 
     #[test]
+    fn application_log_controls_are_allowed() {
+        for body in [
+            r#"{"enabled":true}"#,
+            r#"{"enabled":false}"#,
+            r#"{"clear":true}"#,
+        ] {
+            let mut request = Request::new("POST", "/system/logs");
+            request.body = body.into();
+            assert!(request.validate().is_ok());
+        }
+        assert!(Request::new("GET", "/system/logs").validate().is_ok());
+        assert!(Request::new("DELETE", "/system/logs").validate().is_err());
+    }
+
+    #[test]
     fn rejects_arbitrary_native_requests() {
         for path in [
             "/../../secrets",
