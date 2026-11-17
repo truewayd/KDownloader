@@ -3,14 +3,122 @@ package downloader
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestNext31FailedTasksStayFailedAfterRestart(t *testing.T) {
+	config := integrationManagerConfig()
+	if os.Getenv("TRUEDOWN_INTEGRATION") == "" || !aria2NextVersionAtLeast(config.Aria2NextVersion, 3, 1, 0) {
+		t.Skip("requires NEXT 3.1+")
+	}
+	engine, err := integrationAria2Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		http.Error(w, "missing", http.StatusNotFound)
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	start := func() *Manager {
+		m, err := NewManagerWithConfig(engine, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := m.Start(); err != nil {
+			m.Stop()
+			t.Fatal(err)
+		}
+		return m
+	}
+	m := start()
+	task, _, err := m.AddTask(server.URL+"/missing", "missing.bin", "", nil, "", 0, Aria2Opts{MaxTries: 1})
+	if err != nil {
+		m.Stop()
+		t.Fatal(err)
+	}
+	waitForStatus(t, m, task.ID, 10*time.Second, StatusError)
+	m.Stop()
+	before := requests.Load()
+	m = start()
+	defer m.Stop()
+	time.Sleep(1500 * time.Millisecond)
+	restored, ok := m.GetTask(task.ID)
+	if !ok || restored.Status != StatusError || requests.Load() != before {
+		t.Fatalf("failed task retried on restart: task=%+v requests=%d want=%d", restored, requests.Load(), before)
+	}
+}
+
+func TestNext31RedirectFilenameIntegration(t *testing.T) {
+	config := integrationManagerConfig()
+	if os.Getenv("TRUEDOWN_INTEGRATION") == "" || !aria2NextVersionAtLeast(config.Aria2NextVersion, 3, 1, 0) {
+		t.Skip("requires NEXT 3.1+")
+	}
+	engine, err := integrationAria2Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/download/3.28" {
+			http.Redirect(w, r, "/setup.bin", http.StatusFound)
+			return
+		}
+		http.ServeContent(w, r, "setup.bin", time.Unix(1000, 0), bytes.NewReader([]byte("redirected payload")))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	m, err := NewManagerWithConfig(engine, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	if err := m.Start(); err != nil {
+		t.Fatal(err)
+	}
+	client := m.rpc.(*ariaClient)
+	for index, hint := range []string{"", "chosen.bin"} {
+		folder := filepath.Join(root, fmt.Sprintf("redirect-%d", index))
+		options := map[string]any{"dir": folder, "allow-overwrite": "false", "auto-file-renaming": "false"}
+		if hint != "" {
+			options["out"] = hint
+		}
+		var gid string
+		if err := client.call("aria2.addUri", []any{[]string{server.URL + "/download/3.28"}, options}, &gid); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			state, err := client.status(gid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state.Status == "complete" {
+				break
+			}
+			if state.Status == "error" || time.Now().After(deadline) {
+				t.Fatalf("redirect did not complete: %+v", state)
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+		name := hint
+		if name == "" {
+			name = "setup.bin"
+		}
+		if data, err := os.ReadFile(filepath.Join(folder, name)); err != nil || string(data) != "redirected payload" {
+			t.Fatalf("incorrect redirected output: %s %v", data, err)
+		}
+	}
+}
 
 func TestNext3NativePauseAndRemovalIntegration(t *testing.T) {
 	config := integrationManagerConfig()

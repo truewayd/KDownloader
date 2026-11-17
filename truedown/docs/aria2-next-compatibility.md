@@ -1,10 +1,27 @@
 # aria2 NEXT compatibility audit
 
-Reviewed on 2026-10-22 against the latest published release,
-[v3.0.8](https://github.com/AnInsomniacy/aria2-next/releases/tag/v3.0.8),
-commit `fa9f2f2eda8d73afa611cd18cec0a0a4dba0da46`. The previous 3.0.2, 3.0.0 and
+Reviewed on 2026-11-17 against the latest published release,
+[v3.1.0](https://github.com/AnInsomniacy/aria2-next/releases/tag/v3.1.0).
+The pinned Windows AMD64 and ARM64 hashes now match this release's published
+asset SHA-256 digests. The previous 3.0.8, 3.0.2, 3.0.0 and
 2.8.3 releases remain separate regression targets.
 Unreleased main-branch behavior is not treated as a release contract.
+
+3.0.9 repairs preallocated retry range accounting, additional-connection 403
+handling, slow connection recycling and address-family selection. 3.0.10 fixes
+tracker scheduling and rotating ETags. These belong to the independently updated
+engine, without duplicate transfer logic in TrueDown.
+
+3.1.0 retains failed session entries as failures, chooses the final redirected
+URL's filename when no header or caller name wins, and embeds Windows long-path
+and OS compatibility metadata. Real-engine acceptance verifies that a failed
+TrueDown task stays failed after restart without another HTTP request, redirected
+engine downloads use the target name and explicit caller names retain priority.
+Existing probe, filename RPC and checkpoint-option tests also run on 3.1.0.
+TrueDown still pins manager-owned output names, keeps continue=false and explicitly
+restarts failed HTTP tasks from zero: the new engine's path-based checkpoint
+claim requires continue=true and admission before result retirement, and cannot
+be enabled safely by a version check alone.
 
 | Surface | TrueDown adaptation |
 | --- | --- |
