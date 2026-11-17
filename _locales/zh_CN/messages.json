@@ -1,4 +1,12 @@
 {
+  "browserContextMenu": { "message": "浏览器右键下载（ABDM / TrueDown）" },
+  "browserContextMenuHelp": { "message": "将 HTTP(S) 链接、媒体或选中的网址文本发送到 ABDM / TrueDown。默认关闭，不自动接管下载，也不发送页面 Cookie。" },
+  "browserDownloadLink": { "message": "发送链接到 ABDM / TrueDown" },
+  "browserDownloadSelection": { "message": "发送选中的网址到 ABDM / TrueDown" },
+  "browserDownloadAccepted": { "message": "下载链接已受理" },
+  "browserDownloadAcceptedHelp": { "message": "后端已接收链接并开始处理，不代表文件已下载完成。" },
+  "browserDownloadFailed": { "message": "发送下载链接失败" },
+  "browserDownloadFailedHelp": { "message": "请检查 ABDM / TrueDown 是否运行、后端地址及 API Key 是否正确。一次最多选择 256 个 HTTP(S) 链接。" },
   "extensionName": {
     "message": "KDownloader"
   },

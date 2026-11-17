@@ -1,4 +1,12 @@
 {
+  "browserContextMenu": { "message": "Browser right-click downloads (ABDM / TrueDown)" },
+  "browserContextMenuHelp": { "message": "Send HTTP(S) links, media or selected URL text to ABDM / TrueDown. Off by default. Does not capture downloads automatically or send page cookies." },
+  "browserDownloadLink": { "message": "Send link to ABDM / TrueDown" },
+  "browserDownloadSelection": { "message": "Send selected URLs to ABDM / TrueDown" },
+  "browserDownloadAccepted": { "message": "Download links accepted" },
+  "browserDownloadAcceptedHelp": { "message": "The backend accepted the links for processing. This does not mean the files have finished downloading." },
+  "browserDownloadFailed": { "message": "Could not send download links" },
+  "browserDownloadFailedHelp": { "message": "Check that ABDM / TrueDown is running and the backend address and API Key are correct. Select at most 256 HTTP(S) links." },
   "extensionName": {
     "message": "KDownloader"
   },

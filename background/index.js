@@ -5,6 +5,7 @@ import { cleanupHistoryStorage, cleanupLegacyHistoryMetadata } from './db.js';
 import { configureWatchAlarm, runWatchCheck } from './watch.js';
 import { handleNativeFallbackDecision } from './handlers/downloadHandlers.js';
 import { clearNotification } from './notifications.js';
+import { registerBrowserIntegration } from './browserIntegration.js';
 import {
   openPawchiveForVerification,
   PAWCHIVE_CLOUDFLARE_NOTIFICATION_ID,
@@ -12,6 +13,7 @@ import {
 
 // Register message router
 registerMessageHandlers();
+registerBrowserIntegration();
 
 // Init alarms on installed/startup
 chrome.runtime.onInstalled.addListener(async () => {

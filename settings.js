@@ -111,6 +111,7 @@ function setBackendType(type) {
 
 function updateBackendVisibility() {
   const enabled = !!$("backend-enabled")?.checked;
+  if ($("backend-context-menu")) $("backend-context-menu").disabled = !enabled || backendType !== "abdm";
   if ($("backend-auto-resolve")) {
     $("backend-auto-resolve").disabled = !enabled || backendType !== "abdm";
     if (!enabled || backendType !== "abdm") $("backend-auto-resolve").checked = false;
@@ -162,6 +163,7 @@ async function loadBackend(generation) {
 
 function renderBackendConfig(config) {
   setValue("backend-enabled", config.enabled);
+  setValue("backend-context-menu", config.contextMenuEnabled);
   setBackendType(config.backendType);
   setValue("backend-protocol", config.protocol);
   setValue("backend-host", config.host);
@@ -184,6 +186,7 @@ function backendFormConfig() {
   const apiKey = backendApiKeyValue();
   const config = {
     enabled: !!$("backend-enabled")?.checked,
+    contextMenuEnabled: !!$("backend-context-menu")?.checked,
     autoResolve: !!$("backend-auto-resolve")?.checked,
     userAgentMode: $("backend-user-agent-mode")?.value || "site",
     forwardCookies: !!$("backend-forward-cookies")?.checked,

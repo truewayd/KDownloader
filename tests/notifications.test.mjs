@@ -99,6 +99,7 @@ async function notificationHandlers({ failOpen = false } = {}) {
     WATCH_ALARM: 'watch',
     PAWCHIVE_CLOUDFLARE_NOTIFICATION_ID: 'pawchive-cloudflare-blocked',
     registerMessageHandlers() {},
+    registerBrowserIntegration() {},
     async openPawchiveForVerification() { actions.push('open'); if (failOpen) throw new Error('Tab failed'); },
     async clearNotification(id) { actions.push(['clear', id]); },
     async handleNativeFallbackDecision(id, confirmed) { actions.push([id, confirmed]); },

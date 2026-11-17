@@ -1,6 +1,23 @@
 # AB Download Manager API compatibility
 
-Reviewed on 2026-10-22 using upstream source, not only REST-API.yml:
+Reviewed on 2026-11-17 using upstream source, not only REST-API.yml:
+
+The latest desktop release is [v1.11.4](https://github.com/amir1376/ab-download-manager/releases/tag/v1.11.4).
+The [browser master comparison](https://github.com/amir1376/ab-download-manager-browser-integration/compare/658a0c70188d78033f478ba51c102a273322166f...bf6811dd8a3ee2b47b94d70e13c2c7e70be7be05)
+adds an optional context menu and reactive configuration updates (package 1.5.2;
+GitHub's latest published browser release remains 1.5.0). Its HTTP payload is unchanged.
+KDownloader now has its own opt-in link/media and selected-URL context menus,
+using bounded ABDM `/add` batches with explicit silent start. These generic
+user-initiated handoffs omit page credentials and do not intercept browser downloads.
+Turning the setting or backend off removes the menus; stale clicks recheck settings.
+
+Desktop 1.11.2 additionally requires API Key authentication for headless creation
+even when optional browser integration authentication is disabled. TrueDown keeps
+its documented profile-wide authentication preference; it does not silently
+change the existing local API. Configure an API Key for authenticated handoffs.
+QR sharing, Android scanning and named queue actions require separate product work.
+
+Previous reviewed baseline:
 
 - Latest published desktop release: [v1.11.1](https://github.com/amir1376/ab-download-manager/releases/tag/v1.11.1).
 - Inspected master: `e329495b6630b18e4b41d7682da33318b0f9ea18`. The integration server in v1.11.1 and master is unchanged from v1.10.4.

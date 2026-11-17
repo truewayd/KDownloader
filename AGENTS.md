@@ -91,6 +91,8 @@ The site action scripts are `actions.js`, `paw_actions.js`, and `coomerfans_acti
 
 ## Popup And Settings Behavior
 
+- Optional browser context menus send explicitly selected HTTP(S) links/media or URL text through the configured ABDM `/add` endpoint. They default off, require an enabled ABDM backend, reconcile changes serially and recheck settings on click. Batches are bounded to 256 links/1 MiB, preserve URL fragments and omit page credentials. They do not intercept browser downloads or extend trusted site-media handling.
+
 - Popup defaults to Pawchive Site Search and supports Pawchive, Kemono, Coomer, and CoomerFans URL shapes from `popup/search.js`.
 - Creator Fetch exposes non-persistent `default`, `full`, `links`, and Pawchive-only `dms` modes. Links and DMs modes may run without a media backend and declare their TXT directly through `chrome.downloads`; DMs scrape only the creator's fixed Pawchive `/dms` HTML page and export published dates, text, and links without post-history writes. Complete exported links participate in the separate shared link ledger.
 - Popup shows Creator Fetch and History by default; Search Cache and Gist panels are visibility-controlled by their settings. Destructive history maintenance remains in settings.
