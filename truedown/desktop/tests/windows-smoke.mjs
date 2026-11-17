@@ -338,6 +338,13 @@ try {
   await invoke(main, "open_group_settings", { groupId: "project", add: false });
   const settings = await waitUntil(() => context.pages().find(page => page.url().includes("window=settings")));
   await waitForNativeCondition(settings, () => typeof currentSettingsPage !== "undefined" && currentSettingsPage === "files" && document.activeElement?.closest("[data-group-id]")?.dataset.groupId === "project");
+  // Exercise the real WebView -> window permission -> bridge -> core chain.
+  await assert.rejects(api(main, "POST", "/system/logs", { enabled: true }), /unavailable in this window/);
+  assert.equal((await api(settings, "POST", "/system/logs", { enabled: true })).enabled, true);
+  assert.equal((await api(settings, "GET", "/system/logs")).enabled, true);
+  assert.equal((await api(settings, "POST", "/system/logs", { clear: true })).enabled, true);
+  assert.equal((await api(settings, "POST", "/system/logs", { enabled: false })).enabled, false);
+  assert.equal((await api(settings, "GET", "/system/logs")).enabled, false);
   await assert.rejects(invoke(settings, "open_group_settings", { groupId: "image", add: false }), /main window/);
   await assert.rejects(invoke(main, "open_group_settings", { groupId: "../image", add: false }), /Invalid file group ID/);
   await invoke(main, "open_group_settings", { groupId: null, add: true });

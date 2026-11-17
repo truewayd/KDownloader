@@ -169,6 +169,7 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
             ]
             .contains(&path),
             "POST" => [
+                "/system/logs",
                 "/settings/runtime",
                 "/settings/download-rules",
                 "/settings/task-defaults",
@@ -545,6 +546,28 @@ pub fn finish_task_window(app: tauri::AppHandle, window: WebviewWindow) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn application_logs_are_settings_window_only() {
+        for method in ["GET", "POST"] {
+            assert!(allowed("settings", method, "/system/logs"));
+            assert!(crate::bridge::Request::new(method, "/system/logs")
+                .validate()
+                .is_ok());
+            for role in [
+                "main",
+                "new-task",
+                "task-details",
+                "task-preview",
+                "confirmation",
+                "unknown",
+            ] {
+                assert!(!allowed(role, method, "/system/logs"));
+            }
+        }
+        for method in ["DELETE", "PUT", "PATCH"] {
+            assert!(!allowed("settings", method, "/system/logs"));
+        }
+    }
     #[test]
     fn task_change_wait_is_main_window_only() {
         assert!(allowed("main", "GET", "/tasks/changes"));
