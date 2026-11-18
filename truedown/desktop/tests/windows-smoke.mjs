@@ -485,6 +485,12 @@ try {
     await waitForNativeCondition(main, total => Number(document.querySelector("#task-count").textContent) === total, total);
     assert.equal(await form.evaluate(() => downloadSettings.connections), 9);
     assert.equal(await main.locator("#toast").textContent(), "下载任务已添加");
+    // Hidden WebView2 can suspend the animation clock. Settle existing
+    // transitions before checking the toast's final geometry.
+    await main.locator("#toast").evaluate(toast => {
+      toast.getBoundingClientRect();
+      for (const transition of toast.getAnimations()) transition.finish();
+    });
     assertToastBounds(await waitForNativeCondition(main, readToastPlacement));
     assert.equal((await api(main, "GET", "/tasks?limit=100")).total, total);
   }
