@@ -1,37 +1,38 @@
 const TASK_ROW_HEIGHT = 64;
+const taskNameSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+let taskNameContext;
+// ResizeObserver delivers the viewport's changed widths together after layout.
+const taskNameObserver = new ResizeObserver(entries => {
+  for (const { target, contentRect } of entries) target.fit(contentRect.width);
+});
 
 // Keep the original light-DOM name intact for tooltips, accessibility and row
 // reconciliation; only the shadow text is fitted to the available column width.
 customElements.define("td-file-name", class extends HTMLElement {
   connectedCallback() {
     this.output ||= this.attachShadow({ mode: "open" });
-    this.observer ||= new ResizeObserver(() => this.fit());
-    this.observer.observe(this);
-    this.fit();
+    taskNameObserver.observe(this);
   }
 
   disconnectedCallback() {
-    this.observer.disconnect();
+    taskNameObserver.unobserve(this);
   }
 
-  fit() {
-    const name = this.textContent;
-    const width = this.clientWidth;
+  fit(width) {
     if (!width) return;
+    const name = this.textContent;
     const style = getComputedStyle(this);
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-    context.font = style.font;
     const spacing = parseFloat(style.letterSpacing) || 0;
-    const measure = text => context.measureText(text).width + Array.from(text).length * spacing;
+    const context = taskNameContext ||= document.createElement("canvas").getContext("2d");
+    context.font = style.font;
+    const measure = text => context.measureText(text).width + (spacing ? Array.from(text).length * spacing : 0);
     let result = name;
     if (measure(name) > width) {
-      const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-      const chars = Array.from(segmenter.segment(name), part => part.segment);
+      const chars = Array.from(taskNameSegmenter.segment(name), part => part.segment);
       const dot = name.lastIndexOf(".");
       // Prefer the entire extension, then split the remaining space between
       // the beginning and end. Extremely long extensions still fit safely.
-      const extension = dot > 0 ? Array.from(segmenter.segment(name.slice(dot))).length : 0;
+      const extension = dot > 0 ? Array.from(taskNameSegmenter.segment(name.slice(dot))).length : 0;
       const candidate = count => {
         const tail = Math.min(count - 1, Math.max(extension, Math.floor(count / 2)));
         return chars.slice(0, count - tail).join("") + "…" + (tail ? chars.slice(-tail).join("") : "");

@@ -11,6 +11,7 @@ const groups = { revision: 1, groups: [{ id: "video", name: "Video", extensions:
 const tasks = Array.from({ length: 2400 }, (_, index) => ({ id: index + 1, name: `Movie ${index + 1}.mp4`, outputName: `Movie ${index + 1}.mp4`, category: "video", status: index === 0 ? "downloading" : index === 1 ? "error" : "done", totalLength: 1024000, completedLength: 512000, downloadSpeed: 4096, link: `https://example.test/${index + 1}`, folder: "Downloads" }));
 const requests = [];
 let revision = 1;
+let rowsRevision = 1;
 let pendingReads = null;
 let blockedOffset = null;
 const changeWaiters = new Set();
@@ -33,9 +34,11 @@ const server = http.createServer(async (request, response) => {
     if (pendingReads && (blockedOffset === null || offset === blockedOffset)) await pendingReads;
     const search = url.searchParams.get("search") || "";
     const filtered = tasks.filter(task => task.name.includes(search));
+    const rowsVersion = JSON.stringify([rowsRevision, offset, limit, search]);
+    const rowsUnchanged = url.searchParams.get("rowsVersion") === rowsVersion;
     response.setHeader("Content-Type", "application/json");
     response.setHeader("ETag", `"${revision}-${offset}-${search}"`);
-    response.end(JSON.stringify({ tasks: filtered.slice(offset, offset + limit), total: filtered.length, groups, revision, epoch: "fixture", orderVersion: "fixed-order",
+    response.end(JSON.stringify({ tasks: rowsUnchanged ? undefined : filtered.slice(offset, offset + limit), rowsVersion, rowsUnchanged, total: filtered.length, groups, revision, epoch: "fixture", orderVersion: "fixed-order",
       summary: { total: tasks.length, downloading: 1, error: 1, done: tasks.length - 2, downloadSpeed: revision * 4096, groupCounts: { video: tasks.length } } }));
     return;
   }
@@ -85,10 +88,18 @@ try {
       await page.waitForFunction(() => taskChangePromise !== null);
       const changeStart = performance.now();
       revision++;
+      rowsRevision++;
       tasks[0].completedLength += 100;
       for (const done of changeWaiters) done();
       await page.waitForFunction(value => currentTasks[0]?.completedLength === value, tasks[0].completedLength, { timeout: 1500 });
       console.log(`backend change painted in ${Math.round(performance.now() - changeStart)}ms without waiting for the 2500ms poll`);
+      await page.waitForFunction(() => taskChangePromise !== null && loadTasksPromise === null);
+      await page.evaluate(() => { window.renderedTasks = currentTasks; });
+      revision++;
+      for (const done of changeWaiters) done();
+      await page.waitForFunction(expected => taskRenderedRevision === expected, revision);
+      assert.equal(await page.evaluate(() => currentTasks === window.renderedTasks && currentSummary.downloadSpeed === taskRenderedRevision * 4096), true,
+        "summary-only refresh keeps the rendered row array and updates queue metrics");
     }
     assert.equal(await page.locator(".pagination, .metric-strip").count(), 0);
     assert.equal(await page.locator(".task-rows tr").count(), 100);

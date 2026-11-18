@@ -107,6 +107,7 @@ let taskChangeTimer = 0;
 let taskChangeReady = false;
 let taskRenderedRevision = -1;
 let lastTaskRenderSignature = "";
+let lastTaskRenderScope = "";
 let modalReturnFocus = null;
 let tokenAuthEnabled = false;
 let tokenAuthManaged = false;
@@ -1207,6 +1208,12 @@ function taskPageURL(offset = currentOffset) {
 }
 
 function renderTasks(tasks, epoch = "") {
+  const scope = JSON.stringify([
+    epoch, currentOffset, currentTotal, currentFilter, currentCategory,
+    fileGroupsState.revision, currentSearch, currentSort, currentSortOrder,
+  ]);
+  // The page store reuses the row array for 304 and rowsUnchanged responses.
+  if (lastTaskRenderSignature && scope === lastTaskRenderScope && tasks === currentTasks) return;
   const focused = document.activeElement;
   const focusKey = els.tasksContainer.contains(focused) ? taskControlKey(focused) : "";
   for (const id of taskStatusByID.keys()) {
@@ -1217,21 +1224,11 @@ function renderTasks(tasks, epoch = "") {
     taskLinkByID.set(task.id, task.link || "");
     if (task.updateDownload === true) updateTaskIDs.add(task.id); else updateTaskIDs.delete(task.id);
   });
-  currentTasks = [...tasks];
-  const signature = JSON.stringify([
-    epoch,
-    currentOffset,
-    currentTotal,
-    currentFilter,
-    currentCategory,
-    fileGroupsState.revision,
-    currentSearch,
-    currentSort,
-    currentSortOrder,
-    currentTasks.map((task) => [
-      task.id, task.status, task.outputName, task.name, task.folder, task.link, task.progress, task.error, task.category, task.totalLength, task.completedLength, task.downloadSpeed, task.createdAt, task.updateDownload,
-    ]),
-  ]);
+  currentTasks = tasks;
+  lastTaskRenderScope = scope;
+  const signature = scope + JSON.stringify(tasks.map((task) => [
+    task.id, task.status, task.outputName, task.name, task.folder, task.link, task.progress, task.error, task.category, task.totalLength, task.completedLength, task.downloadSpeed, task.createdAt, task.updateDownload,
+  ]));
   if (signature === lastTaskRenderSignature) {
     syncSelectionControls();
     return;
