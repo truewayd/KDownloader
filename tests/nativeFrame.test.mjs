@@ -26,9 +26,8 @@ class Node {
   }
 }
 
-function setup(platform = "windows", readState = async () => ({ maximized: false, decorated: false }), role = "main") {
-  const calls = [], timers = new Map(), observers = [];
-  let timerID = 0;
+function setup(platform = "windows", role = "main") {
+  const calls = [], observers = [];
   const document = new Node(), window = new Node();
   const title = new Node("title");
   Object.assign(document, {
@@ -42,7 +41,7 @@ function setup(platform = "windows", readState = async () => ({ maximized: false
     __TRUEDOWN_PLATFORM__: platform,
     __TAURI__: { core: { invoke: async (command, args) => {
       calls.push({ command, args });
-      return command === "frame_state" ? readState() : undefined;
+      return command === "frame_tooltip" ? 1 : undefined;
     } } },
   });
   vm.runInNewContext(source, {
@@ -51,20 +50,17 @@ function setup(platform = "windows", readState = async () => ({ maximized: false
       constructor(callback) { this.callback = callback; observers.push(this); }
       observe() {} disconnect() { this.disconnected = true; }
     },
-    setTimeout(callback) { timers.set(++timerID, callback); return timerID; },
-    clearTimeout(id) { timers.delete(id); },
   });
   const frame = document.body.children[0];
-  return { window, document, calls, timers, observers, frame,
+  return { window, document, calls, observers, frame,
     drag: frame?.children[0], buttons: frame?.children[1]?.children || [],
-    runTimers() { const pending = [...timers.values()]; timers.clear(); pending.forEach(callback => callback()); },
   };
 }
 const flush = async () => { for (let index = 0; index < 12; index++) await Promise.resolve(); };
 
 test("auxiliary captions retain titles and decorative role icons", async () => {
   for (const [role, icon] of [["new-task", "download"], ["task-details", "info"]]) {
-    const view = setup("windows", undefined, role);
+    const view = setup("windows", role);
     await flush();
     assert.equal(view.calls.find(call => call.command === "frame_title").args.title, "TrueDown");
     const svg = view.drag.children[0];
@@ -75,7 +71,7 @@ test("auxiliary captions retain titles and decorative role icons", async () => {
 });
 
 test("settings retains the OS title and drag area without an in-page caption", async () => {
-  const view = setup("windows", undefined, "settings");
+  const view = setup("windows", "settings");
   await flush();
   assert.equal(view.drag.children.length, 0);
   assert.equal(view.calls.find(call => call.command === "frame_title").args.title, "TrueDown");
@@ -118,12 +114,11 @@ test("HTTP dashboards leave the browser frame alone; macOS retains native traffi
 
 test("Custom Windows titles retain native buttons and bound application titles", async () => {
   for (const platform of ["windows", "linux"]) {
-    const view = setup(platform, async () => ({ maximized: true, decorated: true }));
+    const view = setup(platform);
     await flush();
     assert.equal(view.document.body.children.length, platform === "windows" ? 1 : 0);
     assert.equal(view.buttons.length, 0);
     assert.equal(view.document.documentElement.dataset.nativeFrame, platform === "windows" ? "custom" : "native");
-    assert.equal(view.document.documentElement.dataset.maximized, "true");
     assert.equal(view.calls.find(call => call.command === "frame_title").args.title, "TrueDown");
     view.document.title = "x".repeat(200);
     view.observers[0].callback();
@@ -136,21 +131,20 @@ test("Custom Windows titles retain native buttons and bound application titles",
   }
 });
 
-test("resize bursts coalesce and page cleanup rejects late state and detaches observers", async () => {
-  let complete;
-  let reads = 0;
-  const view = setup("windows", () => ++reads === 1 ? Promise.resolve({ maximized: false }) : new Promise(resolve => { complete = resolve; }));
+test("caption drag, resize and focus need no frame-state IPC", async () => {
+  const view = setup("windows");
   await flush();
+  const start = view.calls.length;
+  view.drag.emit("mousedown", { button: 0, detail: 1 });
+  view.drag.emit("mousedown", { button: 0, detail: 2 });
   for (let count = 0; count < 40; count++) view.window.emit("resize");
-  assert.equal(view.timers.size, 1);
-  view.runTimers();
-  assert.equal(reads, 2);
-  view.window.emit("pagehide");
-  complete({ maximized: true });
+  view.window.emit("focus");
   await flush();
-  assert.equal(view.document.documentElement.dataset.maximized, "false");
+  assert.deepEqual(view.calls.slice(start).map(call => [call.command, call.args.action]), [
+    ["frame_action", "drag"], ["frame_action", "maximize"],
+  ]);
+  view.window.emit("pagehide");
+  await flush();
   assert.ok(view.observers.every(observer => observer.disconnected));
-  assert.equal(view.window.listeners.get("resize").size, 0);
-  assert.equal(view.window.listeners.get("focus").size, 0);
-  assert.equal(view.document.listeners.get("keydown")?.size || 0, 0);
+  assert.equal(view.document.listeners.get("kd-tooltip-layout").size, 0);
 });

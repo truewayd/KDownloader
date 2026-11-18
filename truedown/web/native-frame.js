@@ -5,7 +5,7 @@
   if (!invoke || !platform) return;
   const root = document.documentElement;
   root.dataset.nativeFrame = platform === "macos" ? "overlay" : platform === "windows" ? "custom" : "native";
-  let disposed = false, timer, updating = false, dirty = false;
+  let disposed = false;
   const report = error => {
     if (typeof showToast === "function") showToast(String(error?.message || error), "error");
     else console.error("Window operation failed:", error);
@@ -64,19 +64,6 @@
       console.error("Native tooltip initialization failed:", error);
     });
   }
-  const refresh = async () => {
-    dirty = true;
-    if (updating || disposed) return;
-    updating = true;
-    try {
-      while (dirty && !disposed) {
-        dirty = false;
-        const state = await invoke("frame_state");
-        if (!disposed && !dirty) root.dataset.maximized = String(state.maximized);
-      }
-    } catch (error) { report(error); }
-    finally { updating = false; }
-  };
   const title = document.createElement("span");
   title.className = "native-window-title";
   const syncTitle = () => {
@@ -109,7 +96,7 @@
     drag.addEventListener("mousedown", event => {
       if (event.button !== 0) return;
       event.preventDefault();
-      invoke("frame_action", { action: event.detail === 2 ? "maximize" : "drag" }).then(refresh).catch(report);
+      invoke("frame_action", { action: event.detail === 2 ? "maximize" : "drag" }).catch(report);
     });
     drag.addEventListener("contextmenu", event => {
       if (platform !== "windows") return;
@@ -118,16 +105,10 @@
     });
     document.body.prepend(frame);
   }
-  const resized = () => { clearTimeout(timer); timer = setTimeout(refresh, 100); };
-  window.addEventListener("resize", resized);
-  window.addEventListener("focus", refresh);
   window.addEventListener("pagehide", () => {
-    disposed = true; clearTimeout(timer); observer.disconnect();
+    disposed = true; observer.disconnect();
     document.removeEventListener("kd-tooltip-layout", tooltipLayout);
     void queueTooltip(null);
-    window.removeEventListener("resize", resized);
-    window.removeEventListener("focus", refresh);
   }, { once: true });
   syncTitle();
-  refresh();
 })();

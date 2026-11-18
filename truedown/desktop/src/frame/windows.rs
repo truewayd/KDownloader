@@ -280,12 +280,15 @@ unsafe extern "system" fn procedure(
     _: usize,
     data: usize,
 ) -> LRESULT {
+    // A same-DPI move leaves the child region and glass margins unchanged.
+    // Only dismissing an exposed tooltip requires rebuilding clipping on move.
+    let mut moved_with_tooltip = false;
     if matches!(
         message,
         WM_SIZE | WM_MOVE | WM_DPICHANGED | WM_SHOWWINDOW | WM_CANCELMODE | WM_ENTERSIZEMOVE
     ) {
         if let Some(state) = tooltip_state(hwnd) {
-            state.borrow_mut().bounds = None;
+            moved_with_tooltip = state.borrow_mut().bounds.take().is_some() && message == WM_MOVE;
         }
     }
     if message == WM_ERASEBKGND || message == WM_PRINTCLIENT {
@@ -357,18 +360,19 @@ unsafe extern "system" fn procedure(
         return DefSubclassProc(hwnd, message, wp, lp);
     }
     let result = DefSubclassProc(hwnd, message, wp, lp);
-    if matches!(
-        message,
-        WM_SIZE
-            | WM_MOVE
-            | WM_DPICHANGED
-            | WM_DWMCOMPOSITIONCHANGED
-            | WM_THEMECHANGED
-            | WM_SHOWWINDOW
-            | WM_ACTIVATE
-            | WM_CANCELMODE
-            | WM_ENTERSIZEMOVE
-    ) {
+    if moved_with_tooltip
+        || matches!(
+            message,
+            WM_SIZE
+                | WM_DPICHANGED
+                | WM_DWMCOMPOSITIONCHANGED
+                | WM_THEMECHANGED
+                | WM_SHOWWINDOW
+                | WM_ACTIVATE
+                | WM_CANCELMODE
+                | WM_ENTERSIZEMOVE
+        )
+    {
         refresh(hwnd);
     }
     result
@@ -501,6 +505,8 @@ mod tests {
                 SendMessageW(parent.0, WM_ACTIVATE, activation as WPARAM, 0);
                 assert!(tooltip_state(parent.0).unwrap().borrow().bounds.is_some());
             }
+            SendMessageW(parent.0, WM_MOVE, 0, 0);
+            assert!(tooltip_state(parent.0).unwrap().borrow().bounds.is_none());
             tooltip(parent.0, session, 14, Some(layout)).unwrap();
             assert!(
                 tooltip_state(parent.0).unwrap().borrow().bounds.is_none(),
