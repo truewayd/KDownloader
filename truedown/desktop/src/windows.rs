@@ -126,6 +126,8 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
                 "/system/info",
                 "/system/update",
                 "/settings/runtime",
+                "/settings/collection-layout",
+                "/modules",
                 "/modules/update",
                 "/system/storage",
                 "/settings/task-defaults",
@@ -158,6 +160,7 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
                 "/system/update",
                 "/settings/runtime",
                 "/settings/download-rules",
+                "/settings/collection-layout",
                 "/settings/task-defaults",
                 "/settings/file-groups",
                 "/settings/tracker-research",
@@ -172,6 +175,7 @@ pub fn allowed(window: &str, method: &str, path: &str) -> bool {
                 "/system/logs",
                 "/settings/runtime",
                 "/settings/download-rules",
+                "/settings/collection-layout",
                 "/settings/task-defaults",
                 "/settings/file-groups",
                 "/settings/tracker-research",
@@ -743,6 +747,19 @@ mod tests {
         }
         for path in ["/modules/package", "/settings/runtime", "/auth/settings"] {
             assert!(!allowed("main", "POST", path));
+        }
+    }
+
+    #[test]
+    fn collection_layout_is_writable_only_from_settings() {
+        let path = "/settings/collection-layout";
+        assert!(allowed("main", "GET", path));
+        assert!(allowed("settings", "GET", path));
+        assert!(allowed("settings", "POST", path));
+        assert!(!allowed("main", "POST", path));
+        for role in ["new-task", "task-details", "task-preview"] {
+            assert!(!allowed(role, "GET", path));
+            assert!(!allowed(role, "POST", path));
         }
     }
 

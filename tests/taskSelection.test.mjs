@@ -4,14 +4,14 @@ import test from "node:test";
 import vm from "node:vm";
 
 const source = await readFile(new URL("../truedown/web/app.js", import.meta.url), "utf8");
-const selectSource = source.slice(source.indexOf("async function onTaskSelection("), source.indexOf("async function runSelectedAction(")) + '\nfunction taskSelectionScope() { return JSON.stringify([currentFilter, currentSearch, currentCategory]); }';
+const selectSource = source.slice(source.indexOf("async function onTaskSelection("), source.indexOf("async function runSelectedAction(")) + "\n" + source.match(/^function taskSelectionScope\(\).*$/m)[0];
 const batchSource = source.slice(source.indexOf("async function runSelectedAction("), source.indexOf("function setBatchBusy("));
 function context(extra = {}) {
   return vm.createContext({
     selectedTaskIDs: new Set(), taskStatusByID: new Map(), taskLinkByID: new Map(), updateTaskIDs: new Set(),
     taskSelectionLoading: false, taskSelectionSerial: 0, taskBatchRunning: false, taskBatchProgress: "",
-    currentPage: "tasks", currentFilter: "all", currentSearch: "", currentCategory: "", MAX_SELECTED_TASKS: 50000,
-    URLSearchParams, taskSelectionScope() { return JSON.stringify([this.currentFilter, this.currentSearch, this.currentCategory]); },
+    currentPage: "tasks", currentFilter: "all", currentSearch: "", currentCategory: "", currentModule: "", MAX_SELECTED_TASKS: 50000,
+    URLSearchParams,
     syncSelectionControls() {}, showToast() {}, clearTaskSelection() {},
     ...extra,
   });
@@ -20,13 +20,14 @@ function checkbox() { return { checked: true, matches: selector => selector === 
 
 test("select all obtains offscreen membership and links independently of rendered rows", async () => {
   let url;
-  const state = context({ requestJSON: async value => {
+  const state = context({ currentModule: "google-drive", requestJSON: async value => {
     url = value;
     return { tasks: Array.from({ length: 1205 }, (_, i) => ({ id: i + 1, status: "paused", link: `https://example.test/${i}`, updateDownload: i === 1000 })) };
   } });
   vm.runInContext(selectSource, state);
   await state.onTaskSelection({ target: checkbox() });
   assert.match(url, /^\/tasks\/selection\?/);
+  assert.equal(new URL(url, "https://example.test").searchParams.get("module"), "google-drive");
   assert.equal(state.selectedTaskIDs.size, 1205);
   assert.equal(state.taskLinkByID.get(1205), "https://example.test/1204");
   assert.equal(state.updateTaskIDs.has(1001), true);
@@ -66,7 +67,7 @@ test("bulk removal chunks every selected ID and retains failed rows", async () =
 test("selection survives viewport changes and sorting, and clears on filter changes", () => {
   const header = {};
   const state = context({
-    selectedTaskScope: JSON.stringify(["all", "", ""]), currentTotal: 1205,
+    selectedTaskScope: JSON.stringify(["all", "", "", "google-drive"]), currentModule: "google-drive", currentTotal: 1205,
     currentTasks: Array.from({ length: 100 }, (_, index) => ({ id: index + 1001 })),
     els: { tasksContainer: { querySelectorAll: () => [], querySelector: () => header }, batchToolbar: {}, batchSelectionCount: {} },
     KDComponents: { setBusyState() {} },
@@ -83,7 +84,7 @@ test("selection survives viewport changes and sorting, and clears on filter chan
   state.syncSelectionControls();
   assert.equal(header.checked, false);
   assert.equal(header.indeterminate, true);
-  state.currentSearch = "new scope";
+  state.currentModule = "dropbox";
   state.syncSelectionControls();
   assert.equal(state.selectedTaskIDs.size, 0);
 });

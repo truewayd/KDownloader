@@ -46,6 +46,7 @@ let traySettings = null, traySaving = false;
 let taskDefaultsRevision = 0;
 let taskDefaultsLoad = null;
 let dropboxCustomSuffixes = null;
+let collectionLayout = "module";
 
 function invalidateSettingRead(key) {
   const revision = (settingReadVersions.get(key) || 0) + 1;
@@ -133,7 +134,7 @@ async function loadSettingsPage() {
         general: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings()]),
         files: () => Promise.all([loadServerTaskDefaults(), loadFileGroupsEditor()]),
         application: () => Promise.all([loadStartupSettings(), loadTraySettings(), loadStorageLocation(), loadAuthSettings()]),
-        engine: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings(), loadServerDownloadRules(), loadFileGroupsEditor(), loadSystemUpdateState(), loadTrackerResearchSettings(), loadResolverModules()]),
+        engine: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings(), loadServerDownloadRules(), loadCollectionLayout(), loadFileGroupsEditor(), loadSystemUpdateState(), loadTrackerResearchSettings(), loadResolverModules()]),
         experimental: loadTrackerResearchSettings,
       };
       settingsLoads.set(page, Promise.resolve().then(() => loaders[page]?.()).finally(() => settingsLoads.delete(page)));
@@ -470,6 +471,7 @@ async function resetImmediateSettings(page) {
         invalidateSettingRead("rules");
         downloadRules = normalizeServerDownloadRules(await post("/settings/download-rules", DEFAULT_DOWNLOAD_RULES));
         invalidateSettingRead("rules");
+        await saveCollectionLayout("module");
         applyTaskDefaults(await post("/settings/task-defaults", { revision: defaultsRevision, values: nextDefaults }));
         settingsDirtyControls.delete(page);
         renderSettingsCategory(page);
@@ -598,6 +600,7 @@ function renderDownloadSettings(settings = downloadSettings, rules = downloadRul
     els.cfgExtra.value = settings.extra;
     els.cfgBtUserAgent.value = runtime.btUserAgent;
     els.cfgBtPeerIdPrefix.value = runtime.btPeerIdPrefix;
+    els.cfgCollectionLayout.value = collectionLayout;
     renderBitTorrentIdentity();
     renderDropboxFilter(rules);
   }
@@ -790,7 +793,41 @@ function renderDropboxAvailability() {
 }
 
 async function loadServerDownloadRules() {
-  await readSettingSnapshot("rules", "/settings/download-rules", (value) => { downloadRules = normalizeServerDownloadRules(value); });
+  await readSettingSnapshot("rules", "/settings/download-rules", value => { downloadRules = normalizeServerDownloadRules(value); });
+}
+
+function applyCollectionLayout(value) {
+  collectionLayout = value?.layout === "category" ? "category" : "module";
+  renderModuleNavigation();
+}
+
+async function loadCollectionLayout() {
+  await readSettingSnapshot("collection-layout", "/settings/collection-layout", applyCollectionLayout);
+}
+
+async function saveCollectionLayout(layout) {
+  invalidateSettingRead("collection-layout");
+  const value = await requestJSON("/settings/collection-layout", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ layout }),
+  });
+  invalidateSettingRead("collection-layout");
+  applyCollectionLayout(value);
+  els.cfgCollectionLayout.value = collectionLayout;
+}
+
+async function changeCollectionLayout(event) {
+  const control = event.currentTarget;
+  if (els.settingsForm.inert || !settingsReady.has("engine") || control.value === collectionLayout) return;
+  els.settingsForm.inert = true;
+  try {
+    await saveCollectionLayout(control.value);
+  } catch (error) {
+    control.value = collectionLayout;
+    showToast(`保存目录布局失败：${error.message}`, "error");
+  } finally {
+    els.settingsForm.inert = false;
+    if (currentPage === "settings" && currentSettingsPage === "engine") control.focus({ preventScroll: true });
+  }
 }
 
 function normalizeServerRuntimeSettings(value) {
@@ -916,6 +953,7 @@ function normalizeResolverModule(module) {
 async function loadResolverModules() {
   await readSettingSnapshot("modules", "/modules", (value) => {
     resolverModules = normalizeResolverModules(value);
+    renderModuleNavigation();
     renderResolverModules();
   });
 }
@@ -1058,6 +1096,7 @@ async function onModuleAction(event) {
 		});
 		resolverModules = resolverModules.map((module) => module.id === id
 			? { ...module, installed: saved.installed === true } : module);
+		renderModuleNavigation();
 		renderResolverModules();
 		showToast(`${stringValue(saved.name) || id} 模块已${installed ? "启用" : "停用"}。`);
 	} catch (error) {
@@ -1152,6 +1191,7 @@ function replaceResolverModule(value) {
 	const normalized = normalizeResolverModule(value);
 	if (!normalized) return;
 	resolverModules = resolverModules.map((module) => module.id === normalized.id ? normalized : module);
+	renderModuleNavigation();
 }
 
 let moduleUpdatePending = false;

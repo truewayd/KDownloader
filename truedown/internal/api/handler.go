@@ -341,6 +341,31 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 		}
 	})
 
+	mux.HandleFunc("/settings/collection-layout", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, dm.CollectionLayout())
+		case http.MethodPost:
+			var settings downloader.CollectionLayoutSettings
+			if !decodeJSONRequest(w, r, 1024, &settings) {
+				return
+			}
+			if err := dm.SetCollectionLayout(settings); err != nil {
+				if downloader.IsValidationError(err) {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				http.Error(w, "failed to persist collection layout", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, settings)
+		default:
+			w.Header().Set("Allow", "GET, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	mux.HandleFunc("/settings/runtime", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		switch r.Method {
@@ -837,12 +862,13 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			return
 		}
 		category := r.URL.Query().Get("category")
-		if len(category) > 64 {
-			http.Error(w, "invalid task category", http.StatusBadRequest)
+		module := r.URL.Query().Get("module")
+		if len(category) > 64 || len(module) > 64 {
+			http.Error(w, "invalid task filters", http.StatusBadRequest)
 			return
 		}
-		page, notModified := dm.PageTaskSnapshotsFilteredIfChanged(
-			offset, limit, status, search, sortField, sortOrder, category, r.Header.Get("If-None-Match"),
+		page, notModified := dm.PageTaskSnapshotsScoped(
+			offset, limit, status, search, sortField, sortOrder, downloader.TaskListScope{Category: category, Module: module}, r.Header.Get("If-None-Match"),
 		)
 		w.Header().Set("ETag", page.Version)
 		if notModified {
@@ -868,11 +894,12 @@ func Register(mux *http.ServeMux, dm *downloader.Manager, auth TokenAuth, update
 			return
 		}
 		search, category := r.URL.Query().Get("search"), r.URL.Query().Get("category")
-		if len(search) > 512 || len(category) > 64 {
+		module := r.URL.Query().Get("module")
+		if len(search) > 512 || len(category) > 64 || len(module) > 64 {
 			http.Error(w, "invalid selection filters", http.StatusBadRequest)
 			return
 		}
-		entries, err := dm.SelectTasks(status, search, category)
+		entries, err := dm.SelectTasksScoped(status, search, downloader.TaskListScope{Category: category, Module: module})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
 			return

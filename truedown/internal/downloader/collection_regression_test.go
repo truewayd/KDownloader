@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -84,6 +85,36 @@ func TestTaskSelectionIncludesOffscreenTasksAndFreezesMembership(t *testing.T) {
 	filtered, err := m.SelectTasks(StatusPaused, "image", "image")
 	if err != nil || len(filtered) != 1203 {
 		t.Fatalf("filtered=%d error=%v", len(filtered), err)
+	}
+}
+
+func TestModuleTaskPageAndSelectionShareScope(t *testing.T) {
+	root := t.TempDir()
+	m, err := NewManager("unused", root, filepath.Join(root, "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	tasks, err := m.addTasksBatch([]taskAddRequest{
+		{Link: "https://example.test/a", Name: "trip.jpg", ModuleID: GoogleDriveModuleID},
+		{Link: "https://example.test/b", Name: "trip.mp4", ModuleID: GoogleDriveModuleID},
+		{Link: "https://example.test/c", Name: "trip.jpg", ModuleID: DropboxModuleID},
+		{Link: "https://example.test/d", Name: "trip.jpg"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := TaskListScope{Module: GoogleDriveModuleID}
+	page, _ := m.PageTaskSnapshotsScoped(1, 1, "", "trip", "status", "asc", scope, "")
+	if page.Total != 2 || len(page.Tasks) != 1 || page.Tasks[0].ID != tasks[1].Task.ID {
+		t.Fatalf("module page: %+v", page)
+	}
+	if _, unchanged := m.PageTaskSnapshotsScoped(1, 1, "", "trip", "status", "asc", TaskListScope{Module: DropboxModuleID}, page.Version); unchanged {
+		t.Fatal("module scope must change the validator")
+	}
+	selected, err := m.SelectTasksScoped("", "trip", scope)
+	if err != nil || len(selected) != 2 || selected[0].ID != tasks[0].Task.ID || selected[1].ID != tasks[1].Task.ID {
+		t.Fatalf("module selection: %+v %v", selected, err)
 	}
 }
 

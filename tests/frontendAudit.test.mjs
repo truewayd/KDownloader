@@ -301,7 +301,7 @@ function createTaskPageHarness(fetchPage) {
     ${readFileSync(new URL('../truedown/web/task-data.js', import.meta.url), 'utf8')}
     const taskPages = new TaskPageStore(apiFetch);
     let currentOffset = 0, currentTotal = 0;
-    let currentCategory = '', currentFilter = 'all', currentSearch = '', currentSort = 'status', currentSortOrder = 'asc';
+    let currentCategory = '', currentModule = '', currentFilter = 'all', currentSearch = '', currentSort = 'status', currentSortOrder = 'asc';
     let currentSummary = {}, loadTasksPromise = null, taskLoadTarget = null, taskLoadSerial = 0, taskRenderedRevision = -1;
     ${["loadTasks", "applyTaskPage", "taskPageURL", "normalizeSummary", "emptySummary", "safeCount"].map((name) => declaration(trueDownSource, name)).join("\n")}
   `, context);

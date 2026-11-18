@@ -114,6 +114,8 @@ Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps
 
 - The main workspace's toolbar and background context menu open the saved task-default save location, falling back to the system downloads folder when unset. The task-row action opens that task's own download directory.
 
+- New expanded resolver collections use `GET/POST /settings/collection-layout`, persisted separately from the strict download-rules file for rollback compatibility. Module layout is the default and keeps a collection under its module directory, with a stable non-secret share suffix and preserved relative paths. Category layout groups members by suffix and retains their relative paths within each group. Single files and ZIP tasks use normal file groups. Preserve existing task locations and collection replay identities. Only module layout shows enabled resolvers under Modules in the Library. Module filters use stored resolver identity for pagination and bulk selection, and sidebar order is profile-local.
+
 - Windows context-menu requests carry the resolved application language; both Composition and HMENU render labels from the same native action allowlist. Language changes must not alter action authorization or persisted user group names.
 - Main and settings windows synchronize their resolved language with native tray labels, notifications, pickers and auxiliary titles. An owned core's stopping event blocks recovery before notifying the exit coordinator; update health acknowledgement also requires a ready main-window surface.
 

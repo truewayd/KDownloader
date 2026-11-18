@@ -13,6 +13,7 @@ const fixture = {
   "/settings/task-defaults": { revision: 1, values: {} },
   "/settings/runtime": { concurrentDownloads: 3, globalDownloadLimitBps: 0 },
   "/settings/download-rules": { enabled: false, dropboxMode: "direct", excludedExtensions: [] },
+  "/settings/collection-layout": { layout: "module" },
   "/settings/file-groups": groups,
   "/auth/settings": { enabled: false, managed: false },
   "/settings/tracker-research": { enabled: false, minimumLeechers: 3, engine: "stable" },

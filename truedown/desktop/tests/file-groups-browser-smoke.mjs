@@ -14,8 +14,9 @@ const defaults = [
   ["project", "\u5de5\u7a0b", [".psd", ".blend"]], ["other", "\u5176\u4ed6", []],
 ].map(([id, name, extensions]) => ({ id, name, extensions, icon: { image: "image", video: "video", audio: "music", archive: "archive", application: "app-window", document: "logs", project: "settings", other: "file" }[id] }));
 const names = ["Sunset.png", "Ocean.mp4", "Piano.mp3", "References.zip", "Installer.exe", "Guide.pdf", "Cover.PSD", "Scene.blend", "Unknown.bin"];
-let groups, tasks, detailWrites = 0, groupWrites = 0, taskNotModified = 0;
+let groups, tasks, collectionLayout, detailWrites = 0, groupWrites = 0, taskNotModified = 0;
 function reset() {
+  collectionLayout = "module";
   groups = { icons: [{ id: "star", name: "Star" }, { id: "folder", name: "Folder" }], revision: 0, groups: structuredClone(defaults) };
   tasks = names.map((name, index) => ({ id: index + 1, name, outputName: name, folder: "C:\\Downloads", link: `https://example.test/${name}`, status: index === 1 ? "downloading" : index === 2 ? "done" : "paused", totalLength: 104857600, completedLength: 41943040, downloadSpeed: 1048576, progress: "40% - 1 MiB/s", createdAt: "2026-09-08T08:00:00Z", settingsRevision: `revision-${index}`, settings: { connections: 16, maxSpeedBps: 0, maxTries: 5, retryWait: 3 } }));
 }
@@ -25,7 +26,8 @@ const server = http.createServer(async (request, response) => {
   const url = new URL(request.url, "http://localhost");
   const json = (value, code = 200) => { response.writeHead(code, { "Content-Type": "application/json" }); response.end(JSON.stringify(value)); };
   if (url.pathname === "/tasks") {
-    const filtered = tasks.filter(task => (!url.searchParams.get("category") || category(task) === url.searchParams.get("category")) && (!url.searchParams.get("search") || task.name.toLowerCase().includes(url.searchParams.get("search").toLowerCase())) && ([null, "all"].includes(url.searchParams.get("status")) || task.status === url.searchParams.get("status")));
+    const module = url.searchParams.get("module");
+    const filtered = tasks.filter(task => (!module || module === ({ 1: "google-drive", 2: "google-drive", 3: "dropbox" })[task.id]) && (!url.searchParams.get("category") || category(task) === url.searchParams.get("category")) && (!url.searchParams.get("search") || task.name.toLowerCase().includes(url.searchParams.get("search").toLowerCase())) && ([null, "all"].includes(url.searchParams.get("status")) || task.status === url.searchParams.get("status")));
     const etag = JSON.stringify(`${groups.revision}:${filtered.map(task => `${task.id}:${task.settingsRevision}`).join(",")}`);
     response.setHeader("ETag", etag);
     if (request.headers["if-none-match"] === etag) { taskNotModified++; response.writeHead(304).end(); return; }
@@ -33,6 +35,12 @@ const server = http.createServer(async (request, response) => {
   }
   if (url.pathname === "/settings/task-defaults") return json({ revision: 1, values: {} });
   if (url.pathname === "/settings/download-rules") return json({ enabled: false, dropboxMode: "direct", excludedExtensions: [] });
+  if (url.pathname === "/settings/collection-layout") return json({ layout: collectionLayout });
+  if (url.pathname === "/modules") return json({ modules: [
+    { id: "google-drive", name: "Google Drive", installed: true },
+    { id: "dropbox", name: "Dropbox", installed: true },
+    { id: "mega", name: "MEGA", installed: false },
+  ] });
   if (url.pathname === "/settings/file-groups/order") {
     const next = await body(request);
     if (next.revision !== groups.revision) return json("conflict", 409);
@@ -238,6 +246,31 @@ try {
     await page.screenshot({ path: path.join(screenshots, `group-task-icons-${width}-${colorScheme}.png`) });
     await page.reload();
     await page.waitForFunction(() => document.querySelectorAll("[data-task-category]").length === 9);
+    const modules = page.locator("#module-navigation a");
+    const googleDrive = page.locator('[data-task-module="google-drive"]');
+    const dropbox = page.locator('[data-task-module="dropbox"]');
+    await googleDrive.waitFor();
+    assert.equal(await modules.count(), 2, "disabled modules do not appear");
+    if (width < 720) await page.locator(".sidebar-toggle").click();
+    await dropbox.scrollIntoViewIfNeeded();
+    const dragStart = await dropbox.boundingBox(), dragEnd = await googleDrive.boundingBox();
+    await page.mouse.move(dragStart.x + 12, dragStart.y + dragStart.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(dragEnd.x + 12, dragEnd.y + 3, { steps: 8 });
+    await page.mouse.up();
+    assert.equal(await modules.first().getAttribute("data-task-module"), "dropbox");
+    assert.equal(await page.evaluate(() => currentModule), "", "sorting does not activate a module");
+    await page.screenshot({ path: path.join(screenshots, `modules-${width}-${colorScheme}.png`) });
+    await page.reload();
+    await dropbox.waitFor();
+    assert.equal(await modules.first().getAttribute("data-task-module"), "dropbox", "module order survives reopening the page");
+    await googleDrive.click();
+    await page.waitForFunction(() => currentModule === "google-drive" && currentTasks.map(task => task.id).join() === "1,2");
+    assert.equal(await googleDrive.getAttribute("aria-current"), "page");
+    collectionLayout = "category";
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await page.locator("#module-navigation-section").waitFor({ state: "hidden" });
+    await page.waitForFunction(() => currentModule === "" && currentTasks.length === 9);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.deepEqual(errors, []);
     await page.close();

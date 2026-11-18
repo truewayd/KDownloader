@@ -60,6 +60,10 @@
           <p class="nav-section-label">下载库</p>
           <a href="#tasks" data-route="tasks" data-task-filter="all" data-tooltip="全部下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg><span class="nav-label">全部下载</span><span class="nav-count" id="task-count">0</span></a>
           <div id="file-group-navigation" class="file-group-navigation"></div>
+          <div id="module-navigation-section" class="module-navigation-section" hidden>
+            <p class="nav-section-label" id="module-navigation-label">模块</p>
+            <div id="module-navigation" class="file-group-navigation" role="group" aria-labelledby="module-navigation-label"></div>
+          </div>
         </nav>
         <nav class="sidebar-footer" aria-label="应用工具">
           <div class="workspace-notice" id="workspace-notice" hidden>
@@ -432,6 +436,17 @@
                 </div>
               </fieldset>
             </div>
+            <fieldset class="settings-group" data-settings-independent>
+              <legend>解析目录保存方式</legend>
+              <div class="field settings-row">
+                <label for="cfg-collection-layout">展开后的保存位置</label>
+                <select class="kd-select" id="cfg-collection-layout" aria-describedby="collection-layout-hint">
+                  <option value="module">按模块保存</option>
+                  <option value="category">按文件分类保存</option>
+                </select>
+                <p class="hint" id="collection-layout-hint">按模块保存会保留原目录结构，并在首页显示模块导航。按文件分类保存会将同一集合拆到图片、视频等分类下。仅影响新任务。</p>
+              </div>
+            </fieldset>
             <fieldset class="settings-group" id="folder-filter-settings">
                 <legend>目录文件过滤</legend>
                 <p class="hint">MEGA、Dropbox、Google Drive 展开目录时共用此规则。仅过滤目录中的文件；单文件链接和目录压缩包保留完整内容。</p>

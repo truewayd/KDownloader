@@ -1,10 +1,15 @@
 let currentPage = "tasks";
 let currentSettingsPage = "general";
 let routeEpoch = 0;
+const MODULE_NAV_ORDER_KEY = "truedown-module-navigation-order-v1";
+let moduleNavSignature = "", moduleNavRevision = 0;
+let moduleNavOrder = [], moduleNavItems = [];
+let isModuleNavDragging = () => false;
 
 function initWorkspace() {
   initFileGroups();
   initNavigationIndicator();
+  if (["main", "browser"].includes(nativeWindowRole)) initModuleNavigation();
   window.addEventListener("hashchange", applyWorkspaceRoute);
   const filter = document.getElementById("task-filter");
   filter?.addEventListener("change", updateTaskNavigation);
@@ -14,6 +19,7 @@ function initWorkspace() {
       if (currentPage === "tasks") event.preventDefault();
       if (link.dataset.taskFilter === "all") {
         currentCategory = "";
+        currentModule = "";
         resetTaskViewport();
         updateTaskNavigation();
         if (currentPage === "tasks") refreshAndSchedule(true);
@@ -50,6 +56,89 @@ function initWorkspace() {
     if (event.key === "Escape" && compactSidebar.matches) setSidebarCollapsed(true);
   });
   applyWorkspaceRoute(false);
+}
+
+function initModuleNavigation() {
+  const nav = document.getElementById("module-navigation");
+  try {
+    const order = JSON.parse(localStorage.getItem(MODULE_NAV_ORDER_KEY));
+    if (Array.isArray(order)) moduleNavOrder = [...new Set(order.slice(0, 32).filter(id => typeof id === "string" && /^[a-z0-9-]{1,64}$/.test(id)))];
+  } catch { /* Use the default module order when storage is unavailable. */ }
+  isModuleNavDragging = bindNavigationSorting(nav, {
+    key: "taskModule",
+    ids: () => [...nav.children].map(link => link.dataset.taskModule),
+    revision: () => moduleNavRevision,
+    busy: () => false,
+    save: ids => {
+      // Keep disabled modules in their slots so re-enabling restores their order.
+      const active = new Set(ids);
+      const reordered = [...ids];
+      moduleNavOrder = [...new Set([...moduleNavOrder, ...ids])].map(id => active.has(id) ? reordered.shift() : id);
+      try { localStorage.setItem(MODULE_NAV_ORDER_KEY, JSON.stringify(moduleNavOrder)); }
+      catch { /* The current window can still use the new order. */ }
+      renderModuleNavigation(true);
+    },
+    render: () => renderModuleNavigation(true),
+  });
+  nav.addEventListener("click", event => {
+    const link = event.target.closest("[data-task-module]");
+    if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (moduleNavItems.some(module => module.id === link.dataset.taskModule)) selectTaskNavigation("", link.dataset.taskModule);
+  });
+  const refresh = () => {
+    if (!document.hidden) Promise.allSettled([loadCollectionLayout(), loadResolverModules()]).then(() => renderModuleNavigation());
+  };
+  window.addEventListener("focus", refresh);
+  document.addEventListener("visibilitychange", refresh);
+  refresh();
+}
+
+function renderModuleNavigation(force = false) {
+  if (!["main", "browser"].includes(nativeWindowRole)) return;
+  const nav = document.getElementById("module-navigation");
+  if (!nav || !settingSnapshotsKnown.has("collection-layout") && !force) return;
+  const items = collectionLayout === "module"
+    ? resolverModules.filter(module => module.installed) : [];
+  const signature = JSON.stringify(items.map(({ id, name }) => [id, name]));
+  if (!force && signature === moduleNavSignature) return;
+  if (signature !== moduleNavSignature) {
+    moduleNavItems = items;
+    moduleNavSignature = signature;
+    moduleNavRevision++;
+  }
+  if (isModuleNavDragging()) return;
+  const selected = items.find(module => module.id === currentModule);
+  const focused = nav.contains(document.activeElement) ? document.activeElement.dataset.taskModule : "";
+  const modules = new Map(items.map(module => [module.id, module]));
+  const ordered = [...new Set([...moduleNavOrder, ...modules.keys()])];
+  const icons = { "google-drive": "google-drive", dropbox: "dropbox", mega: "mega", mediafire: "cloud", telegraph: "file" };
+  nav.replaceChildren(...ordered.filter(id => modules.has(id)).map(id => {
+    const { name } = modules.get(id);
+    const link = document.createElement("a");
+    link.href = "#tasks";
+    link.draggable = false;
+    link.dataset.taskModule = id;
+    link.dataset.tooltip = name;
+    link.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+    link.innerHTML = iconMarkup(icons[id] || "cloud");
+    const label = document.createElement("span");
+    label.className = "nav-label";
+    label.textContent = name;
+    link.append(label);
+    return link;
+  }));
+  document.getElementById("module-navigation-section").hidden = !items.length;
+  if (focused) {
+    const next = [...nav.children].find(link => link.dataset.taskModule === focused) || document.querySelector('[data-task-filter="all"]');
+    next?.focus({ preventScroll: true });
+  }
+  if (currentModule && !selected) {
+    currentModule = "";
+    resetTaskViewport();
+    if (currentPage === "tasks") refreshAndSchedule(true);
+  }
+  updateTaskNavigation();
 }
 
 function initNavigationIndicator() {
@@ -94,16 +183,21 @@ function initNavigationIndicator() {
 function updateTaskNavigation() {
   const filter = document.getElementById("task-filter")?.value || "all";
   document.querySelectorAll("[data-task-filter]").forEach((link) => {
-    if (currentPage === "tasks" && link.dataset.taskFilter === filter && (filter !== "all" || !currentCategory)) link.setAttribute("aria-current", "page");
+    if (currentPage === "tasks" && link.dataset.taskFilter === filter && (filter !== "all" || !currentCategory && !currentModule)) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   });
   document.querySelectorAll("[data-task-category]").forEach((link) => {
     if (currentPage === "tasks" && link.dataset.taskCategory === currentCategory) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   });
+  document.querySelectorAll("[data-task-module]").forEach(link => {
+    if (currentPage === "tasks" && link.dataset.taskModule === currentModule) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  });
   const title = document.getElementById("tasks-title");
   if (title) title.textContent = { all: "全部下载", downloading: "正在下载", queued: "排队中", paused: "已暂停", done: "已完成", error: "下载失败" }[filter] || "下载任务";
   if (title && currentCategory) title.textContent = `${taskCategoryMeta(currentCategory).label} · ${title.textContent}`;
+  if (title && currentModule) title.textContent = `${moduleNavItems.find(module => module.id === currentModule)?.name || currentModule} · ${title.textContent}`;
 }
 
 function applyWorkspaceRoute(focus = true) {

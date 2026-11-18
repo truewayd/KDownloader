@@ -134,6 +134,7 @@ test("Engine reset clears advanced parameters while preserving the captured defa
     updatePreferenceSaving: false, settingsMessages: new Map(), resolverModules: [],
     invalidateSettingRead() {}, normalizeSystemUpdateState: value => value,
     renderSystemUpdateState() {}, renderSettingsCategory() {}, renderResolverModules() {},
+    async saveCollectionLayout(layout) { assert.equal(layout, "module"); },
     applyTaskDefaults(value) { saved = value; },
     requestJSON: async (path, options) => {
       const value = JSON.parse(options.body);

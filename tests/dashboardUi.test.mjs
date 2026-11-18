@@ -190,7 +190,7 @@ test("settings navigation stays immediate and a late category read never overwri
     document: { querySelectorAll: () => [], querySelector: selector => selector === ".settings-content" ? content : null, getElementById: () => control() },
     settingsPanels: (page) => [panels[page]],
     loadServerRuntimeSettings: () => { loads++; return runtimeRead; },
-    loadServerTaskDefaults() {}, loadServerDownloadRules() {}, loadSettingsOverview() {}, loadStartupSettings() {},
+    loadServerTaskDefaults() {}, loadServerDownloadRules() {}, loadCollectionLayout() {}, loadSettingsOverview() {}, loadStartupSettings() {},
     loadFileGroupsEditor() {}, loadResolverModules() {}, loadAuthSettings() {}, loadTrackerResearchSettings() {},
     renderSettingsCategory() { rendered++; }, renderSettingsOverview() {},
   });
@@ -274,7 +274,7 @@ test("a changed task page preserves keyboard focus on the same row control", () 
     document: { activeElement: original },
     els: { tasksContainer: { contains: (element) => element === original, querySelectorAll: () => [replacement], querySelector: () => ({ dataset: { sort: "status:asc" }, querySelector: () => ({}) }) } },
     currentTasks: [], currentTotal: 1, selectedTaskIDs: new Set(), taskStatusByID: new Map(), taskLinkByID: new Map(), updateTaskIDs: new Set(),
-    fileGroupsState: { revision: 0 }, taskDetailReturnID: 0, currentCategory: "", currentOffset: 0, currentFilter: "all", currentSearch: "", currentSort: "status", currentSortOrder: "asc",
+    fileGroupsState: { revision: 0 }, taskDetailReturnID: 0, currentCategory: "", currentModule: "", currentOffset: 0, currentFilter: "all", currentSearch: "", currentSort: "status", currentSortOrder: "asc",
     lastTaskRenderSignature: "", syncSelectionControls() {}, taskRow: () => "", sortableHeading: () => "",
     reconcileTaskRows() { context.document.activeElement = null; },
     updateTaskViewport() {},

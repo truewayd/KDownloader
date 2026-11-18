@@ -146,6 +146,19 @@ func megaFolderSource(raw string) bool {
 	return (strings.HasPrefix(u.Path, "/folder/") && !strings.Contains(u.Fragment, "/file/")) || strings.HasPrefix(u.Fragment, "F!")
 }
 
+// The provider has already validated this share. Use only its public handles.
+func megaCollectionSource(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	if legacy := strings.Split(u.Fragment, "!"); len(legacy) >= 3 && legacy[0] == "F" {
+		return strings.Join(append([]string{legacy[1]}, legacy[3:]...), "/")
+	}
+	_, node, _ := strings.Cut(u.Fragment, "/folder/")
+	return strings.TrimPrefix(u.Path, "/folder/") + strings.TrimSuffix("/"+node, "/")
+}
+
 func (r *executableResolver) resolveFolder(ctx context.Context, m *Manager, request moduleResolveRequest) (ModuleAddResult, bool, error) {
 	result := ModuleAddResult{ModuleID: "mega", Collection: true}
 	identity := normalizeRequest(request.Link, request.Name, request.Folder, m.defaultDir, nil, "", request.QueueID, request.Opts)
@@ -210,6 +223,7 @@ func (r *executableResolver) resolveFolder(ctx context.Context, m *Manager, requ
 		excluded = nil
 	}
 	requests := make([]taskAddRequest, 0, len(collection.Entries))
+	collectionSource := megaCollectionSource(identity.Link)
 	for _, entry := range collection.Entries {
 		if entry.Directory {
 			continue
@@ -220,7 +234,7 @@ func (r *executableResolver) resolveFolder(ctx context.Context, m *Manager, requ
 			continue
 		}
 		collectionPath := append([]string{collection.Name}, entry.Path[:len(entry.Path)-1]...)
-		requests = append(requests, taskAddRequest{Link: entry.Source, Name: name, Folder: identity.Folder, CollectionPath: collectionPath, QueueID: request.QueueID, Opts: request.Opts, ModuleID: "mega", ModuleData: entry.Data})
+		requests = append(requests, taskAddRequest{Link: entry.Source, Name: name, Folder: identity.Folder, CollectionPath: collectionPath, CollectionSource: collectionSource, QueueID: request.QueueID, Opts: request.Opts, ModuleID: "mega", ModuleData: entry.Data})
 	}
 	added, err := m.addTasksBatch(requests)
 	if err != nil {

@@ -9,16 +9,17 @@ import (
 )
 
 type taskAddRequest struct {
-	CollectionPath []string
-	Link           string
-	Name           string
-	Folder         string
-	Headers        map[string]string
-	DownloadPage   string
-	QueueID        int
-	Opts           Aria2Opts
-	ModuleID       string
-	ModuleData     json.RawMessage
+	CollectionPath   []string
+	CollectionSource string
+	Link             string
+	Name             string
+	Folder           string
+	Headers          map[string]string
+	DownloadPage     string
+	QueueID          int
+	Opts             Aria2Opts
+	ModuleID         string
+	ModuleData       json.RawMessage
 }
 
 type taskAddResult struct {
@@ -39,6 +40,7 @@ type preparedTaskAdd struct {
 // back to AddTask so their existing update semantics stay unchanged.
 func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, error) {
 	prepared := make([]preparedTaskAdd, len(requests))
+	layout := m.CollectionLayout().Layout
 	for index, request := range requests {
 		identity := normalizeRequest(
 			request.Link, request.Name, request.Folder, m.defaultDir, request.Headers,
@@ -47,6 +49,7 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 		identity.CollectionPath = append([]string(nil), request.CollectionPath...)
 		identity.ModuleID = request.ModuleID
 		identity.ModuleData = request.ModuleData
+		identity.collectionLayout = layout
 		// Recognize pre-grouping collection requests so existing tasks keep their paths.
 		if len(identity.CollectionPath) > 0 {
 			legacy := identity
@@ -62,6 +65,24 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 			m.mu.RUnlock()
 			if exists {
 				identity = legacy
+			} else if request.CollectionSource != "" {
+				digest := sha256.Sum256([]byte(request.ModuleID + "\x00" + request.CollectionSource))
+				identity.CollectionID = hex.EncodeToString(digest[:])
+				// Reuse the old identity when this collection member was admitted
+				// before collection IDs were persisted.
+				previous := identity
+				previous.CollectionID = ""
+				encoded, err := json.Marshal(previous)
+				if err != nil {
+					return nil, err
+				}
+				digest = sha256.Sum256(encoded)
+				m.mu.RLock()
+				_, exists = m.fingerprints[hex.EncodeToString(digest[:])]
+				m.mu.RUnlock()
+				if exists {
+					identity = previous
+				}
 			}
 		}
 		if err := validateRequest(identity); err != nil {

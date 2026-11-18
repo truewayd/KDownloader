@@ -6,7 +6,17 @@ import (
 )
 
 type taskListKey struct {
-	name, outputName, link, category string
+	name, outputName, link, category, module string
+}
+
+type TaskListScope struct {
+	Category string
+	Module   string
+}
+
+func (m *Manager) taskMatchesScopeLocked(task *Task, scope TaskListScope) bool {
+	return (scope.Module == "" || task.ModuleID == scope.Module) &&
+		(scope.Category == "" || m.taskCategoryLocked(task) == scope.Category)
 }
 
 // Update overview counters at mutation boundaries, not by scanning on each read.
@@ -15,7 +25,7 @@ func (m *Manager) indexTaskOverviewLocked(task *Task) {
 		m.groupCounts = make(map[string]int)
 	}
 	category := m.classifyTask(task)
-	key := taskListKey{task.Name, task.OutputName, task.Link, category}
+	key := taskListKey{task.Name, task.OutputName, task.Link, category, task.ModuleID}
 	if key != task.listKey {
 		m.listRevision++
 		task.listKey = key
@@ -65,11 +75,11 @@ func (m *Manager) classifyTask(task *Task) string {
 }
 
 // Filtering precedes sorting and pagination, including tasks outside the visible page.
-func (m *Manager) categoryPageLocked(offset, limit int, status Status, search, field, order, category, version string) TaskPage {
+func (m *Manager) scopedPageLocked(offset, limit int, status Status, search, field, order string, scope TaskListScope, version string) TaskPage {
 	page := TaskPage{Groups: m.fileGroupsLocked(), Tasks: make([]TaskSnapshot, 0, limit), Summary: m.summaryLocked(), Offset: offset, Limit: limit, Revision: m.revision, Version: version}
-	countKnown := status == "" && search == "" && m.groupCounts != nil
+	countKnown := scope.Module == "" && status == "" && search == "" && m.groupCounts != nil
 	if countKnown {
-		page.Total = m.groupCounts[category]
+		page.Total = m.groupCounts[scope.Category]
 		if offset >= page.Total {
 			return page
 		}
@@ -102,7 +112,7 @@ func (m *Manager) categoryPageLocked(offset, limit int, status Status, search, f
 			}
 			for i := start; i != end; i += step {
 				task := m.tasks[m.orderedIDs[i]]
-				if !taskMatchesPage(task, status, search) || taskStatusSortRank(task.Status) != rank || m.taskCategoryLocked(task) != category {
+				if !taskMatchesPage(task, status, search) || taskStatusSortRank(task.Status) != rank || !m.taskMatchesScopeLocked(task, scope) {
 					continue
 				}
 				appendMatch(task)
@@ -121,7 +131,7 @@ func (m *Manager) categoryPageLocked(offset, limit int, status Status, search, f
 		}
 		for i := start; i != end; i += step {
 			task := m.tasks[m.orderedIDs[i]]
-			if !taskMatchesPage(task, status, search) || m.taskCategoryLocked(task) != category {
+			if !taskMatchesPage(task, status, search) || !m.taskMatchesScopeLocked(task, scope) {
 				continue
 			}
 			appendMatch(task)
@@ -134,7 +144,7 @@ func (m *Manager) categoryPageLocked(offset, limit int, status Status, search, f
 	ids := make([]int64, 0)
 	for _, id := range m.orderedIDs {
 		task := m.tasks[id]
-		if taskMatchesPage(task, status, search) && m.taskCategoryLocked(task) == category {
+		if taskMatchesPage(task, status, search) && m.taskMatchesScopeLocked(task, scope) {
 			ids = append(ids, id)
 		}
 	}

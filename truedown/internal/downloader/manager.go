@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -199,6 +200,7 @@ func IsEngineStartError(err error) bool {
 
 type requestIdentity struct {
 	CollectionPath []string                       `json:"collectionPath,omitempty"`
+	CollectionID   string                         `json:"collectionId,omitempty"`
 	UpdateDownload bool                           `json:"updateDownload,omitempty"`
 	Link           string                         `json:"link"`
 	Name           string                         `json:"name"`
@@ -211,6 +213,8 @@ type requestIdentity struct {
 	BitTorrent     *bitTorrentIdentity            `json:"bitTorrent,omitempty"`
 	ModuleData     json.RawMessage                `json:"moduleData,omitempty"`
 	Collection     *modulehost.ArtifactCollection `json:"collection,omitempty"`
+
+	collectionLayout string
 }
 
 type submission struct {
@@ -271,6 +275,9 @@ type Manager struct {
 	fileGroupIndex    map[string]string
 	modules           *moduleRegistry
 	trackerResearch   *trackerResearchModule
+
+	collectionLayout     string
+	collectionLayoutPath string
 
 	mu                         sync.RWMutex
 	tasks                      map[int64]*Task
@@ -347,6 +354,12 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 		store.Close()
 		return nil, err
 	}
+	collectionLayoutPath := paths.File(profile.CollectionLayout)
+	collectionLayout, err := loadCollectionLayout(collectionLayoutPath)
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
 	runtimeSettings, err := newRuntimeSettingsStoreAt(paths.File(profile.RuntimeSettings))
 	if err != nil {
 		store.Close()
@@ -379,24 +392,28 @@ func NewManagerWithConfig(aria2Path, defaultDir, databasePath string, config Man
 	}
 	lifecycleCtx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
-		moduleDirectory:   config.ModuleDirectory,
-		artifacts:         newArtifactTransfers(lifecycleCtx),
-		listEpoch:         newGID(),
-		aria2Path:         aria2Path,
-		aria2Next:         config.Aria2Next,
-		aria2NextVersion:  strings.TrimSpace(config.Aria2NextVersion),
-		ariaStateDir:      paths.File(profile.ResumeState),
-		logDir:            paths.Logs,
-		defaultDir:        defaultDir,
-		store:             store,
-		downloadRules:     downloadRules,
-		runtimeSettings:   runtimeSettings,
-		taskDefaults:      taskDefaults,
-		fileGroups:        fileGroups,
-		fileGroupsPath:    paths.File(profile.FileGroups),
-		fileGroupIndex:    indexFileGroups(fileGroups.Groups),
-		modules:           modules,
-		trackerResearch:   trackerResearch,
+		moduleDirectory:  config.ModuleDirectory,
+		artifacts:        newArtifactTransfers(lifecycleCtx),
+		listEpoch:        newGID(),
+		aria2Path:        aria2Path,
+		aria2Next:        config.Aria2Next,
+		aria2NextVersion: strings.TrimSpace(config.Aria2NextVersion),
+		ariaStateDir:     paths.File(profile.ResumeState),
+		logDir:           paths.Logs,
+		defaultDir:       defaultDir,
+		store:            store,
+		downloadRules:    downloadRules,
+		runtimeSettings:  runtimeSettings,
+		taskDefaults:     taskDefaults,
+		fileGroups:       fileGroups,
+		fileGroupsPath:   paths.File(profile.FileGroups),
+		fileGroupIndex:   indexFileGroups(fileGroups.Groups),
+		modules:          modules,
+		trackerResearch:  trackerResearch,
+
+		collectionLayout:     collectionLayout,
+		collectionLayoutPath: collectionLayoutPath,
+
 		tasks:             make(map[int64]*Task, len(tasks)),
 		fingerprints:      make(map[string]int64, len(tasks)),
 		gids:              make(map[string]int64, len(tasks)),
@@ -792,8 +809,14 @@ func (m *Manager) findModuleResumeLocked(identity requestIdentity, fingerprint s
 			return false
 		}
 		var original requestIdentity
+		hasOriginal := json.Unmarshal([]byte(task.RequestJSON), &original) == nil
 		sameRoot := samePathName(task.Folder, identity.Folder) || samePathName(task.Folder, m.groupedFolderLocked(identity.Folder, name, identity.Link))
-		if !sameRoot && json.Unmarshal([]byte(task.RequestJSON), &original) == nil {
+		if len(identity.CollectionPath) > 0 || len(original.CollectionPath) > 0 {
+			sameRoot = task.Fingerprint == fingerprint ||
+				(len(identity.CollectionPath) == 0 && samePathName(task.Folder, identity.Folder)) ||
+				(identity.CollectionID != "" && identity.CollectionID == original.CollectionID &&
+					samePathName(original.Folder, identity.Folder) && slices.Equal(original.CollectionPath, identity.CollectionPath))
+		} else if !sameRoot && hasOriginal {
 			sameRoot = samePathName(original.Folder, identity.Folder)
 		}
 		if !sameRoot || !samePathName(task.Name, name) {
@@ -864,6 +887,12 @@ func (m *Manager) PageTaskSnapshotsSortedIfChanged(
 func (m *Manager) PageTaskSnapshotsFilteredIfChanged(
 	offset, limit int, status Status, search, sortField, sortOrder, category, ifNoneMatch string,
 ) (TaskPage, bool) {
+	return m.PageTaskSnapshotsScoped(offset, limit, status, search, sortField, sortOrder, TaskListScope{Category: category}, ifNoneMatch)
+}
+
+func (m *Manager) PageTaskSnapshotsScoped(
+	offset, limit int, status Status, search, sortField, sortOrder string, scope TaskListScope, ifNoneMatch string,
+) (TaskPage, bool) {
 	if offset < 0 {
 		offset = 0
 	}
@@ -877,7 +906,7 @@ func (m *Manager) PageTaskSnapshotsFilteredIfChanged(
 	defer m.mu.RUnlock()
 
 	version := uint64(m.structureRev) ^ uint64(offset+1)*1099511628211 ^ uint64(limit)
-	for _, value := range []string{string(status), search, sortField, sortOrder, category} {
+	for _, value := range []string{string(status), search, sortField, sortOrder, scope.Category, scope.Module} {
 		for _, char := range value {
 			version ^= uint64(char) + 0x9e3779b97f4a7c15 + (version << 6) + (version >> 2)
 		}
@@ -889,8 +918,8 @@ func (m *Manager) PageTaskSnapshotsFilteredIfChanged(
 	if ifNoneMatch != "" && ifNoneMatch == validator {
 		return TaskPage{Version: validator}, true
 	}
-	if category != "" {
-		return m.versionTaskPageLocked(m.categoryPageLocked(offset, min(limit, 200), status, search, sortField, sortOrder, category, validator), sortField), false
+	if scope != (TaskListScope{}) {
+		return m.versionTaskPageLocked(m.scopedPageLocked(offset, min(limit, 200), status, search, sortField, sortOrder, scope, validator), sortField), false
 	}
 
 	total := len(m.tasks)

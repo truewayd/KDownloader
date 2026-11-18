@@ -119,7 +119,8 @@ func TestHTTPModuleFolderAdmissionIsAtomicAndFiltered(t *testing.T) {
 		t.Fatalf("folder admission: %+v %v", result, err)
 	}
 	task := result.Tasks[0]
-	if task.Status != StatusPaused || !strings.Contains(filepath.ToSlash(task.Folder), "/Public/Sub") || len(task.Headers) != 0 {
+	if task.Status != StatusPaused || filepath.Base(task.Folder) != "Sub" ||
+		!strings.HasPrefix(filepath.Base(filepath.Dir(task.Folder)), "Public [") || filepath.Base(filepath.Dir(filepath.Dir(task.Folder))) != "MediaFire" || len(task.Headers) != 0 {
 		t.Fatalf("task: %+v", task)
 	}
 }

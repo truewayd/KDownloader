@@ -5,7 +5,7 @@ let fileGroupsReadVersion = 0;
 let fileGroupsBase = null;
 let fileGroupsNeedsSync = false;
 let fileGroupsSaving = false, fileGroupsSaveQueued = false, fileGroupsMutationVersion = 0;
-let fileGroupDrag = null, fileGroupOrderSaving = false;
+let isFileGroupDragging = () => false, fileGroupOrderSaving = false;
 
 function focusFileGroupRoute() {
   if (currentPage !== "settings" || currentSettingsPage !== "files" || !settingsReady.has("files")) return;
@@ -49,7 +49,7 @@ function applyFileGroups(state) {
     fileGroupsNeedsSync = true;
     scheduleFileGroupsSync();
   }
-  if (changed && !fileGroupDrag) renderFileGroupNavigation();
+  if (changed && !isFileGroupDragging()) renderFileGroupNavigation();
 }
 
 function renderFileGroupNavigation() {
@@ -87,8 +87,16 @@ function updateFileGroupCounts() {
 
 function initFileGroups() {
   initGroupIconPicker();
-  bindFileGroupSorting();
-  document.getElementById("file-group-navigation").addEventListener("click", (event) => {
+  const nav = document.getElementById("file-group-navigation");
+  isFileGroupDragging = bindNavigationSorting(nav, {
+    key: "taskCategory",
+    ids: () => fileGroupsState.groups.map(group => group.id),
+    revision: () => fileGroupsState.revision,
+    busy: () => fileGroupOrderSaving,
+    save: saveFileGroupOrder,
+    render: renderFileGroupNavigation,
+  });
+  nav.addEventListener("click", (event) => {
     const link = event.target.closest("[data-task-category]");
     if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -122,7 +130,12 @@ function initFileGroups() {
 function selectFileGroup(link) {
   const id = link.dataset.taskCategory;
   if (!fileGroupsState.groups.some(group => group.id === id)) return;
-  currentCategory = id;
+  selectTaskNavigation(id, "");
+}
+
+function selectTaskNavigation(category, module) {
+  currentCategory = category;
+  currentModule = module;
   resetTaskViewport();
   lastTaskRenderSignature = "";
   if (currentPage !== "tasks") {
@@ -160,14 +173,14 @@ async function saveFileGroupOrder(ids, revision = fileGroupsState.revision) {
   }
 }
 
-function bindFileGroupSorting() {
-  const nav = document.getElementById("file-group-navigation");
+function bindNavigationSorting(nav, { key, ids, revision, busy, save, render }) {
   const scroller = nav.closest(".primary-nav");
-  let suppressClick = false;
+  let dragState = null, suppressClick = false;
+  const linkFor = event => event.target.closest("a");
   const finish = (commit = false) => {
-    const drag = fileGroupDrag;
+    const drag = dragState;
     if (!drag) return;
-    fileGroupDrag = null;
+    dragState = null;
     cancelAnimationFrame(drag.frame);
     drag.preview?.remove();
     if (nav.hasPointerCapture(drag.pointer)) nav.releasePointerCapture(drag.pointer);
@@ -177,21 +190,21 @@ function bindFileGroupSorting() {
       suppressClick = true;
       setTimeout(() => { suppressClick = false; }, 0);
     }
-    if (commit && drag.moved) saveFileGroupOrder([...nav.children].map(link => link.dataset.taskCategory), drag.revision);
-    else if (drag.moved) renderFileGroupNavigation();
-    else if (drag.revision !== fileGroupsState.revision) setTimeout(() => { if (!fileGroupDrag) renderFileGroupNavigation(); }, 0);
+    if (commit && drag.moved && drag.revision === revision()) save([...nav.children].map(link => link.dataset[key]), drag.revision);
+    else if (drag.moved) render();
+    else if (drag.revision !== revision()) setTimeout(() => { if (!dragState) render(); }, 0);
   };
   nav.addEventListener("click", event => {
     if (suppressClick) { event.preventDefault(); event.stopImmediatePropagation(); }
   }, true);
   nav.addEventListener("pointerdown", event => {
-    const link = event.target.closest("[data-task-category]");
-    if (!link || event.button !== 0 || !event.isPrimary || fileGroupOrderSaving || fileGroupDrag
+    const link = linkFor(event);
+    if (!link || event.button !== 0 || event.pointerType === "touch" || !event.isPrimary || busy() || dragState
       || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    fileGroupDrag = { link, pointer: event.pointerId, x: event.clientX, y: event.clientY, revision: fileGroupsState.revision, moved: false };
+    dragState = { link, pointer: event.pointerId, x: event.clientX, y: event.clientY, revision: revision(), moved: false };
   });
   nav.addEventListener("pointermove", event => {
-    const drag = fileGroupDrag;
+    const drag = dragState;
     if (!drag || drag.pointer !== event.pointerId) return;
     if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
     if (!drag.moved) {
@@ -204,7 +217,7 @@ function bindFileGroupSorting() {
       drag.preview = drag.link.cloneNode(true);
       drag.preview.className = "group-drag-preview";
       drag.preview.removeAttribute("href");
-      drag.preview.removeAttribute("data-task-category");
+      delete drag.preview.dataset[key];
       drag.preview.removeAttribute("data-tooltip");
       drag.preview.setAttribute("aria-hidden", "true");
       drag.preview.inert = true;
@@ -237,7 +250,7 @@ function bindFileGroupSorting() {
     if (drag.link.nextElementSibling !== (next || null)) nav.insertBefore(drag.link, next || null);
   }
   window.addEventListener("pointerup", event => {
-    const drag = fileGroupDrag;
+    const drag = dragState;
     if (drag?.pointer !== event.pointerId) return;
     const bounds = scroller.getBoundingClientRect();
     const inside = event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
@@ -253,19 +266,20 @@ function bindFileGroupSorting() {
   window.addEventListener("pagehide", () => finish());
   window.addEventListener("hashchange", () => finish());
   document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && fileGroupDrag) { event.preventDefault(); finish(); }
+    if (event.key === "Escape" && dragState) { event.preventDefault(); finish(); }
   }, true);
   nav.addEventListener("keydown", event => {
-    if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key) || fileGroupOrderSaving || fileGroupDrag) return;
-    const link = event.target.closest("[data-task-category]");
+    if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key) || busy() || dragState) return;
+    const link = linkFor(event);
     if (!link) return;
     event.preventDefault();
-    const ids = fileGroupsState.groups.map(group => group.id), index = ids.indexOf(link.dataset.taskCategory);
+    const order = ids(), index = order.indexOf(link.dataset[key]);
     const next = index + (event.key === "ArrowUp" ? -1 : 1);
-    if (index < 0 || next < 0 || next >= ids.length) return;
-    [ids[index], ids[next]] = [ids[next], ids[index]];
-    saveFileGroupOrder(ids);
+    if (index < 0 || next < 0 || next >= order.length) return;
+    [order[index], order[next]] = [order[next], order[index]];
+    save(order, revision());
   });
+  return () => Boolean(dragState);
 }
 
 function markFileGroupsDraft() {

@@ -131,6 +131,7 @@ func (m *Manager) addDropboxFolderWithProfile(
 	}
 
 	requests := make([]taskAddRequest, 0, len(files))
+	collectionSource := dropboxShareKey(share)
 	for _, file := range files {
 		collectionPath := append([]string{rootName}, file.Relative...)
 		fileName := sanitizeDropboxPathComponent(file.Name)
@@ -138,7 +139,7 @@ func (m *Manager) addDropboxFolderWithProfile(
 			fileName = "file"
 		}
 		requests = append(requests, taskAddRequest{
-			Link: file.Link, Name: fileName, Folder: baseFolder, CollectionPath: collectionPath,
+			Link: file.Link, Name: fileName, Folder: baseFolder, CollectionPath: collectionPath, CollectionSource: collectionSource,
 			Headers: identity.Headers, DownloadPage: identity.DownloadPage,
 			QueueID: identity.QueueID, Opts: identity.Opts, ModuleID: DropboxModuleID,
 		})

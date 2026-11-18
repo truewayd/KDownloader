@@ -786,6 +786,50 @@ func TestDownloadRulesEndpointPersistsAndValidatesConfig(t *testing.T) {
 	}
 }
 
+func TestCollectionLayoutEndpointPersistsWithoutChangingDownloadRules(t *testing.T) {
+	root := t.TempDir()
+	newManager := func() *downloader.Manager {
+		manager, err := downloader.NewManager("unused", filepath.Join(root, "downloads"), filepath.Join(root, "records.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return manager
+	}
+	manager := newManager()
+	defer manager.Stop()
+	mux := http.NewServeMux()
+	Register(mux, manager, &testTokenAuth{})
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, req)
+		return response
+	}
+	const layoutPath = "/settings/collection-layout"
+	before := request(http.MethodGet, "/settings/download-rules", "").Body.String()
+	if response := request(http.MethodGet, layoutPath, ""); response.Code != http.StatusOK || response.Body.String() != "{\"layout\":\"module\"}\n" {
+		t.Fatalf("default layout: %d %s", response.Code, response.Body)
+	}
+	if response := request(http.MethodPost, layoutPath, `{"layout":"category"}`); response.Code != http.StatusOK {
+		t.Fatalf("save layout: %d %s", response.Code, response.Body)
+	}
+	for _, body := range []string{`{"layout":"unknown"}`, `{}`, `{"layout":"module","extra":true}`} {
+		if response := request(http.MethodPost, layoutPath, body); response.Code != http.StatusBadRequest {
+			t.Fatalf("accepted layout %s: %d %s", body, response.Code, response.Body)
+		}
+	}
+	if after := request(http.MethodGet, "/settings/download-rules", "").Body.String(); after != before {
+		t.Fatalf("saving layout changed download rules: %s", after)
+	}
+	manager.Stop()
+	reloaded := newManager()
+	defer reloaded.Stop()
+	if reloaded.CollectionLayout().Layout != downloader.CollectionLayoutCategory {
+		t.Fatalf("reloaded layout: %+v", reloaded.CollectionLayout())
+	}
+}
+
 func TestABBrowserIntegrationPingAndAdd(t *testing.T) {
 	mux, manager := testHandler(t)
 	defer manager.Stop()

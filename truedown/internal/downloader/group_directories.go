@@ -3,6 +3,7 @@ package downloader
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -27,7 +28,7 @@ func (m *Manager) resolveGroupDirectoryLocked(task *Task, name string) {
 		return
 	}
 	var identity requestIdentity
-	if json.Unmarshal([]byte(task.RequestJSON), &identity) != nil || identity.Name != "" || identity.BitTorrent != nil {
+	if json.Unmarshal([]byte(task.RequestJSON), &identity) != nil || identity.Name != "" || identity.BitTorrent != nil || len(identity.CollectionPath) > 0 {
 		return
 	}
 	if samePathName(task.Folder, identity.Folder) || !samePathName(task.Folder, m.groupedFolderLocked(identity.Folder, task.Name, task.Link)) {
@@ -70,9 +71,39 @@ func (m *Manager) groupedFolderLocked(folder, name, link string) string {
 	return filepath.Join(folder, "Other")
 }
 
-// Collection children are grouped at the selected root, preserving their remote
-// hierarchy below the group. The private identity pins that hierarchy for replay.
+// Expanded collections retain their remote hierarchy in either layout.
 func (m *Manager) groupedRequestFolderLocked(identity requestIdentity) string {
+	if len(identity.CollectionPath) > 0 && identity.collectionLayout != CollectionLayoutCategory {
+		if directory := collectionModuleDirectory(identity.ModuleID); directory != "" {
+			name := identity.CollectionPath[0]
+			if len(identity.CollectionID) >= 16 {
+				// Leave space for the disambiguator under both byte and UTF-16 path limits.
+				for len(name) > 220 {
+					_, size := utf8.DecodeLastRuneInString(name)
+					name = name[:len(name)-size]
+				}
+				name = strings.TrimRight(name, " .") + " [" + identity.CollectionID[:16] + "]"
+			}
+			return filepath.Join(append([]string{identity.Folder, directory, name}, identity.CollectionPath[1:]...)...)
+		}
+	}
 	folder := m.groupedFolderLocked(identity.Folder, identity.Name, identity.Link)
 	return filepath.Join(append([]string{folder}, identity.CollectionPath...)...)
+}
+
+func collectionModuleDirectory(id string) string {
+	switch id {
+	case GoogleDriveModuleID:
+		return "GoogleDrive"
+	case DropboxModuleID:
+		return "Dropbox"
+	case "mega":
+		return "MEGA"
+	case MediaFireModuleID:
+		return "MediaFire"
+	case TelegraphModuleID:
+		return "Telegraph"
+	default:
+		return ""
+	}
 }

@@ -15,6 +15,10 @@ type TaskSelectionEntry struct {
 }
 
 func (m *Manager) SelectTasks(status Status, search, category string) ([]TaskSelectionEntry, error) {
+	return m.SelectTasksScoped(status, search, TaskListScope{Category: category})
+}
+
+func (m *Manager) SelectTasksScoped(status Status, search string, scope TaskListScope) ([]TaskSelectionEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	search = strings.ToLower(strings.TrimSpace(search))
@@ -22,7 +26,7 @@ func (m *Manager) SelectTasks(status Status, search, category string) ([]TaskSel
 	bytes := 0
 	for _, id := range m.orderedIDs {
 		task := m.tasks[id]
-		if !taskMatchesPage(task, status, search) || (category != "" && m.taskCategoryLocked(task) != category) {
+		if !taskMatchesPage(task, status, search) || !m.taskMatchesScopeLocked(task, scope) {
 			continue
 		}
 		bytes += len(task.Link)*6 + 128

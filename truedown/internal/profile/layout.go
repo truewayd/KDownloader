@@ -23,16 +23,18 @@ const (
 	StagedUpdates  = "updates"
 	WindowState    = "truedown.windows.json"
 	WebViewCache   = "webview"
+
+	CollectionLayout = "truedown.collection-layout.json"
 )
 
 // Paths separates ownership and retention rules. Callers receive it at service
 // composition; no manager or client may derive config paths from a database name.
 type Paths struct {
-	Config    string `json:"config"`
-	Data      string `json:"data"`
-	State     string `json:"state"`
-	Logs      string `json:"logs"`
-	Cache     string `json:"cache"`
+	Config string `json:"config"`
+	Data   string `json:"data"`
+	State  string `json:"state"`
+	Logs   string `json:"logs"`
+	Cache  string `json:"cache"`
 	// Downloads retains the legacy profile-local location for layout compatibility.
 	// New tasks use DefaultDownloadDirectory unless the user supplies a folder.
 	Downloads string `json:"downloads"`
@@ -45,7 +47,7 @@ func FlatPaths(root string) Paths {
 func (p Paths) File(name string) string {
 	var directory string
 	switch name {
-	case AuthSettings, Token, RuntimeSettings, DownloadRules, TaskDefaults, FileGroups, Modules, TraySettings:
+	case AuthSettings, Token, RuntimeSettings, DownloadRules, TaskDefaults, FileGroups, Modules, TraySettings, CollectionLayout:
 		directory = p.Config
 	case Database, ModulePackages, Engines:
 		directory = p.Data

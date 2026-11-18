@@ -96,6 +96,7 @@ let currentOffset = 0;
 let currentTotal = 0;
 let currentFilter = "all";
 let currentCategory = "";
+let currentModule = "";
 let currentSearch = "";
 let currentSort = "status";
 let currentSortOrder = "asc";
@@ -164,6 +165,7 @@ function cacheElements() {
 	"cfg-check-integrity",
 	"cfg-dropbox-mode",
 	"cfg-mega-mode",
+    "cfg-collection-layout",
     "cfg-extra",
     "cfg-filter-mode",
     "cfg-folder",
@@ -277,6 +279,7 @@ function bindEvents() {
   els.settingsResetBtn.addEventListener("click", resetDownloadSettings);
   els.settingsForm.addEventListener("submit", saveDownloadSettings);
   els.settingsForm.addEventListener("input", markSettingsDraft);
+  els.cfgCollectionLayout.addEventListener("change", changeCollectionLayout);
   els.settingsForm.addEventListener("change", (event) => {
     if (event.target === els.cfgFilterMode) changeDropboxFilterMode();
     if (event.target === els.cfgDropboxMode) renderDropboxSuffixEditor(true);
@@ -908,6 +911,7 @@ async function onTaskSelection(event) {
     syncSelectionControls();
     try {
       const params = new URLSearchParams({ status: currentFilter, search: currentSearch, category: currentCategory });
+      if (currentModule) params.set("module", currentModule);
       const result = await requestJSON(`/tasks/selection?${params}`);
       if (serial !== taskSelectionSerial || scope !== taskSelectionScope() || currentPage !== "tasks") return;
       selectedTaskIDs.clear();
@@ -1204,12 +1208,13 @@ function taskPageURL(offset = currentOffset) {
   });
   if (currentSearch) params.set("search", currentSearch);
   if (currentCategory) params.set("category", currentCategory);
+  if (currentModule) params.set("module", currentModule);
   return `/tasks?${params}`;
 }
 
 function renderTasks(tasks, epoch = "") {
   const scope = JSON.stringify([
-    epoch, currentOffset, currentTotal, currentFilter, currentCategory,
+    epoch, currentOffset, currentTotal, currentFilter, currentCategory, currentModule,
     fileGroupsState.revision, currentSearch, currentSort, currentSortOrder,
   ]);
   // The page store reuses the row array for 304 and rowsUnchanged responses.
@@ -1393,7 +1398,7 @@ function syncSelectionControls() {
   els.batchSelectionCount.textContent = taskBatchProgress || `已选择 ${selectedTaskIDs.size} 项（含未显示任务）`;
 }
 
-function taskSelectionScope() { return JSON.stringify([currentFilter, currentSearch, currentCategory]); }
+function taskSelectionScope() { return JSON.stringify([currentFilter, currentSearch, currentCategory, currentModule]); }
 
 function updateMetrics(summary) {
   els.taskCount.textContent = summary.total;

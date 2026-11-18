@@ -23,6 +23,7 @@
     "GET",
     "POST"
   ],
+  "/settings/collection-layout": ["GET", "POST"],
   "/settings/task-defaults": [
     "GET",
     "POST"

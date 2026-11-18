@@ -184,6 +184,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("workspace-notice-action")?.addEventListener("click", () => {
     if (workspaceNoticeTarget === "tasks") {
       currentCategory = "";
+      currentModule = "";
       currentFilter = "all";
       currentSearch = "";
       els.taskSearch.value = "";

@@ -36,6 +36,7 @@ try {
       "/settings/task-defaults": { revision: 1, values: {} },
       "/settings/runtime": { concurrentDownloads: 3, globalDownloadLimitBps: 0 },
       "/settings/download-rules": { enabled: true, filterMode: "project", dropboxMode: "direct", megaMode: "archive", excludedExtensions: null },
+      "/settings/collection-layout": { layout: "module" },
       "/settings/file-groups": { revision: 1, groups: [
         { id: "image", name: "图片", icon: "image", extensions: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".heic", ".heif", ".bmp", ".tif", ".tiff", ".svg", ".ico"], directory: "Pictures" },
         { id: "archive", name: "压缩包", icon: "archive", extensions: [".zip", ".7z", ".rar", ".tar.gz"], directory: "Archives" },
@@ -263,6 +264,10 @@ try {
         assert.equal(await page.locator('#dropbox-settings').evaluate(node => node.closest('[data-module-id]')?.dataset.moduleId), "dropbox");
         assert.equal(await page.locator('#mega-settings').evaluate(node => node.closest('[data-module-id]')?.dataset.moduleId), "mega");
         assert.equal(await page.locator('#cfg-filter-mode').isDisabled(), false, "shared filter remains editable for Drive and future expansions");
+        assert.equal(await page.locator("#cfg-collection-layout").inputValue(), "module");
+        await page.locator("#cfg-collection-layout").selectOption("category");
+        await page.waitForFunction(() => collectionLayout === "category" && !document.querySelector("#settings-form").inert);
+        assert.equal(fixture["/settings/collection-layout"].layout, "category");
         await page.locator('#cfg-mega-mode').selectOption("expand");
         await page.waitForFunction(() => downloadRules.megaMode === "expand" && !document.querySelector("#settings-form").inert);
         assert.equal(fixture["/settings/download-rules"].megaMode, "expand");
