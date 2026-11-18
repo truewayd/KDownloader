@@ -98,6 +98,10 @@ let currentFilter = "all";
 let currentCategory = "";
 let currentModule = "";
 let currentSearch = "";
+const taskSortColumns = {
+  file: "文件", status: "状态", progress: "进度", size: "大小",
+  speed: "速度", remaining: "剩余", created: "添加时间",
+};
 let currentSort = "status";
 let currentSortOrder = "asc";
 let loadTasksPromise = null;
@@ -1252,32 +1256,30 @@ function renderTasks(tasks, epoch = "") {
     <table class="tasks-table">
       <colgroup>
         <col class="col-select"><col class="col-file"><col class="col-status">
-        <col class="col-progress"><col class="col-size"><col class="col-speed"><col class="col-created"><col class="col-actions">
+        <col class="col-progress"><col class="col-size"><col class="col-speed"><col class="col-remaining"><col class="col-created"><col class="col-actions">
       </colgroup>
       <thead><tr>
         <th scope="col" class="select-cell"><input type="checkbox" data-select-page aria-label="全选当前筛选结果中的任务"></th>
-        ${sortableHeading("file", "文件")}${sortableHeading("status", "状态")}
-        ${sortableHeading("progress", "进度")}<th scope="col">大小</th><th scope="col">速度 / 剩余</th><th scope="col">添加时间</th><th scope="col" class="align-right">操作</th>
+        ${Object.entries(taskSortColumns).map(([field, label]) => sortableHeading(field, label)).join("")}
+        <th scope="col" class="task-actions-heading">操作</th>
       </tr></thead>
-      <tbody class="task-spacer" aria-hidden="true"><tr><td colspan="8"></td></tr></tbody><tbody class="task-rows"></tbody><tbody class="task-spacer" aria-hidden="true"><tr><td colspan="8"></td></tr></tbody>
+      <tbody class="task-spacer" aria-hidden="true"><tr><td colspan="9"></td></tr></tbody><tbody class="task-rows"></tbody><tbody class="task-spacer" aria-hidden="true"><tr><td colspan="9"></td></tr></tbody>
     </table>`;
     table = els.tasksContainer.querySelector(".tasks-table");
   }
   const sortKey = `${currentSort}:${currentSortOrder}`;
   if (table.dataset.sort !== sortKey) {
-    const headings = ["file", "status", "progress"];
-    const labels = ["文件", "状态", "进度"];
-    headings.forEach((field, i) => {
-      const heading = table.querySelectorAll("thead th")[i + 1];
+    for (const button of table.querySelectorAll("button[data-sort-field]")) {
+      const field = button.dataset.sortField;
+      const heading = button.closest("th");
       const active = currentSort === field;
       if (active) heading.setAttribute("aria-sort", currentSortOrder === "asc" ? "ascending" : "descending");
       else heading.removeAttribute("aria-sort");
-      const button = heading.querySelector("button");
       button.dataset.sortOrder = active ? currentSortOrder : "none";
       const icon = active ? currentSortOrder === "asc" ? "arrow-up" : "arrow-down" : "arrow-up-down";
       button.querySelector("use").setAttribute("href", `/icons.svg#icon-${icon}`);
-      button.setAttribute("aria-label", `按${labels[i]}${active && currentSortOrder === "asc" ? "降序" : "升序"}排列`);
-    });
+      button.setAttribute("aria-label", `按${taskSortColumns[field]}${active && currentSortOrder === "asc" ? "降序" : "升序"}排列`);
+    }
     table.dataset.sort = sortKey;
   }
   reconcileTaskRows(table.querySelector(".task-rows"), currentTasks, epoch);
@@ -1305,14 +1307,14 @@ function sortableHeading(field, label) {
   const ariaSort = active ? ` aria-sort="${currentSortOrder === "desc" ? "descending" : "ascending"}"` : "";
   const order = active ? currentSortOrder : "none";
   const icon = order === "asc" ? "arrow-up" : order === "desc" ? "arrow-down" : "arrow-up-down";
-  return `<th scope="col"${ariaSort}><button class="sort-button" type="button" data-sort-field="${field}" data-sort-order="${order}" aria-label="按${label}${active && currentSortOrder === "asc" ? "降序" : "升序"}排列">${label}<span class="sort-indicator" aria-hidden="true">${iconMarkup(icon)}</span></button></th>`;
+  return `<th scope="col" class="task-heading-${field}"${ariaSort}><button class="sort-button" type="button" data-sort-field="${field}" data-sort-order="${order}" aria-label="按${label}${active && currentSortOrder === "asc" ? "降序" : "升序"}排列">${label}<span class="sort-indicator" aria-hidden="true">${iconMarkup(icon)}</span></button></th>`;
 }
 
 function onTaskSort(event) {
   const button = event.target.closest("button[data-sort-field]");
   if (!button) return;
   const field = button.dataset.sortField;
-  if (!["id", "file", "status", "link", "progress"].includes(field)) return;
+  if (!Object.hasOwn(taskSortColumns, field)) return;
   if (currentSort === field) {
     currentSortOrder = currentSortOrder === "asc" ? "desc" : "asc";
   } else {
@@ -1344,7 +1346,8 @@ function taskRow(task) {
       <td><span class="status-badge status-${status}">${statusLabel}</span></td>
       <td><div class="progress-line" data-tooltip="${esc(progress)}">${esc(taskProgressLabel(task))}</div><progress class="task-progress" max="100" value="${taskProgressPercent(task)}" aria-label="下载进度"></progress></td>
       <td class="task-size">${taskBytes(task.totalLength)}</td>
-      <td><div class="task-speed">${taskSpeed(task)}</div><div class="task-remaining task-folder">${taskRemaining(task)}</div></td>
+      <td class="task-speed">${taskSpeed(task)}</td>
+      <td class="task-remaining">${taskRemaining(task)}</td>
       <td class="task-created">${esc(taskDate(task.createdAt))}</td>
       <td><div class="row-actions">${actions.join("")}</div></td>
     </tr>`;

@@ -101,12 +101,28 @@
 .sidebar-collapsed .sidebar-brand { justify-content: center; }
 .sidebar-collapsed .sidebar a, .sidebar-collapsed .sidebar-action, .sidebar-collapsed .sidebar #new-task-btn { justify-content: center; padding-inline: 0; }
 @media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
-.tasks-table { font-variant-numeric: tabular-nums; }
-.tasks-table .col-select { width: 36px; }
-.tasks-table .col-file { width: 24%; }
-.tasks-table .col-status { width: 128px; }
-.tasks-table .col-link { width: 18%; }
-.tasks-table .col-actions { width: 190px; }
+.tasks-table { min-width: 840px; font-variant-numeric: tabular-nums; }
+.tasks-table .col-select { width: 32px; }
+.tasks-table .col-status { width: 84px; }
+.tasks-table .col-progress { width: 104px; }
+.tasks-table .col-size { width: 76px; }
+.tasks-table .col-speed { width: 86px; }
+.tasks-table .col-remaining { width: 72px; }
+.tasks-table .col-created { width: 100px; }
+.tasks-table .col-actions { width: 148px; }
+.tasks-table th, .tasks-table td { padding-inline: 8px; }
+.tasks-table .task-heading-size .sort-button,
+.tasks-table .task-heading-speed .sort-button,
+.tasks-table .task-heading-remaining .sort-button { justify-content: flex-end; }
+.tasks-table .task-heading-size .sort-indicator,
+.tasks-table .task-heading-speed .sort-indicator,
+.tasks-table .task-heading-remaining .sort-indicator { order: -1; }
+.tasks-table .task-size, .tasks-table .task-speed, .tasks-table .task-remaining { text-align: right; }
+.tasks-table .task-size, .tasks-table .task-speed,
+.tasks-table .task-remaining, .tasks-table .task-created { font-size: 12px; }
+.tasks-table .task-actions-heading { text-align: center; }
+.tasks-table .row-actions { gap: 3px; }
+.tasks-table .row-actions .icon-only { width: 24px; }
 .tasks-table th { font-weight: 500; letter-spacing: 0; }
 .tasks-table .sort-button { white-space: nowrap; }
 .tasks-table .task-name { font-weight: 600; }

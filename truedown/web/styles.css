@@ -778,12 +778,6 @@ h2 {
   font-size: 13px;
 }
 
-.col-select { width: 40px; }
-.col-file { width: 24%; }
-.col-status { width: 92px; }
-.col-link { width: 28%; }
-.col-progress { width: auto; }
-.col-actions { width: 150px; }
 
 .tasks-table th,
 .tasks-table td {
@@ -860,10 +854,6 @@ h2 {
 
 .tasks-table tr:hover td {
   background: var(--kd-secondary-hover);
-}
-
-.align-right {
-  text-align: right;
 }
 
 .task-name,
@@ -1741,9 +1731,6 @@ label {
     overflow-x: auto;
   }
 
-  .tasks-table {
-    min-width: 820px;
-  }
 
   .panel-body,
   .form-grid,

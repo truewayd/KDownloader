@@ -973,7 +973,14 @@ func (m *Manager) PageTaskSnapshotsScoped(
 func (m *Manager) sortTaskIDsForPage(ids []int64, field, order string) {
 	// The ID tie-breaker defines a total order, so a stable sort is unnecessary.
 	sort.Slice(ids, func(i, j int) bool {
-		comparison := compareTasksForPage(m.tasks[ids[i]], m.tasks[ids[j]], field)
+		first, second := m.tasks[ids[i]], m.tasks[ids[j]]
+		if field == "size" && (first.TotalLength > 0) != (second.TotalLength > 0) {
+			return first.TotalLength > 0
+		}
+		if field == "remaining" && (taskRemainingSeconds(first) > 0) != (taskRemainingSeconds(second) > 0) {
+			return taskRemainingSeconds(first) > 0
+		}
+		comparison := compareTasksForPage(first, second, field)
 		if comparison == 0 {
 			comparison = compareInt64(ids[i], ids[j])
 		}
@@ -1073,6 +1080,14 @@ func compareTasksForPage(first, second *Task, field string) int {
 		return taskStatusSortRank(first.Status) - taskStatusSortRank(second.Status)
 	case "link":
 		return compareFold(first.Link, second.Link)
+	case "size":
+		return compareInt64(first.TotalLength, second.TotalLength)
+	case "speed":
+		return compareInt64(first.DownloadSpeed, second.DownloadSpeed)
+	case "remaining":
+		return compareInt64(taskRemainingSeconds(first), taskRemainingSeconds(second))
+	case "created":
+		return first.CreatedAt.Compare(second.CreatedAt)
 	case "progress":
 		firstProgress := first.Progress
 		if first.Error != "" {
@@ -1102,6 +1117,13 @@ func compareTasksForPage(first, second *Task, field string) int {
 	default:
 		return compareInt64(first.ID, second.ID)
 	}
+}
+
+func taskRemainingSeconds(task *Task) int64 {
+	if task.Status != StatusDownloading || isMediaTask(task) || task.DownloadSpeed <= 0 || task.TotalLength <= task.CompletedLength {
+		return 0
+	}
+	return 1 + (task.TotalLength-task.CompletedLength-1)/task.DownloadSpeed
 }
 
 func progressPercent(value string) (float64, bool) {

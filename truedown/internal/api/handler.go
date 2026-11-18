@@ -1337,7 +1337,7 @@ func taskSort(rawField, rawOrder string) (string, string, error) {
 		return "", "", nil
 	}
 	switch field {
-	case "id", "file", "status", "link", "progress":
+	case "id", "file", "status", "link", "progress", "size", "speed", "remaining", "created":
 	default:
 		return "", "", fmt.Errorf("invalid task sort field")
 	}

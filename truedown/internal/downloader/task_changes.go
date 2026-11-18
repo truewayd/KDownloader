@@ -43,11 +43,12 @@ func (m *Manager) WaitTaskChanges(ctx context.Context, after int64, wait time.Du
 }
 
 // Independent row and order versions allow overview-only replies and cache reuse
-// across progress updates. Progress ordering itself changes on every revision.
+// across progress updates. Transfer-based ordering can change on every revision.
 func (m *Manager) versionTaskPageLocked(page TaskPage, sortField string) TaskPage {
 	page.Epoch = m.listEpoch
 	order := m.listRevision
-	if sortField == "progress" {
+	switch sortField {
+	case "progress", "size", "speed", "remaining":
 		order = m.revision
 	}
 	page.OrderVersion = fmt.Sprintf("%s-%x-%x-%x", m.listEpoch, m.structureRev, order, m.fileGroups.Revision)

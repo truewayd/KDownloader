@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestCategoryPagesPreserveGlobalOrderAndPagination(t *testing.T) {
@@ -23,7 +24,7 @@ func TestCategoryPagesPreserveGlobalOrderAndPagination(t *testing.T) {
 		}
 		m.indexTaskOverviewLocked(task)
 	}
-	for _, field := range []string{"", "id", "file", "status", "link", "progress", "unknown"} {
+	for _, field := range []string{"", "id", "file", "status", "link", "progress", "size", "speed", "remaining", "created", "unknown"} {
 		for _, order := range []string{"asc", "desc"} {
 			for _, filter := range []struct {
 				status Status
@@ -54,6 +55,35 @@ func TestCategoryPagesPreserveGlobalOrderAndPagination(t *testing.T) {
 						t.Fatal("unknown category returned tasks")
 					}
 				})
+			}
+		}
+	}
+}
+
+func TestTaskPageTransferAndDateSort(t *testing.T) {
+	m := benchmarkPageManager(3)
+	for i, id := range m.orderedIDs {
+		task := m.tasks[id]
+		task.Status = StatusDownloading
+		task.TotalLength = []int64{200, 100, 0}[i]
+		task.DownloadSpeed = []int64{50, 10, 20}[i]
+		task.CreatedAt = time.Unix([]int64{1, 3, 2}[i], 0)
+	}
+	for _, test := range []struct {
+		field, order string
+		indices      []int
+	}{
+		{"size", "asc", []int{1, 0, 2}},
+		{"size", "desc", []int{0, 1, 2}},
+		{"speed", "asc", []int{1, 2, 0}},
+		{"remaining", "asc", []int{0, 1, 2}},
+		{"remaining", "desc", []int{1, 0, 2}},
+		{"created", "desc", []int{1, 2, 0}},
+	} {
+		page := m.PageTaskSnapshotsSorted(0, 3, "", "", test.field, test.order)
+		for i, index := range test.indices {
+			if page.Tasks[i].ID != m.orderedIDs[index] {
+				t.Fatalf("%s %s position %d: got %d, want %d", test.field, test.order, i, page.Tasks[i].ID, m.orderedIDs[index])
 			}
 		}
 	}

@@ -104,9 +104,9 @@ try {
     assert.equal(await page.locator(".pagination, .metric-strip").count(), 0);
     assert.equal(await page.locator(".task-rows tr").count(), 100);
     assert.equal(await page.locator(".task-index, .col-index").count(), 0);
-    assert.equal(await page.locator(".tasks-table thead th").count(), 8);
-    assert.equal(await page.locator(".task-rows tr").first().locator("td").count(), 8);
-    assert.equal(await page.locator(".task-spacer td").first().getAttribute("colspan"), "8");
+    assert.equal(await page.locator(".tasks-table thead th").count(), 9);
+    assert.equal(await page.locator(".task-rows tr").first().locator("td").count(), 9);
+    assert.equal(await page.locator(".task-spacer td").first().getAttribute("colspan"), "9");
     const firstCheckbox = page.locator(".task-rows [data-select-task]").first();
     await firstCheckbox.check();
     assert.equal(await page.evaluate(() => selectedTaskIDs.has(currentTasks[0].id)), true, "selection keeps using the task ID without a visible ordinal");

@@ -43,6 +43,7 @@ window.TrueDownEnglish = Object.freeze({
   "进度": "Progress",
   "速度": "Speed",
   "剩余时间": "Time remaining",
+  "剩余": "ETA",
   "下载速度": "Download speed",
   "上传速度": "Upload speed",
   "搜索下载": "Search downloads",

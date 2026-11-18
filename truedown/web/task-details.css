@@ -22,13 +22,6 @@ progress::-webkit-progress-value { background: var(--kd-accent); border-radius: 
 progress::-moz-progress-bar { background: var(--kd-accent); border-radius: 3px; }
 tr:has(.status-paused) .task-progress { accent-color: var(--kd-warning, #b98516); }
 tr:has(.status-paused) progress::-webkit-progress-value { background: var(--kd-warning, #b98516); }
-.tasks-table { min-width: 920px; }
-.tasks-table .col-file { width: 26%; }
-.tasks-table .col-progress { width: 14%; }
-.tasks-table .col-size { width: 90px; }
-.tasks-table .col-speed { width: 108px; }
-.tasks-table .col-created { width: 114px; }
-.task-speed, .task-size, .task-created { font-size: 12px; }
 .task-detail-page { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
 [data-native-window="task-details"] .sidebar,
 [data-native-window="task-details"] .topbar { display: none; }
