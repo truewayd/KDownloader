@@ -162,6 +162,7 @@ async function saveFileGroupOrder(ids, revision = fileGroupsState.revision) {
 
 function bindFileGroupSorting() {
   const nav = document.getElementById("file-group-navigation");
+  const scroller = nav.closest(".primary-nav");
   let suppressClick = false;
   const finish = (commit = false) => {
     const drag = fileGroupDrag;
@@ -211,28 +212,40 @@ function bindFileGroupSorting() {
       drag.preview.style.left = `${rect.left}px`;
       drag.offsetY = drag.y - rect.top;
       document.body.append(drag.preview);
-      const scroll = () => {
-        if (fileGroupDrag !== drag) return;
-        const scroller = nav.closest(".primary-nav"), bounds = scroller.getBoundingClientRect();
-        const delta = drag.currentY < bounds.top + 28 ? -8 : drag.currentY > bounds.bottom - 28 ? 8 : 0;
-        if (delta) { scroller.scrollTop += delta; place(drag); }
-        drag.frame = requestAnimationFrame(scroll);
-      };
-      drag.frame = requestAnimationFrame(scroll);
     }
     event.preventDefault();
     drag.currentY = event.clientY;
-    drag.preview.style.top = `${event.clientY - drag.offsetY}px`;
-    place(drag);
+    if (!drag.frame) drag.frame = requestAnimationFrame(() => updateDrag(drag));
   });
+  function updateDrag(drag) {
+    drag.frame = 0;
+    const bounds = scroller.getBoundingClientRect();
+    const delta = drag.currentY < bounds.top + 28 ? -8 : drag.currentY > bounds.bottom - 28 ? 8 : 0;
+    const previousTop = scroller.scrollTop;
+    if (delta) scroller.scrollTop += delta;
+    const scrolled = scroller.scrollTop !== previousTop;
+    place(drag);
+    drag.preview.style.transform = `translateY(${drag.currentY - drag.offsetY}px)`;
+    if (scrolled) drag.frame = requestAnimationFrame(() => updateDrag(drag));
+  }
   function place(drag) {
-    const next = [...nav.children].find(link => link !== drag.link && drag.currentY < link.getBoundingClientRect().top + link.offsetHeight / 2);
+    const next = [...nav.children].find(link => {
+      if (link === drag.link) return false;
+      const bounds = link.getBoundingClientRect();
+      return drag.currentY < bounds.top + bounds.height / 2;
+    });
     if (drag.link.nextElementSibling !== (next || null)) nav.insertBefore(drag.link, next || null);
   }
   window.addEventListener("pointerup", event => {
-    if (fileGroupDrag?.pointer !== event.pointerId) return;
-    const bounds = nav.closest(".primary-nav").getBoundingClientRect();
-    finish(event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom);
+    const drag = fileGroupDrag;
+    if (drag?.pointer !== event.pointerId) return;
+    const bounds = scroller.getBoundingClientRect();
+    const inside = event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+    if (inside && drag.moved && (drag.frame || drag.currentY !== event.clientY)) {
+      drag.currentY = event.clientY;
+      place(drag);
+    }
+    finish(inside);
   });
   nav.addEventListener("lostpointercapture", () => finish());
   window.addEventListener("pointercancel", () => finish());

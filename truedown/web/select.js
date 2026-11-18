@@ -16,13 +16,17 @@
     list.remove();
   }
 
-  function activate(index) {
+  function activate(index, { scroll = true } = {}) {
     if (!current || !enabled(current.select.options[index])) return;
-    current.active = index;
-    for (const item of current.list.children) item.dataset.active = String(Number(item.dataset.index) === index);
-    const item = current.list.querySelector(`[data-index="${index}"]`);
-    current.select.setAttribute("aria-activedescendant", item.id);
-    item.scrollIntoView({ block: "nearest" });
+    if (current.active !== index) {
+      const item = current.list.querySelector(`[data-index="${index}"]`);
+      current.activeItem?.removeAttribute("data-active");
+      item.dataset.active = "true";
+      current.active = index;
+      current.activeItem = item;
+      current.select.setAttribute("aria-activedescendant", item.id);
+    }
+    if (scroll) current.activeItem.scrollIntoView({ block: "nearest" });
   }
 
   function commit(index) {
@@ -106,11 +110,7 @@
     list.addEventListener("pointerdown", (event) => event.preventDefault());
     list.addEventListener("pointermove", (event) => {
       const item = event.target.closest("[data-index]");
-      if (item && enabled(select.options[item.dataset.index])) {
-        current.active = Number(item.dataset.index);
-        for (const row of list.children) row.dataset.active = String(row === item);
-        select.setAttribute("aria-activedescendant", item.id);
-      }
+      if (item && Number(item.dataset.index) !== current?.active) activate(Number(item.dataset.index), { scroll: false });
     });
     list.addEventListener("click", (event) => {
       const item = event.target.closest("[data-index]");
