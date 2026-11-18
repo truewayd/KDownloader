@@ -30,6 +30,7 @@ type TaskDefaults struct {
 	Headers        string  `json:"headers"`
 	Allocation     string  `json:"allocation"`
 	CheckIntegrity bool    `json:"checkIntegrity"`
+	UseHead        bool    `json:"useHead,omitempty"`
 	RemoteTime     bool    `json:"remoteTime"`
 	Extra          string  `json:"extra"`
 }

@@ -225,7 +225,7 @@ function reconcileTaskRows(body, tasks, epoch = "") {
     if (task.error) label.dataset.tooltipKind = "card";
     else delete label.dataset.tooltipKind;
     renderTaskProgress(nodes.progress, task);
-    [taskBytes(task.totalLength), taskSpeed(task), taskRemaining(task), taskDate(task.createdAt)].forEach((value, index) => {
+    [taskBytes(task.totalLength || task.sizeHint), taskSpeed(task), taskRemaining(task), taskDate(task.createdAt)].forEach((value, index) => {
       const node = nodes.values[index];
       if (node.textContent !== value) node.textContent = value;
     });

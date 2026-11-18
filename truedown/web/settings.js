@@ -308,6 +308,7 @@ async function saveDownloadSettings(event) {
         maxTries: optionalInt("cfgTries") || 5, retryWait: optionalInt("cfgWait") || 3,
         proxy: els.cfgProxy.value.trim(), proxyMode: els.cfgProxyMode.value, userAgent: els.cfgUserAgent.value.trim(),
         referer: els.cfgReferer.value.trim(), headers: els.cfgHeaders.value.trim(),
+        useHead: els.cfgUseHead.checked,
       });
       next.connections = optionalInt("cfgConns") || DEFAULT_DOWNLOAD_SETTINGS.connections;
       next.speed = Number(els.cfgSpeed.value || 0);
@@ -589,6 +590,7 @@ function renderDownloadSettings(settings = downloadSettings, rules = downloadRul
     els.cfgUserAgent.value = settings.userAgent;
     els.cfgReferer.value = settings.referer;
     els.cfgHeaders.value = settings.headers;
+    els.cfgUseHead.checked = settings.useHead;
   }
   if (!page || page === "files") {
     els.cfgFolder.value = settings.folder;

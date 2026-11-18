@@ -309,6 +309,10 @@
             </fieldset>
             <fieldset class="settings-group">
               <legend>请求信息</legend>
+              <label class="setting-toggle" for="cfg-use-head">
+                <input id="cfg-use-head" type="checkbox" role="switch" class="kd-switch">
+                <span><strong>用 HEAD 获取文件大小</strong><small>普通 HTTP(S) 下载和 Telegraph 媒体启动时，在后台尝试获取未知的文件大小。默认关闭。</small></span>
+              </label>
               <p class="hint" data-kd-notice="warning" data-kd-notice-title="请求凭据">仅在下载来源要求时填写。默认请求头会被新任务继承，请确认其中的凭据适用于下载来源。</p>
               <div class="form-grid">
               <div class="field settings-row">

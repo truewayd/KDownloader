@@ -219,7 +219,7 @@ function renderTaskDetails(task) {
     ...(task.media ? [["媒体类型", `${task.media.protocol.toUpperCase()}${task.media.live ? " · 直播" : ""}`], ["已接收分片", taskDownloadedBytes(task.media.downloadedLength)]] : []),
     ...(task.updateDownload ? [["任务用途", "应用更新 · 下载完成后由更新服务校验，安装状态请在设置中查看"]] : []),
     ["\u6587\u4ef6\u540d", task.outputName || task.name],
-    ["\u72b6\u6001", statusMeta[task.status]?.label], ["\u6587\u4ef6\u5927\u5c0f", taskBytes(task.totalLength)],
+    ["\u72b6\u6001", statusMeta[task.status]?.label], ["\u6587\u4ef6\u5927\u5c0f", taskBytes(task.totalLength || task.sizeHint)],
     ["\u5df2\u4e0b\u8f7d", taskDownloadedBytes(task.status === "done" ? task.totalLength : task.completedLength || 0)],
     ["\u4e0b\u8f7d\u901f\u5ea6", taskSpeed(task)], ["\u5269\u4f59\u65f6\u95f4", taskRemaining(task)],
     ["续传支持", "未报告"],

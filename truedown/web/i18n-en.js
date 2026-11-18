@@ -43,6 +43,8 @@ window.TrueDownEnglish = Object.freeze({
   "进度": "Progress",
   "速度": "Speed",
   "剩余时间": "Time remaining",
+  "用 HEAD 获取文件大小": "Check file size with HEAD",
+  "普通 HTTP(S) 下载和 Telegraph 媒体启动时，在后台尝试获取未知的文件大小。默认关闭。": "Check unknown file sizes in the background when direct HTTP(S) downloads and Telegraph media start. Off by default.",
   "剩余": "ETA",
   "下载速度": "Download speed",
   "上传速度": "Upload speed",

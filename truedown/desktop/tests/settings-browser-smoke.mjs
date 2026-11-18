@@ -540,6 +540,13 @@ try {
     await page.waitForFunction(() => !document.querySelector("#settings-form").inert && downloadSettings.proxy === "http://127.0.0.1:7890");
     assert.equal(fixture["/settings/task-defaults"].values.proxy, "http://127.0.0.1:7890", "merged download page saves network defaults");
     assert.equal(fixture["/settings/task-defaults"].values.connections, 16, "merged download page saves transfer defaults together");
+    assert.equal(await page.locator("#cfg-use-head").isChecked(), false);
+    await page.locator("#cfg-use-head").check();
+    await page.waitForFunction(() => downloadSettings.useHead === true && !document.querySelector("#settings-form").inert);
+    assert.equal(fixture["/settings/task-defaults"].values.useHead, true);
+    await page.locator("#cfg-use-head").uncheck();
+    await page.waitForFunction(() => downloadSettings.useHead === false && !document.querySelector("#settings-form").inert);
+    assert.equal(fixture["/settings/task-defaults"].values.useHead, false);
     failSave = true;
     await page.locator("#cfg-proxy").fill("http://127.0.0.1:7891");
     await page.evaluate(() => document.activeElement.blur());

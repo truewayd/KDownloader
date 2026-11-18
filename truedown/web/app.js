@@ -69,6 +69,7 @@ const DEFAULT_DOWNLOAD_SETTINGS = Object.freeze({
   allocation: "none",
   checkIntegrity: false,
   remoteTime: true,
+  useHead: false,
   extra: "",
 });
 
@@ -180,6 +181,7 @@ function cacheElements() {
     "cfg-proxy-mode",
     "cfg-referer",
     "cfg-remote-time",
+    "cfg-use-head",
     "cfg-speed",
     "cfg-speed-unit",
     "cfg-task-concurrency",
@@ -1236,7 +1238,7 @@ function renderTasks(tasks, epoch = "") {
   currentTasks = tasks;
   lastTaskRenderScope = scope;
   const signature = scope + JSON.stringify(tasks.map((task) => [
-    task.id, task.status, task.outputName, task.name, task.folder, task.link, task.progress, task.error, task.category, task.totalLength, task.completedLength, task.downloadSpeed, task.createdAt, task.updateDownload,
+    task.id, task.status, task.outputName, task.name, task.folder, task.link, task.progress, task.error, task.category, task.totalLength, task.sizeHint, task.completedLength, task.downloadSpeed, task.createdAt, task.updateDownload,
   ]));
   if (signature === lastTaskRenderSignature) {
     syncSelectionControls();
@@ -1345,7 +1347,7 @@ function taskRow(task) {
       <td><div class="task-file-cell">${iconMarkup(task.updateDownload ? "refresh" : taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="${status === "done" ? "preview" : "details"}" data-id="${task.id}" aria-label="${status === "done" ? "预览文件" : "任务详情"}：${esc(fileName)}" data-tooltip="${esc(fileName)}"><td-file-name aria-hidden="true">${esc(fileName)}</td-file-name></button><div class="task-folder">${task.updateDownload ? '<span class="update-task-label">应用更新</span> · ' + (status === "done" ? '下载完成，安装状态见设置' : status === "error" ? '请从设置重新发起' : '下载后自动校验') : esc(taskCategoryMeta(task.category).label)}</div></div></div></td>
       <td><span class="status-badge status-${status}">${statusLabel}</span></td>
       <td><div class="progress-line" data-tooltip="${esc(progress)}">${esc(taskProgressLabel(task))}</div><progress class="task-progress" max="100" value="${taskProgressPercent(task)}" aria-label="下载进度"></progress></td>
-      <td class="task-size">${taskBytes(task.totalLength)}</td>
+      <td class="task-size">${taskBytes(task.totalLength || task.sizeHint)}</td>
       <td class="task-speed">${taskSpeed(task)}</td>
       <td class="task-remaining">${taskRemaining(task)}</td>
       <td class="task-created">${esc(taskDate(task.createdAt))}</td>

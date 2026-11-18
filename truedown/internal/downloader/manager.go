@@ -117,6 +117,7 @@ type Task struct {
 	overviewCategory         string
 	overviewSpeed            int64
 	listKey                  taskListKey
+	headSize                 *int64
 }
 
 // TaskSnapshot contains only fields needed by the web UI. Request headers and
@@ -126,6 +127,7 @@ type TaskSnapshot struct {
 	UpdateDownload      bool           `json:"updateDownload,omitempty"`
 	Category            string         `json:"category"`
 	TotalLength         int64          `json:"totalLength"`
+	SizeHint            int64          `json:"sizeHint,omitempty"`
 	CompletedLength     int64          `json:"completedLength,omitempty"`
 	DownloadSpeed       int64          `json:"downloadSpeed"`
 	ID                  int64          `json:"id"`
@@ -315,6 +317,7 @@ type Manager struct {
 	engineExited atomic.Bool
 	detailReads  atomic.Int32
 	probeReads   atomic.Int32
+	headReads    atomic.Int32
 	engineExit   func(*Manager, error)
 	lifecycleCtx context.Context
 	cancel       context.CancelFunc
@@ -979,8 +982,8 @@ func (m *Manager) sortTaskIDsForPage(ids []int64, field, order string) {
 	// The ID tie-breaker defines a total order, so a stable sort is unnecessary.
 	sort.Slice(ids, func(i, j int) bool {
 		first, second := m.tasks[ids[i]], m.tasks[ids[j]]
-		if field == "size" && (first.TotalLength > 0) != (second.TotalLength > 0) {
-			return first.TotalLength > 0
+		if field == "size" && (first.displaySize() > 0) != (second.displaySize() > 0) {
+			return first.displaySize() > 0
 		}
 		if field == "remaining" && (taskRemainingSeconds(first) > 0) != (taskRemainingSeconds(second) > 0) {
 			return taskRemainingSeconds(first) > 0
@@ -1086,7 +1089,7 @@ func compareTasksForPage(first, second *Task, field string) int {
 	case "link":
 		return compareFold(first.Link, second.Link)
 	case "size":
-		return compareInt64(first.TotalLength, second.TotalLength)
+		return compareInt64(first.displaySize(), second.displaySize())
 	case "speed":
 		return compareInt64(first.DownloadSpeed, second.DownloadSpeed)
 	case "remaining":
@@ -1324,7 +1327,7 @@ func (m *Manager) snapshotTask(task *Task) TaskSnapshot {
 	return TaskSnapshot{
 		Revision:       task.Revision,
 		UpdateDownload: task.UpdateDownload,
-		Category:       m.classifyTask(task), TotalLength: task.TotalLength,
+		Category:       m.classifyTask(task), TotalLength: task.TotalLength, SizeHint: task.sizeHint(),
 		CompletedLength: task.CompletedLength, DownloadSpeed: task.DownloadSpeed,
 		ID: task.ID, Name: task.Name, Link: task.Link, Folder: task.Folder,
 		OutputName: task.OutputName, Status: task.Status, Progress: task.Progress,
@@ -2275,6 +2278,7 @@ func (m *Manager) submit(item submission) bool {
 		return false
 	}
 	m.ariaAdmitted[task.ID] = true
+	task.headSize = nil
 	task.PreviousGID = ""
 	if task.Status == StatusPaused {
 		task.Progress = "Paused by aria2"
@@ -2292,6 +2296,7 @@ func (m *Manager) submit(item submission) bool {
 	if err := m.store.Update(persisted); err != nil {
 		log.Printf("persist admitted task %d: %v", persisted.ID, err)
 	}
+	m.startHTTPSizeProbe(snapshot, isBitTorrent)
 	return true
 }
 
