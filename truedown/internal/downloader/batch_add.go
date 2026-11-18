@@ -20,6 +20,7 @@ type taskAddRequest struct {
 	Opts             Aria2Opts
 	ModuleID         string
 	ModuleData       json.RawMessage
+	TotalLength      int64
 }
 
 type taskAddResult struct {
@@ -158,6 +159,7 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 			CreatedAt:     now,
 			UpdatedAt:     now,
 			TransferState: transferPending,
+			TotalLength:   item.request.TotalLength,
 		}
 		task.Status, task.Progress = initialTaskState(item.identity.Opts)
 		m.touchTaskLocked(task)
@@ -190,7 +192,7 @@ func (m *Manager) addTasksBatch(requests []taskAddRequest) ([]taskAddResult, err
 	for _, index := range fallback {
 		item := prepared[index]
 		m.opMu.Lock()
-		task, duplicate, err := m.addIdentityLocked(item.identity, item.request.ModuleID)
+		task, duplicate, err := m.addIdentityWithSizeLocked(item.identity, item.request.ModuleID, item.request.TotalLength)
 		m.opMu.Unlock()
 		if err != nil {
 			return nil, err

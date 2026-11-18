@@ -234,7 +234,7 @@ func (r *executableResolver) resolveFolder(ctx context.Context, m *Manager, requ
 			continue
 		}
 		collectionPath := append([]string{collection.Name}, entry.Path[:len(entry.Path)-1]...)
-		requests = append(requests, taskAddRequest{Link: entry.Source, Name: name, Folder: identity.Folder, CollectionPath: collectionPath, CollectionSource: collectionSource, QueueID: request.QueueID, Opts: request.Opts, ModuleID: "mega", ModuleData: entry.Data})
+		requests = append(requests, taskAddRequest{Link: entry.Source, Name: name, Folder: identity.Folder, CollectionPath: collectionPath, CollectionSource: collectionSource, QueueID: request.QueueID, Opts: request.Opts, ModuleID: "mega", ModuleData: entry.Data, TotalLength: entry.Size})
 	}
 	added, err := m.addTasksBatch(requests)
 	if err != nil {

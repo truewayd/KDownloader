@@ -623,6 +623,10 @@ func (m *Manager) addModuleTask(link, name, folder string, headers map[string]st
 }
 
 func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (*Task, bool, error) {
+	return m.addIdentityWithSizeLocked(identity, moduleID, 0)
+}
+
+func (m *Manager) addIdentityWithSizeLocked(identity requestIdentity, moduleID string, totalLength int64) (*Task, bool, error) {
 	if err := m.validateEngineOptions(identity.Opts); err != nil {
 		return nil, false, err
 	}
@@ -744,6 +748,7 @@ func (m *Manager) addIdentityLocked(identity requestIdentity, moduleID string) (
 		Opts:           identity.Opts,
 		ModuleID:       moduleID,
 		UpdateDownload: identity.UpdateDownload,
+		TotalLength:    totalLength,
 		DropboxDirect:  moduleID == DropboxModuleID,
 		GID:            m.newGIDLocked(),
 		Status:         StatusQueued,
@@ -2522,7 +2527,10 @@ func (m *Manager) applyStatusesAtRevision(statuses []ariaStatus, pollRevision in
 			m.reserveOutputLocked(task.Folder, task.OutputName, task.ID)
 		}
 		if totalLength, err := strconv.ParseInt(state.TotalLength, 10, 64); err == nil && totalLength >= 0 {
-			task.TotalLength = totalLength
+			// A waiting transfer can report zero before its response headers arrive.
+			if totalLength > 0 || task.ModuleID == "" || task.Status == StatusDone {
+				task.TotalLength = totalLength
+			}
 		}
 		task.CompletedLength, _ = strconv.ParseInt(state.CompletedLength, 10, 64)
 		task.DownloadSpeed, _ = strconv.ParseInt(state.DownloadSpeed, 10, 64)
