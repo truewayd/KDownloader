@@ -22,7 +22,17 @@ func TestOpenPathsUseOnlyManagerOwnedTaskPaths(t *testing.T) {
 	if err := manager.OpenDownloadDirectory(); err != nil {
 		t.Fatal(err)
 	}
-	task, _, err := manager.AddTask("https://example.test/file.bin", "file.bin", "", nil, "", 0, Aria2Opts{})
+	custom := filepath.Join(root, "custom downloads")
+	defaults := manager.TaskDefaults()
+	defaults.Values.Folder = custom
+	if _, err := manager.SetTaskDefaults(defaults.Revision, defaults.Values); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.OpenDownloadDirectory(); err != nil {
+		t.Fatal(err)
+	}
+	taskFolder := filepath.Join(root, "task downloads")
+	task, _, err := manager.AddTask("https://example.test/file.bin", "file.bin", taskFolder, nil, "", 0, Aria2Opts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +51,7 @@ func TestOpenPathsUseOnlyManagerOwnedTaskPaths(t *testing.T) {
 	if err := manager.OpenTaskFile(task.ID); err != nil {
 		t.Fatal(err)
 	}
-	if len(opened) != 3 || opened[0] != downloads || opened[1] != task.Folder || opened[2] != filepath.Join(task.Folder, task.OutputName) {
+	if len(opened) != 4 || opened[0] != downloads || opened[1] != custom || opened[2] != task.Folder || opened[3] != filepath.Join(task.Folder, task.OutputName) {
 		t.Fatalf("opened paths=%v", opened)
 	}
 }

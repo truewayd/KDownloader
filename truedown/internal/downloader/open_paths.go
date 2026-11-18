@@ -4,11 +4,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-// OpenDownloadDirectory opens TrueDown's default download directory on the host.
+// OpenDownloadDirectory opens the current save location for new tasks.
 func (m *Manager) OpenDownloadDirectory() error {
-	folder, err := filepath.Abs(m.defaultDir)
+	folder := strings.TrimSpace(m.TaskDefaults().Values.Folder)
+	if folder == "" {
+		folder = m.defaultDir
+	}
+	folder, err := filepath.Abs(folder)
 	if err != nil {
 		return fmt.Errorf("resolve download directory: %w", err)
 	}

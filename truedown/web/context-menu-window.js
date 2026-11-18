@@ -9,7 +9,7 @@
     "group-add": ["新增分组", "folder-plus"], "group-manage": ["管理分组", "folders"],
     "pause-queue": ["暂停整个队列", "pause"], "resume-queue": ["恢复整个队列", "play"],
     "retry-all": ["重试所有失败任务", "retry"], "clear-done": ["清理所有已完成记录", "trash"],
-    "open-downloads": ["打开默认下载目录", "folder-open"],
+    "open-downloads": ["打开下载目录", "folder-open"],
     undo: ["撤销", "undo", "Z"], redo: ["重做", "redo", "Y"], cut: ["剪切", "cut", "X"], copy: ["复制", "copy", "C"],
     paste: ["粘贴", "paste", "V"], "select-all": ["全选", "select-all", "A"],
   };

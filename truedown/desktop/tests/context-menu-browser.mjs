@@ -38,6 +38,7 @@ try {
         if (event.target.id === "all-downloads") { event.preventDefault(); window.selectedGroup = "all"; }
         if (event.target.dataset.action) clicked.push(event.target.dataset.action);
         if (event.target.id === "pause-queue-btn") calls.push({ command: "pause-queue" });
+        if (event.target.id === "open-downloads-btn") calls.push({ command: "open-downloads" });
       });
       document.addEventListener("keydown", event => { if (event.key === "Escape") window.escaped = true; });
     });
@@ -76,6 +77,9 @@ try {
     await choose("pause-queue");
     assert.equal(await page.evaluate(() => calls.length), queueCalls, "queue actions revalidate busy/disabled controls");
     assert.deepEqual(await open("#blank"), ["new-task", "open-downloads"]);
+    assert.equal(await page.locator('[data-menu-action="open-downloads"]').textContent(), "打开下载目录");
+    await choose("open-downloads");
+    assert.equal(await page.evaluate(() => calls.at(-1).command), "open-downloads");
     assert.deepEqual(await open("#pause-queue-btn"), []);
     assert.deepEqual(await open("#unrelated"), []);
     assert.deepEqual(await open("#group-label"), ["group-edit", "group-add", "group-manage"]);
@@ -274,6 +278,7 @@ try {
   await renderer.waitForFunction(() => window.__popupActive);
   assert.equal(await renderer.getByRole("menuitem").count(), 9);
   assert.equal(await renderer.locator('[data-action="copy-link"]').textContent(), "复制下载地址");
+  assert.equal(await renderer.locator('[data-action="open-downloads"]').textContent(), "打开下载目录");
   assert.equal(await renderer.locator('[data-action="clear-done"]').evaluate(button => button.classList.contains("danger")), true);
   await renderer.evaluate(() => { navigateContextMenu("End"); navigateContextMenu("Enter"); });
   assert.equal(await renderer.evaluate(() => results.at(-1).args.action), "open-downloads", "caller key relay activates the highlighted fixed action");

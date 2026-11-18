@@ -22,7 +22,7 @@
     "new-task": "\u65b0\u5efa\u4e0b\u8f7d", settings: "\u8bbe\u7f6e",
     "group-edit": "调整此分组", "group-add": "新增分组", "group-manage": "管理分组",
     "pause-queue": "暂停整个队列", "resume-queue": "恢复整个队列", "retry-all": "重试所有失败任务",
-    "clear-done": "清理所有已完成记录", "open-downloads": "打开默认下载目录",
+    "clear-done": "清理所有已完成记录", "open-downloads": "打开下载目录",
     undo: "\u64a4\u9500", redo: "\u91cd\u505a", cut: "\u526a\u5207", copy: "\u590d\u5236", paste: "\u7c98\u8d34", "select-all": "\u5168\u9009",
   };
   const shortcuts = { undo: "Z", redo: "Y", cut: "X", copy: "C", paste: "V", "select-all": "A" };

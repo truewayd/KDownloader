@@ -549,7 +549,6 @@ window.TrueDownEnglish = Object.freeze({
   "恢复整个队列": "Resume entire queue",
   "重试所有失败任务": "Retry all failed tasks",
   "清理所有已完成记录": "Clear all completed records",
-  "打开默认下载目录": "Open default download folder",
   "撤销": "Undo",
   "重做": "Redo",
   "剪切": "Cut",
