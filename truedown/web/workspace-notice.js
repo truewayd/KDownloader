@@ -116,18 +116,19 @@ function renderWorkspaceNotice() {
     }
   }
   const traffic = !title;
+  const speed = `${taskDownloadedBytes(currentSummary.downloadSpeed)}/s`;
   if (traffic) {
     workspaceNoticeTarget = "tasks";
     icon = "download";
     title = "下载概览";
     detail = "";
-    tooltip = `${currentSummary.downloading} 个下载中，${currentSummary.error} 个出错，${taskDownloadedBytes(currentSummary.downloadSpeed)}/s，查看全部任务`;
+    tooltip = `下载速度 ${speed} · ${currentSummary.downloading} 个任务正在下载 · ${currentSummary.error} 个任务出错 · 查看全部任务`;
   }
   host.hidden = traffic && currentSummary.downloading <= 0;
   host.dataset.traffic = String(traffic);
   document.getElementById("workspace-traffic").hidden = !traffic || host.hidden;
   host.querySelector(".notice-copy").hidden = traffic;
-  document.getElementById("workspace-speed").textContent = `${taskDownloadedBytes(currentSummary.downloadSpeed)}/s`;
+  document.getElementById("workspace-speed").textContent = speed;
   const button = document.getElementById("workspace-notice-action");
   const command = document.getElementById("workspace-notice-command");
   host.dataset.actionable = String(Boolean(workspaceNoticeCommand));
@@ -146,7 +147,7 @@ function renderWorkspaceNotice() {
   button.dataset.tooltip = tooltip || title;
   button.dataset.tooltipKind = traffic || progress !== null || Boolean(state?.error) ? "card" : "label";
   KDComponents.setBusyState(button, restartingForUpdate);
-  button.setAttribute("aria-label", restartingForUpdate ? "\u6b63\u5728\u91cd\u542f\u66f4\u65b0" : title + (tooltip ? "\uff0c" + tooltip : ""));
+  button.setAttribute("aria-label", restartingForUpdate ? "\u6b63\u5728\u91cd\u542f\u66f4\u65b0" : (traffic ? tooltip : title + (tooltip ? "\uff0c" + tooltip : "")));
   const statusIcon = button.querySelector(".icon");
   statusIcon.toggleAttribute("hidden", progress !== null);
   statusIcon.querySelector("use").setAttribute("href", "/icons.svg#icon-" + icon);

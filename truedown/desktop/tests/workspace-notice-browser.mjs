@@ -88,6 +88,16 @@ try {
     await page.evaluate(() => { refreshAndSchedule(true); scheduleSystemUpdateRefresh(true); });
     await page.waitForFunction(() => !document.getElementById("workspace-limit-action").hidden);
     assert.equal(await page.locator("#workspace-speed").textContent(), "1.0 MiB/s");
+    const trafficAction = page.locator("#workspace-notice-action");
+    const tooltip = "下载速度 1.0 MiB/s · 2 个任务正在下载 · 0 个任务出错 · 查看全部任务";
+    assert.equal(await trafficAction.getAttribute("data-tooltip"), tooltip);
+    assert.equal(await trafficAction.getAttribute("aria-label"), tooltip);
+    await page.evaluate(() => TrueDownI18n.setLanguage("en"));
+    const englishTooltip = "Download speed 1.0 MiB/s · 2 downloading · 0 errors · View all tasks";
+    assert.equal(await trafficAction.getAttribute("data-tooltip"), englishTooltip);
+    assert.equal(await trafficAction.getAttribute("aria-label"), englishTooltip);
+    assert.equal(await page.locator("#workspace-speed").textContent(), "1.0 MiB/s");
+    await page.evaluate(() => TrueDownI18n.setLanguage("zh-CN"));
     assert.equal(await page.locator("#workspace-limit-label").textContent(), "全局限速 2.0 MiB/s");
     assert.equal(await page.locator("#workspace-traffic").isVisible(), true, "limit supplements live speed");
     await page.locator("#workspace-limit-action").focus();

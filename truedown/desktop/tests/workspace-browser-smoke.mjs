@@ -145,10 +145,29 @@ try {
         await page.waitForFunction(() => document.querySelector("#tasks-title").textContent === "已暂停");
         await page.locator('[data-task-filter="all"]').click();
         await page.waitForFunction(count => document.querySelectorAll("tr[data-task-id]").length === count, tasks.length);
+        const checkHeaderLanguages = name === "native-1080-light-100";
+        const headings = page.locator(".tasks-table thead th");
+        if (checkHeaderLanguages) {
+          assert.deepEqual(await headings.allTextContents(), ["", "文件", "状态", "进度", "大小", "速度", "剩余", "添加时间", "操作"]);
+          await page.evaluate(() => TrueDownI18n.setLanguage("en"));
+          assert.deepEqual(await headings.allTextContents(), ["", "File", "Status", "Progress", "Size", "Speed", "ETA", "Date added", "Actions"]);
+          assert.equal(await page.locator("[data-select-page]").getAttribute("aria-label"), "Select all tasks in the current filter");
+          const sortButtons = page.locator(".tasks-table thead [data-sort-field]");
+          assert.deepEqual(await sortButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute("aria-label"))), [
+            "Sort by File ascending", "Sort by Status descending", "Sort by Progress ascending",
+            "Sort by Size ascending", "Sort by Speed ascending", "Sort by ETA ascending", "Sort by Date added ascending",
+          ]);
+        }
         for (const order of ["asc", "desc"]) {
           await page.locator('[data-sort-field="file"]').click();
           await page.waitForFunction(expected => document.querySelector('[data-sort-field="file"]').dataset.sortOrder === expected, order);
           assert.equal(await page.locator('[data-sort-field="file"] use').getAttribute("href"), `/icons.svg#icon-arrow-${order === "asc" ? "up" : "down"}`);
+        }
+        if (checkHeaderLanguages) {
+          assert.equal(await page.locator('[data-sort-field="file"]').getAttribute("aria-label"), "Sort by File ascending");
+          assert.equal(await page.locator(".task-heading-file").getAttribute("aria-sort"), "descending");
+          await page.evaluate(() => TrueDownI18n.setLanguage("zh-CN"));
+          assert.deepEqual(await headings.allTextContents(), ["", "文件", "状态", "进度", "大小", "速度", "剩余", "添加时间", "操作"]);
         }
         if (native) {
           await page.emulateMedia({ reducedMotion: "no-preference" });
