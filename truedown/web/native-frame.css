@@ -19,6 +19,8 @@
 .native-window-icon { width: 16px; height: 16px; flex: 0 0 auto; margin-right: 8px; pointer-events: none; }
 .native-window-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; pointer-events: none; }
 [data-native-frame="custom"] .native-titlebar { right: 144px; }
+/* The native HWND owns the blank area to the right of the caption content. */
+[data-native-frame="custom"] .native-window-title { max-width: calc(var(--navigation-width, 216px) - 56px); }
 [data-native-frame="custom"][data-native-window="settings"] body { padding-top: 0; }
 [data-native-frame="custom"][data-native-window="settings"] .app-shell { height: 100dvh; }
 [data-native-frame="custom"][data-native-window="settings"] .native-titlebar { left: var(--settings-nav-width); }

@@ -313,7 +313,9 @@ async fn open_auxiliary_locked(
         #[cfg(windows)]
         let window = if !state.suppress
             && recovered.is_none()
-            && !window.is_visible().map_err(|e| e.to_string())?
+            && window.is_visible().ok() == Some(false)
+            && window.is_minimized().ok() == Some(false)
+            && window.is_maximized().ok() == Some(false)
         {
             crate::window_shell::renew(window, kind.icon().map_err(|e| e.to_string())?).await?
         } else {
@@ -345,8 +347,6 @@ async fn open_auxiliary_locked(
         .map_err(|error| error.to_string())?
         .inner_size(width, height)
         .min_inner_size(min_width, min_height)
-        .resizable(matches!(kind, Kind::TaskPreview))
-        .maximizable(matches!(kind, Kind::TaskPreview))
         .visible(false)
         .transparent(cfg!(any(windows, target_os = "macos")))
         .center()

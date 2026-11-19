@@ -213,13 +213,12 @@ async function verifyAppearance(pages, scheme, forcedColors = "none", reducedTra
     assert.equal(state.clientTopInset, 0, `${kind} must extend the entire top edge for DWM caption painting`);
     assert.deepEqual(state.captionHits, [8, 9, 20], `${kind} must expose genuine minimize, maximize and close hit targets`);
     assert.equal(state.captionExcludedFromWebView, true, `${kind} WebView must not obscure native caption controls`);
-    assert.equal(state.resizable, kind === "main", `${kind} resize policy`);
-    assert.equal(state.maximizable, kind === "main", `${kind} maximize policy`);
+    assert.equal(state.captionDragHit, 2, `${kind} title strip must expose HTCAPTION`);
+    assert.equal(state.captionDragExcludedFromWebView, true, `${kind} WebView must leave native caption input open`);
+    assert.equal(state.topResizeHit, 12, `${kind} must keep the top native resize edge`);
+    assert.equal(state.resizable, true, `${kind} keeps native sizing`);
+    assert.equal(state.maximizable, true, `${kind} keeps native maximize`);
     assert.equal(state.minimizable, true, `${kind} keeps native minimize`);
-    if (kind !== "main") {
-      await invoke(page, "frame_action", { action: "maximize" });
-      assert.equal((await invoke(page, "frame_state")).maximized, false, `${kind} title double-click cannot bypass its fixed size`);
-    }
     assert.equal(state.iconWidth, 256, `${kind} must supply a full-resolution native icon`);
     assert.equal(state.iconHeight, 256);
     assert.equal(state.taskbarIconMatchesWindow, true, `${kind} must expose its own icon to the taskbar`);

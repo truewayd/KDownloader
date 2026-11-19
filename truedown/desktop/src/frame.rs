@@ -207,7 +207,21 @@ pub fn frame_action(window: WebviewWindow, action: Action) -> Result<(), String>
             crate::windows::task_details_hidden(window.app_handle(), window.label());
             return Ok(());
         }
-        Action::Drag => window.start_dragging(),
+        Action::Drag => {
+            #[cfg(windows)]
+            {
+                let owned = window.clone();
+                return window
+                    .run_on_main_thread(move || {
+                        if let Ok(handle) = owned.hwnd() {
+                            unsafe { windows::start_caption_drag(handle.0) };
+                        }
+                    })
+                    .map_err(|error| error.to_string());
+            }
+            #[cfg(not(windows))]
+            window.start_dragging()
+        }
         Action::SystemMenu => return system_menu(&window),
     }
     .map_err(|error| error.to_string())
@@ -230,8 +244,8 @@ fn system_menu(window: &WebviewWindow) -> Result<(), String> {
             if IsWindowVisible(hwnd) == 0 || GetForegroundWindow() != hwnd {
                 return;
             }
-            // Our title strip is client area: a forwarded WM_CONTEXTMENU may fail
-            // the OS caption hit test. Track the genuine borrowed system menu here.
+            // The part of the title strip occupied by WebView content still needs
+            // a menu bridge. The blank native caption uses USER32 directly.
             let menu = GetSystemMenu(hwnd, 0);
             if menu.is_null() {
                 return;
@@ -264,8 +278,14 @@ fn system_menu(window: &WebviewWindow) -> Result<(), String> {
                 std::ptr::null(),
             );
             if selected != 0 {
-                let position = ((point.y as u16 as u32) << 16 | point.x as u16 as u32) as isize;
-                PostMessageW(hwnd, WM_SYSCOMMAND, selected as usize, position);
+                let parameter = if matches!(selected as u32, SC_MOVE | SC_SIZE) {
+                    // Start the system's interactive command from its default
+                    // caption point or edge selection, independent of menu placement.
+                    -1
+                } else {
+                    windows::screen_point_parameter(point)
+                };
+                PostMessageW(hwnd, WM_SYSCOMMAND, selected as usize, parameter);
             }
         })
         .map_err(|error| error.to_string())

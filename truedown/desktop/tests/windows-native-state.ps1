@@ -25,6 +25,9 @@ public sealed class TrueDownWindowState {
     public int[] clientSize;
     public int[] captionHits;
     public bool captionExcludedFromWebView;
+    public int captionDragHit;
+    public bool captionDragExcludedFromWebView;
+    public int topResizeHit;
     public int dpi;
     public int iconWidth;
     public int iconHeight;
@@ -100,6 +103,14 @@ public static class TrueDownNativeState {
     [DllImport("dwmapi.dll")]
     private static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
 
+    private static int FrameHit(IntPtr window, POINT point) {
+        var position = new IntPtr((point.x & 0xffff) | ((point.y & 0xffff) << 16));
+        IntPtr hit;
+        if (SendMessageTimeoutW(window, 0x0084, UIntPtr.Zero, position, 2, 1000, out hit) == IntPtr.Zero)
+            throw new InvalidOperationException("Cannot hit-test the native frame");
+        return hit.ToInt32();
+    }
+
     public static TrueDownWindowState[] Read(uint processId, bool visibilityOnly) {
         // Match the app's physical coordinate space across mixed-DPI monitors.
         var previousAwareness = SetThreadDpiAwarenessContext(new IntPtr(-4));
@@ -153,14 +164,20 @@ public static class TrueDownNativeState {
                 foreach (var index in new int[] { 2, 3, 5 }) {
                     var rectangle = caption.rects[index];
                     var point = new POINT { x = (rectangle.left + rectangle.right) / 2, y = (rectangle.top + rectangle.bottom) / 2 };
-                    var position = new IntPtr((point.x & 0xffff) | ((point.y & 0xffff) << 16));
-                    IntPtr hit;
-                    SendMessageTimeoutW(window, 0x0084, UIntPtr.Zero, position, 2, 1000, out hit);
-                    hits.Add(hit.ToInt32());
+                    hits.Add(FrameHit(window, point));
                     if (rectangle.right <= rectangle.left || rectangle.bottom <= rectangle.top || !ScreenToClient(child, ref point) || PtInRegion(region, point.x, point.y))
                         state.captionExcludedFromWebView = false;
                 }
                 state.captionHits = hits.ToArray();
+                var captionContent = (int)Math.Ceiling(216 * state.dpi / 96.0);
+                var captionButtons = (int)Math.Ceiling(144 * state.dpi / 96.0);
+                if (client.right > captionContent + captionButtons) {
+                    var x = origin.x + (captionContent + client.right - captionButtons) / 2;
+                    var drag = new POINT { x = x, y = origin.y + (int)Math.Ceiling(20 * state.dpi / 96.0) };
+                    state.captionDragHit = FrameHit(window, drag);
+                    state.captionDragExcludedFromWebView = ScreenToClient(child, ref drag) && !PtInRegion(region, drag.x, drag.y);
+                    state.topResizeHit = FrameHit(window, new POINT { x = x, y = origin.y + 1 });
+                }
             } finally { Marshal.FreeHGlobal(memory); DeleteObject(region); }
             IntPtr icon;
             ICONINFO information;

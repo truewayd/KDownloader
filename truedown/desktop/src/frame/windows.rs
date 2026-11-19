@@ -1,6 +1,6 @@
 //! Extend the client into the caption while keeping DWM's real caption buttons.
 //! The WebView region excludes those buttons, so its child HWND cannot obscure
-//! their painting or consume their non-client mouse input (including Snap).
+//! their painting or consume native caption input (including Snap).
 //! An active DOM tooltip can reveal its bounded, rounded footprint temporarily.
 use std::{cell::RefCell, ptr::null_mut, rc::Rc};
 use windows_sys::Win32::{
@@ -16,6 +16,7 @@ use windows_sys::Win32::{
     UI::{
         Controls::MARGINS,
         HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow, GetSystemMetricsForDpi},
+        Input::KeyboardAndMouse::{GetAsyncKeyState, ReleaseCapture, VK_LBUTTON},
         Shell::{DefSubclassProc, GetWindowSubclass, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
@@ -25,6 +26,8 @@ const SUBCLASS: usize = 0x54444652;
 const TOOLTIP_SUBCLASS: usize = 0x54445450;
 pub const BUTTON_WIDTH: f64 = 144.0;
 pub const CAPTION_HEIGHT: f64 = 40.0;
+// Match the space for the sidebar controls or title in native-frame.css.
+const CAPTION_CONTENT_WIDTH: f64 = 216.0;
 
 #[derive(Default)]
 struct Tooltip {
@@ -195,6 +198,47 @@ unsafe fn pixels(hwnd: HWND, logical: f64) -> i32 {
     (logical * GetDpiForWindow(hwnd).max(96) as f64 / 96.0).ceil() as i32
 }
 
+pub(super) fn screen_point_parameter(point: POINT) -> LPARAM {
+    ((u32::from(point.y as u16) << 16) | u32::from(point.x as u16)) as LPARAM
+}
+
+pub(super) unsafe fn start_caption_drag(hwnd: HWND) {
+    if GetForegroundWindow() != hwnd || GetAsyncKeyState(VK_LBUTTON as i32) >= 0 {
+        return;
+    }
+    let mut screen = POINT::default();
+    let mut bounds = RECT::default();
+    if GetCursorPos(&mut screen) == 0 || GetClientRect(hwnd, &mut bounds) == 0 {
+        return;
+    }
+    let mut client = screen;
+    if ScreenToClient(hwnd, &mut client) == 0
+        || client.x < 0
+        || client.x >= bounds.right - pixels(hwnd, BUTTON_WIDTH)
+        || client.y < resize_edge(hwnd)
+        || client.y >= pixels(hwnd, CAPTION_HEIGHT)
+    {
+        return;
+    }
+    // The Windows runtime's start_dragging passes a pointer to POINTS.
+    // WM_NCLBUTTONDOWN expects the signed screen coordinates packed inline.
+    ReleaseCapture();
+    PostMessageW(
+        hwnd,
+        WM_NCLBUTTONDOWN,
+        HTCAPTION as WPARAM,
+        screen_point_parameter(screen),
+    );
+}
+
+unsafe fn resize_edge(hwnd: HWND) -> i32 {
+    if IsZoomed(hwnd) == 0 && GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_THICKFRAME != 0 {
+        pixels(hwnd, 4.0)
+    } else {
+        0
+    }
+}
+
 unsafe fn webview(hwnd: HWND) -> HWND {
     let class: Vec<u16> = "WRY_WEBVIEW\0".encode_utf16().collect();
     FindWindowExW(hwnd, null_mut(), class.as_ptr(), std::ptr::null())
@@ -229,20 +273,15 @@ unsafe fn refresh(hwnd: HWND) {
     }
     // Windows owns the resize border above the WebView too. Keep the regular
     // left/right/bottom non-client frame, and restore the top resize hit area.
-    let edge = if IsZoomed(hwnd) == 0 && GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_THICKFRAME != 0
-    {
-        pixels(hwnd, 4.0)
-    } else {
-        0
-    };
+    let edge = resize_edge(hwnd);
     let region = CreateRectRgn(0, edge, rect.right, rect.bottom);
-    let buttons = CreateRectRgn(
-        (rect.right - pixels(hwnd, BUTTON_WIDTH)).max(0),
+    let caption = CreateRectRgn(
+        pixels(hwnd, CAPTION_CONTENT_WIDTH).min((rect.right - pixels(hwnd, BUTTON_WIDTH)).max(0)),
         0,
         rect.right,
         top,
     );
-    if !region.is_null() && !buttons.is_null() && CombineRgn(region, region, buttons, RGN_DIFF) != 0
+    if !region.is_null() && !caption.is_null() && CombineRgn(region, region, caption, RGN_DIFF) != 0
     {
         if let Some(bounds) = tooltip_state(hwnd).and_then(|state| state.borrow().bounds) {
             let tip = tooltip_region(bounds, &rect);
@@ -264,8 +303,8 @@ unsafe fn refresh(hwnd: HWND) {
     } else if !region.is_null() {
         DeleteObject(region);
     }
-    if !buttons.is_null() {
-        DeleteObject(buttons);
+    if !caption.is_null() {
+        DeleteObject(caption);
     }
     // Refresh exposed parent pixels after resize, activation and theme changes.
     rect.bottom = top.min(rect.bottom);
@@ -280,15 +319,15 @@ unsafe extern "system" fn procedure(
     _: usize,
     data: usize,
 ) -> LRESULT {
-    // A same-DPI move leaves the child region and glass margins unchanged.
-    // Only dismissing an exposed tooltip requires rebuilding clipping on move.
-    let mut moved_with_tooltip = false;
+    // Refresh clipping on entry to a modal move/size only if a tooltip had
+    // changed the region. Avoid redundant child HWND changes during capture.
+    let mut cleared_tooltip = false;
     if matches!(
         message,
         WM_SIZE | WM_MOVE | WM_DPICHANGED | WM_SHOWWINDOW | WM_CANCELMODE | WM_ENTERSIZEMOVE
     ) {
         if let Some(state) = tooltip_state(hwnd) {
-            moved_with_tooltip = state.borrow_mut().bounds.take().is_some() && message == WM_MOVE;
+            cleared_tooltip = state.borrow_mut().bounds.take().is_some();
         }
     }
     if message == WM_ERASEBKGND || message == WM_PRINTCLIENT {
@@ -333,14 +372,22 @@ unsafe extern "system" fn procedure(
         if let Some(hit) = caption_hit(hwnd, &point) {
             return hit;
         }
-        ScreenToClient(hwnd, &mut point);
-        if IsZoomed(hwnd) == 0
-            && GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_THICKFRAME != 0
+        let mut bounds = RECT::default();
+        if ScreenToClient(hwnd, &mut point) != 0
+            && GetClientRect(hwnd, &mut bounds) != 0
+            && point.x >= 0
+            && point.x < bounds.right
             && point.y >= 0
-            && point.y < pixels(hwnd, 4.0)
+            && point.y < pixels(hwnd, CAPTION_HEIGHT).min(bounds.bottom)
         {
-            let mut bounds = RECT::default();
-            GetClientRect(hwnd, &mut bounds);
+            if point.y >= resize_edge(hwnd) {
+                if point.x >= pixels(hwnd, CAPTION_CONTENT_WIDTH)
+                    && point.x < bounds.right - pixels(hwnd, BUTTON_WIDTH)
+                {
+                    return HTCAPTION as LRESULT;
+                }
+                return DefSubclassProc(hwnd, message, wp, lp);
+            }
             if point.x < pixels(hwnd, 8.0) {
                 return HTTOPLEFT as LRESULT;
             }
@@ -360,7 +407,7 @@ unsafe extern "system" fn procedure(
         return DefSubclassProc(hwnd, message, wp, lp);
     }
     let result = DefSubclassProc(hwnd, message, wp, lp);
-    if moved_with_tooltip
+    if cleared_tooltip
         || matches!(
             message,
             WM_SIZE
@@ -369,8 +416,6 @@ unsafe extern "system" fn procedure(
                 | WM_THEMECHANGED
                 | WM_SHOWWINDOW
                 | WM_ACTIVATE
-                | WM_CANCELMODE
-                | WM_ENTERSIZEMOVE
         )
     {
         refresh(hwnd);
@@ -429,6 +474,13 @@ mod tests {
         CreateCompatibleDC, CreateDIBSection, DeleteDC, GdiFlush, SelectObject, BITMAPINFO,
         BITMAPINFOHEADER, DIB_RGB_COLORS,
     };
+
+    #[test]
+    fn caption_messages_pack_signed_screen_coordinates() {
+        let value = screen_point_parameter(POINT { x: -640, y: -28 });
+        assert_eq!(value as i16 as i32, -640);
+        assert_eq!((value >> 16) as i16 as i32, -28);
+    }
 
     #[test]
     fn tooltip_sessions_follow_the_webview_across_native_shells() {
