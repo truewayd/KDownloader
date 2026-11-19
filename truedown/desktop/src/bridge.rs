@@ -377,12 +377,15 @@ impl Bridge {
     pub async fn shutdown(&self) -> bool {
         // EOF stops an owned core gracefully and only detaches an attached bridge.
         self.alive.store(false, Ordering::SeqCst);
-        self.input.lock().await.take();
-        let mut child = self.child.lock().await;
-        let clean = match tokio::time::timeout(Duration::from_secs(15), child.wait()).await {
+        let graceful = async {
+            self.input.lock().await.take();
+            self.child.lock().await.wait().await
+        };
+        let clean = match tokio::time::timeout(Duration::from_secs(15), graceful).await {
             Ok(Ok(status)) => status.success(),
             _ => {
-                let _ = child.kill().await;
+                // A blocked pipe writer must not consume the shutdown budget.
+                let _ = self.child.lock().await.kill().await;
                 false
             }
         };

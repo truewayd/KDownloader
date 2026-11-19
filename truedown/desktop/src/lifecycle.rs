@@ -26,20 +26,39 @@ pub fn request(app: &tauri::AppHandle) {
     let core = app.state::<Arc<crate::core::Core>>().inner().clone();
     core.closing.store(true, Ordering::SeqCst);
     let app = app.clone();
-    let target = app.clone();
-    let (hidden, ready) = tokio::sync::oneshot::channel();
-    // Hide on the UI thread before disconnecting the core. Visibility changes
-    // stop page polling while native cleanup retains process ownership.
-    let _ = app.run_on_main_thread(move || {
-        for window in target.webview_windows().into_values() {
-            let _ = window.hide();
-        }
-        let _ = hidden.send(());
-    });
     tauri::async_runtime::spawn(async move {
+        let target = app.clone();
+        let (hidden, ready) = tokio::sync::oneshot::channel();
+        // Dispatch from the worker. Tauri runs this inline if called by a tray
+        // event on the UI thread, which would prevent the timeout from starting.
+        let _ = app.run_on_main_thread(move || {
+            if let Some(tray) = target.tray_by_id("main-tray") {
+                let _ = tray.set_visible(false);
+            }
+            for window in target.webview_windows().into_values() {
+                let _ = window.hide();
+            }
+            let _ = hidden.send(());
+        });
+        #[cfg(windows)]
+        if tokio::time::timeout(std::time::Duration::from_secs(2), ready)
+            .await
+            .is_err()
+        {
+            eprintln!("TrueDown window shutdown did not respond; stopping the core");
+        }
+        #[cfg(not(windows))]
         let _ = ready.await;
         core.shutdown().await;
         app.state::<Exit>().complete.store(true, Ordering::SeqCst);
+        // The core and its engine are already shut down. Allow Tauri to
+        // tear down the WebView and tray, then release a wedged Windows shell.
+        #[cfg(windows)]
+        tauri::async_runtime::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            eprintln!("TrueDown native exit timed out after core shutdown");
+            std::process::exit(0);
+        });
         app.exit(0);
     });
 }
