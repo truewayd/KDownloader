@@ -51,19 +51,29 @@
       <aside class="sidebar" id="workspace-sidebar" aria-label="下载与应用导航" data-tooltip-placement="right">
         <div class="sidebar-top">
           <div class="sidebar-brand">
-            <a class="brand" href="#tasks" aria-label="TrueDown 下载任务"><span class="brand-mark" aria-hidden="true"><img src="/truedown-logo.svg" alt=""></span><span class="brand-copy"><strong>TrueDown</strong></span></a>
+            <div class="brand"><span class="brand-mark" aria-hidden="true"><img src="/truedown-logo.svg" alt=""></span><span class="brand-copy"><strong>TrueDown</strong></span></div>
             <button class="kd-icon-button sidebar-toggle" type="button" aria-label="收起侧栏" data-tooltip="收起侧栏" aria-controls="workspace-sidebar" aria-expanded="true"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-panel-left"></use></svg></button>
           </div>
           <button class="kd-button primary" id="new-task-btn" type="button" data-tooltip="新建下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-download"></use></svg><span class="nav-label">新建下载</span></button>
         </div>
         <nav class="primary-nav" aria-label="下载任务">
-          <p class="nav-section-label">下载库</p>
-          <a href="#tasks" data-route="tasks" data-task-filter="all" data-tooltip="全部下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg><span class="nav-label">全部下载</span><span class="nav-count" id="task-count">0</span></a>
-          <div id="file-group-navigation" class="file-group-navigation"></div>
-          <div id="module-navigation-section" class="module-navigation-section" hidden>
-            <p class="nav-section-label" id="module-navigation-label">模块</p>
-            <div id="module-navigation" class="file-group-navigation" role="group" aria-labelledby="module-navigation-label"></div>
-          </div>
+          <details class="nav-section" open>
+            <summary class="nav-section-toggle" data-tooltip="下载库">
+              <svg class="icon nav-section-icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folders"></use></svg>
+              <span class="nav-label">下载库</span>
+              <svg class="icon nav-section-chevron" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-chevron-right"></use></svg>
+            </summary>
+            <a href="#tasks" data-route="tasks" data-task-filter="all" data-tooltip="全部下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg><span class="nav-label">全部下载</span><span class="nav-count" id="task-count">0</span></a>
+            <div id="file-group-navigation" class="file-group-navigation"></div>
+            <details id="module-navigation-section" class="nav-section module-navigation-section" open hidden>
+              <summary class="nav-section-toggle" id="module-navigation-label" data-tooltip="模块">
+                <svg class="icon nav-section-icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-list"></use></svg>
+                <span class="nav-label">模块</span>
+                <svg class="icon nav-section-chevron" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-chevron-right"></use></svg>
+              </summary>
+              <div id="module-navigation" class="file-group-navigation" role="group" aria-labelledby="module-navigation-label"></div>
+            </details>
+          </details>
         </nav>
         <nav class="sidebar-footer" aria-label="应用工具">
           <div class="workspace-notice" id="workspace-notice" hidden>

@@ -112,7 +112,7 @@ function renderModuleNavigation(force = false) {
   const focused = nav.contains(document.activeElement) ? document.activeElement.dataset.taskModule : "";
   const modules = new Map(items.map(module => [module.id, module]));
   const ordered = [...new Set([...moduleNavOrder, ...modules.keys()])];
-  const icons = { "google-drive": "google-drive", dropbox: "dropbox", mega: "mega", mediafire: "cloud", telegraph: "file" };
+  const icons = { "google-drive": "google-drive", dropbox: "dropbox", mega: "mega", mediafire: "mediafire", telegraph: "telegraph" };
   nav.replaceChildren(...ordered.filter(id => modules.has(id)).map(id => {
     const { name } = modules.get(id);
     const link = document.createElement("a");
@@ -152,7 +152,7 @@ function initNavigationIndicator() {
   const update = () => {
     frame = 0;
     const selected = nav.querySelector("a[aria-current]");
-    if (!selected || !nav.getClientRects().length) {
+    if (!selected?.getClientRects().length || selected.closest("details:not([open])")) {
       indicator.hidden = true;
       initialized = false;
       return;
@@ -167,7 +167,7 @@ function initNavigationIndicator() {
   };
   const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
   const mutations = new MutationObserver(schedule);
-  mutations.observe(nav, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-current"] });
+  mutations.observe(nav, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-current", "open", "hidden"] });
   const resize = new ResizeObserver(schedule);
   resize.observe(nav);
   window.addEventListener("resize", schedule);

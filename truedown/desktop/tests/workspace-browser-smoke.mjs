@@ -90,6 +90,8 @@ try {
           assert.ok(sidebar.y >= 0);
           const logo = await page.locator(".brand-mark img").boundingBox();
           assert.ok(Math.abs(logo.x - logo.y) <= 1, `${name}: logo top and left spacing must match`);
+          assert.equal(await page.locator(".brand-mark img").evaluate(img => getComputedStyle(img).cursor), "default");
+          assert.equal(await page.locator("a.brand").count(), 0);
           for (const selector of [".sidebar-toggle", ".brand"]) assert.ok(await page.locator(selector).evaluate(element => {
             const box = element.getBoundingClientRect();
             return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));

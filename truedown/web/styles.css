@@ -237,7 +237,7 @@ code {
   box-shadow: none;
 }
 
-:is(.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link) {
+:is(.primary-nav a, .nav-section-toggle, .sidebar-footer a, .sidebar-action, .settings-nav-link) {
   border: 1px solid transparent;
   border-radius: var(--kd-control-radius);
   background: transparent;
@@ -249,7 +249,8 @@ code {
   cursor: pointer;
   transition: background-color var(--kd-motion-fast) ease, color var(--kd-motion-fast) ease, border-color var(--kd-motion-fast) ease;
 }
-:is(.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link):hover {
+.nav-section-toggle { font-size: 11px; }
+:is(.primary-nav a, .nav-section-toggle, .sidebar-footer a, .sidebar-action, .settings-nav-link):hover {
   background: color-mix(in srgb, var(--kd-surface-raised) 60%, transparent);
   color: var(--kd-text);
 }
@@ -269,10 +270,10 @@ code {
 }
 :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current] .icon { color: inherit; }
 :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current]:hover { background: var(--kd-surface-raised); }
-:is(.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link):active { background: var(--kd-secondary-hover); }
-:is(.sidebar a, .sidebar-action, .settings-nav-link):focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -2px; }
+:is(.primary-nav a, .nav-section-toggle, .sidebar-footer a, .sidebar-action, .settings-nav-link):active { background: var(--kd-secondary-hover); }
+:is(.sidebar a, .nav-section-toggle, .sidebar-action, .settings-nav-link):focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -2px; }
 @media (forced-colors: active) {
-  :is(.primary-nav a, .sidebar-footer a, .sidebar-action, .settings-nav-link):hover { background: ButtonFace; color: ButtonText; }
+  :is(.primary-nav a, .nav-section-toggle, .sidebar-footer a, .sidebar-action, .settings-nav-link):hover { background: ButtonFace; color: ButtonText; }
   :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current] { border-color: Highlight; }
   :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current]::before { background: Highlight; forced-color-adjust: none; }
   :is(.primary-nav a, .sidebar-footer a, .settings-nav-link)[aria-current] .icon { color: Highlight; }
@@ -324,7 +325,6 @@ input[type="checkbox"]:focus-visible,
 .primary-nav a:focus-visible,
 .settings-nav-link:focus-visible,
 .settings-card:focus-visible,
-.brand:focus-visible,
 .advanced-options summary:focus-visible {
   outline: 2px solid var(--kd-focus);
   outline-offset: 2px;

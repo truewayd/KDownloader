@@ -40,6 +40,8 @@ const server = http.createServer(async (request, response) => {
     { id: "google-drive", name: "Google Drive", installed: true },
     { id: "dropbox", name: "Dropbox", installed: true },
     { id: "mega", name: "MEGA", installed: false },
+    { id: "telegraph", name: "Telegraph", installed: true },
+    { id: "mediafire", name: "MediaFire", installed: true },
   ] });
   if (url.pathname === "/settings/file-groups/order") {
     const next = await body(request);
@@ -250,7 +252,10 @@ try {
     const googleDrive = page.locator('[data-task-module="google-drive"]');
     const dropbox = page.locator('[data-task-module="dropbox"]');
     await googleDrive.waitFor();
-    assert.equal(await modules.count(), 2, "disabled modules do not appear");
+    assert.equal(await modules.count(), 4, "disabled modules do not appear");
+    for (const id of ["telegraph", "mediafire"]) {
+      assert.equal(await page.locator(`[data-task-module="${id}"] use`).getAttribute("href"), `/icons.svg#icon-${id}`);
+    }
     if (width < 720) await page.locator(".sidebar-toggle").click();
     await dropbox.scrollIntoViewIfNeeded();
     const dragStart = await dropbox.boundingBox(), dragEnd = await googleDrive.boundingBox();
@@ -266,6 +271,22 @@ try {
     assert.equal(await modules.first().getAttribute("data-task-module"), "dropbox", "module order survives reopening the page");
     await googleDrive.click();
     await page.waitForFunction(() => currentModule === "google-drive" && currentTasks.map(task => task.id).join() === "1,2");
+    assert.equal(await googleDrive.getAttribute("aria-current"), "page");
+    const libraryToggle = page.locator(".primary-nav > details > summary");
+    const modulesToggle = page.locator("#module-navigation-label");
+    const indicator = page.locator(".navigation-indicator");
+    await modulesToggle.press("Space");
+    await googleDrive.waitFor({ state: "hidden" });
+    await indicator.waitFor({ state: "hidden" });
+    assert.equal(await page.locator("#file-group-navigation a").first().isVisible(), true);
+    await libraryToggle.click();
+    await modulesToggle.waitFor({ state: "hidden" });
+    await libraryToggle.press("Enter");
+    await modulesToggle.waitFor();
+    assert.equal(await googleDrive.isVisible(), false, "Library preserves the Modules disclosure state");
+    await modulesToggle.click();
+    await googleDrive.waitFor();
+    await indicator.waitFor();
     assert.equal(await googleDrive.getAttribute("aria-current"), "page");
     collectionLayout = "category";
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
