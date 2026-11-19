@@ -24,16 +24,27 @@ type nativeReplacement struct {
 	OldAbsent bool       `json:"oldAbsent,omitempty"`
 }
 
+type nativeExitProcess struct {
+	PID     uint32 `json:"pid"`
+	Created uint64 `json:"created"`
+}
+
+type nativeExitProcesses struct {
+	Core    nativeExitProcess `json:"core"`
+	Desktop nativeExitProcess `json:"desktop"`
+}
+
 type nativeTransaction struct {
-	SchemaVersion int                 `json:"schemaVersion"`
-	Build         int64               `json:"build"`
-	Directory     string              `json:"directory"`
-	Stage         string              `json:"stage"`
-	StatePath     string              `json:"statePath"`
-	HealthPath    string              `json:"healthPath"`
-	Token         string              `json:"token"`
-	Arguments     []string            `json:"arguments"`
-	Files         []nativeReplacement `json:"files"`
+	SchemaVersion int                  `json:"schemaVersion"`
+	Build         int64                `json:"build"`
+	Directory     string               `json:"directory"`
+	Stage         string               `json:"stage"`
+	StatePath     string               `json:"statePath"`
+	HealthPath    string               `json:"healthPath"`
+	Token         string               `json:"token"`
+	Arguments     []string             `json:"arguments"`
+	Files         []nativeReplacement  `json:"files"`
+	Outgoing      *nativeExitProcesses `json:"outgoing,omitempty"`
 }
 
 type nativeMarker struct {
@@ -116,6 +127,10 @@ func (m *Manager) launchNativeApply(arguments []string) error {
 	transaction := nativeTransaction{SchemaVersion: 1, Build: pending.Build, Directory: m.baseDir,
 		Stage: stage, StatePath: m.statePath, HealthPath: filepath.Join(m.updatesDir, "native-health-"+token), Token: token,
 		Arguments: append([]string(nil), arguments...)}
+	transaction.Outgoing, err = captureNativeExitProcesses(m.nativeExecutable)
+	if err != nil {
+		return err
+	}
 	// Deterministic order: activate the shell last. Every target is replaced by
 	// rename-over-existing, so the launch entry point is never temporarily absent.
 	for _, name := range nativeNames {
@@ -198,6 +213,11 @@ func nativeDirectory(path string) error {
 func validateNativeTransaction(path string, transaction nativeTransaction) error {
 	if transaction.SchemaVersion != 1 || transaction.Build <= 0 || !validToken(transaction.Token) {
 		return fmt.Errorf("invalid native update transaction")
+	}
+	if outgoing := transaction.Outgoing; outgoing != nil &&
+		(outgoing.Core.PID == 0 || outgoing.Desktop.PID == 0 || outgoing.Core.PID == outgoing.Desktop.PID ||
+			outgoing.Core.Created == 0 || outgoing.Desktop.Created == 0 || outgoing.Desktop.Created > outgoing.Core.Created) {
+		return fmt.Errorf("invalid outgoing native process identities")
 	}
 	for _, value := range []string{path, transaction.Directory, transaction.Stage, transaction.StatePath, transaction.HealthPath} {
 		if !filepath.IsAbs(value) || filepath.Clean(value) != value {
@@ -389,6 +409,12 @@ func runNativeTransaction(path string, recoverOnly bool) error {
 	if err != nil || digest != marker.SHA256 {
 		return fmt.Errorf("native update helper failed its SHA-256 check")
 	}
+	// Windows may allow some replacements while the old shell still owns its
+	// WebView and tray. Wait before touching any installed file or relaunching.
+	if err := awaitNativeExit(transaction.Outgoing, 35*time.Second); err != nil {
+		// Keep the marker and verified stage for recovery after the old shell exits.
+		return err
+	}
 	// A committed health token survives helper interruption. Verify all new
 	// files before finalizing; otherwise recovery always restores the old set.
 	healthy := healthTokenMatches(transaction.HealthPath, transaction.Token)
@@ -401,12 +427,16 @@ func runNativeTransaction(path string, recoverOnly bool) error {
 		}
 	}
 	var updateErr error
+	failure := "native update was interrupted"
 	if !recoverOnly && !healthy {
+		failure = "native update could not prepare the replacement files"
 		updateErr = prepareNativeFiles(transaction)
 		if updateErr == nil {
+			failure = "native update could not replace the installed files"
 			updateErr = replaceNativeFiles(transaction)
 		}
 		if updateErr == nil {
+			failure = "native update did not finish its startup health check"
 			updateErr = launchAndAwaitHealth(transaction)
 		}
 		healthy = updateErr == nil
@@ -415,7 +445,7 @@ func runNativeTransaction(path string, recoverOnly bool) error {
 		if err := restoreNativeFiles(transaction); err != nil {
 			return fmt.Errorf("%v; native rollback: %w", updateErr, err)
 		}
-		if err := clearPendingUpdate(transaction.StatePath, transaction.Build, "native update did not finish its startup health check; restored the complete previous version; automatic application updates are off to prevent repeated downloads; retry manually from Settings"); err != nil {
+		if err := clearPendingUpdate(transaction.StatePath, transaction.Build, failure+"; restored the complete previous version; automatic application updates are off to prevent repeated downloads; retry manually from Settings"); err != nil {
 			return err
 		}
 	}

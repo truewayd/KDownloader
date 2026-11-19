@@ -5,13 +5,17 @@ package systemupdate
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"golang.org/x/sys/windows"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 func configureHiddenProcess(command *exec.Cmd) {
@@ -26,6 +30,81 @@ func configureNativeHelper(command *exec.Cmd) {
 	// The owned core's kill-on-close job explicitly permits only this helper
 	// and user-requested desktop launches to outlive it.
 	command.SysProcAttr.CreationFlags |= 0x01000000 // CREATE_BREAKAWAY_FROM_JOB
+}
+
+func processCreationTime(process windows.Handle) (uint64, error) {
+	var created, exited, kernel, user windows.Filetime
+	err := windows.GetProcessTimes(process, &created, &exited, &kernel, &user)
+	return uint64(created.HighDateTime)<<32 | uint64(created.LowDateTime), err
+}
+
+func captureNativeExitProcesses(shell string) (*nativeExitProcesses, error) {
+	coreCreated, err := processCreationTime(windows.CurrentProcess())
+	if err != nil {
+		return nil, fmt.Errorf("identify outgoing core: %w", err)
+	}
+	parent := uint32(os.Getppid())
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, parent)
+	if err != nil {
+		return nil, fmt.Errorf("open outgoing desktop: %w", err)
+	}
+	defer windows.CloseHandle(process)
+	path := make([]uint16, 32768)
+	size := uint32(len(path))
+	if err := windows.QueryFullProcessImageName(process, 0, &path[0], &size); err != nil {
+		return nil, fmt.Errorf("identify outgoing desktop: %w", err)
+	}
+	if !strings.EqualFold(filepath.Clean(windows.UTF16ToString(path[:size])), filepath.Clean(shell)) {
+		return nil, fmt.Errorf("outgoing desktop does not match the installed shell")
+	}
+	desktopCreated, err := processCreationTime(process)
+	if err != nil {
+		return nil, fmt.Errorf("read outgoing desktop creation time: %w", err)
+	}
+	return &nativeExitProcesses{
+		Core:    nativeExitProcess{PID: uint32(os.Getpid()), Created: coreCreated},
+		Desktop: nativeExitProcess{PID: parent, Created: desktopCreated},
+	}, nil
+}
+
+func awaitNativeExit(outgoing *nativeExitProcesses, timeout time.Duration) error {
+	if outgoing == nil { // Older recovery journals did not carry process identities.
+		return nil
+	}
+	deadline := time.Now().Add(timeout)
+	for _, target := range []struct {
+		name    string
+		process nativeExitProcess
+	}{{"core", outgoing.Core}, {"desktop", outgoing.Desktop}} {
+		if err := waitForNativeProcess(target.process, deadline); err != nil {
+			return fmt.Errorf("wait for outgoing TrueDown %s: %w", target.name, err)
+		}
+	}
+	return nil
+}
+
+func waitForNativeProcess(target nativeExitProcess, deadline time.Time) error {
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, target.PID)
+	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+		return nil // The process has already exited and its PID is gone.
+	}
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(process)
+	created, err := processCreationTime(process)
+	if err != nil || created != target.Created {
+		return err // A reused PID belongs to a different process.
+	}
+	remaining := max(time.Until(deadline), 0)
+	status, err := windows.WaitForSingleObject(process, uint32(remaining.Milliseconds()))
+	if err != nil {
+		return err
+	}
+	if status != windows.WAIT_OBJECT_0 {
+		return fmt.Errorf("process did not exit before the update deadline")
+	}
+	return nil
 }
 
 func nativeUpdateLock(directory string) (func(), bool, error) {

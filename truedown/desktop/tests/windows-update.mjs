@@ -129,7 +129,13 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
     }
     await until(async () => !(await exists(markerPath)));
     const wanted = ["update", "automatic-update"].includes(mode) ? "2" : "1";
-    await until(async () => await build() === wanted);
+    await until(async () => {
+      if (await build() !== wanted) return false;
+      if (mode !== "interrupted-rollback") {
+        assert.notEqual(outgoing.exitCode, null, "the replacement must not start while the outgoing shell is alive");
+      }
+      return true;
+    });
     await until(() => outgoing.exitCode !== null);
     assert.equal(outgoing.exitCode, 0, `the outgoing shell must exit after update handoff: ${outgoing.diagnostics}`);
     for (const name of names) assert.deepEqual(await metadata(directory, name), await metadata(["update", "automatic-update"].includes(mode) ? next : previous, name));
