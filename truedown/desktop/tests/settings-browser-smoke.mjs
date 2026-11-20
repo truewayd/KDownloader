@@ -568,25 +568,31 @@ try {
     await page.locator('[data-settings-link="application"]').click();
     const density = page.getByLabel("Layout density");
     assert.equal(await density.inputValue(), "comfortable");
-    const content = page.locator(".settings-content");
-    const contentInset = () => content.evaluate(node => parseFloat(getComputedStyle(node).paddingInlineStart));
-    const comfortableInset = await contentInset();
+    const comfortableHeight = (await density.boundingBox()).height;
+    const navWidth = (await page.locator(".settings-nav").boundingBox()).width;
     await density.click();
     await page.getByRole("listbox").getByRole("option", { name: "Compact", exact: true }).click();
     assert.equal(await page.locator("html").getAttribute("data-layout-density"), "compact");
-    await page.waitForFunction(previous => {
-      const node = document.querySelector(".settings-content");
-      return parseFloat(getComputedStyle(node).paddingInlineStart) < previous;
-    }, comfortableInset, { timeout: 3000 }).catch(async error => {
-      const compactInset = await contentInset();
-      throw new Error(`${name}: compact settings inset (${compactInset}px) must be smaller than comfortable (${comfortableInset}px)`, { cause: error });
-    });
+    await page.waitForFunction(previous =>
+      document.querySelector("#layout-density").getBoundingClientRect().height < previous, comfortableHeight);
+    assert.ok((await page.locator(".settings-nav").boundingBox()).width >= navWidth,
+      `${name}: Compact preserves navigation space for English labels`);
     failSave = false;
     await page.reload();
     assert.equal(await page.locator("html").getAttribute("data-layout-density"), "compact");
     await page.evaluate(() => window.TrueDownI18n.setLanguage("en"));
+    if (width > 720) {
+      const wrapped = await page.locator(".settings-nav-link span").evaluateAll(labels =>
+        labels.filter(label => {
+          const range = document.createRange();
+          range.selectNodeContents(label);
+          return range.getClientRects().length > 1;
+        }).map(label => label.textContent));
+      assert.deepEqual(wrapped, [], `${name}: compact English settings labels fit on one line`);
+    }
     for (const category of ["general", "files", "application", "engine", "experimental", "logs", "about"]) {
       await page.locator(`[data-settings-link="${category}"]`).click();
+      await page.locator(`[data-settings-page="${category}"]`).first().waitFor({ state: "visible" });
       await page.waitForFunction(() => !document.querySelector("#settings-form").inert);
       await page.locator(".settings-content").evaluate(node => { node.scrollTop = 0; });
       assert.equal(await page.locator(".settings-content").evaluate(node => node.scrollWidth > node.clientWidth + 1), false,
@@ -598,8 +604,8 @@ try {
     await page.locator("#layout-density").click();
     await page.getByRole("listbox").getByRole("option", { name: "Comfortable", exact: true }).click();
     await page.waitForFunction(previous => document.documentElement.dataset.layoutDensity === "comfortable"
-      && parseFloat(getComputedStyle(document.querySelector(".settings-content")).paddingInlineStart) === previous,
-    comfortableInset);
+      && document.querySelector("#layout-density").getBoundingClientRect().height === previous,
+    comfortableHeight);
     assert.deepEqual(errors, [], `${name}: JavaScript errors`);
     console.log(`${name}: all categories, alignment, overflow, wheel, keyboard, drafts and save feedback OK`);
     await context.close();

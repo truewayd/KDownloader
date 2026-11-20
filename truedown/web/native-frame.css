@@ -37,7 +37,7 @@
 @media (prefers-reduced-motion: reduce) {
   [data-native-frame="custom"][data-native-window="main"] .sidebar-brand { transition: none; }
 }
-.sidebar-collapsed[data-native-frame="custom"][data-native-window="main"] .sidebar-brand { left: 8px; width: 40px; }
+.sidebar-collapsed[data-native-frame="custom"][data-native-window="main"] .sidebar-brand { left: calc((var(--sidebar-compact-width) - 40px) / 2); width: 40px; }
 [data-native-frame="overlay"] .native-titlebar-drag { padding-left: 84px; }
 @media (forced-colors: active) {
   .native-titlebar, [data-material="native"] .native-titlebar { background: Canvas; color: CanvasText; }

@@ -79,7 +79,7 @@ const server = http.createServer(async (request, response) => {
   } catch { response.writeHead(404).end(); }
 });
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] });
 try {
   for (const width of [1200, 390]) for (const colorScheme of ["light", "dark"]) {
     reset();
@@ -258,6 +258,36 @@ try {
     }
     if (width === 1200 && colorScheme === "light") {
       const sidebarToggle = page.locator(".sidebar-toggle");
+      await page.evaluate(() => {
+        document.documentElement.dataset.layoutDensity = "compact";
+        window.TrueDownI18n.setLanguage("en");
+      });
+      const allRow = page.locator('.primary-nav > [data-task-filter="all"]');
+      assert.equal(await allRow.locator(".nav-label").textContent(), "All downloads");
+      for (const viewport of [1200, 900, 721]) {
+        for (const height of [850, 360]) {
+          await page.setViewportSize({ width: viewport, height });
+          await page.waitForFunction(height => Math.abs(
+            document.querySelector(".sidebar").getBoundingClientRect().bottom - height) < 1, height);
+          const geometry = await allRow.evaluate(row => {
+            const count = row.querySelector(".nav-count");
+            const original = count.textContent;
+            count.textContent = "12345";
+            const clipped = [...document.querySelectorAll(".primary-nav a .nav-label, .primary-nav a .nav-count, #workspace-notice-title")]
+              .filter(node => node.scrollWidth > node.clientWidth)
+              .map(node => node.textContent);
+            count.textContent = original;
+            const nav = row.closest("nav");
+            return { clipped, scrollable: nav.scrollHeight > nav.clientHeight,
+              rowWidth: row.getBoundingClientRect().width,
+              buttonWidth: document.querySelector("#new-task-btn").getBoundingClientRect().width };
+          });
+          assert.deepEqual(geometry.clipped, [], `English navigation fits at ${viewport}x${height}`);
+          assert.equal(geometry.scrollable, height === 360, `navigation overflow at ${viewport}x${height}: ${JSON.stringify(geometry)}`);
+          assert.equal(geometry.rowWidth, geometry.buttonWidth, "the scrollbar uses the existing edge inset");
+        }
+      }
+      await page.screenshot({ path: path.join(screenshots, "sidebar-english-compact.png") });
       await sidebarToggle.click();
       for (const viewport of [1200, 900, 721, 720, 390]) {
         const height = viewport === 390 ? 320 : 780;
@@ -278,6 +308,11 @@ try {
           await settings.click({ trial: true });
           await sidebar.evaluate(element => { element.scrollTop = 0; });
         }
+        // Exercise the Windows fixed titlebar control and the macOS in-flow control.
+        await page.evaluate(frame => {
+          document.documentElement.dataset.nativeWindow = "main";
+          document.documentElement.dataset.nativeFrame = frame;
+        }, viewport === 900 || viewport === 720 ? "overlay" : "custom");
         const layout = await sidebar.evaluate(sidebar => {
           const center = box => box.x + box.width / 2;
           const axis = center(sidebar.getBoundingClientRect());
@@ -300,6 +335,12 @@ try {
           await page.screenshot({ path: path.join(screenshots, `sidebar-compact-${viewport}.png`) });
         }
       }
+      await page.evaluate(() => {
+        delete document.documentElement.dataset.nativeWindow;
+        delete document.documentElement.dataset.nativeFrame;
+        document.documentElement.dataset.layoutDensity = "comfortable";
+        window.TrueDownI18n.setLanguage("zh-CN");
+      });
       await page.setViewportSize({ width, height: 780 });
       await sidebarToggle.click();
     }

@@ -15,7 +15,7 @@
 .app-shell { height: calc(100dvh - var(--native-titlebar-height, 0px)); }
 .brand { cursor: default; }
 .workspace { display: flex; flex: 1; min-height: 0; }
-.sidebar { display: flex; flex: 0 0 var(--sidebar-width); min-width: 0; flex-direction: column; gap: 24px; padding: 12px 12px 14px; overflow-x: hidden; overflow-y: auto; transition: flex-basis 220ms var(--kd-ease-standard), padding-inline 220ms var(--kd-ease-standard); }
+.sidebar { --sidebar-inset: 12px; display: flex; flex: 0 0 var(--sidebar-width); min-width: 0; flex-direction: column; gap: 24px; padding: 12px var(--sidebar-inset) 14px; overflow-x: hidden; overflow-y: auto; transition: flex-basis 220ms var(--kd-ease-standard), padding-inline 220ms var(--kd-ease-standard); }
 .sidebar-top { display: grid; gap: 18px; }
 .sidebar-brand { display: flex; min-height: 36px; align-items: center; justify-content: space-between; gap: 8px; }
 .brand-mark, .brand-mark img { width: 28px; height: 28px; }
@@ -26,7 +26,13 @@
 .sidebar #new-task-btn { justify-content: flex-start; gap: 10px; padding-inline: 12px; font-weight: 600; }
 .primary-nav, .settings-nav, .sidebar-footer { display: grid; gap: 4px; }
 .primary-nav { position: relative; align-content: start; min-width: 0; overflow-x: hidden; }
-.sidebar .primary-nav { scrollbar-width: thin; scrollbar-gutter: stable; scrollbar-color: var(--kd-border-strong) transparent; overscroll-behavior: contain; }
+/* Let the native scrollbar use the existing edge inset without shifting the rows. */
+.sidebar .primary-nav {
+  margin-inline-end: calc(0px - var(--sidebar-inset));
+  grid-template-columns: minmax(0, min(100%, calc(var(--sidebar-width) - 2 * var(--sidebar-inset))));
+  overscroll-behavior: contain;
+}
+.sidebar, .sidebar .primary-nav { scrollbar-width: thin; scrollbar-color: var(--kd-border-strong) transparent; }
 .module-navigation-section { margin-top: 0; transition: margin-top var(--kd-motion-base) var(--kd-ease-standard); }
 #category-navigation-section[open] + .module-navigation-section { margin-top: 6px; }
 .nav-section { --kd-disclosure-duration: 220ms; --kd-disclosure-ease: var(--kd-ease-exit); }
@@ -152,15 +158,16 @@
 .tasks-container:has(> .empty-state) { display: grid; min-height: 100%; }
 .sidebar-collapsed .sidebar {
   gap: 16px;
-  padding-inline: 4px;
-  scrollbar-width: thin;
-  scrollbar-gutter: stable both-edges;
-  scrollbar-color: var(--kd-border-strong) transparent;
+  --sidebar-inset: 10px;
+  padding-inline: var(--sidebar-inset) 0;
+}
+.sidebar-collapsed .sidebar > * {
+  width: calc(var(--sidebar-compact-width) - 2 * var(--sidebar-inset));
 }
 .sidebar-collapsed .sidebar-top { gap: 12px; justify-items: center; }
 .sidebar-collapsed .sidebar #new-task-btn { width: 36px; max-width: 100%; }
 .sidebar-collapsed .sidebar :is(.primary-nav, .sidebar-footer) { grid-template-columns: minmax(0, 1fr); }
-.sidebar-collapsed .sidebar .primary-nav { flex: none; overflow: visible; scrollbar-gutter: auto; }
+.sidebar-collapsed .sidebar .primary-nav { flex: none; overflow: visible; margin-inline-end: 0; }
 .sidebar-collapsed .sidebar-brand .brand { display: none; }
 .sidebar-collapsed .sidebar .nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; overflow-wrap: normal; }
 .sidebar-collapsed .sidebar-brand { justify-content: center; }
@@ -326,7 +333,7 @@
 @media (max-width: 900px) {
   #workspace-traffic { gap: 8px; font-size: 11px; }
   :root { --navigation-width: 180px; }
-  .sidebar { padding-inline: 10px; }
+  .sidebar { --sidebar-inset: 10px; }
   .task-toolbar { padding-inline: 14px; }
   .metric-strip, .task-controls { padding-inline: 18px; }
   .task-toolbar .kd-button { font-size: 12px; padding-inline: 7px; }

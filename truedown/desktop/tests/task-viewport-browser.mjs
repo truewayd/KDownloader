@@ -251,6 +251,8 @@ try {
     await preferenceWindow.goto(page.url());
     await preferenceWindow.evaluate(() => localStorage.setItem("truedown-layout-density-v1", "compact"));
     await page.waitForFunction(() => document.documentElement.dataset.layoutDensity === "compact");
+    await page.evaluate(() => window.TrueDownI18n.setLanguage("en"));
+    await page.waitForFunction(() => [...document.querySelectorAll(".task-remaining")].some(cell => /\d+ min$/.test(cell.textContent)));
     const compactHeights = await page.locator(".task-rows tr").evaluateAll(rows => [...new Set(rows.map(row => row.getBoundingClientRect().height))]);
     assert.deepEqual(compactHeights, [52], "all mounted compact rows match virtual geometry");
     assert.equal(await page.locator(".task-spacer td").first().evaluate(cell => getComputedStyle(cell).backgroundSize), "100% 52px");
