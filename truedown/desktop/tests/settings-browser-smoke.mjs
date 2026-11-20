@@ -552,10 +552,14 @@ try {
     await page.evaluate(() => document.activeElement.blur());
     await page.waitForFunction(() => document.querySelector("#settings-save-status").textContent.includes("未保存"));
     assert.equal(await page.locator("#cfg-proxy").inputValue(), "http://127.0.0.1:7891");
+    const openSettingsCategory = async category => {
+      await page.locator(`[data-settings-link="${category}"]`).click();
+      await page.locator(`.settings-content[data-category="${category}"][aria-busy="false"] [data-settings-page="${category}"]`).first().waitFor({ state: "visible" });
+      await page.waitForFunction(() => !document.querySelector("#settings-form").inert);
+    };
     await page.evaluate(() => window.TrueDownI18n.setLanguage('en'));
     for (const category of ['general', 'files', 'application', 'engine', 'experimental']) {
-      await page.locator(`[data-settings-link="${category}"]`).click();
-      await page.waitForFunction(() => !document.querySelector('#settings-form').inert);
+      await openSettingsCategory(category);
       const clipped = await page.locator('.settings-content .kd-button, .settings-content .field > label, .settings-nav-link span').evaluateAll(nodes => nodes.filter(node => {
         if (!node.checkVisibility() || getComputedStyle(node).position === 'absolute') return false;
         return node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1;
@@ -565,7 +569,7 @@ try {
         await page.screenshot({ path: path.join(screenshots, `${name}-${category}-en.png`) });
       }
     }
-    await page.locator('[data-settings-link="application"]').click();
+    await openSettingsCategory("application");
     const density = page.getByLabel("Layout density");
     assert.equal(await density.inputValue(), "comfortable");
     const comfortableHeight = (await density.boundingBox()).height;
@@ -591,15 +595,13 @@ try {
       assert.deepEqual(wrapped, [], `${name}: compact English settings labels fit on one line`);
     }
     for (const category of ["general", "files", "application", "engine", "experimental", "logs", "about"]) {
-      await page.locator(`[data-settings-link="${category}"]`).click();
-      await page.locator(`[data-settings-page="${category}"]`).first().waitFor({ state: "visible" });
-      await page.waitForFunction(() => !document.querySelector("#settings-form").inert);
+      await openSettingsCategory(category);
       await page.locator(".settings-content").evaluate(node => { node.scrollTop = 0; });
       assert.equal(await page.locator(".settings-content").evaluate(node => node.scrollWidth > node.clientWidth + 1), false,
         `${name}: compact ${category} fits the available width`);
       await page.screenshot({ path: path.join(screenshots, `${name}-${category}-compact.png`), animations: "disabled" });
     }
-    await page.locator('[data-settings-link="application"]').click();
+    await openSettingsCategory("application");
     assert.equal(await page.locator("#layout-density").inputValue(), "compact");
     await page.locator("#layout-density").click();
     await page.getByRole("listbox").getByRole("option", { name: "Comfortable", exact: true }).click();
