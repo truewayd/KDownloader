@@ -272,22 +272,72 @@ try {
     await googleDrive.click();
     await page.waitForFunction(() => currentModule === "google-drive" && currentTasks.map(task => task.id).join() === "1,2");
     assert.equal(await googleDrive.getAttribute("aria-current"), "page");
-    const libraryToggle = page.locator(".primary-nav > details > summary");
+    const categoriesToggle = page.locator("#category-navigation-section > summary");
     const modulesToggle = page.locator("#module-navigation-label");
+    if (width === 1200 && colorScheme === "light") {
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      for (const toggle of [categoriesToggle, modulesToggle]) {
+        assert.equal(await toggle.evaluate(async summary => {
+          const section = summary.parentElement;
+          const height = () => section.getBoundingClientRect().height;
+          const expanded = height();
+          const collapsed = summary.getBoundingClientRect().height;
+          for (const open of [false, true]) {
+            const target = open ? expanded : collapsed;
+            const spring = open && CSS.supports("block-size: calc-size(auto, size * 1)");
+            summary.click();
+            const sawMotion = await new Promise(resolve => {
+              const deadline = performance.now() + 800;
+              let inBetween = false;
+              let overshot = false;
+              const sample = () => {
+                const current = height();
+                overshot ||= current > expanded + 5;
+                if (Math.abs(current - target) < 0.5 && (!spring || overshot)) { resolve(inBetween); return; }
+                if (performance.now() >= deadline) { resolve(false); return; }
+                inBetween ||= current > collapsed + 0.5 && current < expanded - 0.5;
+                requestAnimationFrame(sample);
+              };
+              requestAnimationFrame(sample);
+            });
+            if (!sawMotion || section.open !== open) return false;
+          }
+          return true;
+        }), true, "both disclosures animate and short lists still rebound visibly");
+      }
+      await page.emulateMedia({ reducedMotion: "reduce" });
+    }
+    const allDownloads = page.locator('.primary-nav > [data-task-filter="all"]');
+    const firstCategory = page.locator("#file-group-navigation a").first();
+    assert.equal(await page.locator(".primary-nav > :first-child").getAttribute("data-task-filter"), "all");
+    const allWidth = await allDownloads.evaluate(link => link.getBoundingClientRect().width);
     const indicator = page.locator(".navigation-indicator");
     await modulesToggle.press("Space");
     await googleDrive.waitFor({ state: "hidden" });
     await indicator.waitFor({ state: "hidden" });
-    assert.equal(await page.locator("#file-group-navigation a").first().isVisible(), true);
-    await libraryToggle.click();
-    await modulesToggle.waitFor({ state: "hidden" });
-    await libraryToggle.press("Enter");
-    await modulesToggle.waitFor();
-    assert.equal(await googleDrive.isVisible(), false, "Library preserves the Modules disclosure state");
+    assert.equal(await firstCategory.isVisible(), true);
+    await categoriesToggle.click();
+    await firstCategory.waitFor({ state: "hidden" });
+    assert.equal(await modulesToggle.isVisible(), true);
+    assert.equal(await allDownloads.isVisible(), true);
+    assert.equal(await allDownloads.evaluate(link => link.getBoundingClientRect().width), allWidth);
+    const gaps = await categoriesToggle.evaluate(summary => {
+      const section = summary.parentElement;
+      const all = section.previousElementSibling.getBoundingClientRect();
+      const categories = section.getBoundingClientRect();
+      const modules = section.nextElementSibling.getBoundingClientRect();
+      return [categories.top - all.bottom, modules.top - categories.bottom];
+    });
+    assert.equal(gaps[0], gaps[1], "collapsed sections use matching vertical gaps");
+    assert.equal(await googleDrive.isVisible(), false, "closing Categories preserves the Modules disclosure state");
     await modulesToggle.click();
     await googleDrive.waitFor();
+    assert.equal(await firstCategory.isVisible(), false, "opening Modules leaves Categories closed");
     await indicator.waitFor();
     assert.equal(await googleDrive.getAttribute("aria-current"), "page");
+    await categoriesToggle.press("Enter");
+    await firstCategory.waitFor();
+    assert.equal(await googleDrive.isVisible(), true);
     collectionLayout = "category";
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await page.locator("#module-navigation-section").waitFor({ state: "hidden" });

@@ -1,4 +1,16 @@
 /* TrueDown visual baseline. All product and popup windows load this file. */
+:root {
+  --kd-ease-standard: cubic-bezier(.25, .8, .25, 1);
+  --kd-ease-exit: cubic-bezier(.32, 0, .67, 1);
+  --kd-ease-spring: cubic-bezier(.25, 1.25, .45, 1);
+  --kd-ease-loop: cubic-bezier(.42, .26, .58, .74);
+  --kd-motion-spring: 260ms;
+}
+@supports (animation-timing-function: linear(0, 1.05, 1)) {
+  :root {
+    --kd-ease-spring: linear(0, .21 10%, .55 22%, .83 34%, .99 45%, 1.045 56%, 1.02 70%, .997 84%, 1);
+  }
+}
 .kd-notice {
   --kd-notice-bg: #333026;
   --kd-notice-link: #8ab4f8;
@@ -95,7 +107,7 @@ input[type="checkbox"]:not(.kd-switch) {
   width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0;
   border: 1px solid var(--kd-border-strong); border-radius: 4px;
   background: transparent; box-shadow: none; vertical-align: middle;
-  transition: background-color 140ms ease, border-color 140ms ease;
+  transition: background-color 140ms var(--kd-ease-standard), border-color 140ms var(--kd-ease-standard);
 }
 input[type="checkbox"]:not(.kd-switch):hover:not(:disabled) { border-color: color-mix(in srgb, var(--kd-text) 45%, transparent); }
 input[type="checkbox"]:not(.kd-switch):is(:checked, :indeterminate) { background: var(--kd-accent); border-color: transparent; }
@@ -103,7 +115,7 @@ input[type="checkbox"]:not(.kd-switch)::after {
   content: ""; position: absolute; left: 4px; top: 1.5px; width: 4px; height: 8px;
   border: solid var(--kd-button-text); border-width: 0 1.5px 1.5px 0;
   opacity: 0; transform: rotate(45deg) scale(.7);
-  transition: opacity 120ms ease, transform 160ms cubic-bezier(.22, 1, .36, 1);
+  transition: opacity 120ms var(--kd-ease-standard), transform 160ms var(--kd-ease-spring);
 }
 input[type="checkbox"]:not(.kd-switch):checked::after { opacity: 1; transform: rotate(45deg) scale(1); }
 input[type="checkbox"]:not(.kd-switch):indeterminate::after { opacity: 1; left: 3px; top: 6px; width: 8px; height: 0; border-width: 0 0 1.5px; transform: none; }
@@ -180,7 +192,7 @@ input[type="checkbox"]:not(.kd-switch):focus-visible { outline: 2px solid var(--
 /* First-read placeholders affect page content only, never the native window. */
 .kd-page-placeholder { display: none; max-width: 880px; gap: 24px; padding: 16px 0; }
 [data-loading="true"] > .kd-page-placeholder { display: grid; }
-.kd-page-placeholder > span { display: block; height: 48px; border-radius: 12px; background: var(--kd-surface-raised); animation: kd-placeholder-pulse 1400ms ease-in-out infinite alternate; }
+.kd-page-placeholder > span { display: block; height: 48px; border-radius: 12px; background: var(--kd-surface-raised); animation: kd-placeholder-pulse 1400ms var(--kd-ease-exit) infinite alternate; }
 .kd-page-placeholder > span:first-child { width: 40%; height: 20px; }
 .kd-page-placeholder > span:last-child { width: 72%; }
 .kd-page-placeholder[data-variant="list"] { max-width: none; gap: 12px; padding: 16px; }
@@ -190,7 +202,7 @@ input[type="checkbox"]:not(.kd-switch):focus-visible { outline: 2px solid var(--
 #download-form .modal-body[data-loading="true"] > :not(.kd-page-placeholder) { display: none; }
 .settings-content[data-loading="false"] > .settings-section:not([hidden]),
 .task-detail-scroll[data-loading="false"] > :not(.kd-page-placeholder),
-#download-form .modal-body[data-loading="false"] > :not(.kd-page-placeholder) { animation: kd-settings-reveal 180ms ease-out; }
+#download-form .modal-body[data-loading="false"] > :not(.kd-page-placeholder) { animation: kd-settings-reveal 180ms var(--kd-ease-standard); }
 @keyframes kd-placeholder-pulse { from { opacity: .45; } to { opacity: 1; } }
 @keyframes kd-settings-reveal { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {

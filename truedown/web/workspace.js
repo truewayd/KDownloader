@@ -148,9 +148,11 @@ function initNavigationIndicator() {
   indicator.setAttribute("aria-hidden", "true");
   nav.append(indicator);
   nav.classList.add("has-navigation-indicator");
-  let frame = 0, initialized = false;
+  let frame = 0, initialized = false, followLayout = false;
   const update = () => {
     frame = 0;
+    const animate = initialized && !followLayout;
+    followLayout = false;
     const selected = nav.querySelector("a[aria-current]");
     if (!selected?.getClientRects().length || selected.closest("details:not([open])")) {
       indicator.hidden = true;
@@ -158,7 +160,7 @@ function initNavigationIndicator() {
       return;
     }
     const bounds = nav.getBoundingClientRect(), target = selected.getBoundingClientRect();
-    indicator.style.transition = initialized ? "" : "none";
+    indicator.style.transition = animate ? "" : "none";
     indicator.style.transform = `translateY(${target.top - bounds.top + nav.scrollTop + (target.height - 18) / 2}px)`;
     indicator.hidden = false;
     // Commit the initial position without animating from the top of the sidebar.
@@ -168,8 +170,13 @@ function initNavigationIndicator() {
   const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
   const mutations = new MutationObserver(schedule);
   mutations.observe(nav, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-current", "open", "hidden"] });
-  const resize = new ResizeObserver(schedule);
+  const resize = new ResizeObserver(entries => {
+    // Keep the indicator attached to its row while a disclosure moves it.
+    followLayout ||= entries.some(entry => entry.target !== nav);
+    schedule();
+  });
   resize.observe(nav);
+  nav.querySelectorAll(".nav-section").forEach(section => resize.observe(section));
   window.addEventListener("resize", schedule);
   window.addEventListener("pagehide", () => {
     cancelAnimationFrame(frame);

@@ -14,7 +14,7 @@ input[type="checkbox"].kd-switch[role="switch"], button.kd-switch[role="switch"]
   background: var(--kd-surface-raised);
   cursor: pointer;
   vertical-align: middle;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition: background-color 120ms var(--kd-ease-standard), border-color 120ms var(--kd-ease-standard);
 }
 .kd-switch[role="switch"]::before {
   content: "";
@@ -24,7 +24,7 @@ input[type="checkbox"].kd-switch[role="switch"], button.kd-switch[role="switch"]
   margin: 2px;
   border-radius: 50%;
   background: var(--kd-muted);
-  transition: transform 120ms ease;
+  transition: transform var(--kd-motion-base) var(--kd-ease-spring);
 }
 input[type="checkbox"].kd-switch[role="switch"]:checked, button.kd-switch[aria-checked="true"] { background: var(--kd-accent); border-color: var(--kd-accent); }
 .kd-switch:checked::before, .kd-switch[aria-checked="true"]::before { transform: translateX(14px); background: #fff; }
@@ -247,7 +247,7 @@ code {
   text-align: left;
   text-decoration: none;
   cursor: pointer;
-  transition: background-color var(--kd-motion-fast) ease, color var(--kd-motion-fast) ease, border-color var(--kd-motion-fast) ease;
+  transition: background-color var(--kd-motion-fast) var(--kd-ease-standard), color var(--kd-motion-fast) var(--kd-ease-standard), border-color var(--kd-motion-fast) var(--kd-ease-standard);
 }
 .nav-section-toggle { font-size: 11px; }
 :is(.primary-nav a, .nav-section-toggle, .sidebar-footer a, .sidebar-action, .settings-nav-link):hover {
@@ -298,11 +298,11 @@ code {
   white-space: nowrap;
   appearance: none;
   transition:
-    background-color var(--kd-motion-fast) ease,
-    border-color var(--kd-motion-fast) ease,
-    color var(--kd-motion-fast) ease,
-    box-shadow var(--kd-motion-fast) ease,
-    transform 80ms ease;
+    background-color var(--kd-motion-fast) var(--kd-ease-standard),
+    border-color var(--kd-motion-fast) var(--kd-ease-standard),
+    color var(--kd-motion-fast) var(--kd-ease-standard),
+    box-shadow var(--kd-motion-fast) var(--kd-ease-standard),
+    transform 120ms var(--kd-ease-spring);
 }
 
 .kd-button:hover:not(:disabled),
@@ -393,9 +393,9 @@ textarea {
   color: var(--kd-text);
   outline: none;
   transition:
-    border-color var(--kd-motion-fast) ease,
-    background-color var(--kd-motion-fast) ease,
-    box-shadow var(--kd-motion-fast) ease;
+    border-color var(--kd-motion-fast) var(--kd-ease-standard),
+    background-color var(--kd-motion-fast) var(--kd-ease-standard),
+    box-shadow var(--kd-motion-fast) var(--kd-ease-standard);
 }
 
 .kd-select {
@@ -466,7 +466,7 @@ textarea:disabled {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity 180ms ease, transform 220ms cubic-bezier(.22, 1, .36, 1), visibility 0s linear 220ms;
+  transition: opacity 180ms var(--kd-ease-standard), transform 220ms var(--kd-ease-spring), visibility 0s 220ms;
   width: max-content;
   max-width: min(480px, calc(100vw - 32px));
   max-height: calc(100dvh - var(--native-titlebar-height, 0px) - 64px);
@@ -963,7 +963,7 @@ h2 {
   cursor: pointer;
   font-size: 12px;
   font-weight: 700;
-  transition: background-color var(--kd-motion-fast) ease, color var(--kd-motion-fast) ease;
+  transition: background-color var(--kd-motion-fast) var(--kd-ease-standard), color var(--kd-motion-fast) var(--kd-ease-standard);
 }
 
 .text-button.icon-only {
@@ -1492,7 +1492,7 @@ label {
   opacity: 0;
   pointer-events: none;
   place-items: center;
-  transition: opacity var(--kd-motion-base) ease;
+  transition: opacity var(--kd-motion-base) var(--kd-ease-standard);
 }
 
 .overlay.open {
@@ -1507,7 +1507,7 @@ label {
   box-shadow: var(--kd-workspace-shadow);
   opacity: 0;
   transform: translateY(8px);
-  transition: opacity var(--kd-motion-base) ease, transform var(--kd-motion-base) ease;
+  transition: opacity var(--kd-motion-base) var(--kd-ease-standard), transform var(--kd-motion-base) var(--kd-ease-spring);
 }
 
 .overlay.open .modal {

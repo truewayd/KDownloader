@@ -170,14 +170,16 @@ function updateTaskPlaceholders(table) {
   if (table.taskPlaceholderSignature === signature) return;
   table.taskPlaceholderSignature = signature;
   const open = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="64" viewBox="0 0 ${width} 64">`;
+  // Isolated SVG images use the same loop curve as the CSS progress indicators.
+  const loopTiming = 'calcMode="spline" keyTimes="0;1" keySplines=".42 .26 .58 .74"';
   const paint = esc(color);
   const base = `<g fill="${paint}" opacity=".08">${shapes.join("")}</g><path d="M0 63.5H${width}" stroke="${esc(border)}"/>`;
   const shimmer = [
     `<defs><mask id="rows"><g fill="white">${shapes.join("")}</g></mask>`,
     `<linearGradient id="light" gradientUnits="userSpaceOnUse" x1="-${width}" x2="0">`,
     `<stop stop-color="${paint}" stop-opacity="0"/><stop offset=".5" stop-color="${paint}" stop-opacity=".1"/><stop offset="1" stop-color="${paint}" stop-opacity="0"/>`,
-    `<animate attributeName="x1" values="-${width};${width}" dur="1.6s" repeatCount="indefinite"/>`,
-    `<animate attributeName="x2" values="0;${width * 2}" dur="1.6s" repeatCount="indefinite"/>`,
+    `<animate attributeName="x1" values="-${width};${width}" dur="1.6s" ${loopTiming} repeatCount="indefinite"/>`,
+    `<animate attributeName="x2" values="0;${width * 2}" dur="1.6s" ${loopTiming} repeatCount="indefinite"/>`,
     `</linearGradient></defs><rect width="${width}" height="64" fill="url(#light)" mask="url(#rows)"/>`,
   ].join("");
   const image = content => `url("data:image/svg+xml,${encodeURIComponent(open + base + content + "</svg>")}")`;

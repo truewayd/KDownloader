@@ -57,22 +57,22 @@
           <button class="kd-button primary" id="new-task-btn" type="button" data-tooltip="新建下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-download"></use></svg><span class="nav-label">新建下载</span></button>
         </div>
         <nav class="primary-nav" aria-label="下载任务">
-          <details class="nav-section" open>
-            <summary class="nav-section-toggle" data-tooltip="下载库">
+          <a href="#tasks" data-route="tasks" data-task-filter="all" data-tooltip="全部下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg><span class="nav-label">全部下载</span><span class="nav-count" id="task-count">0</span></a>
+          <details id="category-navigation-section" class="nav-section" open>
+            <summary class="nav-section-toggle" data-tooltip="分类">
               <svg class="icon nav-section-icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-folders"></use></svg>
-              <span class="nav-label">下载库</span>
-              <svg class="icon nav-section-chevron" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-chevron-right"></use></svg>
+              <span class="nav-label">分类</span>
+              <svg class="icon nav-section-chevron" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-chevron-down"></use></svg>
             </summary>
-            <a href="#tasks" data-route="tasks" data-task-filter="all" data-tooltip="全部下载"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-downloads"></use></svg><span class="nav-label">全部下载</span><span class="nav-count" id="task-count">0</span></a>
             <div id="file-group-navigation" class="file-group-navigation"></div>
-            <details id="module-navigation-section" class="nav-section module-navigation-section" open hidden>
-              <summary class="nav-section-toggle" id="module-navigation-label" data-tooltip="模块">
-                <svg class="icon nav-section-icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-list"></use></svg>
-                <span class="nav-label">模块</span>
-                <svg class="icon nav-section-chevron" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-chevron-right"></use></svg>
-              </summary>
-              <div id="module-navigation" class="file-group-navigation" role="group" aria-labelledby="module-navigation-label"></div>
-            </details>
+          </details>
+          <details id="module-navigation-section" class="nav-section module-navigation-section" open hidden>
+            <summary class="nav-section-toggle" id="module-navigation-label" data-tooltip="模块">
+              <svg class="icon nav-section-icon" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-list"></use></svg>
+              <span class="nav-label">模块</span>
+              <svg class="icon nav-section-chevron" aria-hidden="true" focusable="false"><use href="/icons.svg#icon-chevron-down"></use></svg>
+            </summary>
+            <div id="module-navigation" class="file-group-navigation" role="group" aria-labelledby="module-navigation-label"></div>
           </details>
         </nav>
         <nav class="sidebar-footer" aria-label="应用工具">

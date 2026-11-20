@@ -32,7 +32,7 @@
   z-index: 31;
   width: calc(var(--sidebar-width) - 24px);
   overflow: hidden;
-  transition: width 220ms cubic-bezier(.2, .8, .2, 1);
+  transition: width 220ms var(--kd-ease-standard);
 }
 @media (prefers-reduced-motion: reduce) {
   [data-native-frame="custom"][data-native-window="main"] .sidebar-brand { transition: none; }

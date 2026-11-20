@@ -6,7 +6,7 @@ window.TrueDownEnglish = Object.freeze({
   "展开侧栏": "Expand sidebar",
   "新建下载": "New download",
   "下载任务": "Downloads",
-  "下载库": "Library",
+  "分类": "Categories",
   "模块": "Modules",
   "解析目录保存方式": "Resolved folder layout",
   "展开后的保存位置": "Save expanded files",
