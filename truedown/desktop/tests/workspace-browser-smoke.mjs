@@ -100,9 +100,18 @@ try {
         assert.equal(await page.locator('[data-native-window="about"]').count(), 0);
         if (!native) {
           assert.equal(await page.locator(".brand").isVisible(), false);
-          assert.equal((await page.locator(".sidebar").boundingBox()).width, 56);
+          const sidebar = page.locator(".sidebar");
+          const compactWidth = await sidebar.evaluate(element =>
+            parseFloat(getComputedStyle(element).getPropertyValue("--sidebar-compact-width")));
+          assert.equal((await sidebar.boundingBox()).width, compactWidth,
+            "the collapsed sidebar uses the shared compact width");
+          const dashboard = page.locator(".dashboard");
+          const dashboardLeft = (await dashboard.boundingBox()).x;
           await page.locator(".sidebar-toggle").click();
           assert.equal(await page.locator(".sidebar-toggle").getAttribute("aria-expanded"), "true");
+          assert.ok((await sidebar.boundingBox()).width > compactWidth);
+          assert.equal((await dashboard.boundingBox()).x, dashboardLeft,
+            "expanding the narrow-window overlay keeps the dashboard in place");
           await page.locator(".sidebar-toggle").click();
           assert.equal(await page.locator(".brand").isVisible(), false);
         }
