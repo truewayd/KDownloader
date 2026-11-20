@@ -256,6 +256,41 @@ try {
     for (const id of ["telegraph", "mediafire"]) {
       assert.equal(await page.locator(`[data-task-module="${id}"] use`).getAttribute("href"), `/icons.svg#icon-${id}`);
     }
+    if (width === 1200 && colorScheme === "light") {
+      const sidebarToggle = page.locator(".sidebar-toggle");
+      await sidebarToggle.click();
+      for (const viewport of [1200, 900, 721, 720, 390]) {
+        await page.setViewportSize({ width: viewport, height: viewport === 390 ? 320 : 780 });
+        const layout = await page.locator(".sidebar").evaluate(sidebar => {
+          const center = box => box.x + box.width / 2;
+          const axis = center(sidebar.getBoundingClientRect());
+          const icons = [...sidebar.querySelectorAll(".sidebar-toggle > .icon, #new-task-btn > .icon, .primary-nav a > .icon, .nav-section-icon, #settings-btn > .icon")];
+          const offsets = icons.filter(icon => icon.getClientRects().length)
+            .map(icon => center(icon.getBoundingClientRect()) - axis);
+          const arrowsFit = [...sidebar.querySelectorAll(".nav-section-toggle")].every(summary => {
+            const row = summary.getBoundingClientRect();
+            const icon = summary.querySelector(".nav-section-icon").getBoundingClientRect();
+            const arrow = summary.querySelector(".nav-section-chevron").getBoundingClientRect();
+            return arrow.left >= icon.right && arrow.right <= row.right;
+          });
+          return { offsets, arrowsFit, scrollable: sidebar.scrollHeight > sidebar.clientHeight };
+        });
+        assert.ok(layout.offsets.length >= 9 && layout.offsets.every(offset => Math.abs(offset) < 0.5),
+          `compact sidebar icons align at ${viewport}px: ${JSON.stringify(layout)}`);
+        assert.equal(layout.arrowsFit, true, `disclosure arrows fit at ${viewport}px`);
+        if (viewport === 390) {
+          assert.equal(layout.scrollable, true, "the compact sidebar scrolls in a short window");
+          await page.locator("#settings-btn").scrollIntoViewIfNeeded();
+          await page.locator("#settings-btn").click({ trial: true });
+        }
+        if (viewport === 1200 || viewport === 390) {
+          await page.locator(".sidebar").evaluate(sidebar => { sidebar.scrollTop = 0; });
+          await page.screenshot({ path: path.join(screenshots, `sidebar-compact-${viewport}.png`) });
+        }
+      }
+      await page.setViewportSize({ width, height: 780 });
+      await sidebarToggle.click();
+    }
     if (width < 720) await page.locator(".sidebar-toggle").click();
     await dropbox.scrollIntoViewIfNeeded();
     const dragStart = await dropbox.boundingBox(), dragEnd = await googleDrive.boundingBox();
