@@ -260,8 +260,25 @@ try {
       const sidebarToggle = page.locator(".sidebar-toggle");
       await sidebarToggle.click();
       for (const viewport of [1200, 900, 721, 720, 390]) {
-        await page.setViewportSize({ width: viewport, height: viewport === 390 ? 320 : 780 });
-        const layout = await page.locator(".sidebar").evaluate(sidebar => {
+        const height = viewport === 390 ? 320 : 780;
+        await page.setViewportSize({ width: viewport, height });
+        const sidebar = page.locator(".sidebar");
+        // Emulated viewport dimensions can change before dvh-based layout settles.
+        await page.waitForFunction(({ width, height }) => {
+          const box = document.querySelector(".sidebar").getBoundingClientRect();
+          return innerWidth === width && innerHeight === height && box.bottom <= height + 1;
+        }, { width: viewport, height });
+        if (viewport === 390) {
+          await sidebar.evaluate(element => { element.scrollTop = 0; });
+          const settings = page.locator("#settings-btn");
+          const beforeScroll = await settings.boundingBox();
+          assert.ok(beforeScroll.y + beforeScroll.height > height, "the short window requires scrolling to Settings");
+          await settings.scrollIntoViewIfNeeded();
+          assert.ok(await sidebar.evaluate(element => element.scrollTop > 0), "the compact sidebar scrolls to Settings");
+          await settings.click({ trial: true });
+          await sidebar.evaluate(element => { element.scrollTop = 0; });
+        }
+        const layout = await sidebar.evaluate(sidebar => {
           const center = box => box.x + box.width / 2;
           const axis = center(sidebar.getBoundingClientRect());
           const icons = [...sidebar.querySelectorAll(".sidebar-toggle > .icon, #new-task-btn > .icon, .primary-nav a > .icon, .nav-section-icon, #settings-btn > .icon")];
@@ -273,16 +290,11 @@ try {
             const arrow = summary.querySelector(".nav-section-chevron").getBoundingClientRect();
             return arrow.left >= icon.right && arrow.right <= row.right;
           });
-          return { offsets, arrowsFit, scrollable: sidebar.scrollHeight > sidebar.clientHeight };
+          return { offsets, arrowsFit };
         });
         assert.ok(layout.offsets.length >= 9 && layout.offsets.every(offset => Math.abs(offset) < 0.5),
           `compact sidebar icons align at ${viewport}px: ${JSON.stringify(layout)}`);
         assert.equal(layout.arrowsFit, true, `disclosure arrows fit at ${viewport}px`);
-        if (viewport === 390) {
-          assert.equal(layout.scrollable, true, "the compact sidebar scrolls in a short window");
-          await page.locator("#settings-btn").scrollIntoViewIfNeeded();
-          await page.locator("#settings-btn").click({ trial: true });
-        }
         if (viewport === 1200 || viewport === 390) {
           await page.locator(".sidebar").evaluate(sidebar => { sidebar.scrollTop = 0; });
           await page.screenshot({ path: path.join(screenshots, `sidebar-compact-${viewport}.png`) });
