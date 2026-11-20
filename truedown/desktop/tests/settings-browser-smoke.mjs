@@ -568,12 +568,19 @@ try {
     await page.locator('[data-settings-link="application"]').click();
     const density = page.getByLabel("Layout density");
     assert.equal(await density.inputValue(), "comfortable");
-    const contentInset = () => page.locator(".settings-content").evaluate(node => parseFloat(getComputedStyle(node).paddingInlineStart));
+    const content = page.locator(".settings-content");
+    const contentInset = () => content.evaluate(node => parseFloat(getComputedStyle(node).paddingInlineStart));
     const comfortableInset = await contentInset();
     await density.click();
     await page.getByRole("listbox").getByRole("option", { name: "Compact", exact: true }).click();
     assert.equal(await page.locator("html").getAttribute("data-layout-density"), "compact");
-    assert.ok(await contentInset() < comfortableInset);
+    await page.waitForFunction(previous => {
+      const node = document.querySelector(".settings-content");
+      return parseFloat(getComputedStyle(node).paddingInlineStart) < previous;
+    }, comfortableInset, { timeout: 3000 }).catch(async error => {
+      const compactInset = await contentInset();
+      throw new Error(`${name}: compact settings inset (${compactInset}px) must be smaller than comfortable (${comfortableInset}px)`, { cause: error });
+    });
     failSave = false;
     await page.reload();
     assert.equal(await page.locator("html").getAttribute("data-layout-density"), "compact");
@@ -590,8 +597,9 @@ try {
     assert.equal(await page.locator("#layout-density").inputValue(), "compact");
     await page.locator("#layout-density").click();
     await page.getByRole("listbox").getByRole("option", { name: "Comfortable", exact: true }).click();
-    await page.waitForFunction(() => document.documentElement.dataset.layoutDensity === "comfortable");
-    assert.equal(await contentInset(), comfortableInset);
+    await page.waitForFunction(previous => document.documentElement.dataset.layoutDensity === "comfortable"
+      && parseFloat(getComputedStyle(document.querySelector(".settings-content")).paddingInlineStart) === previous,
+    comfortableInset);
     assert.deepEqual(errors, [], `${name}: JavaScript errors`);
     console.log(`${name}: all categories, alignment, overflow, wheel, keyboard, drafts and save feedback OK`);
     await context.close();
