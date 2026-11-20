@@ -179,6 +179,7 @@ if (process.argv.includes("--serve")) {
       await page.emulateMedia({ reducedMotion: "no-preference" });
       const widths = await page.evaluate(async () => {
         const sidebar = document.querySelector(".sidebar"), toggle = document.querySelector(".sidebar-toggle");
+        const compact = parseFloat(getComputedStyle(sidebar).getPropertyValue("--sidebar-compact-width"));
         const start = sidebar.getBoundingClientRect().width;
         toggle.click();
         const transition = sidebar.getAnimations().find(animation => animation.transitionProperty === "flex-basis");
@@ -190,10 +191,10 @@ if (process.argv.includes("--serve")) {
         const end = sidebar.getBoundingClientRect().width;
         toggle.click();
         await Promise.all(sidebar.getAnimations().map(animation => animation.finished.catch(() => {})));
-        return { start, middle, end, expanded: sidebar.getBoundingClientRect().width };
+        return { start, middle, end, compact, expanded: sidebar.getBoundingClientRect().width };
       });
       assert.ok(!widths.missing && widths.start > widths.middle && widths.middle > widths.end, JSON.stringify(widths));
-      assert.equal(widths.end, 56);
+      assert.equal(widths.end, widths.compact, "sidebar animation settles at the configured compact width");
       assert.equal(widths.expanded, widths.start);
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.locator(".sidebar-toggle").click();
