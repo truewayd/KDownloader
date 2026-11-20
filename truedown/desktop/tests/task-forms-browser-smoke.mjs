@@ -100,7 +100,6 @@ try {
       });
       await page.waitForFunction(() => els.mLink.value === 'https://mega.nz/file/id#key');
       assert.equal(await page.evaluate(() => nativeCalls.filter(call => call.args?.request?.method === "POST").length), 0);
-      await assertToastPlacement(page);
       assert.equal(await page.title(), "新建下载");
       assert.equal(await page.locator("#modal-cancel-btn").isVisible(), false, "Native forms use the caption close button and retain keyboard dismissal");
       assert.ok((await page.locator("#download-form .modal-header").boundingBox()).height <= 1, "Native forms retain their accessible heading without a second title row");
@@ -119,6 +118,7 @@ try {
       assert.ok(layout.footer.bottom <= layout.height, JSON.stringify(layout));
       assert.ok(layout.body.height > 80, JSON.stringify(layout));
       if (screenshots) await page.screenshot({ path: path.join(screenshots, `${role}-${colorScheme}.png`) });
+      await assertToastPlacement(page);
       const preferencesReads = () => page.evaluate(() => nativeCalls.filter(({ command, args }) => command === "core_request" && args.request.method === "GET").length);
       const beforeInputFocus = await preferencesReads();
       await page.locator("#m-link").fill("https://example.test/draft.zip");

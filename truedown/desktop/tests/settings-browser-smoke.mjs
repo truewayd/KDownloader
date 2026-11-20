@@ -565,6 +565,33 @@ try {
         await page.screenshot({ path: path.join(screenshots, `${name}-${category}-en.png`) });
       }
     }
+    await page.locator('[data-settings-link="application"]').click();
+    const density = page.getByLabel("Layout density");
+    assert.equal(await density.inputValue(), "comfortable");
+    const contentInset = () => page.locator(".settings-content").evaluate(node => parseFloat(getComputedStyle(node).paddingInlineStart));
+    const comfortableInset = await contentInset();
+    await density.click();
+    await page.getByRole("listbox").getByRole("option", { name: "Compact", exact: true }).click();
+    assert.equal(await page.locator("html").getAttribute("data-layout-density"), "compact");
+    assert.ok(await contentInset() < comfortableInset);
+    failSave = false;
+    await page.reload();
+    assert.equal(await page.locator("html").getAttribute("data-layout-density"), "compact");
+    await page.evaluate(() => window.TrueDownI18n.setLanguage("en"));
+    for (const category of ["general", "files", "application", "engine", "experimental", "logs", "about"]) {
+      await page.locator(`[data-settings-link="${category}"]`).click();
+      await page.waitForFunction(() => !document.querySelector("#settings-form").inert);
+      await page.locator(".settings-content").evaluate(node => { node.scrollTop = 0; });
+      assert.equal(await page.locator(".settings-content").evaluate(node => node.scrollWidth > node.clientWidth + 1), false,
+        `${name}: compact ${category} fits the available width`);
+      await page.screenshot({ path: path.join(screenshots, `${name}-${category}-compact.png`), animations: "disabled" });
+    }
+    await page.locator('[data-settings-link="application"]').click();
+    assert.equal(await page.locator("#layout-density").inputValue(), "compact");
+    await page.locator("#layout-density").click();
+    await page.getByRole("listbox").getByRole("option", { name: "Comfortable", exact: true }).click();
+    await page.waitForFunction(() => document.documentElement.dataset.layoutDensity === "comfortable");
+    assert.equal(await contentInset(), comfortableInset);
     assert.deepEqual(errors, [], `${name}: JavaScript errors`);
     console.log(`${name}: all categories, alignment, overflow, wheel, keyboard, drafts and save feedback OK`);
     await context.close();

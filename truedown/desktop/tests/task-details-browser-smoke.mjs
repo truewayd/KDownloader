@@ -96,6 +96,7 @@ try {
     assert.equal(await page.locator('#task-connections-body tr').count(), 0, 'unavailable reads clear stale connection speeds');
     await page.locator("#task-settings-tab").click();
     await page.waitForFunction(() => taskDetailTab === "settings" && taskDetailData?.id === 1);
+    await page.screenshot({ path: path.join(screenshots, `settings-${width}-${colorScheme}.png`) });
     const scroll = page.locator(".task-detail-scroll");
     if (await scroll.evaluate(element => element.scrollHeight > element.clientHeight)) {
       await scroll.hover();
@@ -138,7 +139,6 @@ try {
     await page.locator("#task-settings-save").click();
     await page.waitForFunction(() => taskDetailDrafts.get(2)?.message.includes("\u8349\u7a3f"));
     assert.equal(await page.locator("#task-setting-tries").inputValue(), "9");
-    await page.screenshot({ path: path.join(screenshots, `settings-${width}-${colorScheme}.png`) });
     for (let id = 3; id <= 36; id++) {
       await page.evaluate(id => {
         fixtureTasks.push({ ...fixtureTasks[1], id, name: `Task ${id}.zip`, outputName: `Task ${id}.zip`, settings: { ...fixtureTasks[1].settings } });

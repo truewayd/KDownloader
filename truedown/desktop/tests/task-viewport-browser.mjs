@@ -247,6 +247,23 @@ try {
     await page.locator("#workspace-notice-action").click();
     await page.waitForFunction(() => currentTotal === 2400 && currentSearch === "");
     assert.equal(await page.locator("#task-search").inputValue(), "");
+    const preferenceWindow = await context.newPage();
+    await preferenceWindow.goto(page.url());
+    await preferenceWindow.evaluate(() => localStorage.setItem("truedown-layout-density-v1", "compact"));
+    await page.waitForFunction(() => document.documentElement.dataset.layoutDensity === "compact");
+    const compactHeights = await page.locator(".task-rows tr").evaluateAll(rows => [...new Set(rows.map(row => row.getBoundingClientRect().height))]);
+    assert.deepEqual(compactHeights, [52], "all mounted compact rows match virtual geometry");
+    assert.equal(await page.locator(".task-spacer td").first().evaluate(cell => getComputedStyle(cell).backgroundSize), "100% 52px");
+    await page.mouse.move(1, 1);
+    await page.locator("#toast.is-visible").waitFor({ state: "detached" });
+    await page.screenshot({ path: path.join(output, `workspace-${width}-compact.png`), animations: "disabled" });
+    await page.locator("#tasks-wrap").evaluate(node => { node.scrollTop = 1200 * 52; });
+    await page.waitForFunction(() => currentOffset > 1100 && taskViewportOffset === currentOffset);
+    await preferenceWindow.evaluate(() => localStorage.removeItem("truedown-layout-density-v1"));
+    await page.waitForFunction(() => document.documentElement.dataset.layoutDensity === "comfortable");
+    assert.ok(await page.locator("#tasks-wrap").evaluate(node => Math.abs(node.scrollTop / 64 - 1200) <= 1),
+      "changing density keeps the same portion of the list visible");
+    await preferenceWindow.close();
     assert.deepEqual(errors, []);
     await context.close();
     console.log(`${width}: full-range virtual scrolling, bounded DOM, incremental rows, global counts and toolbar passed`);
