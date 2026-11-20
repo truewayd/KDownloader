@@ -1444,10 +1444,6 @@ label {
   line-height: 1.5;
 }
 
-.link-list-field {
-  min-height: 118px !important;
-}
-
 .kd-context-menu {
   position: fixed;
   z-index: 200;

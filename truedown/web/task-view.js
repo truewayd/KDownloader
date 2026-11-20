@@ -1,4 +1,5 @@
-const TASK_ROW_HEIGHT = 64;
+const readTaskRowHeight = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--task-row-height"));
+let taskRowHeight = readTaskRowHeight();
 const taskNameSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 let taskNameContext;
 // ResizeObserver delivers the viewport's changed widths together after layout.
@@ -82,11 +83,26 @@ function initTaskViewport() {
   observer.observe(els.tasksWrap);
   const theme = matchMedia("(prefers-color-scheme: dark)");
   theme.addEventListener("change", update);
-  window.addEventListener("pagehide", () => {
+  const updateDensity = () => {
+    const previousHeight = taskRowHeight;
+    const top = els.tasksWrap.scrollTop;
+    taskRowHeight = readTaskRowHeight();
+    const table = els.tasksContainer.querySelector(".tasks-table");
+    if (table) {
+      table.taskPlaceholderLayout = "";
+      updateTaskSpacers(table);
+      els.tasksWrap.scrollTop = top * taskRowHeight / previousHeight;
+    }
+    schedule();
+  };
+  window.addEventListener("truedown:layout-density-changed", updateDensity);
+  window.addEventListener("pagehide", event => {
+    if (event.persisted) return;
     cancelAnimationFrame(taskViewportFrame);
     observer.disconnect();
     theme.removeEventListener("change", update);
-  }, { once: true });
+    window.removeEventListener("truedown:layout-density-changed", updateDensity);
+  });
 }
 
 const TASK_COLUMN_ORDER_KEY = "truedown-task-column-order-v1";
@@ -212,8 +228,8 @@ function moveTaskColumn(table, source, target, after) {
 function readTaskViewport() {
   if (currentPage !== "tasks" || document.hidden || currentTotal <= PAGE_SIZE) return;
   const header = els.tasksContainer.querySelector("thead")?.offsetHeight || 40;
-  const first = Math.max(0, Math.floor((els.tasksWrap.scrollTop - header) / TASK_ROW_HEIGHT));
-  const visible = Math.ceil(els.tasksWrap.clientHeight / TASK_ROW_HEIGHT);
+  const first = Math.max(0, Math.floor((els.tasksWrap.scrollTop - header) / taskRowHeight));
+  const visible = Math.ceil(els.tasksWrap.clientHeight / taskRowHeight);
   const top = els.tasksWrap.scrollTop;
   if (top !== taskScrollTop) taskScrollDirection = top > taskScrollTop ? 1 : -1;
   taskScrollTop = top;
@@ -240,11 +256,15 @@ function prefetchTaskViewport() {
 
 function updateTaskViewport(table) {
   taskViewportOffset = currentOffset;
-  const spacers = table.querySelectorAll(".task-spacer td");
-  spacers[0].style.height = `${currentOffset * TASK_ROW_HEIGHT}px`;
-  spacers[1].style.height = `${Math.max(0, currentTotal - currentOffset - currentTasks.length) * TASK_ROW_HEIGHT}px`;
+  updateTaskSpacers(table);
   table.setAttribute("aria-rowcount", String(currentTotal + 1));
   table.querySelectorAll(".task-rows tr").forEach((row, index) => row.setAttribute("aria-rowindex", String(currentOffset + index + 2)));
+}
+
+function updateTaskSpacers(table) {
+  const spacers = table.querySelectorAll(".task-spacer td");
+  spacers[0].style.height = `${taskViewportOffset * taskRowHeight}px`;
+  spacers[1].style.height = `${Math.max(0, currentTotal - taskViewportOffset - currentTasks.length) * taskRowHeight}px`;
   updateTaskPlaceholders(table);
 }
 
@@ -260,7 +280,7 @@ function updateTaskPlaceholders(table) {
   table.taskPlaceholderLayout = layout;
   const shapes = [];
   // Measure the real row so column widths, responsive hiding and icon surfaces
-  // stay identical. Only one 64px tile is rasterized, regardless of list length.
+  // stay identical. Only one row tile is rasterized, regardless of list length.
   const parts = [
     [".select-cell input", 16, 4],
     [".task-file-cell > .icon", 0, 10], [".task-name", 12, 6],
@@ -286,21 +306,21 @@ function updateTaskPlaceholders(table) {
   const width = number(bounds.width);
   const color = getComputedStyle(table).getPropertyValue("--kd-text").trim();
   const border = getComputedStyle(row.cells[0]).borderBottomColor;
-  const signature = JSON.stringify([width, color, border, shapes]);
+  const signature = JSON.stringify([width, taskRowHeight, color, border, shapes]);
   if (table.taskPlaceholderSignature === signature) return;
   table.taskPlaceholderSignature = signature;
-  const open = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="64" viewBox="0 0 ${width} 64">`;
+  const open = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${taskRowHeight}" viewBox="0 0 ${width} ${taskRowHeight}">`;
   // Isolated SVG images use the same loop curve as the CSS progress indicators.
   const loopTiming = 'calcMode="spline" keyTimes="0;1" keySplines=".42 .26 .58 .74"';
   const paint = esc(color);
-  const base = `<g fill="${paint}" opacity=".08">${shapes.join("")}</g><path d="M0 63.5H${width}" stroke="${esc(border)}"/>`;
+  const base = `<g fill="${paint}" opacity=".08">${shapes.join("")}</g><path d="M0 ${taskRowHeight - .5}H${width}" stroke="${esc(border)}"/>`;
   const shimmer = [
     `<defs><mask id="rows"><g fill="white">${shapes.join("")}</g></mask>`,
     `<linearGradient id="light" gradientUnits="userSpaceOnUse" x1="-${width}" x2="0">`,
     `<stop stop-color="${paint}" stop-opacity="0"/><stop offset=".5" stop-color="${paint}" stop-opacity=".1"/><stop offset="1" stop-color="${paint}" stop-opacity="0"/>`,
     `<animate attributeName="x1" values="-${width};${width}" dur="1.6s" ${loopTiming} repeatCount="indefinite"/>`,
     `<animate attributeName="x2" values="0;${width * 2}" dur="1.6s" ${loopTiming} repeatCount="indefinite"/>`,
-    `</linearGradient></defs><rect width="${width}" height="64" fill="url(#light)" mask="url(#rows)"/>`,
+    `</linearGradient></defs><rect width="${width}" height="${taskRowHeight}" fill="url(#light)" mask="url(#rows)"/>`,
   ].join("");
   const image = content => `url("data:image/svg+xml,${encodeURIComponent(open + base + content + "</svg>")}")`;
   table.style.setProperty("--task-placeholder-static", image(""));

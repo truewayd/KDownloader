@@ -1,5 +1,5 @@
 /* Workspace layout; controls and state visuals remain in styles.css. */
-:root { --navigation-width: 216px; --sidebar-compact-width: 68px; --sidebar-width: var(--navigation-width); --settings-nav-width: var(--navigation-width); }
+:root { --navigation-width: 216px; --sidebar-compact-width: 68px; --sidebar-width: var(--navigation-width); --settings-nav-width: var(--navigation-width); --task-row-height: 64px; }
 :root.sidebar-collapsed { --sidebar-width: var(--sidebar-compact-width); }
 [hidden] { display: none !important; }
 #task-load-status { margin: 12px 24px 0; }
@@ -385,15 +385,15 @@
 .task-toolbar .kd-button { height: 36px; min-height: 36px; padding: 6px 8px; font-size: 12px; }
 .task-toolbar > #open-downloads-btn { margin-left: auto; width: 36px; height: 36px; }
 .task-panel #tasks-wrap { min-height: 0; flex: 1; overflow-anchor: none; }
-.task-rows > tr { height: 64px; }
-.tasks-table .task-rows td { height: 64px; padding-block: 8px; white-space: nowrap; }
+.task-rows > tr { height: var(--task-row-height); }
+.tasks-table .task-rows td { height: var(--task-row-height); padding-block: 8px; white-space: nowrap; }
 .task-rows .task-file-cell > div { min-width: 0; }
 .tasks-table tbody.task-spacer tr td { padding: 0; border: 0; background: transparent; line-height: 0; }
 /* Paint unloaded rows across the full scroll range without adding task nodes.
    The compositor can expose these before a scroll event or slow read completes. */
 .tasks-table tbody.task-spacer tr td {
   background-image: var(--task-placeholder-animated);
-  background-size: 100% 64px;
+  background-size: 100% var(--task-row-height);
   background-repeat: repeat-y;
 }
 @media (prefers-reduced-motion: reduce) {

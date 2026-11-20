@@ -79,7 +79,7 @@ tr:has(.status-paused) progress::-webkit-progress-value { background: var(--kd-w
 .group-icon-grid button { width: 100%; }
 .group-icon-grid [aria-pressed="true"] { border-color: var(--kd-border-strong); background: var(--kd-secondary-hover); color: var(--kd-text); }
 #download-form .modal-body { gap: 16px; }
-#download-form .link-list-field { min-height: 66px; }
+#download-form .link-list-field { min-height: var(--download-link-min-height, 118px); }
 #download-form .torrent-import-field { gap: 6px; }
 #download-form .torrent-import-field > label, #download-form .torrent-import-field > .hint { display: none; }
 #download-form .advanced-options { margin-top: 0; }
