@@ -56,9 +56,25 @@ jobs:
           exit 1
       - name: Install Linux native dependencies
         if: runner.os == 'Linux'
+        timeout-minutes: 30
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends aria2 libwebkit2gtk-4.1-dev build-essential libxdo-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev pkg-config xvfb xauth webkit2gtk-driver
+          packages=(aria2 libwebkit2gtk-4.1-dev build-essential libxdo-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev pkg-config xvfb xauth webkit2gtk-driver)
+          download_packages() {
+            sudo timeout --kill-after=15s 4m apt-get update &&
+              sudo timeout --kill-after=15s 9m apt-get install -y --no-install-recommends --download-only "${packages[@]}"
+          }
+          if ! download_packages; then
+            echo "::warning::APT acquisition failed or timed out; retrying with Ubuntu's public mirrors first"
+            if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+              printf '%s\n' \
+                $'https://archive.ubuntu.com/ubuntu/\tpriority:1' \
+                $'https://security.ubuntu.com/ubuntu/\tpriority:2' \
+                | sudo tee /etc/apt/apt-mirrors.txt
+            fi
+            download_packages
+          fi
+          # Retry downloads before invoking dpkg, so no retry interrupts package configuration.
+          sudo apt-get install -y --no-install-recommends --no-download "${packages[@]}"
       - name: Install macOS download engine
         if: runner.os == 'macOS'
         run: brew install aria2
