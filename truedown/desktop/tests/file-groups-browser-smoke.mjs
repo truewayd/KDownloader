@@ -309,6 +309,31 @@ try {
     }
     const allDownloads = page.locator('.primary-nav > [data-task-filter="all"]');
     const firstCategory = page.locator("#file-group-navigation a").first();
+    if (width === 1200) {
+      const centers = await page.evaluate(() => {
+        const center = node => {
+          const { x, width } = node.getBoundingClientRect();
+          return x + width / 2;
+        };
+        const count = document.querySelector("#file-group-navigation .nav-count");
+        const previous = count.textContent;
+        const slots = [...document.querySelectorAll(".nav-section-chevron, #task-count"), count].map(center);
+        const labels = [];
+        for (const value of ["0", "12345"]) {
+          count.textContent = value;
+          const text = document.createRange();
+          text.selectNodeContents(count);
+          labels.push(center(text));
+        }
+        count.textContent = previous;
+        return { slots, labels };
+      });
+      const axis = centers.slots[0];
+      assert.ok(centers.slots.every(center => Math.abs(center - axis) < 0.5),
+        `disclosure arrows and count slots share a center line: ${JSON.stringify(centers)}`);
+      assert.ok(centers.labels.every(center => Math.abs(center - axis) <= 1),
+        `one- and five-digit labels stay centered to the nearest pixel: ${centers.labels.join(", ")}`);
+    }
     assert.equal(await page.locator(".primary-nav > :first-child").getAttribute("data-task-filter"), "all");
     const allWidth = await allDownloads.evaluate(link => link.getBoundingClientRect().width);
     const indicator = page.locator(".navigation-indicator");
