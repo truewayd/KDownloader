@@ -445,7 +445,7 @@ func runNativeTransaction(path string, recoverOnly bool) error {
 		if err := restoreNativeFiles(transaction); err != nil {
 			return fmt.Errorf("%v; native rollback: %w", updateErr, err)
 		}
-		if err := clearPendingUpdate(transaction.StatePath, transaction.Build, failure+"; restored the complete previous version; automatic application updates are off to prevent repeated downloads; retry manually from Settings"); err != nil {
+		if err := clearPendingUpdate(transaction.StatePath, transaction.Build, failure+"; restored the complete previous version; retry this build manually from Settings"); err != nil {
 			return err
 		}
 	}

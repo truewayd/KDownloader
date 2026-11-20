@@ -61,18 +61,22 @@ type updateManifest struct {
 }
 
 func (m *Manager) UpdateTrueDown(ctx context.Context) (Snapshot, error) {
+	return m.checkTrueDown(ctx, false)
+}
+
+func (m *Manager) checkTrueDown(ctx context.Context, automatic bool) (Snapshot, error) {
 	if m.programUpdatesDisabled || runtime.GOOS != "windows" || m.currentBuild <= 0 {
 		return m.Snapshot(), fmt.Errorf("automatic TrueDown updates are available in packaged Windows builds")
 	}
 	if err := m.begin("truedown"); err != nil {
 		return m.Snapshot(), err
 	}
-	err := m.updateTrueDown(ctx)
+	err := m.updateTrueDown(ctx, automatic)
 	m.finish(err)
 	return m.Snapshot(), err
 }
 
-func (m *Manager) updateTrueDown(ctx context.Context) error {
+func (m *Manager) updateTrueDown(ctx context.Context, automatic bool) error {
 	// Persist the attempt before network work. Restarting after an interrupted
 	// download or failed check must not reset the automatic retry interval.
 	m.mu.Lock()
@@ -93,6 +97,15 @@ func (m *Manager) updateTrueDown(ctx context.Context) error {
 	m.mu.Unlock()
 	if available == nil {
 		return nil
+	}
+	if automatic {
+		failed, err := m.isFailedBuild(available.Build)
+		if err != nil {
+			return err
+		}
+		if failed {
+			return fmt.Errorf("TrueDown build %d was rolled back; retry it manually from Settings", available.Build)
+		}
 	}
 	// A staged build is already a complete, verified installer payload. A
 	// repeated manual check must not download and unpack the same installer
@@ -477,7 +490,7 @@ func (m *Manager) runAutomaticCheck(ctx context.Context) {
 	if !enabled || pending || (!lastChecked.IsZero() && m.now().Sub(lastChecked) < 12*time.Hour) {
 		return
 	}
-	_, _ = m.UpdateTrueDown(ctx)
+	_, _ = m.checkTrueDown(ctx, true)
 }
 
 func (m *Manager) tryAutomaticApply(canApply func() bool) {

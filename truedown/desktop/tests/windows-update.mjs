@@ -141,7 +141,7 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
     for (const name of names) assert.deepEqual(await metadata(directory, name), await metadata(["update", "automatic-update"].includes(mode) ? next : previous, name));
     assert.deepEqual(await metadata(directory, "aria2c.exe"), engine);
     const saved = JSON.parse(await fs.readFile(statePath, "utf8"));
-    assert.equal(saved.autoUpdateTrueDown, mode === "automatic-update");
+    assert.equal(saved.autoUpdateTrueDown, mode !== "update", "rollback preserves the saved automatic update preference");
     assert.equal(saved.pendingUpdate, undefined);
     if (wanted === "2") {
       await until(async () => !(await exists(archivePath)), 45000);

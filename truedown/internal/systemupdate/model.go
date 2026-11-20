@@ -629,12 +629,18 @@ func (m *Manager) requestRestart(automatic bool) error {
 		m.mu.RUnlock()
 		return nil
 	}
-	pending := m.state.PendingUpdate != nil && m.state.PendingUpdate.Build > m.currentBuild
+	pending := m.state.PendingUpdate
 	restart := m.restart
 	restartWithMode := m.restartWithMode
 	m.mu.RUnlock()
-	if !pending {
+	if pending == nil || pending.Build <= m.currentBuild {
 		return fmt.Errorf("no staged TrueDown update is ready")
+	}
+	if automatic {
+		failed, err := m.isFailedBuild(pending.Build)
+		if failed || err != nil {
+			return err
+		}
 	}
 	if restartWithMode != nil {
 		return restartWithMode(automatic)

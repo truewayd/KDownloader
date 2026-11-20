@@ -34,6 +34,13 @@ func TestAutomaticUpdateRetrySurvivesRestartAndRollback(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
+		if r.URL.Path == "/releases" {
+			_ = json.NewEncoder(w).Encode([]githubRelease{{ID: 2, TagName: "truedown-build-2", Assets: []githubAsset{
+				{Name: installerAssetName(2), Size: 1024},
+				{Name: "truedown-installer-update-2.json", Size: 512},
+			}}})
+			return
+		}
 		http.Error(w, "release unavailable", http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
@@ -42,7 +49,7 @@ func TestAutomaticUpdateRetrySurvivesRestartAndRollback(t *testing.T) {
 	m := &Manager{currentBuild: 1, statePath: path, client: server.Client(),
 		trueDownReleasesURL: server.URL, allowInsecureLoopback: true, now: func() time.Time { return now },
 		state: persistedState{SchemaVersion: stateSchemaVersion, AutoUpdateTrueDown: true, EnginePreference: EngineStable}}
-	if err := m.updateTrueDown(context.Background()); err == nil || requests != 1 {
+	if err := m.updateTrueDown(context.Background(), false); err == nil || requests != 1 {
 		t.Fatal("expected one failed release check", requests, err)
 	}
 	reload := func() {
@@ -63,7 +70,7 @@ func TestAutomaticUpdateRetrySurvivesRestartAndRollback(t *testing.T) {
 		t.Fatal("restart repeated the failed update check")
 	}
 	// Explicit manual requests remain available during the automatic cooldown.
-	if err := m.updateTrueDown(context.Background()); err == nil || requests != 2 {
+	if err := m.updateTrueDown(context.Background(), false); err == nil || requests != 2 {
 		t.Fatal("manual retry was blocked", requests, err)
 	}
 	if runtime.GOOS == "windows" {
@@ -73,7 +80,6 @@ func TestAutomaticUpdateRetrySurvivesRestartAndRollback(t *testing.T) {
 			t.Fatal("automatic retry did not resume after cooldown", requests)
 		}
 	}
-	beforeRollback := requests
 	m.state.PendingUpdate = &pendingAppUpdate{Build: 2}
 	if err := m.persistLocked(); err != nil {
 		t.Fatal(err)
@@ -82,18 +88,27 @@ func TestAutomaticUpdateRetrySurvivesRestartAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	reload()
-	now = now.Add(24 * time.Hour)
-	m.runAutomaticCheck(context.Background())
-	if requests != beforeRollback || m.state.AutoUpdateTrueDown || m.state.PendingUpdate != nil || m.state.LastUpdateError != "rolled back" {
-		t.Fatal("rollback did not durably stop automatic retries", m.state, requests)
+	if !m.state.AutoUpdateTrueDown || m.state.PendingUpdate != nil || m.state.LastUpdateError != "rolled back" {
+		t.Fatal("rollback did not preserve automatic updates and clear the pending build", m.state)
 	}
-	enabled := true
-	if _, err := m.SetSettings(Settings{AutoUpdateTrueDown: &enabled}); err != nil {
-		t.Fatal(err)
+	m.trueDownReleasesURL = server.URL + "/releases"
+	if err := m.updateTrueDown(context.Background(), true); err == nil || !strings.Contains(err.Error(), "was rolled back") {
+		t.Fatal("automatic check did not block staging the failed build", err)
 	}
-	reload()
-	if !m.state.AutoUpdateTrueDown || !m.state.LastCheckedAt.IsZero() {
-		t.Fatal("explicit re-enable did not reset retry interval")
+	m.restart = func() error { requests++; return nil }
+	before := requests
+	m.state.PendingUpdate = &pendingAppUpdate{Build: 2}
+	m.tryAutomaticApply(func() bool { return true })
+	if requests != before {
+		t.Fatal("automatic restart retried the rolled-back build")
+	}
+	if err := m.RequestRestart(); err != nil || requests != before+1 {
+		t.Fatal("manual restart did not permit retrying the rolled-back build", err)
+	}
+	m.state.PendingUpdate = &pendingAppUpdate{Build: 3}
+	m.tryAutomaticApply(func() bool { return true })
+	if requests != before+2 {
+		t.Fatal("rollback blocked a newer build")
 	}
 }
 

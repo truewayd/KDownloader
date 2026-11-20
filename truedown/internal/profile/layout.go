@@ -24,7 +24,8 @@ const (
 	WindowState    = "truedown.windows.json"
 	WebViewCache   = "webview"
 
-	CollectionLayout = "truedown.collection-layout.json"
+	CollectionLayout  = "truedown.collection-layout.json"
+	UpdateFailedBuild = "truedown.update-failed-build"
 )
 
 // Paths separates ownership and retention rules. Callers receive it at service
@@ -51,7 +52,7 @@ func (p Paths) File(name string) string {
 		directory = p.Config
 	case Database, ModulePackages, Engines:
 		directory = p.Data
-	case TrackerState, UpdateState, UpdateDownloads, ResumeState, StagedUpdates, WindowState:
+	case TrackerState, UpdateState, UpdateFailedBuild, UpdateDownloads, ResumeState, StagedUpdates, WindowState:
 		directory = p.State
 	case ApplicationLog, AriaLog, AriaConsoleLog:
 		directory = p.Logs
