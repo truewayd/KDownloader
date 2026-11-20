@@ -113,6 +113,8 @@ Pawchive Watch stores `{ schemaVersion: 1, watches }` in local storage and keeps
 ## TrueDown Runtime
 
 - The main workspace's toolbar and background context menu open the saved task-default save location, falling back to the system downloads folder when unset. The task-row action opens that task's own download directory.
+- Task-table data columns can be reordered by dragging their headings or using Alt+Left/Right. Keep the checkbox and row actions at the edges. Validate the profile-local order as a complete permutation and apply it consistently to headers, column widths and recycled rows without changing task sort or selection.
+- Reserve room for localized task statuses and keep them on a single line. Expanded labels may ellipsize at the column boundary while retaining full text and a tooltip. Keep the virtual row height fixed.
 
 - New expanded resolver collections use `GET/POST /settings/collection-layout`, persisted separately from the strict download-rules file for rollback compatibility. Module layout is the default and keeps a collection under its module directory, with a stable non-secret share suffix and preserved relative paths. Category layout groups members by suffix and retains their relative paths within each group. Single files and ZIP tasks use normal file groups. Preserve existing task locations and collection replay identities. Only module layout shows enabled resolvers under Modules in the Library. Module filters use stored resolver identity for pagination and bulk selection, and sidebar order is profile-local.
 - Keep All Downloads above independent Categories and Modules disclosures. Category layout hides Modules, and the thin sidebar scrollbar reserves a stable gutter as groups open and close.

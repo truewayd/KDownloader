@@ -89,6 +89,126 @@ function initTaskViewport() {
   }, { once: true });
 }
 
+const TASK_COLUMN_ORDER_KEY = "truedown-task-column-order-v1";
+
+function bindTaskColumnSorting(container, scroller) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(TASK_COLUMN_ORDER_KEY));
+    if (Array.isArray(saved) && saved.length === taskColumnOrder.length
+      && new Set(saved).size === saved.length && saved.every(field => taskColumnOrder.includes(field))) {
+      taskColumnOrder = saved;
+    }
+  } catch { /* Use the default order when storage is unavailable. */ }
+
+  let drag = null;
+  let suppressClick = false;
+  const heading = target => target?.closest("th[data-task-column]");
+  const markDrop = () => {
+    const candidate = heading(document.elementFromPoint(drag.x, drag.y));
+    const target = candidate && candidate !== drag.source && candidate.closest("table") === drag.table ? candidate : null;
+    const bounds = target?.getBoundingClientRect();
+    const after = Boolean(bounds && drag.x >= bounds.left + bounds.width / 2);
+    if (target === drag.target && after === drag.after) return;
+    drag.target?.removeAttribute("data-column-drop");
+    drag.target = target;
+    drag.after = after;
+    if (target) target.dataset.columnDrop = after ? "after" : "before";
+  };
+  const updateDrag = () => {
+    if (!drag) return;
+    drag.frame = 0;
+    markDrop();
+    const bounds = scroller.getBoundingClientRect();
+    const header = drag.source.getBoundingClientRect();
+    if (drag.y < header.top || drag.y > header.bottom || drag.x < bounds.left || drag.x > bounds.right) return;
+    const delta = drag.x < bounds.left + 24 ? -8 : drag.x > bounds.right - 24 ? 8 : 0;
+    const before = scroller.scrollLeft;
+    scroller.scrollLeft += delta;
+    if (scroller.scrollLeft !== before) drag.frame = requestAnimationFrame(updateDrag);
+  };
+  const finish = (commit = false) => {
+    if (!drag) return;
+    const { source, table, pointer, frame, target, after, moved } = drag;
+    drag = null;
+    if (!moved) return;
+    cancelAnimationFrame(frame);
+    source.classList.remove("task-column-dragging");
+    target?.removeAttribute("data-column-drop");
+    if (container.hasPointerCapture(pointer)) container.releasePointerCapture(pointer);
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 0);
+    if (commit && target && table.isConnected) moveTaskColumn(table, source, target, after);
+  };
+  container.addEventListener("pointerdown", event => {
+    const source = heading(event.target);
+    if (!source || drag || event.button !== 0 || !event.isPrimary || event.pointerType === "touch"
+      || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    drag = { source, table: source.closest("table"), pointer: event.pointerId, startX: event.clientX, frame: 0 };
+  });
+  window.addEventListener("pointermove", event => {
+    if (drag?.pointer !== event.pointerId) return;
+    if (!drag.source.isConnected) { finish(); return; }
+    if (!drag.moved) {
+      if (Math.abs(event.clientX - drag.startX) < 6) return;
+      container.setPointerCapture(event.pointerId);
+      drag.source.classList.add("task-column-dragging");
+      drag.moved = true;
+    }
+    event.preventDefault();
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+    if (!drag.frame) drag.frame = requestAnimationFrame(updateDrag);
+  });
+  window.addEventListener("pointerup", event => {
+    if (drag?.pointer !== event.pointerId) return;
+    if (container.hasPointerCapture(event.pointerId)) {
+      drag.x = event.clientX;
+      drag.y = event.clientY;
+      markDrop();
+    }
+    finish(true);
+  });
+  container.addEventListener("lostpointercapture", () => finish());
+  window.addEventListener("pointercancel", event => { if (drag?.pointer === event.pointerId) finish(); });
+  window.addEventListener("blur", () => finish());
+  window.addEventListener("hashchange", () => finish());
+  window.addEventListener("pagehide", () => finish());
+  container.addEventListener("click", event => {
+    if (suppressClick) { event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && drag) { event.preventDefault(); finish(); }
+  }, true);
+  container.addEventListener("keydown", event => {
+    const source = heading(event.target);
+    if (!source || drag || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
+      || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    const after = event.key === "ArrowRight";
+    const target = after ? source.nextElementSibling : source.previousElementSibling;
+    if (target?.dataset.taskColumn) moveTaskColumn(source.closest("table"), source, target, after);
+  });
+}
+
+function moveTaskColumn(table, source, target, after) {
+  const from = source.cellIndex;
+  const before = target.cellIndex + Number(after);
+  const to = before - Number(from < before);
+  if (from === to) return;
+  const focused = document.activeElement;
+  // Keep the mounted rows, their selection state, and their cached nodes.
+  for (const row of table.querySelectorAll("colgroup, thead tr, .task-rows > tr")) {
+    row.insertBefore(row.children[from], row.children[before] || null);
+  }
+  const [field] = taskColumnOrder.splice(from - 1, 1);
+  taskColumnOrder.splice(to - 1, 0, field);
+  try { localStorage.setItem(TASK_COLUMN_ORDER_KEY, JSON.stringify(taskColumnOrder)); }
+  catch { /* Keep the order in this window even when storage is unavailable. */ }
+  table.taskPlaceholderLayout = "";
+  updateTaskPlaceholders(table);
+  if (document.activeElement !== focused && table.contains(focused)) focused.focus({ preventScroll: true });
+}
+
 function readTaskViewport() {
   if (currentPage !== "tasks" || document.hidden || currentTotal <= PAGE_SIZE) return;
   const header = els.tasksContainer.querySelector("thead")?.offsetHeight || 40;

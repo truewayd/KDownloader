@@ -8,7 +8,7 @@ import { readUIFixtureAsset } from "./ui-fixture-assets.mjs";
 const assets = new URL("../../web/", import.meta.url);
 const output = path.resolve(process.argv[2] || "../dist/task-viewport-review");
 const groups = { revision: 1, groups: [{ id: "video", name: "Video", extensions: [".mp4"] }, { id: "other", name: "Other", extensions: [] }] };
-const tasks = Array.from({ length: 2400 }, (_, index) => ({ id: index + 1, name: `Movie ${index + 1}.mp4`, outputName: `Movie ${index + 1}.mp4`, category: "video", status: index === 0 ? "downloading" : index === 1 ? "error" : "done", totalLength: 1024000, completedLength: 512000, downloadSpeed: 4096, link: `https://example.test/${index + 1}`, folder: "Downloads" }));
+const tasks = Array.from({ length: 2400 }, (_, index) => ({ id: index + 1, name: `Movie ${index + 1}.mp4`, outputName: `Movie ${index + 1}.mp4`, category: "video", status: ["downloading", "error", "queued", "paused"][index] || "done", totalLength: 1024000, completedLength: 512000, downloadSpeed: 4096, link: `https://example.test/${index + 1}`, folder: "Downloads" }));
 const requests = [];
 let revision = 1;
 let rowsRevision = 1;
@@ -39,7 +39,7 @@ const server = http.createServer(async (request, response) => {
     response.setHeader("Content-Type", "application/json");
     response.setHeader("ETag", `"${revision}-${offset}-${search}"`);
     response.end(JSON.stringify({ tasks: rowsUnchanged ? undefined : filtered.slice(offset, offset + limit), rowsVersion, rowsUnchanged, total: filtered.length, groups, revision, epoch: "fixture", orderVersion: "fixed-order",
-      summary: { total: tasks.length, downloading: 1, error: 1, done: tasks.length - 2, downloadSpeed: revision * 4096, groupCounts: { video: tasks.length } } }));
+      summary: { total: tasks.length, downloading: 1, error: 1, paused: 1, queued: 1, done: tasks.length - 4, downloadSpeed: revision * 4096, groupCounts: { video: tasks.length } } }));
     return;
   }
   if (url.pathname === "/system/update") { response.end('{"trueDown":{},"engine":{}}'); return; }
@@ -107,9 +107,60 @@ try {
     assert.equal(await page.locator(".tasks-table thead th").count(), 9);
     assert.equal(await page.locator(".task-rows tr").first().locator("td").count(), 9);
     assert.equal(await page.locator(".task-spacer td").first().getAttribute("colspan"), "9");
+    const statusFits = label => label.scrollWidth <= label.clientWidth
+      && getComputedStyle(label).whiteSpace === "nowrap";
+    assert.ok(await page.locator(".status-label").evaluateAll(labels => labels.every(label =>
+      label.scrollWidth <= label.clientWidth && getComputedStyle(label).whiteSpace === "nowrap")));
     const firstCheckbox = page.locator(".task-rows [data-select-task]").first();
     await firstCheckbox.check();
     assert.equal(await page.evaluate(() => selectedTaskIDs.has(currentTasks[0].id)), true, "selection keeps using the task ID without a visible ordinal");
+    if (width === 1200) {
+      const fileHeading = page.locator('[data-sort-field="file"]');
+      const statusHeading = page.locator('[data-sort-field="status"]');
+      const start = await fileHeading.boundingBox(), target = await statusHeading.boundingBox();
+      await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(target.x + target.width - 3, target.y + target.height / 2, { steps: 8 });
+      await page.waitForSelector('[data-task-column="status"][data-column-drop="after"]');
+      await page.mouse.up();
+      assert.equal(await page.locator("[data-task-column]").first().getAttribute("data-task-column"), "status");
+      assert.equal(await page.locator(".tasks-table col").nth(1).getAttribute("class"), "col-status");
+      assert.equal(await page.locator('.task-rows tr').first().locator('td').nth(1).locator('.status-badge').count(), 1);
+      assert.equal(await firstCheckbox.isChecked(), true);
+      assert.equal(await page.evaluate(() => currentSort + ":" + currentSortOrder), "status:asc", "dragging a column must not sort the tasks");
+      await statusHeading.press("Alt+ArrowRight");
+      assert.equal(await page.locator("[data-task-column]").first().getAttribute("data-task-column"), "file");
+      assert.equal(await statusHeading.evaluate(button => button === document.activeElement), true);
+      await statusHeading.press("Alt+ArrowLeft");
+      await statusHeading.click();
+      assert.equal(await page.evaluate(() => currentSort + ":" + currentSortOrder), "status:desc", "clicking a heading still sorts tasks");
+      const reopened = await context.newPage();
+      await reopened.goto(page.url());
+      await reopened.evaluate(() => window.TrueDownI18n.setLanguage("en"));
+      await reopened.waitForFunction(() => document.querySelector(".status-done")?.textContent === "Done");
+      for (const [status, label] of Object.entries({ downloading: "Downloading", error: "Error", paused: "Paused", queued: "Queued", done: "Done" })) {
+        const text = reopened.locator(`.status-${status} .status-label`).first();
+        assert.equal(await text.textContent(), label);
+        assert.equal(await text.evaluate(statusFits), true, `${label} fits on one line`);
+      }
+      assert.equal(await reopened.locator("[data-task-column]").first().getAttribute("data-task-column"), "status");
+      assert.equal(await reopened.locator('.task-rows tr').first().locator('td').nth(1).locator('.status-badge').count(), 1);
+      await reopened.route("**/i18n-en.js", async route => {
+        const response = await route.fetch();
+        await route.fulfill({ response, body: await response.text() + '\nwindow.TrueDownEnglish = { ...window.TrueDownEnglish, "下载中": "Downloading Downloading" };' });
+      });
+      await reopened.setViewportSize({ width: 390, height: 800 });
+      await reopened.reload();
+      await reopened.evaluate(() => window.TrueDownI18n.setLanguage("en"));
+      const longLabel = reopened.locator(".status-downloading .status-label").first();
+      await reopened.waitForFunction(() => document.querySelector(".status-downloading .status-label")?.textContent === "Downloading Downloading");
+      assert.equal(await longLabel.evaluate(label =>
+        label.scrollWidth > label.clientWidth && getComputedStyle(label).textOverflow === "ellipsis"), true);
+      assert.equal(await reopened.locator(".status-downloading").first().getAttribute("data-tooltip"), "Downloading Downloading");
+      assert.equal(await reopened.locator(".task-rows tr").first().evaluate(row => row.getBoundingClientRect().height), 64);
+      await reopened.evaluate(() => window.TrueDownI18n.setLanguage("zh-CN"));
+      await reopened.close();
+    }
     await page.evaluate(() => { writeClipboard = async text => { window.copiedLinks = text; }; });
     assert.equal(await page.locator('[data-task-category="video"] .nav-count').textContent(), "2400");
     assert.equal(await page.locator("#active-count").textContent(), "1");
