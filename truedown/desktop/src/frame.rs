@@ -229,7 +229,7 @@ pub fn frame_action(window: WebviewWindow, action: Action) -> Result<(), String>
 
 #[cfg(windows)]
 fn system_menu(window: &WebviewWindow) -> Result<(), String> {
-    use windows_sys::Win32::{Foundation::POINT, UI::WindowsAndMessaging::*};
+    use windows_sys::Win32::{Foundation::POINT, UI::WindowsAndMessaging::GetCursorPos};
     let mut point = POINT::default();
     if unsafe { GetCursorPos(&mut point) } == 0 {
         return Err(std::io::Error::last_os_error().to_string());
@@ -237,55 +237,8 @@ fn system_menu(window: &WebviewWindow) -> Result<(), String> {
     let owned = window.clone();
     window
         .run_on_main_thread(move || unsafe {
-            let Ok(handle) = owned.hwnd() else {
-                return;
-            };
-            let hwnd = handle.0;
-            if IsWindowVisible(hwnd) == 0 || GetForegroundWindow() != hwnd {
-                return;
-            }
-            // The part of the title strip occupied by WebView content still needs
-            // a menu bridge. The blank native caption uses USER32 directly.
-            let menu = GetSystemMenu(hwnd, 0);
-            if menu.is_null() {
-                return;
-            }
-            let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-            let maximized = IsZoomed(hwnd) != 0;
-            let minimized = IsIconic(hwnd) != 0;
-            for (command, enabled) in [
-                (SC_RESTORE, maximized || minimized),
-                (SC_MOVE, !maximized && !minimized),
-                (
-                    SC_SIZE,
-                    !maximized && !minimized && style & WS_THICKFRAME != 0,
-                ),
-                (SC_MINIMIZE, !minimized && style & WS_MINIMIZEBOX != 0),
-                (SC_MAXIMIZE, !maximized && style & WS_MAXIMIZEBOX != 0),
-            ] {
-                EnableMenuItem(
-                    menu,
-                    command,
-                    MF_BYCOMMAND | if enabled { MF_ENABLED } else { MF_GRAYED },
-                );
-            }
-            let selected = TrackPopupMenuEx(
-                menu,
-                TPM_LEFTALIGN | TPM_WORKAREA | TPM_NOANIMATION | TPM_RETURNCMD | TPM_RIGHTBUTTON,
-                point.x,
-                point.y,
-                hwnd,
-                std::ptr::null(),
-            );
-            if selected != 0 {
-                let parameter = if matches!(selected as u32, SC_MOVE | SC_SIZE) {
-                    // Start the system's interactive command from its default
-                    // caption point or edge selection, independent of menu placement.
-                    -1
-                } else {
-                    windows::screen_point_parameter(point)
-                };
-                PostMessageW(hwnd, WM_SYSCOMMAND, selected as usize, parameter);
+            if let Ok(handle) = owned.hwnd() {
+                windows::show_system_menu(handle.0, point);
             }
         })
         .map_err(|error| error.to_string())

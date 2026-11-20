@@ -16,7 +16,7 @@ use windows_sys::Win32::{
     UI::{
         Controls::MARGINS,
         HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow, GetSystemMetricsForDpi},
-        Input::KeyboardAndMouse::{GetAsyncKeyState, ReleaseCapture, VK_LBUTTON},
+        Input::KeyboardAndMouse::{GetAsyncKeyState, IsWindowEnabled, ReleaseCapture, VK_LBUTTON},
         Shell::{DefSubclassProc, GetWindowSubclass, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
@@ -198,8 +198,86 @@ unsafe fn pixels(hwnd: HWND, logical: f64) -> i32 {
     (logical * GetDpiForWindow(hwnd).max(96) as f64 / 96.0).ceil() as i32
 }
 
-pub(super) fn screen_point_parameter(point: POINT) -> LPARAM {
+fn screen_point_parameter(point: POINT) -> LPARAM {
     ((u32::from(point.y as u16) << 16) | u32::from(point.x as u16)) as LPARAM
+}
+
+fn screen_point(parameter: LPARAM) -> POINT {
+    POINT {
+        x: parameter as i16 as i32,
+        y: (parameter >> 16) as i16 as i32,
+    }
+}
+
+pub(super) unsafe fn show_system_menu(hwnd: HWND, point: POINT) {
+    if IsWindowVisible(hwnd) == 0 || IsWindowEnabled(hwnd) == 0 || GetForegroundWindow() != hwnd {
+        return;
+    }
+    let menu = GetSystemMenu(hwnd, 0);
+    if menu.is_null() {
+        return;
+    }
+    let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+    let maximized = IsZoomed(hwnd) != 0;
+    let minimized = IsIconic(hwnd) != 0;
+    for (command, enabled) in [
+        (SC_RESTORE, maximized || minimized),
+        (SC_MOVE, !maximized && !minimized),
+        (
+            SC_SIZE,
+            !maximized && !minimized && style & WS_THICKFRAME != 0,
+        ),
+        (SC_MINIMIZE, !minimized && style & WS_MINIMIZEBOX != 0),
+        (SC_MAXIMIZE, !maximized && style & WS_MAXIMIZEBOX != 0),
+    ] {
+        EnableMenuItem(
+            menu,
+            command,
+            MF_BYCOMMAND | if enabled { MF_ENABLED } else { MF_GRAYED },
+        );
+    }
+    let selected = TrackPopupMenuEx(
+        menu,
+        TPM_LEFTALIGN | TPM_WORKAREA | TPM_NOANIMATION | TPM_RETURNCMD | TPM_RIGHTBUTTON,
+        point.x,
+        point.y,
+        hwnd,
+        std::ptr::null(),
+    );
+    if selected != 0 {
+        let parameter = if matches!(selected as u32, SC_MOVE | SC_SIZE) {
+            // Let USER32 choose its default caption point or sizing edge.
+            -1
+        } else {
+            screen_point_parameter(point)
+        };
+        PostMessageW(hwnd, WM_SYSCOMMAND, selected as usize, parameter);
+    }
+}
+
+unsafe fn is_caption_drag_area(hwnd: HWND, point: POINT, bounds: RECT) -> bool {
+    point.x >= pixels(hwnd, CAPTION_CONTENT_WIDTH)
+        && point.x < bounds.right - pixels(hwnd, BUTTON_WIDTH)
+        && point.y >= resize_edge(hwnd)
+        && point.y < pixels(hwnd, CAPTION_HEIGHT).min(bounds.bottom)
+}
+
+unsafe fn caption_menu_point(hwnd: HWND, message: u32, wp: WPARAM, lp: LPARAM) -> Option<POINT> {
+    let caption_click = match message {
+        WM_NCRBUTTONDOWN | WM_NCRBUTTONUP => wp == HTCAPTION as WPARAM,
+        WM_CONTEXTMENU => wp == hwnd as WPARAM && lp != -1,
+        _ => false,
+    };
+    if !caption_click {
+        return None;
+    }
+    let point = screen_point(lp);
+    let mut client = point;
+    let mut bounds = RECT::default();
+    (ScreenToClient(hwnd, &mut client) != 0
+        && GetClientRect(hwnd, &mut bounds) != 0
+        && is_caption_drag_area(hwnd, client, bounds))
+    .then_some(point)
 }
 
 pub(super) unsafe fn start_caption_drag(hwnd: HWND) {
@@ -359,16 +437,22 @@ unsafe extern "system" fn procedure(
             };
         return 0;
     }
+    // The clipped caption never reaches the WebView's contextmenu listener.
+    // Own the right-button down/up pair so default caption tracking cannot
+    // swallow the release. Also handle a directly delivered context message.
+    if let Some(point) = caption_menu_point(hwnd, message, wp, lp) {
+        if message != WM_NCRBUTTONDOWN {
+            show_system_menu(hwnd, point);
+        }
+        return 0;
+    }
     // Include WM_NCMOUSELEAVE so DWM clears hover highlighting correctly.
     let mut result = 0;
     if DwmDefWindowProc(hwnd, message, wp, lp, &mut result) != 0 {
         return result;
     }
     if message == WM_NCHITTEST {
-        let mut point = POINT {
-            x: lp as i16 as i32,
-            y: (lp >> 16) as i16 as i32,
-        };
+        let mut point = screen_point(lp);
         if let Some(hit) = caption_hit(hwnd, &point) {
             return hit;
         }
@@ -381,9 +465,7 @@ unsafe extern "system" fn procedure(
             && point.y < pixels(hwnd, CAPTION_HEIGHT).min(bounds.bottom)
         {
             if point.y >= resize_edge(hwnd) {
-                if point.x >= pixels(hwnd, CAPTION_CONTENT_WIDTH)
-                    && point.x < bounds.right - pixels(hwnd, BUTTON_WIDTH)
-                {
+                if is_caption_drag_area(hwnd, point, bounds) {
                     return HTCAPTION as LRESULT;
                 }
                 return DefSubclassProc(hwnd, message, wp, lp);
@@ -471,8 +553,8 @@ unsafe fn install_with_webview(hwnd: HWND, child: HWND) -> Result<(), String> {
 mod tests {
     use super::*;
     use windows_sys::Win32::Graphics::Gdi::{
-        CreateCompatibleDC, CreateDIBSection, DeleteDC, GdiFlush, SelectObject, BITMAPINFO,
-        BITMAPINFOHEADER, DIB_RGB_COLORS,
+        ClientToScreen, CreateCompatibleDC, CreateDIBSection, DeleteDC, GdiFlush, SelectObject,
+        BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS,
     };
 
     #[test]
@@ -663,6 +745,37 @@ mod tests {
                 0
             );
             let dpi = GetDpiForWindow(hwnd).max(96);
+            let menu_position = |x, y| {
+                let mut point = POINT {
+                    x: pixels(hwnd, x),
+                    y: pixels(hwnd, y),
+                };
+                assert_ne!(ClientToScreen(hwnd, &mut point), 0);
+                screen_point_parameter(point)
+            };
+            let caption = menu_position(250.0, 20.0);
+            assert!(
+                caption_menu_point(hwnd, WM_NCRBUTTONDOWN, HTCAPTION as WPARAM, caption).is_some()
+            );
+            assert!(
+                caption_menu_point(hwnd, WM_NCRBUTTONUP, HTCAPTION as WPARAM, caption).is_some()
+            );
+            assert!(caption_menu_point(hwnd, WM_CONTEXTMENU, hwnd as WPARAM, caption).is_some());
+            assert!(caption_menu_point(hwnd, WM_CONTEXTMENU, hwnd as WPARAM, -1).is_none());
+            assert!(caption_menu_point(
+                hwnd,
+                WM_CONTEXTMENU,
+                hwnd as WPARAM,
+                menu_position(250.0, 1.0)
+            )
+            .is_none());
+            assert!(caption_menu_point(
+                hwnd,
+                WM_CONTEXTMENU,
+                hwnd as WPARAM,
+                menu_position(250.0, 100.0)
+            )
+            .is_none());
             let scale = dpi as f64 / 96.0;
             let resize = |width: i32, height: i32| {
                 // Exercise the same standard-frame conversion used by Tao.
