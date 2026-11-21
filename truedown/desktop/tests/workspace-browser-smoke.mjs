@@ -88,6 +88,17 @@ try {
           assert.equal(await page.locator(".native-titlebar").count(), 1);
           const sidebar = await page.locator(".sidebar").boundingBox();
           assert.ok(sidebar.y >= 0);
+          await page.emulateMedia({ reducedMotion: "reduce" });
+          for (const density of ["compact", "comfortable"]) {
+            await page.evaluate(value => { document.documentElement.dataset.layoutDensity = value; }, density);
+            const add = await page.locator("#new-task-btn").boundingBox();
+            const search = await page.locator("#task-search").boundingBox();
+            const panel = await page.locator("#tasks-page").boundingBox();
+            assert.ok(Math.abs(add.y + add.height / 2 - search.y - search.height / 2) <= 1,
+              `${name}/${density}: new download and search share a center line`);
+            assert.ok(Math.abs(add.x - (panel.x - add.x - add.width)) <= 1,
+              `${name}/${density}: sidebar margins are symmetric to the visible task panel`);
+          }
           const logo = await page.locator(".brand-mark img").boundingBox();
           assert.ok(Math.abs(logo.x - logo.y) <= 1, `${name}: logo top and left spacing must match`);
           assert.equal(await page.locator(".brand-mark img").evaluate(img => getComputedStyle(img).cursor), "default");

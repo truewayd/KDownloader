@@ -265,6 +265,10 @@ try {
       const allRow = page.locator('.primary-nav > [data-task-filter="all"]');
       assert.equal(await allRow.locator(".nav-label").textContent(), "All downloads");
       for (const viewport of [1200, 900, 721]) {
+        await page.evaluate(frame => {
+          document.documentElement.dataset.nativeWindow = "main";
+          document.documentElement.dataset.nativeFrame = frame;
+        }, viewport === 900 ? "overlay" : "custom");
         for (const height of [850, 360]) {
           await page.setViewportSize({ width: viewport, height });
           await page.waitForFunction(height => Math.abs(
@@ -278,13 +282,23 @@ try {
               .map(node => node.textContent);
             count.textContent = original;
             const nav = row.closest("nav");
+            const bounds = node => node.getBoundingClientRect();
+            const center = node => bounds(node).x + bounds(node).width / 2;
+            const sidebar = bounds(row.closest(".sidebar"));
+            const leftInset = center(row.querySelector(".icon")) - sidebar.left;
+            const axis = center(count);
+            const trailing = document.querySelectorAll(".sidebar-toggle > .icon, .nav-section-chevron, .primary-nav .nav-count");
             return { clipped, scrollable: nav.scrollHeight > nav.clientHeight,
+              insetDifference: sidebar.right - axis - leftInset,
+              maxOffset: Math.max(...Array.from(trailing, node => Math.abs(center(node) - axis))),
               rowWidth: row.getBoundingClientRect().width,
               buttonWidth: document.querySelector("#new-task-btn").getBoundingClientRect().width };
           });
           assert.deepEqual(geometry.clipped, [], `English navigation fits at ${viewport}x${height}`);
           assert.equal(geometry.scrollable, height === 360, `navigation overflow at ${viewport}x${height}: ${JSON.stringify(geometry)}`);
           assert.equal(geometry.rowWidth, geometry.buttonWidth, "the scrollbar uses the existing edge inset");
+          assert.ok(Math.abs(geometry.insetDifference) < 0.5 && geometry.maxOffset < 0.5,
+            `expanded sidebar alignment at ${viewport}x${height}: ${JSON.stringify(geometry)}`);
         }
       }
       await page.screenshot({ path: path.join(screenshots, "sidebar-english-compact.png") });
@@ -405,7 +419,7 @@ try {
         };
         const count = document.querySelector("#file-group-navigation .nav-count");
         const previous = count.textContent;
-        const slots = [...document.querySelectorAll(".nav-section-chevron, #task-count"), count].map(center);
+        const slots = [...document.querySelectorAll(".sidebar-toggle > .icon, .nav-section-chevron, #task-count"), count].map(center);
         const labels = [];
         for (const value of ["0", "12345"]) {
           count.textContent = value;
