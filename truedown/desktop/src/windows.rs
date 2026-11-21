@@ -19,6 +19,8 @@ pub struct Windows {
     pub suppress: bool,
     #[cfg(windows)]
     pub main_shown: std::sync::atomic::AtomicBool,
+    #[cfg(windows)]
+    pub memory: crate::webview::memory::Targets,
     pub creation: tokio::sync::Mutex<()>,
     pub storage: crate::webview::Storage,
     pub task_details: std::sync::Mutex<TaskDetails>,
@@ -394,6 +396,8 @@ async fn open_auxiliary_locked(
             .map_err(|error| error.to_string())?;
     }
     crate::appearance::wait_ready(&window).await?;
+    #[cfg(windows)]
+    crate::webview::memory::opening(app, kind.label());
     if !state.suppress {
         crate::placement::fit(&window.as_ref().window(), false);
         window
@@ -430,7 +434,7 @@ pub fn close_auxiliary(window: WebviewWindow) -> Result<(), String> {
     }
     // Hiding retains unsaved settings and keyboard position across reopen.
     window.hide().map_err(|error| error.to_string())?;
-    task_details_hidden(window.app_handle(), window.label());
+    window_hidden(window.app_handle(), window.label());
     Ok(())
 }
 
@@ -477,7 +481,9 @@ fn emit_task_details(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-pub fn task_details_hidden(app: &tauri::AppHandle, label: &str) {
+pub fn window_hidden(app: &tauri::AppHandle, label: &str) {
+    #[cfg(windows)]
+    crate::webview::memory::hidden(app, label);
     if label == "task-preview" {
         let state = app.state::<Windows>();
         let mut preview = state.task_preview.lock().unwrap();
@@ -541,6 +547,7 @@ pub fn finish_task_window(app: tauri::AppHandle, window: WebviewWindow) -> Resul
         return Err("Only a task form can finish this action".into());
     }
     window.hide().map_err(|error| error.to_string())?;
+    window_hidden(&app, window.label());
     crate::show_main(&app);
     if let Some(main) = app.get_webview_window("main") {
         main.emit("truedown:tasks-created", ())

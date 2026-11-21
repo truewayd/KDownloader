@@ -4312,8 +4312,10 @@ dependencies = [
  "truedown-native-menu",
  "urlpattern 0.3.0",
  "webkit2gtk",
+ "webview2-com",
  "window-vibrancy",
  "windows 0.61.3",
+ "windows-core 0.62.2",
  "windows-sys 0.61.2",
  "winreg 0.56.0",
 ]

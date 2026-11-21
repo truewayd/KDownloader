@@ -40,7 +40,12 @@ use tauri::{
 use tokio::sync::Mutex;
 
 fn full_resolution_icon() -> Option<tauri::image::Image<'static>> {
-    tauri::image::Image::from_bytes(include_bytes!("../icons/notification.png")).ok()
+    use tauri::image::Image;
+    static ICON: std::sync::OnceLock<Option<Image<'static>>> = std::sync::OnceLock::new();
+    let icon = ICON
+        .get_or_init(|| Image::from_bytes(include_bytes!("../icons/notification.png")).ok())
+        .as_ref()?;
+    Some(Image::new(icon.rgba(), icon.width(), icon.height()))
 }
 
 #[derive(Default)]
@@ -70,15 +75,18 @@ fn show_main(app: &tauri::AppHandle) {
             return;
         }
     }
-    if app.state::<windows::Windows>().suppress
-        || app.state::<Arc<Core>>().closing.load(Ordering::SeqCst)
-    {
+    if app.state::<Arc<Core>>().closing.load(Ordering::SeqCst) {
         return;
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let state = app.state::<windows::Windows>();
         let _creation = state.creation.lock().await;
+        if state.suppress {
+            #[cfg(windows)]
+            webview::memory::opening(&app, "main");
+            return;
+        }
         #[cfg(windows)]
         let recovered = match window_shell::recover(&app, "main").await {
             Ok(value) => value,
@@ -121,10 +129,9 @@ fn show_main(app: &tauri::AppHandle) {
             if app.state::<Arc<Core>>().closing.load(Ordering::SeqCst) {
                 return;
             }
-            if let Some(icon) = full_resolution_icon() {
-                let _ = window.set_icon(icon);
-            }
             placement::fit(&window.as_ref().window(), false);
+            #[cfg(windows)]
+            webview::memory::opening(&app, "main");
             if show_main_surface(&window).is_err() {
                 return;
             }
@@ -354,6 +361,8 @@ fn main() {
                 creation: Mutex::new(()),
                 #[cfg(windows)]
                 main_shown: Default::default(),
+                #[cfg(windows)]
+                memory: Default::default(),
                 storage: webview::Storage::new(&profile),
                 task_details: Default::default(),
                 task_preview: Default::default(),
@@ -379,6 +388,10 @@ fn main() {
                     .build()?;
                 frame::install(&window).map_err(std::io::Error::other)?;
                 placement::fit(&window.as_ref().window(), true);
+                #[cfg(windows)]
+                if background && window.label() == "main" {
+                    webview::memory::hidden(app.handle(), "main");
+                }
                 if config.visible && !background && !app.state::<windows::Windows>().suppress {
                     tauri::async_runtime::spawn(async move {
                         match appearance::wait_ready(&window).await {
@@ -493,8 +506,9 @@ fn main() {
             }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let _ = window.hide();
-                windows::task_details_hidden(window.app_handle(), window.label());
+                if window.hide().is_ok() {
+                    windows::window_hidden(window.app_handle(), window.label());
+                }
             }
         })
         .build(context)

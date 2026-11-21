@@ -204,7 +204,7 @@ pub fn frame_action(window: WebviewWindow, action: Action) -> Result<(), String>
         // never stop the core or destroy an auxiliary window's unsaved draft.
         Action::Close => {
             window.hide().map_err(|error| error.to_string())?;
-            crate::windows::task_details_hidden(window.app_handle(), window.label());
+            crate::windows::window_hidden(window.app_handle(), window.label());
             return Ok(());
         }
         Action::Drag => {

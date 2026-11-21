@@ -44,7 +44,7 @@ async function waitUntil(check, timeout = 30000) {
   throw new Error("Native acceptance test timed out");
 }
 const port = await freePort(), debugPort = await freePort();
-function launchDesktop() { return spawn(path.join(installation, shellName), ["--background", "--data-dir", profile], {
+function launchDesktop(background = true) { return spawn(path.join(installation, shellName), [...(background ? ["--background"] : []), "--data-dir", profile], {
   windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
   env: {
     ...process.env, TRUEDOWN_DESKTOP_TEST: "1", TRUEDOWN_ADDR: `127.0.0.1:${port}`,
@@ -280,10 +280,20 @@ try {
     }
     throw new Error(`Native startup failed: ${error.message}; coreHTTPReady=${coreReady}; fixture=${fixture}; output=${startupDiagnostics}`, { cause: error });
   });
-  browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { timeout: 15000 });
+  // Playwright's default focus emulation overrides the real WebView visibility.
+  browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { timeout: 15000, noDefaults: true });
   const context = browser.contexts()[0];
   main = await waitUntil(() => context.pages()[0]);
   await waitForNativeCondition(main, () => Boolean(window.TrueDownI18n));
+  // A tray-only launch must idle its document. Explicit Open reuses that
+  // document before exposing the native surface (suppressed in this fixture).
+  const originalDocument = await main.evaluate(() => performance.timeOrigin);
+  await waitUntil(() => main.evaluate(() => document.hidden), 30000);
+  assert.equal((await api(main, "GET", "/system/info")).product, "TrueDown");
+  const foregroundOpen = launchDesktop(false);
+  await waitUntil(() => foregroundOpen.exitCode === 0, 15000);
+  await waitForNativeCondition(main, () => !document.hidden);
+  assert.equal(await main.evaluate(() => performance.timeOrigin), originalDocument);
   await main.evaluate(() => TrueDownI18n.setLanguage("zh-CN"));
   const observe = page => {
     page.setDefaultTimeout(10000);
@@ -570,6 +580,8 @@ try {
     assert.ok(layout.footer <= layout.height);
   }
   await session.send("Emulation.clearDeviceMetricsOverride");
+  // Submitting the task hid its controller. Reopen it for the rendering checks.
+  await invoke(main, "open_auxiliary", { kind: "new-task" });
   const pages = { main, settings, ...taskForms, "task-details": details };
   for (const page of Object.values(pages)) {
     for (const action of ["copy", "paste", "cut", "undo", "redo", "select-all"]) {

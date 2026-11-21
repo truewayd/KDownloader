@@ -34,6 +34,8 @@ tokio = { version = "1", features = ["process", "io-util", "time", "sync", "rt-m
 
 [target.'cfg(windows)'.dependencies]
 truedown-native-menu = { path = "../native-menu" }
+webview2-com = "=0.39.1"
+windows-core = "=0.62.2"
 windows = { version = "=0.61.3", features = ["Data_Xml_Dom", "UI_Notifications", "Win32_System_WinRT"] }
 # Reparent only the retained WebView; no extra frontend permissions are granted.
 tauri = { version = "2.11.6", features = ["macos-private-api", "unstable"] }
