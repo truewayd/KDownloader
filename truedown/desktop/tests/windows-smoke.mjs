@@ -575,9 +575,20 @@ try {
   const session = await context.newCDPSession(settings);
   for (const [width, height, deviceScaleFactor] of [[640, 480, 1.25], [1020, 760, 2], [1280, 900, 3]]) {
     await session.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor, mobile: false });
-    const layout = await settings.evaluate(() => ({ overflow: document.documentElement.scrollWidth > innerWidth, footer: document.querySelector(".settings-content").getBoundingClientRect().bottom, height: innerHeight }));
-    assert.equal(layout.overflow, false);
-    assert.ok(layout.footer <= layout.height);
+    // WebView2 can acknowledge the override before it updates the layout viewport.
+    let layout;
+    await waitUntil(async () => {
+      layout = await settings.evaluate(() => ({
+        width: innerWidth, height: innerHeight, scale: devicePixelRatio,
+        overflow: document.documentElement.scrollWidth > innerWidth || document.documentElement.scrollHeight > innerHeight,
+        footer: document.querySelector(".settings-content").getBoundingClientRect().bottom,
+      }));
+      return layout.width === width && layout.height === height && layout.scale === deviceScaleFactor
+        // The DOM rect is fractional, while innerHeight is rounded to CSS pixels.
+        && !layout.overflow && (layout.footer - layout.height) * layout.scale < 1;
+    }, 10000).catch(error => {
+      throw new Error(`Settings layout at ${width}x${height} @${deviceScaleFactor}: ${JSON.stringify(layout)}`, { cause: error });
+    });
   }
   await session.send("Emulation.clearDeviceMetricsOverride");
   // Submitting the task hid its controller. Reopen it for the rendering checks.
