@@ -42,14 +42,14 @@ function taskCategoryMeta(id) {
 function applyFileGroups(state) {
   if (!Number.isSafeInteger(state?.revision) || !Array.isArray(state.groups)) throw new Error("\u5206\u7ec4\u54cd\u5e94\u65e0\u6548");
   if (state.revision < fileGroupsState.revision) return;
-  const changed = JSON.stringify(state) !== JSON.stringify(fileGroupsState);
+  const changed = state.revision !== fileGroupsState.revision;
   fileGroupsState = state;
-  if (changed) renderDropboxProjectFilter();
+  if (changed && nativeWindowRole !== "main") renderDropboxProjectFilter();
   if (fileGroupsDraft && !fileGroupsSaving && state.revision > fileGroupsEditorRevision) {
     fileGroupsNeedsSync = true;
     scheduleFileGroupsSync();
   }
-  if (changed && !isFileGroupDragging()) renderFileGroupNavigation();
+  if (changed && nativeWindowRole !== "settings" && !isFileGroupDragging()) renderFileGroupNavigation();
 }
 
 function renderFileGroupNavigation() {
@@ -86,7 +86,6 @@ function updateFileGroupCounts() {
 }
 
 function initFileGroups() {
-  initGroupIconPicker();
   const nav = document.getElementById("file-group-navigation");
   isFileGroupDragging = bindNavigationSorting(nav, {
     key: "taskCategory",
@@ -111,7 +110,10 @@ function initFileGroups() {
     document.querySelector(`[data-group-id="${group.id}"] input`).focus();
     markFileGroupsDraft();
   });
-  document.getElementById("file-groups-editor").addEventListener("input", () => { captureFileGroupsDraft(); markFileGroupsDraft(); });
+  document.getElementById("file-groups-editor").addEventListener("input", event => {
+    captureFileGroupsDraft(event.target.closest("[data-group-id]"));
+    markFileGroupsDraft();
+  });
   document.getElementById("file-groups-editor").addEventListener("change", scheduleFileGroupsSave);
   document.getElementById("file-groups-editor").addEventListener("click", (event) => {
     const iconButton = event.target.closest("[data-group-icon]");
@@ -292,10 +294,10 @@ function fileGroupSuffixValues(value) {
   return value.split(/[\s,;\uff0c\uff1b]+/).filter(Boolean);
 }
 
-function captureFileGroupsDraft() {
+function captureFileGroupsDraft(editedRow) {
   if (!fileGroupsDraft) return;
   const groups = new Map(fileGroupsDraft.map(group => [group.id, group]));
-  for (const row of document.querySelectorAll("[data-group-id]")) {
+  for (const row of editedRow ? [editedRow] : document.querySelectorAll("[data-group-id]")) {
     const group = groups.get(row.dataset.groupId);
     if (!group) continue;
     group.name = row.querySelector("input").value;
@@ -307,7 +309,7 @@ function captureFileGroupsDraft() {
 function createGroupSuffixEditor(group, i) {
   return createSuffixEditor(group.extensions, `group-${i}`, {
     labelID: `group-ext-label-${i}`, fallback: group.id === "other",
-    onRemove: () => { captureFileGroupsDraft(); markFileGroupsDraft(); scheduleFileGroupsSave(); },
+    onRemove: row => { captureFileGroupsDraft(row); markFileGroupsDraft(); scheduleFileGroupsSave(); },
   });
 }
 
@@ -328,53 +330,51 @@ function createSuffixEditor(extensions, identity, { labelID, fallback = false, r
   addSuffix.id = `${identity}-suffix-add`;
   addSuffix.hidden = readOnly;
   addSuffix.textContent = "+ 后缀";
+  const template = document.createElement("div");
+  template.className = "group-suffix-chip";
+  template.innerHTML = `<input class="kd-input" aria-label="文件后缀" placeholder=".ext" autocomplete="off" spellcheck="false"><button type="button" class="kd-icon-button" aria-label="删除后缀">${iconMarkup("close")}</button>`;
+  const templateInput = template.firstElementChild;
+  if (identity.startsWith("group-")) templateInput.dataset.groupSuffix = "";
+  else templateInput.dataset.downloadExtension = "";
+  templateInput.readOnly = readOnly;
+  template.lastElementChild.hidden = readOnly;
   let suffixSequence = 0;
   const appendSuffix = (value = "") => {
-    const chip = document.createElement("div");
-    chip.className = "group-suffix-chip";
-    const input = document.createElement("input");
-    input.className = "kd-input";
-    if (identity.startsWith("group-")) input.dataset.groupSuffix = "";
-    else input.dataset.downloadExtension = "";
+    const chip = template.cloneNode(true);
+    const input = chip.firstElementChild;
     input.id = `${identity}-suffix-${suffixSequence++}`;
-    input.readOnly = readOnly;
-    input.setAttribute("aria-label", "文件后缀");
-    input.placeholder = ".ext";
-    input.autocomplete = "off";
-    input.spellcheck = false;
     input.value = value;
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "kd-icon-button";
-    remove.setAttribute("aria-label", "删除后缀");
-    remove.innerHTML = iconMarkup("close");
-    remove.hidden = readOnly;
-    // Avoid a blur-triggered save replacing the chip before its click arrives.
-    remove.addEventListener("pointerdown", event => event.preventDefault());
-    remove.addEventListener("click", () => {
-      const next = chip.nextElementSibling?.querySelector("input") || addSuffix;
-      chip.remove();
-      next.focus();
-      onRemove();
-    });
-    input.addEventListener("keydown", event => {
-      if (event.key === "Enter") { event.preventDefault(); if (!readOnly) addSuffix.click(); }
-    });
-    input.addEventListener("change", () => {
-      const values = fileGroupSuffixValues(input.value);
-      if (values.length > 1) {
-        input.value = values[0];
-        for (const value of values.slice(1)) appendSuffix(value);
-      }
-    });
-    chip.append(input, remove);
     suffixes.insertBefore(chip, addSuffix);
     return input;
   };
   suffixes.append(addSuffix);
   for (const suffix of extensions) appendSuffix(suffix);
-  addSuffix.addEventListener("pointerdown", event => event.preventDefault());
-  addSuffix.addEventListener("click", () => appendSuffix().focus());
+  suffixes.addEventListener("keydown", event => {
+    if (event.key === "Enter" && event.target.matches("input")) {
+      event.preventDefault();
+      if (!readOnly) addSuffix.click();
+    }
+  });
+  if (readOnly) return suffixes;
+  // Keep focus until the click so a blur-triggered save cannot replace its target.
+  suffixes.addEventListener("pointerdown", event => { if (event.target.closest("button")) event.preventDefault(); });
+  suffixes.addEventListener("click", event => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    if (button === addSuffix) { appendSuffix().focus(); return; }
+    const chip = button.closest(".group-suffix-chip");
+    const next = chip.nextElementSibling?.querySelector("input") || addSuffix;
+    chip.remove();
+    next.focus();
+    onRemove(suffixes.closest("[data-group-id]"));
+  });
+  suffixes.addEventListener("change", event => {
+    const values = fileGroupSuffixValues(event.target.value);
+    if (values.length > 1) {
+      event.target.value = values[0];
+      for (const value of values.slice(1)) appendSuffix(value);
+    }
+  });
   return suffixes;
 }
 
@@ -436,6 +436,7 @@ function initGroupIconPicker() {
   document.body.append(groupIconDialog);
 }
 function openGroupIconPicker(button) {
+  if (!groupIconDialog) initGroupIconPicker();
   groupIconTarget = button;
   const selected = fileGroupsDraft.find(group => group.id === button.dataset.groupIcon)?.icon || taskCategoryMeta(button.dataset.groupIcon).icon;
   groupIconDialog.querySelector(".group-icon-grid").replaceChildren(...(fileGroupsState.icons || []).map(icon => {
@@ -466,15 +467,19 @@ function reconcileFileGroups(base, draft, latest) {
   return merged;
 }
 
+function loadFileGroupDefinitions() {
+  return readSettingSnapshot("file-groups", "/settings/file-groups", applyFileGroups);
+}
+
 async function loadFileGroupsEditor() {
   if (fileGroupsDraft && !fileGroupsNeedsSync) return;
   const version = ++fileGroupsReadVersion;
-  const state = await requestJSON("/settings/file-groups");
+  await loadFileGroupDefinitions();
   if (version !== fileGroupsReadVersion) {
     if (fileGroupsNeedsSync) scheduleFileGroupsSync();
     return;
   }
-  applyFileGroups(state);
+  const state = fileGroupsState;
   const merging = Boolean(fileGroupsDraft && fileGroupsNeedsSync);
   const focused = document.activeElement;
   const focusedGroup = focused?.closest("[data-group-id]")?.dataset.groupId;

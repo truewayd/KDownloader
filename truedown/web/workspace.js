@@ -8,9 +8,13 @@ let isModuleNavDragging = () => false;
 
 function initWorkspace() {
   initFileGroups();
+  window.addEventListener("hashchange", applyWorkspaceRoute);
+  if (nativeWindowRole === "settings") {
+    applyWorkspaceRoute(false);
+    return;
+  }
   initNavigationIndicator();
   if (["main", "browser"].includes(nativeWindowRole)) initModuleNavigation();
-  window.addEventListener("hashchange", applyWorkspaceRoute);
   const filter = document.getElementById("task-filter");
   filter?.addEventListener("change", updateTaskNavigation);
   document.querySelectorAll("[data-task-filter]").forEach((link) => {

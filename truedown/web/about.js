@@ -1,15 +1,14 @@
 async function loadAbout(initial = false) {
-  if (currentPage === "settings" && currentSettingsPage === "about") renderOpenSourceNotices();
   const epoch = routeEpoch;
   try {
-    const [info, update, state] = await Promise.all([
-      requestJSON("/system/info"), requestJSON("/system/update"),
+    const [info, state] = await Promise.all([
+      requestJSON("/system/info"),
       window.__TAURI__?.core?.invoke ? invokeNative("desktop_state") : Promise.resolve(null),
+      loadAboutNotices(), loadSystemUpdateState(),
     ]);
     if (initial !== true && (currentPage !== "settings" || currentSettingsPage !== "about" || routeEpoch !== epoch)) return;
     document.getElementById("about-version").textContent = info.productVersion || info.version;
     document.getElementById("about-build").textContent = `${info.buildNumber} / ${String(info.commit || "").slice(0, 12)}`;
-    document.getElementById("about-engine").textContent = `${update.engine?.active === "next" ? "Aria2 Next" : "aria2"} ${update.engine?.activeVersion || ""}`;
     document.getElementById("about-connection").setAttribute("data-i18n-text", state ? state.owned ? "桌面托管" : "独立本地服务" : "HTTP 控制台");
     document.getElementById("about-connection").textContent = state ? state.owned ? "\u684c\u9762\u6258\u7ba1" : "\u72ec\u7acb\u672c\u5730\u670d\u52a1" : "HTTP \u63a7\u5236\u53f0";
     document.getElementById("about-status").textContent = "";
@@ -21,6 +20,26 @@ async function loadAbout(initial = false) {
       scheduleReadRetry("about", loadAbout, () => currentPage === "settings" && currentSettingsPage === "about" && routeEpoch === epoch);
     }
   }
+}
+
+let aboutNoticesLoad;
+function loadAboutNotices() {
+  return aboutNoticesLoad ||= loadNoticeAsset("/open-source.js", "TrueDownOpenSource").then(renderOpenSourceNotices).catch(error => {
+    aboutNoticesLoad = null;
+    throw error;
+  });
+}
+
+function loadNoticeAsset(src, key) {
+  if (window[key] !== undefined) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    const fail = () => { script.remove(); reject(new Error(src)); };
+    script.onload = () => window[key] !== undefined ? resolve() : fail();
+    script.onerror = fail;
+    document.head.append(script);
+  });
 }
 
 function renderOpenSourceNotices() {
@@ -52,7 +71,23 @@ function renderOpenSourceNotices() {
     host.append(entry);
   }
   const details = document.getElementById("open-source-licenses");
-  details.addEventListener("toggle", () => {
-    if (details.open) document.getElementById("license-notices").textContent = window.TrueDownOpenSource.notices + "\n\n" + window.TrueDownNativeLicenseNotices;
-  });
+  const notices = document.getElementById("license-notices");
+  let loading = false;
+  async function showLicenses() {
+    if (!details.open || loading) return;
+    loading = true;
+    notices.textContent = TrueDownI18n.t("正在读取…");
+    try {
+      await loadNoticeAsset("/native-license-notices.js", "TrueDownNativeLicenseNotices");
+      if (!details.open) return;
+      notices.textContent = window.TrueDownOpenSource.notices + "\n\n" + window.TrueDownNativeLicenseNotices;
+      details.removeEventListener("toggle", showLicenses);
+    } catch {
+      notices.textContent = TrueDownI18n.t("读取许可证失败，请收起后重新展开。");
+    } finally {
+      loading = false;
+    }
+  }
+  details.addEventListener("toggle", showLicenses);
+  showLicenses();
 }

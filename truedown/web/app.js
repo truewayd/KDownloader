@@ -143,10 +143,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   KDComponents.installTooltips();
   trueDownToast = KDComponents.createToast(els.toast, { duration: 3200, spriteURL: "/icons.svg" });
   initTheme();
-  renderDownloadSettings();
-  renderTrackerResearchSettings();
   bindEvents();
-  initTaskDetails();
+  if (nativeWindowRole === "browser" || nativeWindowRole === "task-details") initTaskDetails();
   if (isNativeTaskWindow()) await initNativeTaskForm();
   else if (nativeWindowRole === "task-details") await initNativeTaskDetails();
   else initWorkspace();
@@ -347,7 +345,7 @@ function bindEvents() {
     lastTaskRenderSignature = "";
     refreshAndSchedule(true);
   });
-  initTaskViewport();
+  if (nativeWindowRole === "main" || nativeWindowRole === "browser") initTaskViewport();
   els.batchPauseBtn.addEventListener("click", () => runSelectedAction("pause", "暂停"));
   els.batchCopyBtn.addEventListener("click", copySelectedTaskLinks);
   els.batchResumeBtn.addEventListener("click", () => runSelectedAction("resume", "继续"));

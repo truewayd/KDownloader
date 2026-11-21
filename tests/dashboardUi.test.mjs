@@ -191,7 +191,8 @@ test("settings navigation stays immediate and a late category read never overwri
     settingsPanels: (page) => [panels[page]],
     loadServerRuntimeSettings: () => { loads++; return runtimeRead; },
     loadServerTaskDefaults() {}, loadServerDownloadRules() {}, loadCollectionLayout() {}, loadSettingsOverview() {}, loadStartupSettings() {},
-    loadFileGroupsEditor() {}, loadResolverModules() {}, loadAuthSettings() {}, loadTrackerResearchSettings() {},
+    loadFileGroupDefinitions() {}, loadFileGroupsEditor() { assert.fail("Engine must not create the file group editor"); },
+    loadResolverModules() {}, loadAuthSettings() {}, loadTrackerResearchSettings() {},
     renderSettingsCategory() { rendered++; }, renderSettingsOverview() {},
   });
   vm.runInContext(declaration("initializeSettingsCategory") + "\n" + declaration("loadSettingsPage"), context);

@@ -102,7 +102,9 @@ async function loadSettingsPage() {
   document.querySelectorAll("[data-settings-page]").forEach((panel) => {
     panel.hidden = panel.dataset.settingsPage !== page;
   });
-  KDComponents.setPageLoading(content, !settingsRendered.has(page));
+  const firstRead = !settingsRendered.has(page);
+  content.dataset.firstRead = String(firstRead);
+  KDComponents.setPageLoading(content, firstRead);
   document.querySelectorAll("[data-settings-link]").forEach((link) => {
     if (link.dataset.settingsLink === page) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
@@ -130,11 +132,11 @@ async function loadSettingsPage() {
     if (!settingsLoads.has(page)) {
       const loaders = {
         logs: () => {},
-        about: () => Promise.all([loadAbout(true), loadSystemUpdateState()]),
+        about: () => loadAbout(true),
         general: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings()]),
         files: () => Promise.all([loadServerTaskDefaults(), loadFileGroupsEditor()]),
         application: () => Promise.all([loadStartupSettings(), loadTraySettings(), loadStorageLocation(), loadAuthSettings()]),
-        engine: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings(), loadServerDownloadRules(), loadCollectionLayout(), loadFileGroupsEditor(), loadSystemUpdateState(), loadTrackerResearchSettings(), loadResolverModules()]),
+        engine: () => Promise.all([loadServerTaskDefaults(), loadServerRuntimeSettings(), loadServerDownloadRules(), loadCollectionLayout(), loadFileGroupDefinitions(), loadSystemUpdateState(), loadTrackerResearchSettings(), loadResolverModules()]),
         experimental: loadTrackerResearchSettings,
       };
       settingsLoads.set(page, Promise.resolve().then(() => loaders[page]?.()).finally(() => settingsLoads.delete(page)));
@@ -954,9 +956,11 @@ function normalizeResolverModule(module) {
 
 async function loadResolverModules() {
   await readSettingSnapshot("modules", "/modules", (value) => {
-    resolverModules = normalizeResolverModules(value);
+    const modules = normalizeResolverModules(value);
+    const changed = !settingSnapshotsKnown.has("modules") || JSON.stringify(modules) !== JSON.stringify(resolverModules);
+    resolverModules = modules;
     renderModuleNavigation();
-    renderResolverModules();
+    if (changed && nativeWindowRole !== "main") renderResolverModules();
   });
 }
 
@@ -1300,7 +1304,7 @@ async function loadSystemUpdateState() {
     systemUpdateFailures = 0;
     workspaceUpdateReadFailed = false;
     systemUpdateState = update;
-    if (!unchanged || currentPage === "settings") renderSystemUpdateState();
+    if (!unchanged) renderSystemUpdateState();
   });
 }
 
@@ -1355,6 +1359,7 @@ function renderSystemUpdateState() {
   if (!systemUpdateState) return;
   renderWorkspaceNotice();
   const { trueDown, engine, busy } = systemUpdateState;
+  document.getElementById("about-engine").textContent = `${engine.active === "next" ? "Aria2 Next" : "aria2"} ${engine.activeVersion}`.trimEnd();
   els.truedownUpdateVersion.textContent = trueDown.build > 0
     ? `${trueDown.productVersion || trueDown.version} · build ${trueDown.build}` : `${trueDown.productVersion || trueDown.version} · 开发构建`;
   let trueDownStatus = trueDown.supported

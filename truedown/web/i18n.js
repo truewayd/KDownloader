@@ -85,17 +85,22 @@
   function update(node, field, read, write) {
     const current = read();
     let fields = originals.get(node);
-    if (!fields) { fields = new Map(); originals.set(node, fields); }
-    const previous = fields.get(field);
+    const previous = fields?.get(field);
     const source = previous && current === previous.output ? previous.source : current;
+    if (!source.trim()) { fields?.delete(field); return; }
     const output = translate(source, true);
-    fields.set(field, { source, output });
+    if (source !== output) {
+      if (!fields) { fields = new Map(); originals.set(node, fields); }
+      fields.set(field, { source, output });
+    } else fields?.delete(field);
     if (current !== output) write(output);
   }
-  function localize(root = document.body) {
+  function localize(root = document.body, insideCheckedParent = false) {
     if (!root) return;
     if (root.nodeType === 3) {
-      if (!root.parentElement?.closest(protectedSelector)) update(root, 'text', () => root.nodeValue, value => { root.nodeValue = value; });
+      if (root.nodeValue.trim() && (insideCheckedParent || !root.parentElement?.closest(protectedSelector))) {
+        update(root, 'text', () => root.nodeValue, value => { root.nodeValue = value; });
+      }
       return;
     }
     if (root.nodeType !== 1 && root.nodeType !== 9) return;
@@ -105,12 +110,17 @@
       if (root.textContent !== output) root.textContent = output;
       return;
     }
-    if (root.nodeType === 1 && root.closest(protectedSelector)) return;
     if (root.nodeType === 1) {
+      if (insideCheckedParent ? root.matches(protectedSelector) : root.closest(protectedSelector)) return;
+      // Each native document owns a single route. Browser navigation can use all pages.
+      if (root.hasAttribute("data-page")) {
+        const page = { main: "tasks", settings: "settings", "task-details": "task", "new-task": "new-task" }[document.documentElement.dataset.nativeWindow];
+        if (page && root.dataset.page !== page) return;
+      }
       for (const attr of attributes) if (root.hasAttribute(attr)) update(root, attr, () => root.getAttribute(attr), value => root.setAttribute(attr, value));
       // Native selects also carry their accessible name in a generated button.
     }
-    for (const child of root.childNodes) localize(child);
+    for (const child of root.childNodes) localize(child, true);
   }
   function apply() {
     const currentLanguage = language();

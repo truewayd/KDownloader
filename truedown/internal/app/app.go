@@ -255,13 +255,19 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		return startErr
 	}
 
-	log.Printf("TrueDown listening on %s", addr)
 	if tokenPath := auth.TokenPath(); tokenPath != "" && authEnabled {
 		log.Printf("TrueDown API Key is available from desktop settings and stored in %s", tokenPath)
 	} else if !authEnabled {
 		log.Printf("API Key authentication is disabled; enable it from desktop settings or TRUEDOWN_REQUIRE_TOKEN=1 when needed")
 	}
+	listening := make(chan struct{})
 	server := &http.Server{
+		// Serve calls BaseContext once its listener is registered and TLS setup
+		// has succeeded, before accepting the first request.
+		BaseContext: func(net.Listener) context.Context {
+			close(listening)
+			return context.Background()
+		},
 		Addr:              addr,
 		Handler:           secureHandler(host, auth, addr),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -313,8 +319,6 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 	case err := <-serverErr:
 		if !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("HTTP server: %v", err)
-		}
-		if !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
 		return nil
@@ -323,7 +327,8 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 		cancelUpdates()
 		<-automaticUpdatesDone
 		return ctx.Err()
-	case <-time.After(300 * time.Millisecond):
+	case <-listening:
+		log.Printf("TrueDown listening on %s", addr)
 		resetEngineRelaunchCircuitAfterHealthyPeriod()
 	}
 	if options.desktop != nil {

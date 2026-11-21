@@ -1,5 +1,6 @@
 // UI messages only. Never translate downloaded content or editable values.
 window.TrueDownEnglish = Object.freeze({
+  "读取许可证失败，请收起后重新展开。": "Could not load the licenses. Collapse and reopen to retry.",
   "下载与应用导航": "Main navigation",
   "TrueDown 下载任务": "TrueDown downloads",
   "收起侧栏": "Collapse sidebar",

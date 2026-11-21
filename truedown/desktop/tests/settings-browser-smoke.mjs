@@ -114,7 +114,8 @@ try {
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
-    await page.goto(`${origin}/${native ? "?window=settings" : ""}#settings/general`);
+    // Keep the browser route when the fixture supplies a native IPC transport.
+    await page.goto(`${origin}/?window=${native ? "settings" : "browser"}#settings/general`);
     if (runtimeReadGate) {
       await page.waitForFunction(() => document.querySelector(".settings-content").dataset.loading === "true");
       assert.equal(await page.locator('[data-settings-page="general"]').first().evaluate(node => getComputedStyle(node).opacity), "0", "partially loaded controls stay concealed");
@@ -484,6 +485,13 @@ try {
           usage: entry.querySelector("p").textContent,
         })));
         assert.deepEqual(renderedProjects, expectedProjects, "every reference retains its source, license and role");
+        assert.equal(await page.evaluate(() => window.TrueDownNativeLicenseNotices), undefined, "collapsed licenses do not load the native inventory");
+        if (native && colorScheme === "light") {
+          await page.route("**/native-license-notices.js", route => route.fulfill({ status: 503 }), { times: 1 });
+          await page.locator("#open-source-licenses summary").click();
+          await page.waitForFunction(() => document.getElementById("license-notices").textContent.includes("读取许可证失败"));
+          await page.locator("#open-source-licenses summary").click();
+        }
         await page.locator("#open-source-licenses summary").click();
         await page.waitForFunction(() => document.querySelector("#license-notices").textContent.includes("interactive MEGAcmdShell"));
         assert.ok((await page.locator("#license-notices").textContent()).includes("Copyright (c) 2023 Gustavo Rodrigues"));

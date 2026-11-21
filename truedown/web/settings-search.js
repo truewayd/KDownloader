@@ -1,5 +1,6 @@
 // Index authored labels before settings reads can insert private profile values.
 document.addEventListener("DOMContentLoaded", () => {
+  if (!["browser", "settings"].includes(nativeWindowRole)) return;
   const input = document.getElementById("settings-search");
   const clear = document.getElementById("settings-search-clear");
   const results = document.getElementById("settings-search-results");

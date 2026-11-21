@@ -31,6 +31,7 @@ const results = [];
 async function sample(variant, directory, round) {
   const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "truedown-opening-timing-"));
   const apiPort = await port(), debugPort = await port();
+  const launch = Date.now();
   const child = spawn(path.join(path.resolve(directory), "TrueDown.exe"), ["--background", "--data-dir", fixture], {
     windowsHide: true, stdio: "ignore", env: { ...process.env,
       TRUEDOWN_DESKTOP_TEST: "1", TRUEDOWN_ADDR: `127.0.0.1:${apiPort}`,
@@ -50,14 +51,21 @@ async function sample(variant, directory, round) {
     const context = browser.contexts()[0];
     main = context.pages()[0];
     await until(() => main.evaluate(() => Boolean(document.documentElement.dataset.material && window.__TAURI__?.core)).catch(() => false));
+    const mainReady = await until(() => main.evaluate(() => {
+      const end = performance.getEntriesByType("navigation")[0]?.domContentLoadedEventEnd;
+      return end && performance.timeOrigin + end;
+    }));
+    results.push({ variant, round, kind: "main", phase: "startup", domReadyMs: mainReady - launch });
     await context.addInitScript(() => {
       const now = () => performance.timeOrigin + performance.now();
       const timing = window.__openingTiming = {};
       document.addEventListener("DOMContentLoaded", () => { timing.dom = now(); }, { once: true });
       const observer = new MutationObserver(() => {
         if (document.documentElement?.dataset.material && !timing.material) timing.material = now();
+        const content = document.querySelector(".settings-content");
+        if (content?.dataset.loading === "false" && content.dataset.category === "general" && !timing.editable) timing.editable = now();
       });
-      observer.observe(document, { subtree: true, attributes: true, attributeFilter: ["data-material"] });
+      observer.observe(document, { subtree: true, attributes: true, attributeFilter: ["data-material", "data-loading"] });
     });
     for (const kind of ["settings", "new-task"]) {
       const command = main.evaluate(async kind => {
@@ -71,9 +79,33 @@ async function sample(variant, directory, round) {
         return t?.dom && t?.material ? t : null;
       }).catch(() => false));
       const measured = await command;
+      const editable = kind === "settings" ? await until(() => page.evaluate(() => window.__openingTiming?.editable)) : null;
       results.push({ variant, round, kind, phase: "first", commandMs: measured.commandMs,
-        surfaceMs: Math.max(timing.dom, timing.material) - measured.start });
+        surfaceMs: Math.max(timing.dom, timing.material) - measured.start,
+        ...(editable ? { editableMs: editable - measured.start } : {}) });
       await until(() => page.evaluate(kind => kind !== "new-task" || (typeof nativeTaskFormReady !== "undefined" && nativeTaskFormReady), kind));
+      if (kind === "settings") {
+        for (const category of ["engine", "files", "application", "about", "general"]) {
+          await page.evaluate(category => {
+            const content = document.querySelector(".settings-content");
+            const start = performance.now();
+            delete window.__openingTiming.categoryMs;
+            const observer = new MutationObserver(() => {
+              if (content.dataset.category === category && content.dataset.loading === "false") {
+                observer.disconnect();
+                window.__openingTiming.categoryMs = performance.now() - start;
+              }
+            });
+            observer.observe(content, { attributes: true, attributeFilter: ["data-loading", "data-category"] });
+            document.querySelector(`[data-settings-link="${category}"]`).click();
+          }, category);
+          const { elapsed } = await until(() => page.evaluate(() => {
+            const value = window.__openingTiming.categoryMs;
+            return Number.isFinite(value) && { elapsed: value };
+          }));
+          results.push({ variant, round, kind, phase: "category", category, elapsed });
+        }
+      }
       for (let attempt = 0; attempt < 10; attempt++) {
         await invoke(page, "close_auxiliary");
         const commandMs = await main.evaluate(async kind => {
@@ -100,11 +132,14 @@ for (let round = 0; round < 5; round++) {
     await fs.writeFile(output, JSON.stringify({ scope: "Hidden WebView2; excludes compositor and native shell renewal", results }, null, 2));
   }
 }
-for (const kind of ["settings", "new-task"]) for (const phase of ["first", "retained"]) for (const variant of ["before", "after"]) {
-  const rows = results.filter(row => row.kind === kind && row.phase === phase && row.variant === variant);
-  const median = key => {
+const groups = Map.groupBy(results, row => JSON.stringify([row.kind, row.phase, row.category, row.variant]));
+for (const rows of groups.values()) {
+  const { kind, phase, category, variant } = rows[0];
+  const summary = { kind, phase, category, variant, n: rows.length };
+  for (const [key, label] of Object.entries({ domReadyMs: "domReadyMedianMs", commandMs: "commandMedianMs", surfaceMs: "surfaceMedianMs", editableMs: "editableMedianMs", elapsed: "categoryMedianMs" })) {
+    if (!(key in rows[0])) continue;
     const values = rows.map(row => row[key]).sort((a, b) => a - b);
-    return (values[(values.length - 1) >> 1] + values[values.length >> 1]) / 2;
-  };
-  console.log(JSON.stringify({ kind, phase, variant, n: rows.length, commandMedianMs: median("commandMs"), ...(phase === "first" ? { surfaceMedianMs: median("surfaceMs") } : {}) }));
+    summary[label] = (values[(values.length - 1) >> 1] + values[values.length >> 1]) / 2;
+  }
+  console.log(JSON.stringify(summary));
 }

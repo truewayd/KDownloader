@@ -80,11 +80,38 @@ for(const [name,entry] of [["truedown-core","./cmd/truedown-core"],["truedown-cl
 }
 const web=await directory("dist/desktop-web");
 const sources=(await fs.readdir(path.join(project,"web"))).filter(name=>/\.(html|css|js|svg|png)$/.test(name));
+const workspaceStyles = "desktop-workspace.css";
+const workspaceScripts = "desktop-workspace.js";
 for(const name of await fs.readdir(web)){
   const output=path.join(web,name);await regularOutput(output);
-  if(!sources.includes(name))await fs.unlink(output);
+  if(!sources.includes(name) && name !== workspaceStyles && name !== workspaceScripts)await fs.unlink(output);
 }
 for(const name of sources){const output=path.join(web,name);await regularOutput(output);await fs.copyFile(path.join(project,"web",name),output);}
+// The main document and product windows use the same ordered, local styles.
+// Serve them in a single asset request and retain individual files for popups.
+const entry = path.join(web, "index.html");
+const styles = [];
+let html = (await fs.readFile(entry, "utf8")).replace(/<link rel="stylesheet" href="\/([\w-]+\.css)">/g, (tag, name) => {
+  styles.push(name);
+  return styles.length === 1 ? `<link rel="stylesheet" href="/${workspaceStyles}">` : "";
+});
+if (!styles.length || sources.includes(workspaceStyles)) throw new Error("Invalid desktop stylesheet bundle");
+const sheets = await Promise.all(styles.map(name => fs.readFile(path.join(web, name), "utf8")));
+await regularOutput(path.join(web, workspaceStyles));
+await fs.writeFile(path.join(web, workspaceStyles), sheets.join("\n"));
+// Only the explicitly grouped classic scripts share a bundle. Keep their global
+// names and registration order. Bootstrap and on-demand assets stay independent.
+const group = html.match(/<!-- desktop-workspace scripts -->([\s\S]*?)<!-- end desktop-workspace scripts -->/);
+const scriptTag = /<script src="\/([\w-]+\.js)" defer><\/script>/g;
+if (group && !group[1].replace(scriptTag, "").trim()) {
+  const scripts = Array.from(group[1].matchAll(scriptTag), match => match[1]);
+  if (sources.includes(workspaceScripts)) throw new Error("Desktop script bundle conflicts with a source asset");
+  const bodies = await Promise.all(scripts.map(name => fs.readFile(path.join(web, name), "utf8")));
+  await regularOutput(path.join(web, workspaceScripts));
+  await fs.writeFile(path.join(web, workspaceScripts), bodies.join("\n;\n"));
+  html = html.replace(group[0], `<script src="/${workspaceScripts}" defer></script>`);
+}
+await fs.writeFile(entry, html);
 await fs.writeFile(path.join(web,"open-source.js"),`window.TrueDownOpenSource = ${JSON.stringify(await openSourceNotices())};\n`);
 await fs.writeFile(path.join(web,"native-license-notices.js"),`window.TrueDownNativeLicenseNotices = ${JSON.stringify(await fs.readFile(path.join(project,"dist/NATIVE_LICENSES.txt"),"utf8"))};\n`);
 console.log(`Desktop core and web resources prepared for ${target}`);
