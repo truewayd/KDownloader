@@ -47,6 +47,7 @@ test("cached pages retain matching bodies for 304 and overview-only responses", 
   reply = response(7, 2, "order-1", { tasks: null, rowsVersion: "rows-7-1", rowsUnchanged: true });
   const overview = await pages.request("/tasks?offset=0");
   assert.equal(overview.page.tasks, reused.page.tasks);
+  assert.equal(overview.size, JSON.stringify(overview.page).length);
   assert.equal(overview.page.revision, 2);
   reply = response(7, 3, "order-1", { tasks: null, rowsVersion: "mismatch", rowsUnchanged: true });
   await assert.rejects(pages.request("/tasks?offset=0"), /Invalid task page/);

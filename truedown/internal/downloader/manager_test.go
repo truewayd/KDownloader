@@ -902,6 +902,9 @@ func TestTaskPageCaseFoldingKeepsASCIIHotPathAndUnicodeBehavior(t *testing.T) {
 	if !containsFold("Ärger.txt", strings.ToLower("ÄRGER")) || compareFold("Ärger", "ärger") != 0 {
 		t.Fatal("Unicode case-insensitive behavior changed")
 	}
+	if compareFold("PREFIX-K.txt", "prefix-k.txt") != 0 || !containsFold("PREFIX-K.txt", "k.txt") {
+		t.Fatal("Unicode folding after a shared ASCII prefix changed")
+	}
 }
 
 func TestTaskUpdateSnapshotDropsUnneededCredentialContainers(t *testing.T) {

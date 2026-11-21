@@ -76,7 +76,7 @@ func (m *Manager) classifyTask(task *Task) string {
 
 // Filtering precedes sorting and pagination, including tasks outside the visible page.
 func (m *Manager) scopedPageLocked(offset, limit int, status Status, search, field, order string, scope TaskListScope, version string) TaskPage {
-	page := TaskPage{Groups: m.fileGroupsLocked(), Tasks: make([]TaskSnapshot, 0, limit), Summary: m.summaryLocked(), Offset: offset, Limit: limit, Revision: m.revision, Version: version}
+	page := TaskPage{Groups: m.fileGroupsLocked(), Tasks: make([]TaskSnapshot, 0, min(limit, len(m.tasks), 200)), Summary: m.summaryLocked(), Offset: offset, Limit: limit, Revision: m.revision, Version: version}
 	countKnown := scope.Module == "" && status == "" && search == "" && m.groupCounts != nil
 	if countKnown {
 		page.Total = m.groupCounts[scope.Category]
@@ -103,7 +103,7 @@ func (m *Manager) scopedPageLocked(offset, limit int, status Status, search, fie
 			ranks = []int{5, 4, 3, 2, 1, 0}
 		}
 		for _, rank := range ranks {
-			if ranked, known := taskStatusForSortRank(rank); known && m.statusCounts[ranked] == 0 {
+			if m.statusCounts != nil && m.taskCountAtRankLocked(rank) == 0 {
 				continue
 			}
 			start, end, step := 0, len(m.orderedIDs), 1
@@ -112,7 +112,7 @@ func (m *Manager) scopedPageLocked(offset, limit int, status Status, search, fie
 			}
 			for i := start; i != end; i += step {
 				task := m.tasks[m.orderedIDs[i]]
-				if !taskMatchesPage(task, status, search) || taskStatusSortRank(task.Status) != rank || !m.taskMatchesScopeLocked(task, scope) {
+				if task == nil || taskStatusSortRank(task.Status) != rank || !m.taskMatchesScopeLocked(task, scope) || !taskMatchesPage(task, status, search) {
 					continue
 				}
 				appendMatch(task)
@@ -141,17 +141,17 @@ func (m *Manager) scopedPageLocked(offset, limit int, status Status, search, fie
 		}
 		return page
 	}
-	ids := make([]int64, 0)
+	matches := make([]*Task, 0, page.Total)
 	for _, id := range m.orderedIDs {
 		task := m.tasks[id]
 		if taskMatchesPage(task, status, search) && m.taskMatchesScopeLocked(task, scope) {
-			ids = append(ids, id)
+			matches = append(matches, task)
 		}
 	}
-	m.sortTaskIDsForPage(ids, field, order)
-	page.Total = len(ids)
-	for i := offset; i < len(ids) && len(page.Tasks) < limit; i++ {
-		page.Tasks = append(page.Tasks, m.snapshotTask(m.tasks[ids[i]]))
+	sortTasksForPage(matches, field, order)
+	page.Total = len(matches)
+	for i := offset; i < len(matches) && len(page.Tasks) < limit; i++ {
+		page.Tasks = append(page.Tasks, m.snapshotTask(matches[i]))
 	}
 	return page
 }

@@ -441,7 +441,7 @@ window.TrueDownEnglish = Object.freeze({
   "正在选择全部筛选结果": "Selecting all filtered results",
   "此筛选下暂无任务": "No tasks match this filter",
   "请尝试其他文件名或链接关键词。": "Try another file name or link keyword.",
-  "请选择其他状态筛选。": "Choose another status filter.",
+  "请选择其他筛选条件。": "Choose another filter.",
   "无法读取 .torrent 文件": "Unable to read .torrent file",
   "Headers 必须是字符串键值的 JSON 对象": "Headers must be a JSON object with string keys and values",
   "没有可复制的下载链接。": "No download links to copy.",

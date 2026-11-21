@@ -961,16 +961,15 @@ func (m *Manager) PageTaskSnapshotsScoped(
 			m.appendTaskPageByStatus(&page, status, search, sortOrder == "desc")
 			return m.versionTaskPageLocked(page, sortField), false
 		}
-		ids := make([]int64, 0, total)
+		matches := make([]*Task, 0, total)
 		for _, id := range m.orderedIDs {
 			if task := m.tasks[id]; taskMatchesPage(task, status, search) {
-				ids = append(ids, id)
+				matches = append(matches, task)
 			}
 		}
-		m.sortTaskIDsForPage(ids, sortField, sortOrder)
-		for index := offset; index < len(ids) && len(page.Tasks) < limit; index++ {
-			task := m.tasks[ids[index]]
-			page.Tasks = append(page.Tasks, m.snapshotTask(task))
+		sortTasksForPage(matches, sortField, sortOrder)
+		for index := offset; index < len(matches) && len(page.Tasks) < limit; index++ {
+			page.Tasks = append(page.Tasks, m.snapshotTask(matches[index]))
 		}
 		return m.versionTaskPageLocked(page, sortField), false
 	}
@@ -978,24 +977,23 @@ func (m *Manager) PageTaskSnapshotsScoped(
 	return m.versionTaskPageLocked(page, sortField), false
 }
 
-func (m *Manager) sortTaskIDsForPage(ids []int64, field, order string) {
+func sortTasksForPage(tasks []*Task, field, order string) {
 	// The ID tie-breaker defines a total order, so a stable sort is unnecessary.
-	sort.Slice(ids, func(i, j int) bool {
-		first, second := m.tasks[ids[i]], m.tasks[ids[j]]
+	slices.SortFunc(tasks, func(first, second *Task) int {
 		if field == "size" && (first.displaySize() > 0) != (second.displaySize() > 0) {
-			return first.displaySize() > 0
+			return compareInt64(second.displaySize(), first.displaySize())
 		}
 		if field == "remaining" && (taskRemainingSeconds(first) > 0) != (taskRemainingSeconds(second) > 0) {
-			return taskRemainingSeconds(first) > 0
+			return compareInt64(taskRemainingSeconds(second), taskRemainingSeconds(first))
 		}
 		comparison := compareTasksForPage(first, second, field)
 		if comparison == 0 {
-			comparison = compareInt64(ids[i], ids[j])
+			comparison = compareInt64(first.ID, second.ID)
 		}
 		if order == "desc" || field == "" {
-			return comparison > 0
+			return -comparison
 		}
-		return comparison < 0
+		return comparison
 	})
 }
 
@@ -1026,16 +1024,10 @@ func (m *Manager) appendTaskPageByStatus(page *TaskPage, status Status, search s
 		ranks = [6]int{5, 4, 3, 2, 1, 0}
 	}
 	for _, rank := range ranks[:rankCount] {
-		if status == "" && search == "" {
-			if rankedStatus, known := taskStatusForSortRank(rank); known {
-				count := m.statusCounts[rankedStatus]
-				if count == 0 {
-					continue
-				}
-				if skipped+count <= page.Offset {
-					skipped += count
-					continue
-				}
+		if status == "" && search == "" && m.statusCounts != nil {
+			if count := m.taskCountAtRankLocked(rank); skipped+count <= page.Offset {
+				skipped += count
+				continue
 			}
 		}
 		if descending {
@@ -1171,20 +1163,21 @@ func taskStatusSortRank(status Status) int {
 	}
 }
 
-func taskStatusForSortRank(rank int) (Status, bool) {
+func (m *Manager) taskCountAtRankLocked(rank int) int {
 	switch rank {
 	case 0:
-		return StatusDownloading, true
+		return m.statusCounts[StatusDownloading]
 	case 1:
-		return StatusQueued, true
+		return m.statusCounts[StatusQueued]
 	case 2:
-		return StatusPaused, true
+		return m.statusCounts[StatusPaused]
 	case 3:
-		return StatusError, true
+		return m.statusCounts[StatusError]
 	case 4:
-		return StatusDone, true
+		return m.statusCounts[StatusDone]
 	default:
-		return "", false
+		return len(m.tasks) - m.statusCounts[StatusDownloading] - m.statusCounts[StatusQueued] -
+			m.statusCounts[StatusPaused] - m.statusCounts[StatusError] - m.statusCounts[StatusDone]
 	}
 }
 
@@ -1201,30 +1194,31 @@ func taskMatchesPage(task *Task, status Status, search string) bool {
 }
 
 func compareFold(left, right string) int {
-	if isASCII(left) && isASCII(right) {
-		limit := min(len(left), len(right))
-		for index := 0; index < limit; index++ {
-			leftByte := lowerASCII(left[index])
-			rightByte := lowerASCII(right[index])
-			if leftByte < rightByte {
-				return -1
-			}
-			if leftByte > rightByte {
-				return 1
-			}
-		}
-		return len(left) - len(right)
+	if left == right {
+		return 0
 	}
-	return strings.Compare(strings.ToLower(left), strings.ToLower(right))
+	for index := 0; index < min(len(left), len(right)); index++ {
+		if left[index] >= utf8.RuneSelf || right[index] >= utf8.RuneSelf {
+			return strings.Compare(strings.ToLower(left[index:]), strings.ToLower(right[index:]))
+		}
+		leftByte, rightByte := lowerASCII(left[index]), lowerASCII(right[index])
+		if leftByte < rightByte {
+			return -1
+		}
+		if leftByte > rightByte {
+			return 1
+		}
+	}
+	return len(left) - len(right)
 }
 
 func containsFold(value, lowerNeedle string) bool {
+	if strings.Contains(value, lowerNeedle) {
+		return true
+	}
 	if isASCII(value) && isASCII(lowerNeedle) {
 		if len(lowerNeedle) > len(value) {
 			return false
-		}
-		if strings.Contains(value, lowerNeedle) {
-			return true
 		}
 		// Keep adversarial long searches on the standard linear-time matcher.
 		// Short dashboard searches use the allocation-free folded loop below.

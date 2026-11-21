@@ -85,8 +85,11 @@ class TaskPageStore {
           this.overview = { revision: page.revision, groups: page.groups, summary: page.summary };
         }
       }
+      // An overview-only response reuses the exact row array. Its serialized
+      // size is already known, even if the summary or group counts changed.
+      const rowSize = page.tasks === entry?.page.tasks ? entry.rowSize : JSON.stringify(page.tasks).length;
       const result = { page, etag: response.headers?.get("ETag") || (response.status === 304 ? entry?.etag : null), time: Date.now(),
-        size: response.status === 304 ? entry.size : JSON.stringify(page).length };
+        rowSize, size: response.status === 304 ? entry.size : rowSize + JSON.stringify({ ...page, tasks: [] }).length - 2 };
       this.cache.delete(job.url);
       this.cache.set(job.url, result);
       let size = [...this.cache.values()].reduce((sum, item) => sum + item.size, 0);
