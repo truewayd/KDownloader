@@ -442,6 +442,9 @@ test("TrueDown publishes all native packages only after every build succeeds", a
   const publicCheck = publish.split('name: Verify updater-visible release metadata')[1];
   assert.doesNotMatch(publicCheck, /GH_TOKEN|Authorization|gh api/);
   assert.match(publicCheck, /curl --fail --silent --show-error --max-time 30/);
+  assert.equal(publicCheck.match(/--dump-header public-headers\.txt/g)?.length, 2);
+  assert.match(publicCheck, /header retry-after/);
+  assert.match(publicCheck, /header x-ratelimit-reset/);
   assert.match(publicCheck, /--release-tag "\$RELEASE_TAG"/);
   assert.match(publicCheck, /--release-id "\$RELEASE_ID"/);
   assert.match(publicCheck, /--asset-metadata public-assets.json/);

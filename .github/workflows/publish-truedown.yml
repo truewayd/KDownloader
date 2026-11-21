@@ -311,7 +311,8 @@ jobs:
   publish-release:
     needs: [release-number, build-windows, build-unix, native-acceptance]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # The anonymous API quota for a shared runner IP can take an hour to reset.
+    timeout-minutes: 75
     permissions:
       contents: write
     env:
@@ -386,11 +387,13 @@ jobs:
         run: |
           for attempt in $(seq 1 12); do
             if curl --fail --silent --show-error --max-time 30 \
+              --dump-header public-headers.txt \
               --max-filesize 4194304 -o public-releases.json \
               -H 'Accept: application/vnd.github+json, application/octet-stream;q=0.9' \
               -H 'User-Agent: TrueDown/release-validation' \
               "https://api.github.com/repos/$GITHUB_REPOSITORY/releases?per_page=50" \
               && curl --fail --silent --show-error --max-time 30 \
+              --dump-header public-headers.txt \
               --max-filesize 4194304 -o public-assets.json \
               -H 'Accept: application/vnd.github+json, application/octet-stream;q=0.9' \
               -H 'User-Agent: TrueDown/release-validation' \
@@ -400,7 +403,27 @@ jobs:
               --asset-metadata public-assets.json < public-releases.json; then
               exit 0
             fi
-            sleep 10
+            if [ "$attempt" = 12 ]; then break; fi
+            delay=10
+            # Honor the anonymous endpoint's limits while checking the same
+            # release list and assets that an installed updater can access.
+            header() { awk -v name="$1:" 'tolower($1) == name {gsub(/\r/,"",$2); value=$2} END {print value}' public-headers.txt; }
+            status=$(awk '/^HTTP\// {code=$2} END {print code}' public-headers.txt)
+            if [[ "$status" == 403 || "$status" == 429 ]]; then
+              retry=$(header retry-after)
+              reset=$(header x-ratelimit-reset)
+              if [[ "$retry" =~ ^[0-9]{1,5}$ ]]; then
+                delay=$((10#$retry + 1))
+              elif [[ "$(header x-ratelimit-remaining)" == 0 && "$reset" =~ ^[0-9]{10}$ ]]; then
+                delay=$((10#$reset - $(date +%s) + 2))
+              else
+                delay=60
+              fi
+              (( delay >= 10 )) || delay=10
+              (( delay <= 3605 )) || delay=3605
+            fi
+            echo "Public release metadata check will retry in ${delay}s (HTTP ${status:-unknown})."
+            sleep "$delay"
           done
           echo "Published release is not yet visible with complete assets to the updater" >&2
           exit 1
