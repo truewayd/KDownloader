@@ -167,13 +167,18 @@ async function appearance(page, kind) {
     };
     const working = { main: "#tasks-page", settings: "#settings-form", logs: "#logs-page", about: "body > main", "new-task": "#overlay > .modal", "task-details": ".task-detail-page" }[kind];
     const chrome = { main: [".sidebar", ".app-shell", ".dashboard"], settings: [".settings-page", ".settings-nav", ".app-shell", ".dashboard"], logs: [".app-shell", ".dashboard"], about: [], "new-task": ["#overlay"], "task-details": [".app-shell", ".dashboard"] }[kind];
+    const outer = getComputedStyle(document.querySelector(kind === "about" ? working : kind === "new-task" ? "#overlay" : ".dashboard"));
     return {
       scheme: getComputedStyle(document.documentElement).colorScheme,
       material: document.documentElement.dataset.material,
       reducedTransparency: matchMedia("(prefers-reduced-transparency: reduce)").matches,
       root: color("html"), body: color("body"), working: color(working),
       chrome: chrome.map(selector => ({ selector, ...color(selector) })),
-      inset: kind === "about" ? parseFloat(getComputedStyle(document.querySelector(working)).marginLeft) : parseFloat(getComputedStyle(document.querySelector(kind.endsWith("-task") ? "#overlay" : ".dashboard")).paddingLeft),
+      inset: parseFloat(kind === "about" ? outer.marginInlineStart : outer.paddingInlineStart),
+      mainInsets: kind === "main" ? {
+        top: parseFloat(outer.paddingBlockStart), right: parseFloat(outer.paddingInlineEnd),
+        bottom: parseFloat(outer.paddingBlockEnd), left: parseFloat(outer.paddingInlineStart),
+      } : undefined,
     };
   }, kind);
 }
@@ -239,7 +244,12 @@ async function verifyAppearance(pages, scheme, forcedColors = "none", reducedTra
       assert.ok(view.working.alpha === 1 || (view.material === "solid" && view.body.alpha === 1), `${kind} working surface must be opaque`);
       const working = view.working.alpha === 1 ? view.working : view.body;
       assert.equal(working.brightness > 128, scheme === "light", `${kind} working surface must match the native frame theme`);
-      assert.equal(view.inset, kind === "settings" ? 0 : 8, `${kind} must retain an outer material inset`);
+      if (kind === "main") {
+        assert.deepEqual(view.mainInsets, { top: 8, right: 8, bottom: 8, left: 0 },
+          "main must retain its outer material insets and share the sidebar's inner edge");
+      } else {
+        assert.equal(view.inset, kind === "settings" ? 0 : 8, `${kind} must retain its outer material inset`);
+      }
     }
     if (view.material === "native") {
       assert.equal(view.root.alpha, 0);
