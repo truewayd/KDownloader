@@ -172,19 +172,23 @@ func (m *Manager) isFailedBuild(build int64) (bool, error) {
 	return failed == build, nil
 }
 
-func copyExecutable(source, destination string) error {
-	digest, size, err := hashFile(source, maxExecutableBytes)
+func copyVerifiedExecutable(source, destination, expectedSHA string, expectedSize int64) error {
+	info, err := os.Lstat(source)
 	if err != nil {
 		return fmt.Errorf("inspect executable: %w", err)
 	}
-	if digest == "" || size <= 2 {
-		return fmt.Errorf("inspect executable: file is empty or invalid")
+	if !info.Mode().IsRegular() || expectedSize <= 2 || expectedSize > maxExecutableBytes || info.Size() != expectedSize {
+		return fmt.Errorf("inspect executable: invalid source or size")
 	}
 	input, err := os.Open(source)
 	if err != nil {
 		return err
 	}
 	defer input.Close()
+	opened, err := input.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return fmt.Errorf("copy executable: source changed before copying")
+	}
 	directory := filepath.Dir(destination)
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return err
@@ -199,12 +203,12 @@ func copyExecutable(source, destination string) error {
 		temporary.Close()
 		return err
 	}
-	written, err := io.Copy(temporary, io.LimitReader(input, maxExecutableBytes+1))
+	written, err := io.Copy(temporary, io.LimitReader(input, expectedSize+1))
 	if err != nil {
 		temporary.Close()
 		return fmt.Errorf("copy executable: %w", err)
 	}
-	if written != size {
+	if written != expectedSize {
 		temporary.Close()
 		return fmt.Errorf("copy executable: source changed while copying")
 	}
@@ -215,25 +219,11 @@ func copyExecutable(source, destination string) error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
-	copiedDigest, copiedSize, err := hashFile(temporaryPath, maxExecutableBytes)
-	if err != nil || copiedSize != size || !strings.EqualFold(copiedDigest, digest) {
+	copiedDigest, copiedSize, err := hashFile(temporaryPath, expectedSize)
+	if err != nil || copiedSize != expectedSize || !strings.EqualFold(copiedDigest, expectedSHA) {
 		return fmt.Errorf("copy executable: copied file failed its SHA-256 check")
 	}
-	_ = os.Remove(destination)
 	return os.Rename(temporaryPath, destination)
-}
-
-func copyVerifiedExecutable(source, destination, expectedSHA string, expectedSize int64) error {
-	if err := copyExecutable(source, destination); err != nil {
-		_ = os.Remove(destination)
-		return err
-	}
-	digest, size, err := hashFile(destination, maxExecutableBytes)
-	if err != nil || size != expectedSize || !strings.EqualFold(digest, expectedSHA) {
-		_ = os.Remove(destination)
-		return fmt.Errorf("copied executable does not match the staged update manifest")
-	}
-	return nil
 }
 
 func randomToken() (string, error) {

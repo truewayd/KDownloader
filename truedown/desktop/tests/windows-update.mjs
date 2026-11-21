@@ -63,8 +63,9 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
   const env = { ...process.env, TRUEDOWN_DESKTOP_TEST: "1", TRUEDOWN_ADDR: `127.0.0.1:${apiPort}`,
     TRUEDOWN_DESKTOP_TEST_DEBUG_PORT: String(debugPort), WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: "",
     TRUEDOWN_API_TOKEN: "", TRUEDOWN_REQUIRE_TOKEN: "", TRUEDOWN_TLS_CERT: "", TRUEDOWN_TLS_KEY: "" };
-  const launch = () => {
-    const child = spawn(path.join(directory, "TrueDown.exe"), ["--background", "--data-dir", profile], { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  const launch = (background = true) => {
+    const args = background ? ["--background", "--data-dir", profile] : ["--data-dir", profile];
+    const child = spawn(path.join(directory, "TrueDown.exe"), args, { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     child.diagnostics = "";
     for (const stream of [child.stdout, child.stderr]) stream.on("data", data => {
       child.diagnostics = (child.diagnostics + data.toString()).slice(-16384);
@@ -80,7 +81,7 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
   try {
     const initial = launch();
     await until(async () => await build() === "1");
-    await request("/settings/updates", "POST", { autoUpdateTrueDown: false });
+    await request("/settings/updates", "POST", { autoUpdateTrueDown: false, autoUpdateNext: false });
     await request("/system/exit", "POST");
     await until(() => initial.exitCode !== null);
     const stateDirectory = path.join(profile, "state"), updates = path.join(stateDirectory, "updates");
@@ -100,14 +101,17 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
     const statePath = path.join(stateDirectory, "truedown.updates.json");
     const state = JSON.parse(await fs.readFile(statePath, "utf8"));
     state.autoUpdateTrueDown = mode !== "update";
+    // Exercise the staged fixture without checking public releases after restart.
+    state.lastCheckedAt = new Date().toISOString();
     state.pendingUpdate = { version: `truedown-build-${targetBuild}`, build: targetBuild, file: path.basename(stage), sha256: "a".repeat(64), nativeFiles: files };
     await fs.writeFile(statePath, JSON.stringify(state));
     const markerPath = path.join(directory, "TrueDown.update.json");
-    let outgoing;
+    let outgoing, helperPath, handoffStart;
     if (mode === "interrupted-rollback") {
       const token = randomBytes(24).toString("hex");
       const transactionPath = path.join(updates, `native-apply-${token}.json`);
       const helper = path.join(updates, `TrueDown-native-updater-${token}.exe`);
+      helperPath = helper;
       await fs.copyFile(path.join(directory, "truedown-core.exe"), helper);
       const replacements = [];
       for (const file of files) {
@@ -118,6 +122,7 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
       await fs.writeFile(transactionPath, JSON.stringify({ schemaVersion: 1, build: targetBuild, directory, stage, statePath,
         healthPath: path.join(updates, `native-health-${token}`), token, arguments: ["--background", "--data-dir", profile], files: replacements }));
       await fs.writeFile(markerPath, JSON.stringify({ schemaVersion: 1, transaction: transactionPath, helper, sha256: (await metadata(updates, path.basename(helper))).sha256, token }));
+      handoffStart = performance.now();
       outgoing = launch();
     } else {
       outgoing = launch();
@@ -125,9 +130,25 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
       const pending = await request("/system/update");
       assert.equal(pending.trueDown.pendingBuild, targetBuild);
       if (mode !== "automatic-update") await request("/system/update/restart", "POST");
-      await until(() => exists(markerPath));
+      const marker = await until(() => fs.readFile(markerPath, "utf8").then(JSON.parse, () => null));
+      handoffStart = performance.now();
+      helperPath = marker.helper;
+      if (mode === "automatic-update") {
+        const open = launch(false);
+        await until(() => open.exitCode !== null, 10000);
+        assert.equal(open.exitCode, 0, open.diagnostics);
+      }
     }
     await until(async () => !(await exists(markerPath)));
+    // Windows denies write access to a mapped executable, even after the
+    // marker is gone. Verify that the helper itself has finished.
+    await until(async () => {
+      const file = await fs.open(helperPath, "r+").catch(() => null);
+      if (!file) return false;
+      await file.close();
+      return true;
+    }, 10000);
+    const helperExitMs = Math.round(performance.now() - handoffStart);
     const wanted = ["update", "automatic-update"].includes(mode) ? "2" : "1";
     await until(async () => {
       if (await build() !== wanted) return false;
@@ -155,7 +176,11 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
     const page = await until(() => browser.contexts().flatMap(context => context.pages()).find(page => page.url().includes("tauri.localhost")));
     await until(() => page.evaluate(() => Boolean(window.__TAURI__?.window?.getCurrentWindow)).catch(() => false));
     assert.equal(await page.evaluate(() => window.__TAURI__.window.getCurrentWindow().isVisible()), false);
-    console.log(`${mode}=ok native_health=ok complete_file_set=ok engine_preserved=ok all_windows_hidden=ok`);
+    assert.equal(await page.evaluate(() => window.TrueDownNativeLicenseNotices === undefined), true);
+    await page.evaluate(() => window.__TAURI__.core.invoke("open_auxiliary", { kind: "settings" }));
+    const settings = await until(() => browser.contexts().flatMap(context => context.pages()).find(p => p.url().includes("window=settings")));
+    assert.equal(await settings.evaluate(() => window.__TAURI__.window.getCurrentWindow().isVisible()), false);
+    console.log(`${mode}=ok helper_exit_ms=${helperExitMs} native_health=ok complete_file_set=ok engine_preserved=ok settings_ready=ok all_windows_hidden=ok`);
   } finally {
     await browser?.close();
     await request("/system/exit", "POST").catch(() => {});

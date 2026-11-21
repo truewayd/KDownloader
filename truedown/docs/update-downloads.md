@@ -37,14 +37,13 @@ for an idle queue.
 The check timestamp is persisted before network work, so restarting the core does
 not reset the twelve-hour interval after a failed or interrupted attempt. Manual
 checks and explicitly re-enabling automatic updates can retry immediately.
-If native installation rolls back, automatic application updates are switched off
-durably and the update error explains how to retry from Settings. This prevents
-the restored version from repeatedly downloading and applying the same package.
-NEXT's update preference is unchanged.
+After rollback, the restored application preserves the automatic update preference.
+It records the failed build separately and offers a manual retry in Settings.
 The main sidebar reports the updater-owned task's progress, speed, queued/paused
 state and verification, even when task filters hide that download. A verified
-program update exposes a confirmed restart action; automatic idle restarts retain
-their existing behavior. Update failures and engine recovery use the same compact
+program update exposes a restart action. Manual restarts reopen the main window.
+Automatic idle restarts launch in the tray. Opening TrueDown during replacement
+requests the main window after the update or rollback finishes. Update failures and engine recovery use the same compact
 notice. No notice is shown when there is nothing to report. Status reads suspend
 while the window is hidden and retry with bounded backoff after a disconnect.
 

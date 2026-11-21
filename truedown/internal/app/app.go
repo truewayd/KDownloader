@@ -280,7 +280,11 @@ func Run(ctx context.Context, options Options) (resultErr error) {
 			return fmt.Errorf("wait for the download-engine transition before restarting TrueDown")
 		}
 		return host.withProgramUpdateGate(automatic, func() error {
-			if err := updates.LaunchPendingApply([]string{"--background", "--data-dir", dataDir}); err != nil {
+			args := []string{"--data-dir", dataDir}
+			if automatic {
+				args = append([]string{"--background"}, args...)
+			}
+			if err := updates.LaunchPendingApply(args); err != nil {
 				return err
 			}
 			controller.setTransition("program-update", "")

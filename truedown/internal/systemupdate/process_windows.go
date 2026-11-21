@@ -14,6 +14,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -30,6 +31,40 @@ func configureNativeHelper(command *exec.Cmd) {
 	// The owned core's kill-on-close job explicitly permits only this helper
 	// and user-requested desktop launches to outlive it.
 	command.SysProcAttr.CreationFlags |= 0x01000000 // CREATE_BREAKAWAY_FROM_JOB
+}
+
+// Keep this manual-reset event alive across the core/helper handoff. A shell
+// opened while the install is locked can leave one Open request and exit.
+type nativeOpenEvent windows.Handle
+
+func openNativeEvent(token string) (nativeOpenEvent, error) {
+	name, err := windows.UTF16PtrFromString("Local\\TrueDown-update-open-" + token)
+	if err != nil {
+		return 0, err
+	}
+	attributes := windows.SecurityAttributes{InheritHandle: 1}
+	attributes.Length = uint32(unsafe.Sizeof(attributes))
+	handle, err := windows.CreateEvent(&attributes, 1, 0, name)
+	if err != nil && !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+		return 0, err
+	}
+	return nativeOpenEvent(handle), nil
+}
+
+func (event nativeOpenEvent) inherit(command *exec.Cmd) {
+	command.SysProcAttr.AdditionalInheritedHandles = []syscall.Handle{syscall.Handle(event)}
+}
+
+func (event nativeOpenEvent) requested() bool {
+	status, err := windows.WaitForSingleObject(windows.Handle(event), 0)
+	return err == nil && status == windows.WAIT_OBJECT_0
+}
+
+func (event nativeOpenEvent) close() { _ = windows.CloseHandle(windows.Handle(event)) }
+
+func retryableNativeReplace(err error) bool {
+	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) || errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+		errors.Is(err, windows.ERROR_LOCK_VIOLATION) || errors.Is(err, windows.ERROR_USER_MAPPED_FILE)
 }
 
 func processCreationTime(process windows.Handle) (uint64, error) {

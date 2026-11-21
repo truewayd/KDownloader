@@ -156,17 +156,22 @@ func (m *Manager) launchNativeApply(arguments []string) error {
 			_ = os.Remove(transactionPath)
 		}
 	}()
-	if err := copyExecutable(m.currentExe, helperPath); err != nil {
+	digest, size, err := nativeHash(m.currentExe, maxExecutableBytes)
+	if err != nil {
 		return err
 	}
-	digest, _, err := nativeHash(helperPath, maxExecutableBytes)
-	if err != nil {
+	if err := copyVerifiedExecutable(m.currentExe, helperPath, digest, size); err != nil {
 		return err
 	}
 	if err := writeNativeJSON(transactionPath, transaction); err != nil {
 		return err
 	}
 	marker := nativeMarker{1, transactionPath, helperPath, digest, token}
+	openEvent, err := openNativeEvent(token)
+	if err != nil {
+		return err
+	}
+	defer openEvent.close()
 	// The installation mutex serializes profile writers; atomic persistence
 	// keeps a crash during marker creation from publishing a partial journal.
 	if _, err := os.Lstat(markerPath); !os.IsNotExist(err) {
@@ -178,6 +183,7 @@ func (m *Manager) launchNativeApply(arguments []string) error {
 	release()
 	command := exec.Command(helperPath, nativeApplyArgument, transactionPath, "apply")
 	configureNativeHelper(command)
+	openEvent.inherit(command)
 	if err := command.Start(); err != nil {
 		_ = os.Remove(markerPath)
 		return fmt.Errorf("start native update helper: %w", err)
@@ -233,8 +239,12 @@ func validateNativeTransaction(path string, transaction nativeTransaction) error
 	if filepath.Dir(transaction.Stage) == transaction.Directory || filepath.Base(transaction.StatePath) != "truedown.updates.json" {
 		return fmt.Errorf("invalid native update state location")
 	}
-	if len(transaction.Arguments) != 3 || transaction.Arguments[0] != "--background" || transaction.Arguments[1] != "--data-dir" ||
-		!filepath.IsAbs(transaction.Arguments[2]) || len(transaction.Arguments[2]) > 4096 || strings.ContainsRune(transaction.Arguments[2], 0) {
+	args := transaction.Arguments
+	if len(args) == 3 && args[0] == "--background" {
+		args = args[1:]
+	}
+	if len(args) != 2 || args[0] != "--data-dir" ||
+		!filepath.IsAbs(args[1]) || len(args[1]) > 4096 || strings.ContainsRune(args[1], 0) {
 		return fmt.Errorf("native update restart requires one explicit profile")
 	}
 	old, next := []nativeFile{}, []nativeFile{}
@@ -301,14 +311,6 @@ func prepareNativeFiles(transaction nativeTransaction) error {
 				return fmt.Errorf("installed notice %s is no longer absent", file.Old.Name)
 			}
 		} else {
-			if err := verifyNativeFile(transaction.Directory, file.Old); err != nil {
-				return err
-			}
-		}
-		if err := verifyNativeFile(transaction.Stage, file.New); err != nil {
-			return err
-		}
-		if !file.OldAbsent {
 			if err := copyVerifiedExecutable(filepath.Join(transaction.Directory, file.Old.Name), nativeBackup(transaction, file.Old.Name), file.Old.SHA256, file.Old.Size); err != nil {
 				return err
 			}
@@ -321,28 +323,29 @@ func prepareNativeFiles(transaction nativeTransaction) error {
 }
 
 func replaceNativeFiles(transaction nativeTransaction) error {
+	deadline := time.Now().Add(45 * time.Second)
 	for _, file := range transaction.Files {
-		if err := retryNativeReplace(nativeCandidate(transaction, file.New.Name), filepath.Join(transaction.Directory, file.New.Name), 45*time.Second); err != nil {
+		if err := retryNativeReplace(nativeCandidate(transaction, file.New.Name), filepath.Join(transaction.Directory, file.New.Name), deadline); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func retryNativeReplace(source, target string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+func retryNativeReplace(source, target string, deadline time.Time) error {
 	for {
 		if err := os.Rename(source, target); err == nil {
 			return nil
-		} else if time.Now().After(deadline) {
-			return fmt.Errorf("cannot replace %s after waiting for running processes to exit: %w", filepath.Base(target), err)
+		} else if !retryableNativeReplace(err) || !time.Now().Before(deadline) {
+			return fmt.Errorf("cannot replace %s: %w", filepath.Base(target), err)
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(min(200*time.Millisecond, time.Until(deadline)))
 	}
 }
 
 func restoreNativeFiles(transaction nativeTransaction) error {
 	// Keep the backups while restoring, so an interrupted rollback is retryable.
+	deadline := time.Now().Add(45 * time.Second)
 	for _, file := range transaction.Files {
 		if file.OldAbsent {
 			target := filepath.Join(transaction.Directory, file.New.Name)
@@ -363,15 +366,11 @@ func restoreNativeFiles(transaction nativeTransaction) error {
 			continue
 		}
 		backup := nativeBackup(transaction, file.Old.Name)
-		digest, size, err := nativeHash(backup, nativeLimit(file.Old.Name))
-		if err != nil || digest != file.Old.SHA256 || size != file.Old.Size {
-			return fmt.Errorf("rollback backup for %s is unavailable", file.Old.Name)
-		}
 		candidate := nativeCandidate(transaction, file.Old.Name)
 		if err := copyVerifiedExecutable(backup, candidate, file.Old.SHA256, file.Old.Size); err != nil {
 			return err
 		}
-		if err := retryNativeReplace(candidate, filepath.Join(transaction.Directory, file.Old.Name), 45*time.Second); err != nil {
+		if err := retryNativeReplace(candidate, filepath.Join(transaction.Directory, file.Old.Name), deadline); err != nil {
 			return err
 		}
 	}
@@ -409,6 +408,11 @@ func runNativeTransaction(path string, recoverOnly bool) error {
 	if err != nil || digest != marker.SHA256 {
 		return fmt.Errorf("native update helper failed its SHA-256 check")
 	}
+	openEvent, err := openNativeEvent(transaction.Token)
+	if err != nil {
+		return err
+	}
+	defer openEvent.close()
 	// Windows may allow some replacements while the old shell still owns its
 	// WebView and tray. Wait before touching any installed file or relaunching.
 	if err := awaitNativeExit(transaction.Outgoing, 35*time.Second); err != nil {
@@ -461,8 +465,13 @@ func runNativeTransaction(path string, recoverOnly bool) error {
 	removeNativeStage(transaction.Stage)
 	_ = os.Remove(path)
 	_ = os.Remove(transaction.HealthPath)
-	if !healthy || recoverOnly {
-		command := exec.Command(filepath.Join(transaction.Directory, "TrueDown.exe"), transaction.Arguments...)
+	openRequested := openEvent.requested() || (recoverOnly && os.Getenv("TRUEDOWN_UPDATE_OPEN") == "1")
+	if !healthy || recoverOnly || openRequested {
+		args := transaction.Arguments
+		if openRequested && args[0] == "--background" {
+			args = args[1:]
+		}
+		command := exec.Command(filepath.Join(transaction.Directory, "TrueDown.exe"), args...)
 		configureHiddenProcess(command)
 		command.Env = withoutUpdateEnvironment(os.Environ())
 		if err := command.Start(); err != nil {
@@ -477,7 +486,7 @@ func withoutUpdateEnvironment(env []string) []string {
 	result := make([]string, 0, len(env))
 	for _, value := range env {
 		name := strings.SplitN(value, "=", 2)[0]
-		if strings.EqualFold(name, updateHealthFileEnv) || strings.EqualFold(name, updateHealthTokenEnv) || strings.EqualFold(name, nativeBypassEnv) || strings.EqualFold(name, "TRUEDOWN_UPDATE_EXPECTED_BUILD") {
+		if strings.EqualFold(name, updateHealthFileEnv) || strings.EqualFold(name, updateHealthTokenEnv) || strings.EqualFold(name, nativeBypassEnv) || strings.EqualFold(name, "TRUEDOWN_UPDATE_EXPECTED_BUILD") || strings.EqualFold(name, "TRUEDOWN_UPDATE_OPEN") {
 			continue
 		}
 		result = append(result, value)

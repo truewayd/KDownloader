@@ -43,7 +43,33 @@ fn full_resolution_icon() -> Option<tauri::image::Image<'static>> {
     tauri::image::Image::from_bytes(include_bytes!("../icons/notification.png")).ok()
 }
 
+#[derive(Default)]
+struct MainStartup {
+    ready: bool,
+    open_requested: bool,
+}
+
+fn show_main_surface(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    window.show()?;
+    #[cfg(windows)]
+    window
+        .state::<windows::Windows>()
+        .main_shown
+        .store(true, Ordering::SeqCst);
+    Ok(())
+}
+
 fn show_main(app: &tauri::AppHandle) {
+    // A second launch can arrive inside WebView creation, before the main
+    // window or its managed state exists. Replay one Open after setup.
+    {
+        let startup = app.state::<std::sync::Mutex<MainStartup>>();
+        let mut startup = startup.lock().unwrap();
+        if !startup.ready {
+            startup.open_requested = true;
+            return;
+        }
+    }
     if app.state::<windows::Windows>().suppress
         || app.state::<Arc<Core>>().closing.load(Ordering::SeqCst)
     {
@@ -71,6 +97,7 @@ fn show_main(app: &tauri::AppHandle) {
             }
             #[cfg(windows)]
             let window = if recovered.is_none()
+                && state.main_shown.load(Ordering::SeqCst)
                 && window.is_visible().ok() == Some(false)
                 && window.is_minimized().ok() == Some(false)
                 && window.is_maximized().ok() == Some(false)
@@ -98,7 +125,9 @@ fn show_main(app: &tauri::AppHandle) {
                 let _ = window.set_icon(icon);
             }
             placement::fit(&window.as_ref().window(), false);
-            let _ = window.show();
+            if show_main_surface(&window).is_err() {
+                return;
+            }
             let _ = window.unminimize();
             let _ = window.set_focus();
         }
@@ -132,7 +161,7 @@ fn main() {
         .parent()
         .unwrap()
         .to_path_buf();
-    match update::before_start(&base) {
+    match update::before_start(&base, background) {
         Ok(true) => return,
         Ok(false) => {}
         Err(error) => {
@@ -193,6 +222,7 @@ fn main() {
                 .build(),
         )
         .manage(core.clone())
+        .manage(std::sync::Mutex::new(MainStartup::default()))
         .manage(lifecycle::Exit::default())
         .manage(startup)
         .manage(placement::Tracker::default())
@@ -316,11 +346,14 @@ fn main() {
             app.manage(tray_settings);
             app.manage(update::Health {
                 directory: std::path::PathBuf::from(&profile.paths.state).join("updates"),
+                acknowledged: Default::default(),
             });
             app.manage(windows::Windows {
                 suppress: cfg!(debug_assertions)
                     && std::env::var("TRUEDOWN_DESKTOP_TEST").as_deref() == Ok("1"),
                 creation: Mutex::new(()),
+                #[cfg(windows)]
+                main_shown: Default::default(),
                 storage: webview::Storage::new(&profile),
                 task_details: Default::default(),
                 task_preview: Default::default(),
@@ -350,7 +383,9 @@ fn main() {
                     tauri::async_runtime::spawn(async move {
                         match appearance::wait_ready(&window).await {
                             Ok(()) => {
-                                let _ = window.show();
+                                if let Err(error) = show_main_surface(&window) {
+                                    eprintln!("Cannot show main window: {error}");
+                                }
                             }
                             Err(error) => eprintln!("Cannot show main window: {error}"),
                         }
@@ -398,10 +433,14 @@ fn main() {
                 })
                 .build(app)?;
             tray_image::track(tray);
-            if background {
-                if let Some(window) = app.get_webview_window("main") {
-                    window.hide()?
-                }
+            let open_requested = {
+                let startup = app.state::<std::sync::Mutex<MainStartup>>();
+                let mut startup = startup.lock().unwrap();
+                startup.ready = true;
+                startup.open_requested
+            };
+            if open_requested {
+                show_main(app.handle());
             }
             let app_handle = app.handle().clone();
             download_notifications::start(

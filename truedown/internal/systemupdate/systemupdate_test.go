@@ -517,6 +517,15 @@ func TestCopyVerifiedExecutableRejectsStagedFileChangedAfterManifestCheck(t *tes
 	if _, err := os.Stat(candidatePath); !os.IsNotExist(err) {
 		t.Fatalf("unverified candidate was not removed: %v", err)
 	}
+	if err := os.WriteFile(candidatePath, original, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyVerifiedExecutable(stagedPath, candidatePath, expectedSHA, expectedSize); err == nil {
+		t.Fatal("tampered source accepted")
+	}
+	if saved, err := os.ReadFile(candidatePath); err != nil || string(saved) != string(original) {
+		t.Fatalf("failed replacement damaged the existing backup: %v", err)
+	}
 }
 
 func newTestManager(t *testing.T, root, stablePath string, overrides Options) *Manager {

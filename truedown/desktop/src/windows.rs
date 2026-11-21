@@ -17,6 +17,8 @@ pub enum Kind {
 
 pub struct Windows {
     pub suppress: bool,
+    #[cfg(windows)]
+    pub main_shown: std::sync::atomic::AtomicBool,
     pub creation: tokio::sync::Mutex<()>,
     pub storage: crate::webview::Storage,
     pub task_details: std::sync::Mutex<TaskDetails>,
