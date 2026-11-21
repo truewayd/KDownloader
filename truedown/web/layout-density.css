@@ -1,5 +1,6 @@
 :root[data-layout-density="compact"] {
   --density-control-height: 30px;
+  --task-toolbar-block-inset: 6px;
   --task-row-height: 52px;
   --density-gap: 8px;
   --density-section-gap: 14px;
@@ -12,9 +13,6 @@
 
 [data-layout-density="compact"] .sidebar { gap: 12px; padding-block: 8px; }
 [data-layout-density="compact"]:not(.sidebar-collapsed) .sidebar { --sidebar-inset: 10px; }
-[data-layout-density="compact"]:not(.sidebar-collapsed) :is(.primary-nav a, .nav-section-toggle, .sidebar-footer a, .sidebar-action) {
-  align-items: center;
-}
 [data-layout-density="compact"]:not(.sidebar-collapsed) .notice-copy {
   display: flex;
   flex-wrap: wrap;
@@ -45,7 +43,7 @@
   top: 50%;
   transform: translateY(-50%);
 }
-[data-layout-density="compact"] .task-toolbar { padding-block: 6px; row-gap: 4px; }
+[data-layout-density="compact"] .task-toolbar { row-gap: 4px; }
 [data-layout-density="compact"] .task-controls { padding-block: var(--density-gap); }
 [data-layout-density="compact"] .metric-strip { padding-block-start: var(--density-gap); gap: var(--density-section-gap); }
 [data-layout-density="compact"] .tasks-table .task-rows td { padding-block: 4px; }

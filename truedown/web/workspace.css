@@ -1,6 +1,7 @@
 /* Workspace layout; controls and state visuals remain in styles.css. */
 :root { --navigation-width: 216px; --sidebar-compact-width: 68px; --sidebar-width: var(--navigation-width); --settings-nav-width: var(--navigation-width); --task-row-height: 64px; }
 :root.sidebar-collapsed { --sidebar-width: var(--sidebar-compact-width); }
+:root { --task-toolbar-block-inset: 12px; }
 [hidden] { display: none !important; }
 #task-load-status { margin: 12px 24px 0; }
 .native-only, .sidebar .native-only { display: none; }
@@ -16,12 +17,21 @@
 .brand { cursor: default; }
 .workspace { display: flex; flex: 1; min-height: 0; }
 .sidebar { --sidebar-inset: 12px; display: flex; flex: 0 0 var(--sidebar-width); min-width: 0; flex-direction: column; gap: 24px; padding: 12px var(--sidebar-inset) 14px; overflow-x: hidden; overflow-y: auto; transition: flex-basis 220ms var(--kd-ease-standard), padding-inline 220ms var(--kd-ease-standard); }
-.sidebar-top { display: grid; gap: 18px; }
+.sidebar-top { display: grid; gap: 12px; }
+.sidebar {
+  --nav-end-width: 36px;
+  /* Match the center of the leading 18px icon behind its 12px padding. */
+  --nav-end-padding: 3px;
+}
 .sidebar-brand { display: flex; min-height: 36px; align-items: center; justify-content: space-between; gap: 8px; }
 .brand-mark, .brand-mark img { width: 28px; height: 28px; }
 .brand-copy strong { font-size: 15px; font-weight: 600; }
 .sidebar .kd-icon-button { flex-shrink: 0; }
 .sidebar .sidebar-toggle { background: transparent; border-color: transparent; box-shadow: none; }
+:root:not(.sidebar-collapsed) .sidebar-toggle {
+  width: var(--nav-end-width);
+  margin-inline-end: calc(var(--nav-end-padding) + 1px); /* navigation row border */
+}
 .sidebar .sidebar-toggle:hover { background: var(--kd-secondary-hover); border-color: transparent; color: var(--kd-text); }
 .sidebar #new-task-btn { justify-content: flex-start; gap: 10px; padding-inline: 12px; font-weight: 600; }
 .primary-nav, .settings-nav, .sidebar-footer { display: grid; gap: 4px; }
@@ -43,8 +53,10 @@
 .primary-nav .file-group-navigation { grid-template-columns: minmax(0, 1fr); }
 .nav-section-toggle { display: flex; align-items: center; justify-content: space-between; min-height: 32px; padding: 4px 12px; list-style: none; }
 .nav-section-toggle::-webkit-details-marker { display: none; }
+.primary-nav .nav-section-toggle { font-size: 12px; font-weight: 600; }
 .nav-section-toggle .nav-section-icon { display: none; }
-.primary-nav :is(.nav-count, .nav-section-end) { flex: 0 0 36px; text-align: center; }
+.primary-nav :is(.nav-count, .nav-section-end) { flex: 0 0 var(--nav-end-width); text-align: center; }
+:root:not(.sidebar-collapsed) .sidebar .primary-nav :is(a, .nav-section-toggle) { padding-inline-end: var(--nav-end-padding); }
 .nav-section-end { display: grid; place-items: center; }
 .nav-section-toggle .nav-section-chevron {
   flex-basis: 16px;
@@ -98,7 +110,8 @@
 .sidebar .icon { flex: 0 0 18px; width: 18px; height: 18px; }
 .sidebar-footer { margin-top: auto; font-size: 11px; }
 .nav-count { margin-inline-start: auto; color: var(--kd-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.primary-nav .nav-count { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.primary-nav .nav-count { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.primary-nav a, .sidebar-footer :is(a, .sidebar-action) { align-items: center; }
 .primary-nav .nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-collapsed .nav-count { display: none; }
 #workspace-traffic { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; font-size: 12px; color: var(--kd-muted); font-variant-numeric: tabular-nums; }
@@ -340,6 +353,7 @@
   .settings-nav-link { padding: 8px 10px; }
 }
 @media (max-width: 720px) {
+  :root { --task-toolbar-block-inset: 10px; }
   :root:not(.sidebar-collapsed) { --sidebar-width: min(208px, 85vw); }
   .nav-count, #workspace-traffic .traffic-count, #workspace-traffic .traffic-speed > .icon { display: none; }
   #workspace-traffic { justify-content: center; gap: 0; font-size: 11px; }
@@ -383,7 +397,7 @@
 
 /* One responsive toolbar; list scrolling is independent of its controls. */
 .task-panel { position: relative; container: task-workspace / inline-size; }
-.task-toolbar { align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
+.task-toolbar { align-items: center; flex-wrap: wrap; gap: 8px; padding: var(--task-toolbar-block-inset) 16px; }
 .task-toolbar .task-query-controls { display: flex; flex: 1 1 360px; min-width: 0; gap: 8px; }
 .task-toolbar .search-control { width: auto; flex: 1; min-width: 80px; }
 .task-toolbar .filter-control { flex: 0 1 148px; min-width: 128px; }
@@ -411,7 +425,7 @@
   .task-toolbar .task-query-controls { flex: 1; }
 }
 @container task-workspace (max-width: 560px) {
-  .task-toolbar { padding: 10px 8px; gap: 4px; }
+  .task-toolbar { padding-inline: 8px; gap: 4px; }
   .task-toolbar .task-query-controls { gap: 4px; }
   .task-toolbar .filter-control { flex-basis: 132px; }
   .task-toolbar .search-control { min-width: 64px; }
@@ -422,6 +436,8 @@
 }
 @container task-workspace (max-width: 400px) {
   .task-toolbar .task-query-controls { flex: 1 0 100%; }
+  .task-toolbar .task-queue-actions { margin-inline-start: auto; }
+  .task-toolbar > #open-downloads-btn { margin-inline-start: 0; }
 }
 @media (max-width: 520px) {
   [data-settings-search="true"] .settings-nav { flex: 1; }
@@ -440,6 +456,7 @@
 /* Search geometry is shared by the task toolbar and settings navigation. */
 :is(.search-field, .settings-search-field) { position: relative; min-width: 0; }
 :is(.search-field, .settings-search-field) .kd-input { width: 100%; height: 36px; min-height: 36px; padding-inline: 36px 36px; font-size: 13px; }
+.task-toolbar .search-field:has(.search-clear[hidden]) .kd-input { padding-inline-end: 12px; }
 :is(.search-field, .settings-search-field) .search-icon { left: 12px; width: 16px; height: 16px; }
 :is(.search-field, .settings-search-field) input::-webkit-search-cancel-button { display: none; }
 .search-field .search-clear, #settings-search-clear { position: absolute; right: 4px; top: 4px; width: 28px; height: 28px; min-height: 28px; padding: 6px; border-radius: 50%; background: transparent; }

@@ -2,6 +2,7 @@
    expose continuous material through their message and action areas. */
 [data-platform="windows"] body { -webkit-font-smoothing: auto; }
 [data-platform="windows"] .dashboard { padding: 8px; }
+[data-platform="windows"][data-native-window="main"] .dashboard { padding-inline-start: 0; }
 [data-platform][data-native-window="settings"] .dashboard { padding: 0; }
 [data-platform][data-native-window="settings"] .settings-page { border: 0; border-radius: 0; }
 [data-platform][data-native-window="settings"] #settings-form {
