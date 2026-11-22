@@ -1,11 +1,27 @@
 # aria2 NEXT compatibility audit
 
-Reviewed on 2026-11-17 against the latest published release,
-[v3.1.0](https://github.com/AnInsomniacy/aria2-next/releases/tag/v3.1.0).
+Reviewed on 2026-11-22 against the published release
+[v3.1.1](https://github.com/AnInsomniacy/aria2-next/releases/tag/v3.1.1)
+and main at `1b8fb72fcf63dc9e78807f20039708184bce0ad2`.
 The pinned Windows AMD64 and ARM64 hashes now match this release's published
-asset SHA-256 digests. The previous 3.0.8, 3.0.2, 3.0.0 and
+asset SHA-256 digests. The previous 3.1.0, 3.0.8, 3.0.2, 3.0.0 and
 2.8.3 releases remain separate regression targets.
 Unreleased main-branch behavior is not treated as a release contract.
+
+3.1.1 drains shutdown replies before exiting. The existing media adapter
+enables native numbering and reads the published output name, so concurrent
+HLS downloads with the same title can now both complete. Paused torrent moves,
+relative Windows BT paths and detached-seeding queue refill are engine fixes.
+TrueDown supplies absolute directories and keeps its existing task-location policy.
+
+NEXT retains an unfinished **removed** HTTP transfer's checkpoint while its
+file exists. TrueDown cancellation removes the owned partial after writer
+settlement. NEXT prunes its orphan record on the next startup with the volume
+available. Failed HTTP transfers reach a different terminal phase: retiring
+their results still discards the checkpoint. Reusing their GID produced
+native error 13 in a real-engine retry of a preallocated file. Explicit failed
+retries therefore continue to restart the verified owned output. See the
+[released HTTP lifecycle](https://github.com/AnInsomniacy/aria2-next/blob/v3.1.1/src/http/HttpTask.cc).
 
 3.0.9 repairs preallocated retry range accounting, additional-connection 403
 handling, slow connection recycling and address-family selection. 3.0.10 fixes

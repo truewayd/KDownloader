@@ -206,17 +206,30 @@ func TestNext3NativePauseAndRemovalIntegration(t *testing.T) {
 	if len(result.Succeeded) != 1 || len(result.Failed) != 0 {
 		t.Fatalf("remove: %+v", result)
 	}
+	if _, err := m.rpc.status(task.GID); !isGIDNotFound(err) {
+		t.Fatal("native result remains", err)
+	}
+	if aria2NextVersionAtLeast(config.Aria2NextVersion, 3, 1, 1) {
+		// NEXT prunes removed-transfer checkpoints at startup once it can
+		// confirm the owned output was deleted on an available volume.
+		m.Stop()
+		restarted, err := NewManagerWithConfig(engine, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer restarted.Stop()
+		if err := restarted.Start(); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if checkpointCount() != 0 {
-		t.Fatal("native task removal retained checkpoint")
+		t.Fatal("engine retained a removed download's checkpoint after cleanup")
 	}
 	if _, err := os.Stat(filepath.Join(task.Folder, task.OutputName)); !os.IsNotExist(err) {
 		t.Fatal("owned incomplete output remains", err)
 	}
 	if data, err := os.ReadFile(foreign); err != nil || string(data) != "keep" {
 		t.Fatal("removal touched foreign temporary file", err)
-	}
-	if _, err := m.rpc.status(task.GID); !isGIDNotFound(err) {
-		t.Fatal("native result remains", err)
 	}
 }
 

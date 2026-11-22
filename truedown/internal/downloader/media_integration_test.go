@@ -84,7 +84,11 @@ func TestNext3MediaIntegration(t *testing.T) {
 		return strings.Join(hashes, "\n")
 	}
 	wantFrames := videoHashes(source)
-	for _, scenario := range []string{"hls", "dash", "retry", "restart", "remove", "live", "cross-origin"} {
+	scenarios := []string{"hls", "dash", "retry", "restart", "remove", "live", "cross-origin"}
+	if aria2NextVersionAtLeast(config.Aria2NextVersion, 3, 1, 1) {
+		scenarios = append(scenarios, "same-title")
+	}
+	for _, scenario := range scenarios {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
 			var failure atomic.Bool
@@ -92,6 +96,10 @@ func TestNext3MediaIntegration(t *testing.T) {
 			var requestsMu sync.Mutex
 			requests := map[string]int{}
 			files := http.FileServer(http.Dir(fixtures))
+			writing := make(chan struct{})
+			firstSegment := sync.OnceFunc(func() { close(writing) })
+			secondManifest := make(chan struct{})
+			release := sync.OnceFunc(func() { close(secondManifest) })
 			var leaked atomic.Bool
 			child := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Cookie") != "" {
@@ -109,6 +117,19 @@ func TestNext3MediaIntegration(t *testing.T) {
 				if r.Header.Get("Cookie") != "fixture=authorized" {
 					w.WriteHeader(401)
 					return
+				}
+				if scenario == "same-title" {
+					if r.URL.Query().Get("second") == "1" {
+						release()
+					}
+					if strings.HasSuffix(r.URL.Path, ".ts") {
+						firstSegment()
+						select {
+						case <-secondManifest:
+						case <-r.Context().Done():
+							return
+						}
+					}
 				}
 				if strings.HasSuffix(r.URL.Path, ".m3u8") && (scenario == "live" || scenario == "cross-origin") {
 					data, err := os.ReadFile(filepath.Join(fixtures, "hls", "index.m3u8"))
@@ -157,6 +178,7 @@ func TestNext3MediaIntegration(t *testing.T) {
 			}
 			m := newManager()
 			defer func() { m.Stop() }()
+			defer release()
 			t.Cleanup(func() {
 				if t.Failed() {
 					requestsMu.Lock()
@@ -187,6 +209,23 @@ func TestNext3MediaIntegration(t *testing.T) {
 			task, _, err := m.AddTask(server.URL+path, "Episode.01", "", map[string]string{"Cookie": "fixture=authorized"}, "", 0, Aria2Opts{Connections: 1, MaxTries: 1, RetryWait: 1, Media: &MediaOptions{Protocol: protocol, Format: format}})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if scenario == "same-title" {
+				select {
+				case <-writing:
+				case <-time.After(10 * time.Second):
+					t.Fatal("first stream never requested a segment")
+				}
+				second, _, err := m.AddTask(server.URL+path+"?second=1", task.Name, "", task.Headers, "", 0, task.Opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				waitForStatus(t, m, second.ID, 20*time.Second, StatusDone)
+				second, _ = m.GetTask(second.ID)
+				if second.OutputName == "Episode.01.mp4" || second.Folder != task.Folder ||
+					videoHashes(filepath.Join(second.Folder, second.OutputName)) != wantFrames {
+					t.Fatal("simultaneous same-title stream did not publish a distinct, complete output")
+				}
 			}
 			if scenario == "retry" {
 				waitForStatus(t, m, task.ID, 20*time.Second, StatusError)

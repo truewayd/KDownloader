@@ -20,10 +20,16 @@ func TestEngineShutdownTiming(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"rpc", "managed"} {
+	config := integrationManagerConfig()
+	modes := []string{"rpc", "managed"}
+	drainsReplies := aria2NextVersionAtLeast(config.Aria2NextVersion, 3, 1, 1)
+	if drainsReplies {
+		modes = append(modes, "force-rpc")
+	}
+	for _, mode := range modes {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
-			m, err := NewManagerWithConfig(path, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), integrationManagerConfig())
+			m, err := NewManagerWithConfig(path, filepath.Join(root, "downloads"), filepath.Join(root, "records.db"), config)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -32,7 +38,17 @@ func TestEngineShutdownTiming(t *testing.T) {
 				t.Fatal(err)
 			}
 			start := time.Now()
-			if mode == "rpc" {
+			if drainsReplies && mode != "managed" {
+				method := "aria2.shutdown"
+				if mode == "force-rpc" {
+					method = "aria2.forceShutdown"
+				}
+				var reply string
+				err = m.rpc.(*ariaClient).call(method, nil, &reply)
+				if err == nil && reply != "OK" {
+					t.Fatalf("%s returned %q", method, reply)
+				}
+			} else if mode == "rpc" {
 				err = m.rpc.shutdown()
 			} else {
 				err = m.shutdownEngine()

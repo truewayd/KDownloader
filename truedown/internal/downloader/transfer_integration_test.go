@@ -84,6 +84,7 @@ func TestAriaHTTPRepeatedInterruptedRetriesKeepOneOutput(t *testing.T) {
 	// Losing the piece map of a fully preallocated file must never result in
 	// a numbered replacement or a false successful download based on size.
 	for attempt := 0; attempt < 3; attempt++ {
+		beforeRetry, _ := m.GetTask(task.ID)
 		if err := os.Remove(path + ".aria2"); err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)
 		}
@@ -102,6 +103,9 @@ func TestAriaHTTPRepeatedInterruptedRetriesKeepOneOutput(t *testing.T) {
 		current, _ := m.GetTask(task.ID)
 		if m.usesNativeHTTPState() && !m.usesNext3() && current.GID != task.GID {
 			t.Fatal("native retry changed checkpoint owner")
+		}
+		if m.usesNext3() && current.GID == beforeRetry.GID {
+			t.Fatal("failed HTTP retry reused a retired checkpoint")
 		}
 		if current.OutputName != task.OutputName {
 			t.Fatalf("retry %d renamed output: %q", attempt, current.OutputName)

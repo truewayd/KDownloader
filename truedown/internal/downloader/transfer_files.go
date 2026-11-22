@@ -34,9 +34,8 @@ func (m *Manager) retryTransferState(task *Task) string {
 	var identity requestIdentity
 	if m.usesNext3() && task.Status == StatusError && !m.isArtifactTask(task) &&
 		json.Unmarshal([]byte(task.RequestJSON), &identity) == nil && identity.BitTorrent == nil {
-		// NEXT 3 removes HTTP checkpoints with the stopped result. It has no
-		// HTTP retry RPC; keep pause/restart recovery native, and explicitly
-		// restart failed downloads instead of copying engine-owned state.
+		// NEXT 3.1.1 retains removed transfers, but retiring a failed HTTP
+		// result still drops its checkpoint. Restart only the owned output.
 		return transferRestart
 	}
 	return retryTransferState(task)
