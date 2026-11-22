@@ -169,6 +169,7 @@ fn main() {
         .unwrap()
         .to_path_buf();
     let replacement = match update::before_start(&base, background) {
+        #[cfg(windows)]
         Ok(update::Launch::Forwarded) => return,
         Ok(launch) => launch == update::Launch::Replacement,
         Err(error) => {

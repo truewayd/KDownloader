@@ -118,6 +118,7 @@ fn valid_token(token: &str) -> bool {
 pub enum Launch {
     Normal,
     Replacement,
+    #[cfg(windows)]
     Forwarded,
 }
 
