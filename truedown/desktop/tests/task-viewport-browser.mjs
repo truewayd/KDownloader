@@ -9,6 +9,9 @@ const assets = new URL("../../web/", import.meta.url);
 const output = path.resolve(process.argv[2] || "../dist/task-viewport-review");
 const groups = { revision: 1, groups: [{ id: "video", name: "Video", extensions: [".mp4"] }, { id: "other", name: "Other", extensions: [] }] };
 const tasks = Array.from({ length: 2400 }, (_, index) => ({ id: index + 1, name: `Movie ${index + 1}.mp4`, outputName: `Movie ${index + 1}.mp4`, category: "video", status: ["downloading", "error", "queued", "paused"][index] || "done", totalLength: 1024000, completedLength: 512000, downloadSpeed: 4096, link: `https://example.test/${index + 1}`, folder: "Downloads" }));
+for (const [index, name] of ["example.exe", "PROMO WWWW artwork FINAL PACK.png", "软件安装包-版本２０２６-测试示例.exe"].entries()) {
+  Object.assign(tasks[index], { name, outputName: name });
+}
 Object.assign(tasks[0], { totalLength: 1023.9 * 1024 ** 3, downloadSpeed: 1023.9 * 1024 ** 2, createdAt: "2026-11-22T02:00:00Z" });
 const requests = [];
 let revision = 1;
@@ -70,6 +73,30 @@ try {
     assert.equal(await page.locator('#tasks-wrap .kd-page-placeholder[data-variant="list"]').isVisible(), true);
     finishInitialRead(); pendingReads = null;
     await page.waitForFunction(() => currentTotal === 2400);
+    await page.waitForFunction(() => document.querySelector(".task-rows td-file-name")?.shadowRoot?.textContent);
+    const filenames = await page.locator(".task-rows td-file-name").evaluateAll(nodes => nodes.slice(0, 3).map(node => {
+      const range = document.createRange();
+      range.selectNodeContents(node.shadowRoot);
+      return { name: node.textContent, displayed: node.shadowRoot.textContent,
+        renderedWidth: range.getBoundingClientRect().width, available: node.getBoundingClientRect().width };
+    }));
+    assert.equal(filenames[0].displayed, "example.exe");
+    for (const file of filenames) {
+      assert.ok(file.displayed.endsWith(file.name.slice(file.name.lastIndexOf("."))));
+      assert.ok(file.renderedWidth <= file.available, `${width}px: filename clipped: ${JSON.stringify(file)}`);
+    }
+    const sampleName = page.locator(".task-rows td-file-name").first();
+    await sampleName.evaluate(node => {
+      const sample = document.createTextNode("ex…le.exe");
+      node.shadowRoot.append(sample);
+      const range = document.createRange();
+      range.selectNodeContents(sample);
+      node.style.width = Math.ceil(range.getBoundingClientRect().width) + "px";
+      sample.remove();
+    });
+    await page.waitForFunction(() => document.querySelector(".task-rows td-file-name").shadowRoot.textContent === "ex…le.exe");
+    await sampleName.evaluate(node => node.style.removeProperty("width"));
+    await page.waitForFunction(() => document.querySelector(".task-rows td-file-name").shadowRoot.textContent === "example.exe");
     let englishStatusWidth;
     for (const language of ["en", "zh-CN"]) {
       await page.evaluate(language => window.TrueDownI18n.setLanguage(language), language);

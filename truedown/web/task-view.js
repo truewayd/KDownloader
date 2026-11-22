@@ -23,28 +23,36 @@ customElements.define("td-file-name", class extends HTMLElement {
     if (!width) return;
     const name = this.textContent;
     const style = getComputedStyle(this);
-    const spacing = parseFloat(style.letterSpacing) || 0;
     const context = taskNameContext ||= document.createElement("canvas").getContext("2d");
-    context.font = style.font;
-    const measure = text => context.measureText(text).width + (spacing ? Array.from(text).length * spacing : 0);
+    // Computed font shorthand can be empty when the table uses tabular numbers.
+    // Canvas would silently keep its default 10px font and undermeasure the name.
+    context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    context.letterSpacing = style.letterSpacing === "normal" ? "0px" : style.letterSpacing;
+    const fits = text => Math.ceil(context.measureText(text).width) <= width;
     let result = name;
-    if (measure(name) > width) {
+    if (!fits(name)) {
       const chars = Array.from(taskNameSegmenter.segment(name), part => part.segment);
-      const dot = name.lastIndexOf(".");
-      // Prefer the entire extension, then split the remaining space between
-      // the beginning and end. Extremely long extensions still fit safely.
-      const extension = dot > 0 ? Array.from(taskNameSegmenter.segment(name.slice(dot))).length : 0;
+      const dot = chars.lastIndexOf(".");
+      const hasExtension = dot > 0 && dot < chars.length - 1;
+      const stem = hasExtension ? chars.slice(0, dot) : chars;
+      const extension = hasExtension ? chars.slice(dot).join("") : "";
+      const keepExtension = fits("…" + extension);
       const candidate = count => {
-        const tail = Math.min(count - 1, Math.max(extension, Math.floor(count / 2)));
-        return chars.slice(0, count - tail).join("") + "…" + (tail ? chars.slice(-tail).join("") : "");
+        if (!keepExtension) return stem.slice(0, count).join("") + "…";
+        const tail = Math.floor(count / 2);
+        return stem.slice(0, count - tail).join("") + "…" + (tail ? stem.slice(-tail).join("") : "") + extension;
       };
-      let low = 1, high = chars.length - 1;
-      result = measure("…") <= width ? "…" : "";
-      while (low <= high) {
-        const count = Math.floor((low + high) / 2);
-        const text = candidate(count);
-        if (measure(text) <= width) { result = text; low = count + 1; }
-        else high = count - 1;
+      if (!keepExtension && fits(extension)) {
+        result = extension;
+      } else {
+        result = "";
+        let low = 0, high = keepExtension ? stem.length - 1 : stem.length;
+        while (low <= high) {
+          const count = Math.floor((low + high) / 2);
+          const text = candidate(count);
+          if (fits(text)) { result = text; low = count + 1; }
+          else high = count - 1;
+        }
       }
     }
     if (this.output.textContent !== result) this.output.textContent = result;
