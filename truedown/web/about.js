@@ -52,14 +52,7 @@ function renderOpenSourceNotices() {
     link.href = project.url;
     link.textContent = project.name;
     link.className = "open-source-project-link kd-selectable";
-    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    icon.classList.add("icon");
-    icon.setAttribute("aria-hidden", "true");
-    icon.setAttribute("focusable", "false");
-    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-    use.setAttribute("href", "/icons.svg#icon-external-link");
-    icon.append(use);
-    link.append(icon);
+    link.append(KDComponents.createSpriteIcon("/icons.svg#icon-external-link"));
     const license = document.createElement("span");
     license.className = "open-source-project-license kd-selectable";
     license.setAttribute("data-i18n-text", project.license);

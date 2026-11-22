@@ -478,6 +478,21 @@
     return control;
   }
 
+  function trapTabKey(event, scope) {
+    if (event.key !== "Tab" || event.defaultPrevented) return;
+    const controls = [...scope.querySelectorAll(
+      'a[href], button, input, select, textarea, summary, [tabindex], [contenteditable="true"]'
+    )].filter(control => control.tabIndex >= 0 && !control.matches(":disabled") &&
+      !control.closest("[inert]") && control.getClientRects().length &&
+      control.checkVisibility({ visibilityProperty: true }));
+    const active = scope.getRootNode().activeElement;
+    const first = controls[0], last = controls[controls.length - 1];
+    if (!controls.includes(active) || active === (event.shiftKey ? first : last)) {
+      event.preventDefault();
+      ((event.shiftKey ? last : first) || scope).focus({ preventScroll: true });
+    }
+  }
+
   function initializeLinksDialogElement(element) {
     const existing = linksDialogControllers.get(element);
     if (existing) return existing;
@@ -511,24 +526,7 @@
         controller.close();
         return;
       }
-      if (event.key !== "Tab" || !state.dialog) return;
-      const focusable = Array.from(
-        state.dialog.querySelectorAll("a[href], button:not(:disabled)")
-      );
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = root.activeElement;
-      if (!state.dialog.contains(active)) {
-        event.preventDefault();
-        (event.shiftKey ? last : first).focus();
-      } else if (event.shiftKey && active === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && active === last) {
-        event.preventDefault();
-        first.focus();
-      }
+      if (state.dialog) trapTabKey(event, state.dialog);
     };
 
     const controller = {
@@ -827,6 +825,17 @@
     }
   }
 
+  function createSpriteIcon(href, className = "icon", doc = document) {
+    const icon = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const use = doc.createElementNS("http://www.w3.org/2000/svg", "use");
+    icon.setAttribute("class", className);
+    icon.setAttribute("aria-hidden", "true");
+    icon.setAttribute("focusable", "false");
+    use.setAttribute("href", href);
+    icon.append(use);
+    return icon;
+  }
+
   function createToast(element, { statusElement = null, duration = 2600, spriteURL = null } = {}) {
     let timer = null;
     let presentation = 0;
@@ -834,12 +843,8 @@
     let iconUse = null;
     if (element && spriteURL) {
       const doc = element.ownerDocument;
-      const icon = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
-      iconUse = doc.createElementNS("http://www.w3.org/2000/svg", "use");
-      icon.setAttribute("class", "icon kd-toast-icon");
-      icon.setAttribute("aria-hidden", "true");
-      icon.setAttribute("focusable", "false");
-      icon.append(iconUse);
+      const icon = createSpriteIcon(`${spriteURL}#icon-notification-success`, "icon kd-toast-icon", doc);
+      iconUse = icon.firstElementChild;
       content = doc.createElement("span");
       content.className = "kd-toast-message";
       element.replaceChildren(icon, content);
@@ -901,16 +906,7 @@
     dialog.append(heading, description, actions);
 
     return new Promise((resolve, reject) => {
-      const handleKeydown = (event) => {
-        if (!dialog.open || event.key !== "Tab") return;
-        event.preventDefault();
-        const controls = [cancel, confirm].filter((control) => !control.disabled);
-        const current = controls.indexOf(ownerDocument.activeElement);
-        const next = current < 0
-          ? (event.shiftKey ? controls.length - 1 : 0)
-          : (current + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
-        controls[next]?.focus({ preventScroll: true });
-      };
+      const handleKeydown = event => { if (dialog.open) trapTabKey(event, dialog); };
       const finish = () => {
         ownerDocument.removeEventListener("keydown", handleKeydown, true);
         dialog.remove();
@@ -1021,6 +1017,7 @@
     const selector = "[data-tooltip]";
     const find = node => node?.closest?.(selector);
     const hide = () => {
+      observer.disconnect();
       view.clearTimeout(timer);
       view.clearTimeout(leaveTimer);
       view.cancelAnimationFrame(layoutFrame);
@@ -1043,6 +1040,8 @@
       const text = anchor.dataset.tooltip.trim();
       if (tip.textContent !== text) tip.textContent = text;
       tip.dataset.kind = anchor.dataset.tooltipKind || (text.length > 48 || text.includes("\n") ? "card" : "label");
+      if (tip.hidden) observer.observe(ownerDocument.body, { subtree: true, childList: true, attributes: true,
+        attributeFilter: ["data-tooltip", "data-tooltip-kind", "hidden"] });
       tip.hidden = false;
       if (tip.showPopover && !tip.matches(":popover-open")) tip.showPopover();
       const ids = new Set((anchor.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
@@ -1110,7 +1109,6 @@
         if (anchor && !tip.hidden) render();
       });
     });
-    observer.observe(ownerDocument.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-tooltip", "data-tooltip-kind", "hidden"] });
     const listeners = [["pointerover", over], ["pointerout", out], ["focusin", focus], ["focusout", out], ["pointerdown", press], ["keydown", key], ["scroll", scroll], ["visibilitychange", visibility]];
     for (const [name, callback] of listeners) ownerDocument.addEventListener(name, callback, true);
     for (const name of ["blur", "resize", "hashchange", "pagehide"]) view.addEventListener(name, hide);
@@ -1118,7 +1116,6 @@
       hide,
       destroy() {
         hide();
-        observer.disconnect();
         for (const [name, callback] of listeners) ownerDocument.removeEventListener(name, callback, true);
         for (const name of ["blur", "resize", "hashchange", "pagehide"]) view.removeEventListener(name, hide);
         tip.remove();
@@ -1137,13 +1134,8 @@
       notice.className = "kd-notice";
       notice.dataset.tone = ["warning", "error"].includes(body.dataset.kdNotice) ? body.dataset.kdNotice : "info";
       content.className = "kd-notice-content";
-      const icon = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
-      const use = doc.createElementNS("http://www.w3.org/2000/svg", "use");
-      icon.setAttribute("class", "icon kd-notice-icon");
-      icon.setAttribute("aria-hidden", "true");
-      icon.setAttribute("focusable", "false");
-      use.setAttribute("href", `${spriteURL}#icon-${notice.dataset.tone === "info" ? "info" : "circle-alert"}`);
-      icon.append(use);
+      const symbol = notice.dataset.tone === "info" ? "info" : "circle-alert";
+      const icon = createSpriteIcon(`${spriteURL}#icon-${symbol}`, "icon kd-notice-icon", doc);
       if (body.dataset.kdNoticeTitle) {
         const title = doc.createElement("strong");
         title.className = "kd-notice-title";
@@ -1189,14 +1181,270 @@
     return Object.freeze({ hide, show });
   }
 
+  // A pointer-only surface. The original control keeps its identity and keyboard focus.
+  function createDragFeedback(source, icon, kind = "sort") {
+    const document = source.ownerDocument;
+    const view = document.defaultView;
+    const hint = document.createElement("div");
+    hint.className = "pointer-drag-hint";
+    hint.setAttribute("aria-hidden", "true");
+    hint.setAttribute("data-i18n-ignore", "");
+    hint.inert = true;
+    const text = document.createElement("span");
+    if (icon) hint.append(icon.cloneNode(true));
+    hint.append(text);
+    source.dataset.dragKind = kind;
+    document.body.append(hint);
+    let target, width, height;
+    return {
+      move(label, x, y) {
+        if (text.textContent !== label || width === undefined) {
+          text.textContent = label;
+          width = hint.offsetWidth;
+          height = hint.offsetHeight;
+        }
+        const left = x + 14 + width <= view.innerWidth - 4 ? x + 14 : x - 14 - width;
+        const top = y + 16 + height <= view.innerHeight - 4 ? y + 16 : y - 16 - height;
+        const clampedX = Math.max(4, Math.min(left, view.innerWidth - width - 4));
+        const clampedY = Math.max(4, Math.min(top, view.innerHeight - height - 4));
+        hint.style.transform = `translate(${clampedX}px, ${clampedY}px)`;
+      },
+      mark(next, edge) {
+        if (target === next && (!next || next.dataset.dropEdge === edge)) return;
+        target?.removeAttribute("data-drop-edge");
+        target = next;
+        if (target) target.dataset.dropEdge = edge;
+      },
+      remove() {
+        target?.removeAttribute("data-drop-edge");
+        source.removeAttribute("data-drag-kind");
+        hint.remove();
+      },
+    };
+  }
+
+  // A document owns one internal gesture, including the press before a reorder starts.
+  const pointerDrags = new WeakMap();
+
+  function bindPointerDrag(root, prepare) {
+    const doc = root.ownerDocument, view = doc.defaultView;
+    let current = null, blockedClick = null;
+
+    function finish(reason) {
+      const drag = current;
+      if (!drag) return;
+      current = null;
+      pointerDrags.delete(doc);
+      drag.listeners.abort();
+      view.cancelAnimationFrame(drag.frame);
+      if (root.hasPointerCapture(drag.id)) root.releasePointerCapture(drag.id);
+      drag.feedback?.remove();
+      if (drag.started || reason === "escape") blockedClick = drag.id;
+      drag.gesture.end(reason, drag.started);
+    }
+
+    root.addEventListener("click", event => {
+      if (blockedClick === null || !event.detail || (event.pointerId > 0 && event.pointerId !== blockedClick)) return;
+      blockedClick = null;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, true);
+    root.addEventListener("pointerdown", down => {
+      if (!down.isPrimary || down.button !== 0) return;
+      // A press can end outside the window before the movement threshold takes capture.
+      const pending = pointerDrags.get(doc);
+      if (pending && pending.down !== down && pending.id === down.pointerId) pending.cancel();
+      blockedClick = null;
+      if (down.defaultPrevented || pointerDrags.has(doc)) return;
+      const gesture = prepare(down);
+      if (!gesture) return;
+      const listeners = new AbortController(), options = { signal: listeners.signal };
+      const drag = { gesture, listeners, down, id: down.pointerId, started: false, frame: 0, cancel: () => finish("cancel") };
+      current = drag;
+      pointerDrags.set(doc, drag);
+      function start(event) {
+        drag.started = true;
+        root.setPointerCapture(drag.id);
+        event.preventDefault();
+        if (gesture.feedback) drag.feedback = createDragFeedback(gesture.source, gesture.feedback.icon, gesture.feedback.kind);
+        gesture.start?.(event, drag.feedback);
+      }
+      function paint() {
+        drag.frame = 0;
+        if (!root.isConnected || !root.contains(gesture.source)) { finish("cancel"); return; }
+        if (gesture.move(drag.latest, false, drag.feedback) && current === drag) drag.frame = view.requestAnimationFrame(paint);
+      }
+      view.addEventListener("pointermove", event => {
+        if (event.pointerId !== drag.id) return;
+        if (!(event.buttons & 1) || !root.isConnected || !root.contains(gesture.source)) { finish("cancel"); return; }
+        if (!drag.started) {
+          const dx = event.clientX - down.clientX, dy = event.clientY - down.clientY;
+          const distance = gesture.horizontal ? Math.abs(dx) : Math.hypot(dx, dy);
+          if (distance < gesture.threshold) return;
+          start(event);
+        }
+        event.preventDefault();
+        drag.latest = event;
+        if (!drag.frame) drag.frame = view.requestAnimationFrame(paint);
+      }, options);
+      view.addEventListener("pointerup", event => {
+        if (event.pointerId !== drag.id) return;
+        if (!root.isConnected || !root.contains(gesture.source)) { finish("cancel"); return; }
+        if (drag.started) gesture.move(event, true, drag.feedback);
+        finish("release");
+      }, options);
+      view.addEventListener("pointercancel", event => { if (event.pointerId === drag.id) finish("cancel"); }, options);
+      root.addEventListener("lostpointercapture", event => {
+        if (event.target === root && event.pointerId === drag.id) finish("cancel");
+      }, options);
+      for (const type of ["blur", "pagehide", "hashchange"]) view.addEventListener(type, () => finish("cancel"), options);
+      doc.addEventListener("visibilitychange", () => { if (doc.hidden) finish("cancel"); }, options);
+      doc.addEventListener("keydown", event => {
+        if (event.key !== "Escape") return;
+        event.preventDefault(); event.stopImmediatePropagation();
+        finish("escape");
+      }, { ...options, capture: true });
+      if (!gesture.threshold) start(down);
+    });
+    return { get active() { return Boolean(current); }, cancel: () => finish("cancel") };
+  }
+
+  // Sortable items are siblings. The caller owns their order and persistence.
+  function bindReorder(root, { axis, item, exclude, label, icon, scrollParent, scrollEdges,
+    busy, revision, refresh, move }) {
+    const doc = root.ownerDocument, view = doc.defaultView;
+    const horizontal = axis === "x";
+    const offset = horizontal ? "scrollLeft" : "scrollTop";
+    const controller = bindPointerDrag(root, down => {
+      if (down.pointerType === "touch" || down.altKey || down.ctrlKey || down.metaKey || down.shiftKey || busy?.()) return;
+      if (exclude && down.target.closest(exclude)) return;
+      const source = down.target.closest(item);
+      if (!source) return;
+      const list = source.parentElement, version = revision?.();
+      let scroller, name, target, after;
+      function mark(x, y, feedback) {
+        const hit = doc.elementFromPoint(x, y);
+        target = hit?.closest(item);
+        if (!horizontal && hit === list) {
+          target = [...list.children].find(node => node.getBoundingClientRect().bottom >= y) || list.lastElementChild;
+        }
+        if (target?.parentElement !== list || target === source) target = null;
+        if (target) {
+          const box = target.getBoundingClientRect();
+          after = horizontal ? x >= box.left + box.width / 2 : y >= box.top + box.height / 2;
+          if ((after ? target.nextElementSibling : target.previousElementSibling) === source) target = null;
+        }
+        feedback.mark(target, horizontal ? (after ? "right" : "left") : (after ? "bottom" : "top"));
+      }
+      function scroll(x, y) {
+        const bounds = scroller.getBoundingClientRect(), row = horizontal ? source.getBoundingClientRect() : bounds;
+        if (x >= bounds.left && x <= bounds.right && y >= row.top && y <= row.bottom) {
+          const [low, high] = scrollEdges?.(source) || (horizontal ? [bounds.left, bounds.right] : [bounds.top, bounds.bottom]);
+          const edge = Math.min(horizontal ? 24 : 28, Math.max(0, (high - low) / 2));
+          const point = horizontal ? x : y, before = scroller[offset];
+          if (point < low + edge) scroller[offset] -= 8;
+          else if (point > high - edge) scroller[offset] += 8;
+          return scroller[offset] !== before;
+        }
+        return false;
+      }
+      return {
+        source, threshold: 6, horizontal, feedback: { kind: "sort", icon: icon?.(source) },
+        start() {
+          if (!source.contains(doc.activeElement)) source.focus({ preventScroll: true });
+          scroller = scrollParent(source);
+          name = label(source);
+        },
+        move({ clientX: x, clientY: y }, released, feedback) {
+          if (source.parentElement !== list) { controller.cancel(); return; }
+          if (!released) feedback.move(name, x, y);
+          const scrolling = !released && scroll(x, y);
+          mark(x, y, feedback);
+          return scrolling;
+        },
+        end(reason, started) {
+          if (revision?.() !== version) {
+            if (started) refresh();
+            else view.setTimeout(() => { if (!controller.active) refresh(); }, 0);
+          } else if (reason === "release" && target && source.parentElement === list && target.parentElement === list) {
+            move(source, target, after, version);
+          }
+        },
+      };
+    });
+    root.addEventListener("keydown", event => {
+      const previous = horizontal ? "ArrowLeft" : "ArrowUp", next = horizontal ? "ArrowRight" : "ArrowDown";
+      if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || ![previous, next].includes(event.key)
+        || pointerDrags.has(doc) || busy?.()) return;
+      const source = event.target.closest(item);
+      if (!source) return;
+      event.preventDefault();
+      const after = event.key === next, sibling = after ? "nextElementSibling" : "previousElementSibling";
+      let target = source[sibling];
+      while (target && !(target.matches(item) && target.checkVisibility())) target = target[sibling];
+      if (target) move(source, target, after, revision?.());
+    });
+    return controller;
+  }
+
+  // OS drags enter through DataTransfer or a native hover event, without a pointer press.
+  function bindDropTarget(doc, { enabled = true, blockNative, classify, show, drop }) {
+    const view = doc.defaultView;
+    const listeners = new AbortController(), options = { signal: listeners.signal };
+    let nativeKind = "", depth = 0, internal = false;
+    doc.addEventListener("dragstart", event => {
+      if (blockNative?.(event.target)) event.preventDefault();
+      internal = !event.defaultPrevented;
+      // Another listener can still cancel browser drag initiation.
+      if (internal) queueMicrotask(() => { if (event.defaultPrevented) internal = false; });
+    }, { ...options, capture: true });
+    doc.addEventListener("dragend", () => { internal = false; }, { ...options, capture: true });
+    function clear() { nativeKind = ""; depth = 0; internal = false; if (enabled) show(""); }
+    view.addEventListener("pagehide", event => {
+      clear();
+      if (!event.persisted) listeners.abort();
+    }, options);
+    if (!enabled) return;
+    function over(event) {
+      if (event.defaultPrevented || internal || pointerDrags.has(doc) || !event.dataTransfer) return;
+      if (event.type === "dragenter") depth++;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = show(nativeKind || classify(event.dataTransfer)) ? "copy" : "none";
+    }
+    doc.addEventListener("dragenter", over, options);
+    doc.addEventListener("dragover", over, options);
+    doc.addEventListener("dragleave", event => {
+      depth = Math.max(0, depth - 1);
+      if (!depth && !event.relatedTarget) show(nativeKind);
+    }, options);
+    doc.addEventListener("drop", event => {
+      const local = internal || pointerDrags.has(doc);
+      clear();
+      if (event.defaultPrevented || local) return;
+      event.preventDefault();
+      if (event.dataTransfer) drop(event.dataTransfer);
+    }, options);
+    doc.addEventListener("dragend", clear, options);
+    for (const type of ["blur", "hashchange"]) view.addEventListener(type, clear, options);
+    doc.addEventListener("visibilitychange", () => { if (doc.hidden) clear(); }, options);
+    return { nativeHover(kind) {
+      nativeKind = internal || pointerDrags.has(doc) ? "" : kind;
+      if (!nativeKind) depth = 0;
+      show(nativeKind);
+    } };
+  }
+
   globalThis.KDComponents = Object.freeze({
+    drag: Object.freeze({ bindPointer: bindPointerDrag, bindReorder, bindDropTarget }),
     ACTION_TAG,
     LINKS_DIALOG_TAG,
     createActionElement,
     createLinksDialogElement,
     createProgress,
+    createSpriteIcon,
     createToast,
     confirmAction,
+    trapTabKey,
     installTooltips,
     prepareDecorativeIcons,
     prepareNotices,

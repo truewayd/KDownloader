@@ -356,6 +356,13 @@ test("confirmation dialogs cancel safely, render text, and restore the invoking 
     focus() { activeElement = this; }
     remove() { this.isConnected = false; }
     showModal() { this.open = true; }
+    getRootNode() { return ownerDocument; }
+    querySelectorAll() { return this.children.flatMap(child => child.tagName === "button" ? [child] : child.querySelectorAll()); }
+    get tabIndex() { return this.tagName === "button" ? 0 : -1; }
+    matches() { return !!this.disabled; }
+    closest() { return null; }
+    getClientRects() { return [1]; }
+    checkVisibility() { return true; }
     close(value) { this.returnValue = value; this.open = false; this.dispatch("close"); }
   }
   const opener = new Element("button");

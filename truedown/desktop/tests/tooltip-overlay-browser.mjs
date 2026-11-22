@@ -30,6 +30,19 @@ try {
     await page.addInitScript(() => {
       window.__TRUEDOWN_PLATFORM__ = "windows";
       window.calls = [];
+      window.tooltipRecords = 0;
+      window.MutationObserver = class extends MutationObserver {
+        constructor(callback) {
+          super((records, observer) => {
+            if (this.isTooltipObserver) window.tooltipRecords += records.length;
+            callback(records, observer);
+          });
+        }
+        observe(node, options) {
+          this.isTooltipObserver = options.attributeFilter?.includes("data-tooltip-kind");
+          super.observe(node, options);
+        }
+      };
       window.__TAURI__ = { core: { invoke: async (command, args) => {
         if (command !== "frame_tooltip") return { maximized: false };
         calls.push(args);
@@ -40,6 +53,15 @@ try {
     });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.waitForFunction(() => document.documentElement.dataset.nativeTooltip === "true");
+    assert.equal(await page.evaluate(async () => {
+      const counter = document.createElement("span");
+      document.body.append(counter);
+      const before = tooltipRecords;
+      for (let i = 0; i < 80; i++) counter.textContent = String(i);
+      await Promise.resolve();
+      counter.remove();
+      return tooltipRecords - before;
+    }), 0, "a closed tooltip has no document-wide mutation subscription");
     await page.locator("#anchor").hover();
     await page.waitForFunction(() => calls.some(call => call.bounds));
     const layout = await page.evaluate(() => calls.at(-1).bounds);

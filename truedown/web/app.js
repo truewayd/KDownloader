@@ -408,27 +408,7 @@ function onDocumentKeydown(event) {
     else closeModal();
     return;
   }
-  if (event.key !== "Tab") return;
-  const focusable = [...activeOverlay.querySelectorAll(
-    'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
-  )].filter((element) => element.getClientRects().length > 0 && !element.closest("[inert]"));
-  if (!focusable.length) {
-    event.preventDefault();
-    activeOverlay.focus();
-    return;
-  }
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (!focusable.includes(document.activeElement)) {
-    event.preventDefault();
-    (event.shiftKey ? last : first).focus();
-  } else if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
+  KDComponents.trapTabKey(event, activeOverlay);
 }
 
 async function openModal() {

@@ -82,7 +82,7 @@ test("notification variants share a palette and distinct business marks across b
 
 test("native menu actions share web icon shapes and distinguish adjacent operations", async () => {
   const desktop = symbols(await read("truedown/web/icons.svg"));
-  const popup = await read("truedown/web/context-menu-window.js");
+  const popup = await read("truedown/web/menu-items.js");
   const windows = await read("truedown/desktop/src/context_menus/windows_style.rs");
   const native = new Map();
   for (const match of windows.matchAll(/((?:"[\w-]+"\s*\|\s*)*"[\w-]+")\s*=> bytes!\("([\w-]+)"\)/g)) {

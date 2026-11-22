@@ -19,9 +19,7 @@
   document.addEventListener("contextmenu", event => event.preventDefault());
   document.addEventListener("keydown", event => {
     if (event.key === "Escape") { event.preventDefault(); answer(false); }
-    if (event.key === "Tab") {
-      event.preventDefault(); (document.activeElement === cancel ? confirm : cancel).focus();
-    }
+    KDComponents.trapTabKey(event, document.querySelector(".confirmation"));
   });
   let initializing = false, initialized = false, refreshQueued = false;
   window.refreshConfirmation = async () => {

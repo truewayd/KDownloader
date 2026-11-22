@@ -83,14 +83,7 @@
     drag.dataset.nativeDrag = "";
     const iconName = { "new-task": "download", "task-details": "info", "task-preview": "search" }[root.dataset.nativeWindow];
     if (iconName) {
-      const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-      icon.setAttribute("class", "icon native-window-icon");
-      icon.setAttribute("aria-hidden", "true");
-      icon.setAttribute("focusable", "false");
-      use.setAttribute("href", `/icons.svg#icon-${iconName}`);
-      icon.append(use);
-      drag.append(icon);
+      drag.append(KDComponents.createSpriteIcon(`/icons.svg#icon-${iconName}`, "icon native-window-icon"));
     }
     if (root.dataset.nativeWindow !== "settings") drag.append(title);
     frame.append(drag);

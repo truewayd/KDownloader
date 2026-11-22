@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 import { chromium } from "playwright";
 
 const root = new URL("../../web/", import.meta.url);
-const script = await readFile(new URL("select.js", root), "utf8");
+const script = (await Promise.all(["components.js", "select.js"].map(file =>
+  readFile(new URL(file, root), "utf8")))).join("\n");
 const css = await readFile(new URL("styles.css", root), "utf8") + await readFile(new URL("ui-baseline.css", root), "utf8");
 const browser = await chromium.launch({ headless: true });
 try {
@@ -102,7 +103,17 @@ try {
     await page.locator("#picker-scroll").evaluate(node => { node.scrollTop += 24; });
     await list.waitFor({ state: "detached" });
     assert.equal(await select.inputValue(), "d", "actual anchor movement dismisses without committing");
-    for (const mutation of ["hidden", "disabled", "removed"]) {
+    await select.focus();
+    const composing = () => select.evaluate(node => node.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Enter", isComposing: true, bubbles: true, cancelable: true,
+    })));
+    assert.equal(await composing(), true);
+    assert.equal(await list.count(), 0);
+    await select.press("Home");
+    assert.equal(await composing(), true);
+    assert.equal(await list.count(), 1);
+    await select.press("Escape");
+    for (const mutation of ["hidden", "disabled", "inert", "invisible", "removed"]) {
       await page.locator("#picker-scroll").evaluate(node => { node.scrollTop = 0; });
       await select.focus();
       await select.press("Home");
@@ -113,6 +124,7 @@ try {
         fieldset.append(select);
         window.pickerFieldset = fieldset;
         if (kind === "removed") fieldset.remove();
+        else if (kind === "invisible") fieldset.style.visibility = "hidden";
         else fieldset[kind] = true;
       }, mutation);
       await list.waitFor({ state: "detached", timeout: 1500 });

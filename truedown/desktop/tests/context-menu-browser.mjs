@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { chromium } from "playwright";
 
-const script = await readFile(new URL("../../web/context-menu.js", import.meta.url), "utf8");
+const script = (await Promise.all(["components.js", "menu-items.js", "context-menu.js"].map(file =>
+  readFile(new URL(`../../web/${file}`, import.meta.url), "utf8")))).join("\n");
 const styles = await readFile(new URL("../../web/styles.css", import.meta.url), "utf8");
 const browser = await chromium.launch({ headless: true });
 try {
@@ -263,6 +264,19 @@ try {
   await native.waitForFunction(before => calls.filter(call => call.command === "context_menu_cancel").length === before + 2, beforeResize);
   await native.evaluate(() => answerMenu("pause"));
   assert.equal(await native.evaluate(() => clicked), 0, "a resized native menu cannot deliver a stale action");
+  await native.locator("td").evaluate(cell => cell.insertAdjacentHTML("beforeend",
+    '<button data-task-menu aria-haspopup="menu" aria-expanded="false">More</button>'));
+  const trigger = native.locator("[data-task-menu]");
+  await trigger.press("Space");
+  const anchored = await native.evaluate(() => calls.filter(call => call.command === "show_context_menu").at(-1).args);
+  const bounds = await trigger.boundingBox();
+  assert.deepEqual(anchored.actions, ["pause"]);
+  assert.equal(anchored.keyboard, true);
+  assert.equal(anchored.x, bounds.x);
+  assert.equal(anchored.y, bounds.y + bounds.height);
+  await native.evaluate(() => answerMenu("pause"));
+  await native.waitForFunction(() => clicked === 1 && document.activeElement.hasAttribute("data-task-menu"));
+  assert.equal(await trigger.getAttribute("aria-expanded"), "false");
   await native.close();
   console.log('native bridge: separate window dispatch, caller blur, stale rows and request-scoped cancellation passed');
   const renderer = await browser.newPage();
@@ -274,7 +288,7 @@ try {
       results.push({ command, args });
     } } };
   });
-  for (const file of ["task-columns.js", "context-menu-window.js"]) {
+  for (const file of ["components.js", "task-columns.js", "menu-items.js", "context-menu-window.js"]) {
     await renderer.addScriptTag({ content: await readFile(new URL(`../../web/${file}`, import.meta.url), "utf8") });
   }
   await renderer.waitForFunction(() => window.__popupActive);

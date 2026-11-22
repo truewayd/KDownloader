@@ -4,6 +4,8 @@
   let sequence = 0;
   const selectFor = (target) => target instanceof HTMLSelectElement && target.matches(".kd-select") && !target.multiple && target.size <= 1 ? target : null;
   const enabled = (option) => Boolean(option) && !option.disabled && !option.closest("optgroup[disabled]") && !option.hidden && !option.closest("optgroup[hidden]");
+  const available = select => select.isConnected && !select.matches(":disabled") && !select.closest("[inert]")
+    && select.checkVisibility({ visibilityProperty: true });
 
   function close() {
     if (!current) return;
@@ -33,7 +35,7 @@
     if (!current) return;
     const { select } = current;
     const option = select.options[index];
-    if (!select.isConnected || select.matches(":disabled") || !select.getClientRects().length || !option || !enabled(option)) { close(); return; }
+    if (!available(select) || !enabled(option)) { close(); return; }
     const changed = select.selectedIndex !== index;
     select.selectedIndex = index;
     close();
@@ -46,7 +48,7 @@
 
   function open(select) {
     close();
-    if (select.matches(":disabled")) return;
+    if (!available(select)) return;
     const list = document.createElement("div");
     list.className = "kd-select-list";
     list.id = `kd-select-list-${++sequence}`;
@@ -69,29 +71,24 @@
       item.setAttribute("aria-disabled", String(!enabled(option)));
       const label = document.createElement("span");
       label.textContent = option.label;
-      const check = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      check.classList.add("icon");
-      check.setAttribute("aria-hidden", "true");
-      check.setAttribute("focusable", "false");
-      const use = document.createElementNS(check.namespaceURI, "use");
-      use.setAttribute("href", "/icons.svg#icon-check");
-      check.append(use);
-      item.append(label, check);
+      item.append(label, KDComponents.createSpriteIcon("/icons.svg#icon-check"));
       list.append(item);
     }
     if (!list.childElementCount) return;
     const observer = new MutationObserver(records => {
-      if (!select.isConnected || records.some(record => select.contains(record.target))) { close(); return; }
-      // Ancestor visibility/fieldset changes must dismiss the top-layer picker.
-      if (records.some(record => record.target.contains(select))
-        && (select.matches(":disabled") || !select.getClientRects().length)) close();
+      const moved = records.some(record => Array.from(record.removedNodes).some(node => node.contains(select)));
+      if (moved || !available(select) || records.some(record => select.contains(record.target))) close();
     });
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true,
-      attributeFilter: ["disabled", "hidden", "selected", "label", "class", "style"] });
+    observer.observe(select, { childList: true, subtree: true, characterData: true, attributes: true,
+      attributeFilter: ["disabled", "hidden", "inert", "selected", "label", "class", "style"] });
+    // Track the anchor path and options without observing progress updates in sibling subtrees.
+    for (let parent = select.parentElement; parent; parent = parent.parentElement) {
+      observer.observe(parent, { childList: true, attributes: true, attributeFilter: ["disabled", "hidden", "inert", "open", "class", "style"] });
+    }
     current = { select, list, observer, active: -1, query: "", queryAt: 0 };
     select.setAttribute("aria-expanded", "true");
     select.setAttribute("aria-controls", list.id);
-    document.body.append(list);
+    (select.closest("dialog[open]") || document.body).append(list);
     list.showPopover?.();
     const rect = select.getBoundingClientRect();
     current.anchor = rect;
@@ -136,7 +133,7 @@
   });
   document.addEventListener("keydown", (event) => {
     const select = selectFor(event.target);
-    if (!select || select.matches(":disabled") || event.ctrlKey || event.metaKey) return;
+    if (!select || select.matches(":disabled") || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey) return;
     if (event.key === "Tab") { close(); return; }
     if (event.key === "Escape") {
       if (current) { event.preventDefault(); event.stopImmediatePropagation(); close(); }

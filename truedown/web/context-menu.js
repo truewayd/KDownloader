@@ -14,24 +14,11 @@
   };
   const control = action => document.getElementById(controls[action]);
   const controlEnabled = action => available(control(action)) && enabled(control(action));
-  const labels = {
-    preview: "预览文件",
-    "copy-link": "复制下载地址",
-    details: "\u4efb\u52a1\u8be6\u60c5", pause: "\u6682\u505c", resume: "\u7ee7\u7eed", requeue: "\u91cd\u8bd5",
-    "open-file": "\u6253\u5f00\u6587\u4ef6", "open-folder": "\u6253\u5f00\u4e0b\u8f7d\u76ee\u5f55", remove: "\u79fb\u9664\u4efb\u52a1",
-    "new-task": "\u65b0\u5efa\u4e0b\u8f7d", settings: "\u8bbe\u7f6e",
-    "group-edit": "调整此分组", "group-add": "新增分组", "group-manage": "管理分组",
-    "pause-queue": "暂停整个队列", "resume-queue": "恢复整个队列", "retry-all": "重试所有失败任务",
-    "clear-done": "清理所有已完成记录", "open-downloads": "打开下载目录",
-    undo: "\u64a4\u9500", redo: "\u91cd\u505a", cut: "\u526a\u5207", copy: "\u590d\u5236", paste: "\u7c98\u8d34", "select-all": "\u5168\u9009",
-  };
-  const shortcuts = { undo: "Z", redo: "Y", cut: "X", copy: "C", paste: "V", "select-all": "A" };
-  const modifier = window.__TRUEDOWN_PLATFORM__ === "macos" ? "\u2318" : "Ctrl+";
-
   function close(restore = true) {
     const context = current;
     if (!context) return;
     current = null;
+    context.trigger?.setAttribute("aria-expanded", "false");
     context.observer?.disconnect();
     if (context.native) invokeNative("context_menu_cancel", { requestId: context.requestId }).catch(() => {});
     context.menu.remove();
@@ -91,9 +78,9 @@
     }
   }
 
-  function open(event, keyboard = false) {
+  function open(event, keyboard = false, trigger = null) {
     if (event.defaultPrevented || disposed) return;
-    const target = keyboard ? document.activeElement : event.target;
+    const target = trigger || (keyboard ? document.activeElement : event.target);
     if (!(target instanceof Element) || target.closest("[data-native-drag]")) return;
     event.preventDefault();
     close(false);
@@ -113,9 +100,9 @@
       }
     } else if (["main", "browser"].includes(role()) && (header = target.closest(".tasks-table thead"))) {
       actions = taskColumnMenuActions();
-    } else if (selected && !input) actions = ["copy", "select-all"];
+    } else if (selected && !input && !trigger) actions = ["copy", "select-all"];
     else if (["main", "browser"].includes(role()) && (row = target.closest("tr[data-task-id]"))) {
-      actions = taskButtons(row).map(button => button.dataset.action).filter(action => labels[action]);
+      actions = [...new Set(taskButtons(row).map(button => button.dataset.action).filter(action => Object.hasOwn(taskMenuActions, action)))];
       if (taskLinkByID.get(Number(row.dataset.taskId))) actions.push("copy-link");
     } else if (["main", "browser"].includes(role()) && !target.closest('[role="dialog"], dialog, input, textarea, select')) {
       if ((group = target.closest("#file-group-navigation [data-task-category]"))) {
@@ -136,32 +123,36 @@
       } else if (target.closest("#workspace-sidebar")) actions = ["new-task", "group-manage", "settings"];
     }
     if (!actions.length) return;
+    trigger?.setAttribute("aria-expanded", "true");
     const menu = document.createElement("div");
     menu.className = "kd-context-menu";
     menu.setAttribute("role", "menu");
     menu.setAttribute("aria-label", "\u64cd\u4f5c\u83dc\u5355");
     const topLayer = typeof menu.showPopover === "function";
     if (topLayer) menu.setAttribute("popover", "manual");
-    const context = { menu, target, input, header, row, taskID: row?.dataset.taskId, group, groupID: group?.dataset.taskCategory, route: location.hash, focus: input || group || (target.isContentEditable ? target : document.activeElement),
+    const context = { menu, target, trigger, input, header, row, taskID: row?.dataset.taskId, group, groupID: group?.dataset.taskCategory, route: location.hash, focus: trigger || input || group || (target.isContentEditable ? target : document.activeElement),
       viewport: { width: innerWidth, height: innerHeight, scale: devicePixelRatio },
       selection: input && typeof input.selectionStart === "number" ? [input.selectionStart, input.selectionEnd, input.selectionDirection] : null,
       ranges: selection ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index).cloneRange()) : [] };
+    const rect = target.getBoundingClientRect();
+    if (trigger) context.anchor = rect;
+    const anchored = Boolean(trigger) || keyboard;
+    const x = anchored || !Number.isFinite(event.clientX) ? rect.left : event.clientX;
+    const y = anchored || !Number.isFinite(event.clientY) ? rect.bottom : event.clientY;
     if (window.__TAURI__?.core?.invoke) {
-      const rect = target.getBoundingClientRect();
       context.native = true;
       context.keyboard = keyboard;
       context.requestId = ++requestID % 0xffffffff;
       current = context;
       context.observer = new MutationObserver(() => { if (!available(target)) close(false); });
-      context.observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["inert", "hidden"] });
+      context.observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["inert", "hidden", "data-condensed-actions"] });
       // Wait for the previous native loop to settle after cancellation. A rapid
       // right-click elsewhere must hide the old menu before opening this one.
       nativePending = nativePending.then(() => {
         if (current !== context || disposed) return null;
         return invokeNative("show_context_menu", {
           requestId: context.requestId, actions, keyboard, language: window.TrueDownI18n?.language || "en",
-          x: keyboard || !Number.isFinite(event.clientX) ? rect.left : event.clientX,
-          y: keyboard || !Number.isFinite(event.clientY) ? rect.bottom : event.clientY,
+          x, y,
         });
       }).then(action => {
         if (current !== context) return;
@@ -172,34 +163,14 @@
       return;
     }
     for (const action of actions) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "kd-context-item";
-      button.dataset.menuAction = action;
-      button.setAttribute("role", "menuitem");
-      button.tabIndex = -1;
-      if (["remove", "clear-done"].includes(action)) button.classList.add("danger");
-      const label = document.createElement("span");
-      const columnItem = header && taskColumnMenuItem(action, button, actions);
-      if (columnItem) button.insertAdjacentHTML("beforeend", iconMarkup(columnItem[1]));
-      label.textContent = columnItem ? columnItem[0] : labels[action];
-      button.append(label);
-      if (shortcuts[action]) {
-        const hint = document.createElement("span");
-        hint.className = "kd-context-shortcut";
-        hint.setAttribute("aria-hidden", "true");
-        hint.textContent = modifier + (action === "redo" && modifier === "\u2318" ? "\u21e7Z" : shortcuts[action]);
-        button.append(hint);
-      }
+      const button = createTaskMenuItem(action, actions, false);
+      if (!button) continue;
       button.addEventListener("click", () => { activate(context, action).catch(report); });
       menu.append(button);
     }
     // Keep menus in the active modal's focus scope, including native <dialog>.
     (target.closest(topLayer ? 'dialog, [role="dialog"]' : "dialog, .overlay") || document.body).append(menu);
     if (topLayer) menu.showPopover();
-    const rect = target.getBoundingClientRect();
-    const x = keyboard || !Number.isFinite(event.clientX) ? rect.left : event.clientX;
-    const y = keyboard || !Number.isFinite(event.clientY) ? rect.bottom : event.clientY;
     const left = x + menu.offsetWidth > innerWidth - 4 ? x - menu.offsetWidth : x;
     const top = y + menu.offsetHeight > innerHeight - 4 ? y - menu.offsetHeight : y;
     menu.style.left = `${Math.max(4, Math.min(left, innerWidth - menu.offsetWidth - 4))}px`;
@@ -208,11 +179,17 @@
     context.observer = new MutationObserver(() => {
       if (!available(target) || !available(menu)) close(false);
     });
-    context.observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["inert", "hidden", "open"] });
+    context.observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["inert", "hidden", "open", "data-condensed-actions"] });
     menu.querySelector("button:enabled").focus({ preventScroll: true });
   }
 
   const contextmenu = event => open(event, event.button === 0 && event.clientX === 0 && event.clientY === 0);
+  const taskMenuClick = event => {
+    const trigger = event.target.closest?.("[data-task-menu]");
+    if (!trigger) return;
+    if (current?.trigger === trigger) close();
+    else open(event, event.detail === 0, trigger);
+  };
   const keydown = event => {
     if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { open(event, true); return; }
     if (!current) return;
@@ -234,12 +211,11 @@
     }
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
     event.preventDefault(); event.stopImmediatePropagation();
-    const items = [...current.menu.querySelectorAll("button:enabled")];
-    const index = items.indexOf(document.activeElement);
-    const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-    items[next].focus();
+    navigateTaskMenu(current.menu, event.key);
   };
-  const pointerdown = event => { if (current && !current.menu.contains(event.target)) close(false); };
+  const pointerdown = event => {
+    if (current && !current.menu.contains(event.target) && !current.trigger?.contains(event.target)) close(false);
+  };
   const invalidate = () => close(false);
   // WebKit may deliver a delayed resize after mapping without changing geometry.
   // It must not cancel a menu opened against the already-current viewport.
@@ -248,8 +224,17 @@
   };
   const visibility = () => { if (document.hidden) invalidate(); };
   // Restoring an editor selection can scroll that editor after the popup opens.
-  const scroll = event => { if (current && event.target !== current.input && !current.menu.contains(event.target)) invalidate(); };
+  const scroll = event => {
+    if (!current || event.target === current.input || current.menu.contains(event.target)) return;
+    if (current.trigger) {
+      // Focusing a pinned button can queue a scroll event before its click.
+      const rect = current.trigger.getBoundingClientRect();
+      if (rect.left === current.anchor.left && rect.bottom === current.anchor.bottom) return;
+    }
+    invalidate();
+  };
   document.addEventListener("contextmenu", contextmenu);
+  document.addEventListener("click", taskMenuClick);
   document.addEventListener("keydown", keydown, true);
   document.addEventListener("pointerdown", pointerdown, true);
   document.addEventListener("scroll", scroll, true);
@@ -263,6 +248,7 @@
   window.addEventListener("pagehide", () => {
     disposed = true; invalidate();
     document.removeEventListener("contextmenu", contextmenu);
+    document.removeEventListener("click", taskMenuClick);
     document.removeEventListener("keydown", keydown, true);
     document.removeEventListener("pointerdown", pointerdown, true);
     document.removeEventListener("scroll", scroll, true);

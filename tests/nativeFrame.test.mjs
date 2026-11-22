@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
+const sharedComponents = await readFile(new URL("../shared/components.js", import.meta.url), "utf8");
 const source = await readFile(new URL("../truedown/web/native-frame.js", import.meta.url), "utf8");
 
 class Node {
@@ -44,7 +45,7 @@ function setup(platform = "windows", role = "main") {
       return command === "frame_tooltip" ? 1 : undefined;
     } } },
   });
-  vm.runInNewContext(source, {
+  vm.runInNewContext(sharedComponents + "\n" + source, {
     window, document, console,
     MutationObserver: class {
       constructor(callback) { this.callback = callback; observers.push(this); }
