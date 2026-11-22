@@ -568,7 +568,6 @@ unsafe fn run(
             || msg.message == WM_SYSKEYDOWN
             || (msg.message == MENU_KEY && msg.hwnd == host.hwnd)
         {
-            let count = renderer.model().items.len();
             let selected = renderer.selected();
             match msg.wParam.0 as u16 {
                 0x1b => return Ok(None),
@@ -578,14 +577,10 @@ unsafe fn run(
                     DispatchMessageW(&msg);
                     return Ok(None);
                 }
-                0x26 => renderer.select(Some(
-                    selected
-                        .map(|i| (i + count - 1) % count)
-                        .unwrap_or(count - 1),
-                ))?,
-                0x28 => renderer.select(Some(selected.map(|i| (i + 1) % count).unwrap_or(0)))?,
-                0x24 => renderer.select(Some(0))?,
-                0x23 => renderer.select(Some(count - 1))?,
+                0x26 => renderer.select(renderer.model().next_enabled(selected, false))?,
+                0x28 => renderer.select(renderer.model().next_enabled(selected, true))?,
+                0x24 => renderer.select(renderer.model().next_enabled(None, true))?,
+                0x23 => renderer.select(renderer.model().next_enabled(None, false))?,
                 0x0d | 0x20 => {
                     if selected.is_some() {
                         return Ok(selected);

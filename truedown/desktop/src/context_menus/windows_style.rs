@@ -9,7 +9,9 @@ use windows_sys::Win32::{
     Graphics::{Dwm::*, Gdi::*},
     UI::{
         Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW},
-        Controls::{DRAWITEMSTRUCT, MEASUREITEMSTRUCT, ODS_SELECTED, ODT_MENU},
+        Controls::{
+            DRAWITEMSTRUCT, MEASUREITEMSTRUCT, ODS_DISABLED, ODS_GRAYED, ODS_SELECTED, ODT_MENU,
+        },
         HiDpi::{GetDpiForWindow, SystemParametersInfoForDpi},
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::*,
@@ -49,7 +51,7 @@ impl Palette {
 struct Item {
     label: Vec<u16>,
     shortcut: Vec<u16>,
-    icon: Image<'static>,
+    icon: Option<Image<'static>>,
     danger: bool,
 }
 struct Style {
@@ -860,7 +862,9 @@ unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
     }
     SelectObject(dc, style.font);
     SetBkMode(dc, TRANSPARENT as i32);
-    let color = if item.danger {
+    let color = if draw.itemState & (ODS_DISABLED | ODS_GRAYED) != 0 {
+        palette.muted
+    } else if item.danger {
         palette.danger
     } else {
         palette.text
@@ -910,12 +914,16 @@ unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
     } else {
         palette.surface
     };
-    let pixels = matte(item.icon.rgba(), color, background);
+    let Some(icon) = &item.icon else {
+        RestoreDC(dc, saved);
+        return;
+    };
+    let pixels = matte(icon.rgba(), color, background);
     let info = BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER {
             biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: item.icon.width() as i32,
-            biHeight: -(item.icon.height() as i32),
+            biWidth: icon.width() as i32,
+            biHeight: -(icon.height() as i32),
             biPlanes: 1,
             biBitCount: 32,
             biCompression: BI_RGB,
@@ -934,8 +942,8 @@ unsafe fn draw_item(style: &Style, item: &Item, draw: &DRAWITEMSTRUCT) {
         size,
         0,
         0,
-        item.icon.width() as i32,
-        item.icon.height() as i32,
+        icon.width() as i32,
+        icon.height() as i32,
         pixels.as_ptr().cast(),
         &info,
         DIB_RGB_COLORS,
@@ -960,7 +968,7 @@ fn matte(rgba: &[u8], foreground: COLORREF, background: COLORREF) -> Vec<u8> {
         })
         .collect()
 }
-pub(super) fn icon(action: &str, large: bool) -> Result<Image<'static>, String> {
+pub(super) fn icon(action: &str, large: bool) -> Result<Option<Image<'static>>, String> {
     macro_rules! bytes {
         ($name:literal) => {
             if large {
@@ -993,9 +1001,16 @@ pub(super) fn icon(action: &str, large: bool) -> Result<Image<'static>, String> 
         "copy" => bytes!("copy"),
         "paste" => bytes!("paste"),
         "select-all" => bytes!("select-all"),
+        "columns-auto" => bytes!("retry"),
+        action if action.starts_with("column-hide-") || action == "column-actions" => {
+            bytes!("check")
+        }
+        action if action.starts_with("column-show-") => return Ok(None),
         _ => return Err("Unavailable menu icon".into()),
     };
-    Image::from_bytes(bytes).map_err(|error| error.to_string())
+    Image::from_bytes(bytes)
+        .map(Some)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -1119,7 +1134,11 @@ mod tests {
         ]) {
             for large in [false, true] {
                 let image = super::icon(action, large).unwrap();
-                assert_eq!(image.width(), if large { 32 } else { 16 });
+                if action.starts_with("column-show-") {
+                    assert!(image.is_none());
+                } else {
+                    assert_eq!(image.unwrap().width(), if large { 32 } else { 16 });
+                }
             }
         }
         assert_eq!(

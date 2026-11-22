@@ -281,7 +281,14 @@ unsafe fn track_at(
             .encode_utf16()
             .chain(Some(0))
             .collect();
-        if AppendMenuW(menu.0, MF_STRING, index + 1, text.as_ptr()) == 0 {
+        let mut flags = MF_STRING;
+        if action.starts_with("column-hide-") || action == "column-actions" {
+            flags |= MF_CHECKED;
+        }
+        if super::action_disabled(action, actions) {
+            flags |= MF_GRAYED;
+        }
+        if AppendMenuW(menu.0, flags, index + 1, text.as_ptr()) == 0 {
             return Err("Cannot create context menu item".into());
         }
     }
@@ -364,11 +371,12 @@ fn composition_model(
             label: label.into(),
             shortcut: shortcut.into(),
             danger,
-            icon: Icon::Rgba {
+            disabled: super::action_disabled(action, actions),
+            icon: image.map_or(Icon::None, |image| Icon::Rgba {
                 pixels: image.rgba().to_vec(),
                 width: image.width(),
                 height: image.height(),
-            },
+            }),
         });
         top += model.row_height;
     }
@@ -580,6 +588,15 @@ fn localized_label(action: &str, english: bool) -> Option<&'static str> {
         "group-edit" => "Edit group",
         "group-add" => "Add group",
         "group-manage" => "Manage groups",
+        "column-hide-file" | "column-show-file" => "File",
+        "column-hide-status" | "column-show-status" => "Status",
+        "column-hide-progress" | "column-show-progress" => "Progress",
+        "column-hide-size" | "column-show-size" => "Size",
+        "column-hide-speed" | "column-show-speed" => "Speed",
+        "column-hide-remaining" | "column-show-remaining" => "ETA",
+        "column-hide-created" | "column-show-created" => "Date added",
+        "column-actions" => "Actions",
+        "columns-auto" => "Restore automatic widths",
         "pause-queue" => "Pause all downloads",
         "resume-queue" => "Resume all downloads",
         "retry-all" => "Retry all failed tasks",
@@ -597,6 +614,15 @@ fn localized_label(action: &str, english: bool) -> Option<&'static str> {
 fn label(action: &str) -> Option<&'static str> {
     match action {
         "group-edit" => return Some("编辑分组"),
+        "column-hide-file" | "column-show-file" => return Some("文件"),
+        "column-hide-status" | "column-show-status" => return Some("状态"),
+        "column-hide-progress" | "column-show-progress" => return Some("进度"),
+        "column-hide-size" | "column-show-size" => return Some("大小"),
+        "column-hide-speed" | "column-show-speed" => return Some("速度"),
+        "column-hide-remaining" | "column-show-remaining" => return Some("剩余"),
+        "column-hide-created" | "column-show-created" => return Some("添加时间"),
+        "column-actions" => return Some("操作"),
+        "columns-auto" => return Some("恢复自动列宽"),
         "group-add" => return Some("添加分组"),
         "pause-queue" => return Some("暂停全部下载"),
         "resume-queue" => return Some("继续全部下载"),
@@ -636,6 +662,20 @@ fn label(action: &str) -> Option<&'static str> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn column_checks_match_visibility_and_skip_fixed_rows() {
+        use truedown_native_menu::Icon;
+        let actions =
+            ["column-hide-file", "column-show-status", "column-actions"].map(String::from);
+        let model = super::composition_model(&actions, true).unwrap();
+        assert!(matches!(model.items[0].icon, Icon::Rgba { .. }));
+        assert!(matches!(model.items[1].icon, Icon::None));
+        assert!(matches!(model.items[2].icon, Icon::Rgba { .. }));
+        assert_eq!(model.items[2].label, "Actions");
+        assert_eq!(model.next_enabled(None, true), Some(1));
+        assert_eq!(model.next_enabled(Some(1), false), Some(1));
+        assert_eq!(model.row_at(24., model.tops[2] + 10.), None);
+    }
     #[test]
     fn english_background_menu_uses_rendered_text_width() {
         let actions = ["new-task".to_string(), "open-downloads".to_string()];

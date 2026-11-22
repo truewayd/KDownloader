@@ -34,6 +34,22 @@ const ACTIONS: &[&str] = &[
     "group-edit",
     "group-add",
     "group-manage",
+    "column-hide-file",
+    "column-show-file",
+    "column-hide-status",
+    "column-show-status",
+    "column-hide-progress",
+    "column-show-progress",
+    "column-hide-size",
+    "column-show-size",
+    "column-hide-speed",
+    "column-show-speed",
+    "column-hide-remaining",
+    "column-show-remaining",
+    "column-hide-created",
+    "column-show-created",
+    "column-actions",
+    "columns-auto",
     "pause-queue",
     "resume-queue",
     "retry-all",
@@ -47,6 +63,14 @@ const ACTIONS: &[&str] = &[
     "select-all",
 ];
 const EDITING: &[&str] = &["undo", "redo", "cut", "copy", "paste", "select-all"];
+
+fn action_disabled(action: &str, actions: &[String]) -> bool {
+    action == "column-actions"
+        || (action.starts_with("column-hide-")
+            && !actions
+                .iter()
+                .any(|other| other != action && other.starts_with("column-hide-")))
+}
 
 #[derive(Default)]
 #[cfg(not(windows))]
@@ -387,7 +411,11 @@ pub async fn context_menu_answer(
     {
         let pending = state.pending.lock().unwrap();
         let entry = pending.get(window.label()).ok_or("Unknown menu window")?;
-        if !entry.ready || action.as_ref().is_some_and(|a| !entry.actions.contains(a)) {
+        if !entry.ready
+            || action
+                .as_ref()
+                .is_some_and(|a| !entry.actions.contains(a) || action_disabled(a, &entry.actions))
+        {
             return Err("Unavailable menu action".into());
         }
         if !entry.keyboard && !caller_active(&entry.parent) {

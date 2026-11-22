@@ -20,6 +20,7 @@ pub fn color(a: u8, r: u8, g: u8, b: u8) -> Color {
 }
 #[derive(Clone)]
 pub enum Icon {
+    None,
     Glyph(u16),
     Rgba {
         pixels: Vec<u8>,
@@ -29,6 +30,7 @@ pub enum Icon {
 }
 #[derive(Clone)]
 pub struct Item {
+    pub disabled: bool,
     pub label: String,
     pub shortcut: String,
     pub danger: bool,
@@ -103,5 +105,20 @@ impl Model {
         self.tops
             .iter()
             .position(|top| y >= *top && y < *top + self.row_height)
+            .filter(|index| !self.items[*index].disabled)
+    }
+
+    pub fn next_enabled(&self, selected: Option<usize>, forward: bool) -> Option<usize> {
+        let count = self.items.len();
+        let start = selected.unwrap_or(if forward { count - 1 } else { 0 });
+        (1..=count)
+            .map(|step| {
+                if forward {
+                    (start + step) % count
+                } else {
+                    (start + count - step) % count
+                }
+            })
+            .find(|index| !self.items[*index].disabled)
     }
 }

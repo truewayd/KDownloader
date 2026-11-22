@@ -189,7 +189,7 @@ impl Renderer {
                 Icon::Glyph(glyph) => {
                     Some(write.CreateTextLayout(&[*glyph], &icon, 20., model.row_height)?)
                 }
-                Icon::Rgba { .. } => None,
+                Icon::Rgba { .. } | Icon::None => None,
             });
         }
         Ok((labels, icons, shortcuts))
@@ -283,7 +283,13 @@ impl Renderer {
             let danger = brush(palette.danger)?;
             let muted = brush(palette.muted)?;
             for (i, item) in self.model.items.iter().enumerate() {
-                let brush = if item.danger { &danger } else { &normal };
+                let brush = if item.disabled {
+                    &muted
+                } else if item.danger {
+                    &danger
+                } else {
+                    &normal
+                };
                 dc.DrawTextLayout(
                     Vector2 {
                         X: 44.,
@@ -311,7 +317,9 @@ impl Renderer {
                 {
                     // Source icons are alpha masks from the canonical Lucide assets.
                     // Tint/premultiply once when this cached theme surface is created.
-                    let rgb = (if item.danger {
+                    let rgb = (if item.disabled {
+                        palette.muted
+                    } else if item.danger {
                         palette.danger
                     } else {
                         palette.text

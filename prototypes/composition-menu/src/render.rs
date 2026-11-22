@@ -35,6 +35,7 @@ impl Renderer {
             label: label.into(),
             shortcut: String::new(),
             danger: i == 4,
+            disabled: false,
             icon: Icon::Glyph(glyph),
         })
         .collect();
