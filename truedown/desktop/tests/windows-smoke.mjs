@@ -24,6 +24,11 @@ const fixture = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "trued
 const installation = path.join(fixture, "Application with spaces");
 const profile = path.join(fixture, "Profile with spaces");
 await fs.mkdir(installation);
+// First launch imports this flat preference and creates the isolated profile layout.
+await fs.mkdir(profile);
+await fs.writeFile(path.join(profile, "truedown.updates.json"), JSON.stringify({
+  schemaVersion: 1, autoUpdateTrueDown: false, autoUpdateNext: false, enginePreference: "stable",
+}));
 for (const name of [shellName, "truedown-core.exe", "truedown-cli.exe", "aria2c.exe"]) {
   await fs.copyFile(path.join(source, name), path.join(installation, name));
 }
@@ -420,7 +425,12 @@ try {
   await settings.locator("#cfg-conns").dispatchEvent("change");
   await waitForNativeCondition(settings, () => !document.querySelector("#settings-form").inert && downloadSettings.connections === 8);
   assert.equal((await api(main, "GET", "/settings/task-defaults")).values.connections, 8);
-  await settings.locator("#cfg-conns").fill("7");
+  // Create an input-only draft. Moving native focus may commit a real focused edit on blur.
+  await settings.locator("#cfg-conns").evaluate(input => {
+    input.blur();
+    input.value = "7";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
   await invoke(settings, "close_auxiliary");
   await invoke(main, "open_auxiliary", { kind: "settings" });
   assert.equal(await settings.locator("#cfg-conns").inputValue(), "7");
@@ -494,10 +504,13 @@ try {
   downloadFixture = http.createServer((_request, response) => response.end("TrueDown native task-form acceptance\n"));
   await new Promise(resolve => downloadFixture.listen(0, "127.0.0.1", resolve));
   const downloadOrigin = `http://127.0.0.1:${downloadFixture.address().port}`;
+  const downloadDirectory = path.join(fixture, "download payloads");
+  await fs.mkdir(downloadDirectory);
   const savedDefaults = await api(settings, "GET", "/settings/task-defaults");
-  await api(settings, "POST", "/settings/task-defaults", { revision: savedDefaults.revision, values: { ...savedDefaults.values, connections: 9 } });
+  await api(settings, "POST", "/settings/task-defaults", { revision: savedDefaults.revision, values: { ...savedDefaults.values, connections: 9, folder: downloadDirectory } });
   for (const [kind, links, total] of [["new-task", ["single.txt"], 1], ["new-task", ["batch-a.txt", "batch-b.txt"], 3]]) {
     const form = taskForms[kind];
+    await form.locator("#m-folder").fill(downloadDirectory);
     await form.locator("#m-link").fill(links.map(name => `${downloadOrigin}/${name}`).join("\n"));
     await form.locator("#submit-task-btn").click();
     await waitForNativeCondition(form, () => !document.querySelector("#download-form").inert && document.querySelector("#m-link").value === "");
@@ -551,7 +564,16 @@ try {
     const page = await api(main, "GET", "/tasks?limit=100");
     return page.tasks.find(task => task.status === "done");
   });
-  await main.locator(`[data-action="details"][data-id="${completed.id}"]`).click();
+  const detailAction = main.locator(`[data-action="details"][data-id="${completed.id}"]`);
+  // The small-work-area fixture can initially put Details in the native overflow menu.
+  const mainMetrics = await context.newCDPSession(main);
+  try {
+    await mainMetrics.send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false });
+    await detailAction.click();
+  } finally {
+    await mainMetrics.send("Emulation.clearDeviceMetricsOverride");
+    await mainMetrics.detach();
+  }
   const details = await waitUntil(() => context.pages().find(page => page.url().includes("window=task-details")));
   await waitForNativeCondition(details, () => document.querySelector("#task-location-grid")?.textContent.includes("Documents review"));
   assert.equal(await main.evaluate(() => currentPage), "tasks");
