@@ -521,6 +521,7 @@ window.TrueDownEnglish = Object.freeze({
   "解析": "Resolve",
   "未知更新操作": "Unknown update operation",
   "当前已是最新发布版本。": "Already on the latest release.",
+  "TrueDown 更新失败。": "The TrueDown update failed.",
   "尚未检查更新。": "Updates have not been checked.",
   "自动更新适用于 Windows 正式桌面安装包。": "Automatic updates apply to official Windows desktop installations.",
   "等待任务空闲后自动重启更新。": "Will restart and update automatically when tasks are idle.",

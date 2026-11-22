@@ -168,14 +168,14 @@ fn main() {
         .parent()
         .unwrap()
         .to_path_buf();
-    match update::before_start(&base, background) {
-        Ok(true) => return,
-        Ok(false) => {}
+    let replacement = match update::before_start(&base, background) {
+        Ok(update::Launch::Forwarded) => return,
+        Ok(launch) => launch == update::Launch::Replacement,
         Err(error) => {
             eprintln!("Native update recovery: {error}");
             std::process::exit(1);
         }
-    }
+    };
     let profile =
         match tauri::async_runtime::block_on(profile::Profile::resolve(&base, data_dir.as_deref()))
         {
@@ -322,6 +322,14 @@ fn main() {
                 eprintln!("Cannot migrate login registration: {error}");
             }
             let core = app.state::<Arc<Core>>().inner().clone();
+            // An owned core can start applying a staged update while WebView2
+            // or the tray is still initializing on the UI thread.
+            let exit_app = app.handle().clone();
+            let exit_signal = core.stop_requested.clone();
+            tauri::async_runtime::spawn(async move {
+                exit_signal.notified().await;
+                lifecycle::request(&exit_app);
+            });
             if let Err(error) = tauri::async_runtime::block_on(core.connect()) {
                 // The API can accept an update restart before the shell finishes
                 // its startup handshake. Honor the authenticated stop event
@@ -351,10 +359,12 @@ fn main() {
             );
             let menu_on_left_click = tray_settings.menu_on_left_click();
             app.manage(tray_settings);
-            app.manage(update::Health {
-                directory: std::path::PathBuf::from(&profile.paths.state).join("updates"),
-                acknowledged: Default::default(),
-            });
+            app.manage(update::Health::new(
+                std::path::PathBuf::from(&profile.paths.state).join("updates"),
+            ));
+            if replacement {
+                update::watch_startup(app.handle());
+            }
             app.manage(windows::Windows {
                 suppress: cfg!(debug_assertions)
                     && std::env::var("TRUEDOWN_DESKTOP_TEST").as_deref() == Ok("1"),
@@ -461,12 +471,6 @@ fn main() {
                 core.clone(),
                 std::path::PathBuf::from(&profile.paths.cache),
             );
-            let exit_app = app.handle().clone();
-            let exit_signal = core.stop_requested.clone();
-            tauri::async_runtime::spawn(async move {
-                exit_signal.notified().await;
-                lifecycle::request(&exit_app);
-            });
             tauri::async_runtime::spawn(async move {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;

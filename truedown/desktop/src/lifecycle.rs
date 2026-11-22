@@ -54,8 +54,8 @@ pub fn request(app: &tauri::AppHandle) {
         // The core and its engine are already shut down. Allow Tauri to
         // tear down the WebView and tray, then release a wedged Windows shell.
         #[cfg(windows)]
-        tauri::async_runtime::spawn(async {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_secs(5));
             eprintln!("TrueDown native exit timed out after core shutdown");
             std::process::exit(0);
         });

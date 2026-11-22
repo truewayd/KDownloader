@@ -2,8 +2,44 @@ use std::{io::Write, path::Path, sync::Arc};
 use tauri::{Manager, State};
 
 pub struct Health {
-    pub directory: std::path::PathBuf,
-    pub acknowledged: tokio::sync::Mutex<bool>,
+    directory: std::path::PathBuf,
+    checking: tokio::sync::Mutex<()>,
+    state: std::sync::Mutex<HealthState>,
+}
+
+impl Health {
+    pub fn new(directory: std::path::PathBuf) -> Self {
+        Self {
+            directory,
+            checking: Default::default(),
+            state: Default::default(),
+        }
+    }
+}
+
+#[derive(Default, PartialEq)]
+enum HealthState {
+    #[default]
+    Starting,
+    Ready,
+    Expired,
+}
+
+// The helper eventually rolls back a replacement that never acknowledges.
+// Start graceful shutdown even if the main document never reaches desktop_ready.
+pub fn watch_startup(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        // Allow two normal 15-second surface-readiness windows after core startup.
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        let health = app.state::<Health>();
+        let mut state = health.state.lock().unwrap();
+        if *state == HealthState::Starting {
+            *state = HealthState::Expired;
+            drop(state);
+            crate::lifecycle::request(&app);
+        }
+    });
 }
 
 #[tauri::command]
@@ -26,16 +62,16 @@ pub async fn desktop_ready(
     if !valid_token(&token) || Path::new(&path) != expected {
         return Err("Invalid native startup health location".into());
     }
-    let mut acknowledged = health.acknowledged.lock().await;
-    if *acknowledged {
-        return Ok(());
+    let _checking = health.checking.lock().await;
+    match *health.state.lock().unwrap() {
+        HealthState::Ready => return Ok(()),
+        HealthState::Expired => return Err("Update startup timed out".into()),
+        HealthState::Starting => {}
     }
-    let result = acknowledge_health(&window, &core, &health.directory, &expected, &token).await;
+    let result = acknowledge_health(&window, &core, &expected, &token, &health).await;
     if let Err(error) = &result {
         eprintln!("Native update startup failed: {error}");
         crate::lifecycle::request(&app);
-    } else {
-        *acknowledged = true;
     }
     result
 }
@@ -43,9 +79,9 @@ pub async fn desktop_ready(
 async fn acknowledge_health(
     window: &tauri::WebviewWindow,
     core: &crate::core::Core,
-    directory: &Path,
     expected: &Path,
     token: &str,
+    health: &Health,
 ) -> Result<(), String> {
     if !core.connect().await?.owned {
         return Err("An update must start its own matching core".into());
@@ -53,7 +89,7 @@ async fn acknowledge_health(
     // A working core alone must not commit an update with an unusable window.
     crate::appearance::wait_ready(window).await?;
     let mut temporary =
-        tempfile::NamedTempFile::new_in(directory).map_err(|error| error.to_string())?;
+        tempfile::NamedTempFile::new_in(&health.directory).map_err(|error| error.to_string())?;
     temporary
         .write_all(token.as_bytes())
         .map_err(|error| error.to_string())?;
@@ -61,9 +97,16 @@ async fn acknowledge_health(
         .as_file()
         .sync_all()
         .map_err(|error| error.to_string())?;
+    let mut state = health.state.lock().unwrap();
+    match *state {
+        HealthState::Ready => return Ok(()),
+        HealthState::Expired => return Err("Update startup timed out".into()),
+        HealthState::Starting => {}
+    }
     temporary
         .persist(expected)
         .map_err(|error| error.to_string())?;
+    *state = HealthState::Ready;
     Ok(())
 }
 
@@ -71,9 +114,16 @@ fn valid_token(token: &str) -> bool {
     token.len() == 48 && token.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+#[derive(Debug, PartialEq)]
+pub enum Launch {
+    Normal,
+    Replacement,
+    Forwarded,
+}
+
 // Run before the CLI or any profile initialization. Both the previous and
 // replacement shell can recover an interrupted multi-file replacement.
-pub fn before_start(base: &Path, background: bool) -> Result<bool, String> {
+pub fn before_start(base: &Path, background: bool) -> Result<Launch, String> {
     #[cfg(windows)]
     {
         use serde::Deserialize;
@@ -96,7 +146,9 @@ pub fn before_start(base: &Path, background: bool) -> Result<bool, String> {
         let marker_path = base.join("TrueDown.update.json");
         let info = match fs::symlink_metadata(&marker_path) {
             Ok(info) => info,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Launch::Normal)
+            }
             Err(error) => return Err(error.to_string()),
         };
         if !info.is_file() || info.len() > 64 * 1024 {
@@ -104,7 +156,9 @@ pub fn before_start(base: &Path, background: bool) -> Result<bool, String> {
         }
         let bytes = match fs::read(&marker_path) {
             Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Launch::Normal)
+            }
             Err(error) => return Err(error.to_string()),
         };
         let marker: Marker =
@@ -114,7 +168,7 @@ pub fn before_start(base: &Path, background: bool) -> Result<bool, String> {
         }
         if std::env::var("TRUEDOWN_UPDATE_BYPASS").as_deref() == Ok(&marker.token) {
             crate::build_info::Info::verify_update()?;
-            return Ok(false);
+            return Ok(Launch::Replacement);
         }
         // The active updater owns this event through file replacement and
         // health verification. Release our executable mapping immediately.
@@ -133,7 +187,16 @@ pub fn before_start(base: &Path, background: bool) -> Result<bool, String> {
                 return Err("Cannot signal the active TrueDown update".into());
             }
             // Once committed, a regular launch can activate the new instance.
-            return marker_path.try_exists().map_err(|error| error.to_string());
+            return Ok(
+                if marker_path
+                    .try_exists()
+                    .map_err(|error| error.to_string())?
+                {
+                    Launch::Forwarded
+                } else {
+                    Launch::Normal
+                },
+            );
         }
         let helper = Path::new(&marker.helper);
         let parent = helper.parent().ok_or("Invalid native update helper path")?;
@@ -184,12 +247,12 @@ pub fn before_start(base: &Path, background: bool) -> Result<bool, String> {
             .creation_flags(0x08000000)
             .spawn()
             .map_err(|error| error.to_string())?;
-        Ok(true)
+        Ok(Launch::Forwarded)
     }
     #[cfg(not(windows))]
     {
         let _ = (base, background);
-        Ok(false)
+        Ok(Launch::Normal)
     }
 }
 
@@ -213,9 +276,15 @@ mod tests {
             "schemaVersion": 1, "token": token, "transaction": "", "helper": "", "sha256": ""
         });
         std::fs::write(base.path().join("TrueDown.update.json"), marker.to_string()).unwrap();
-        assert!(super::before_start(base.path(), true).unwrap());
+        assert_eq!(
+            super::before_start(base.path(), true).unwrap(),
+            super::Launch::Forwarded
+        );
         assert_eq!(unsafe { WaitForSingleObject(event, 0) }, WAIT_TIMEOUT);
-        assert!(super::before_start(base.path(), false).unwrap());
+        assert_eq!(
+            super::before_start(base.path(), false).unwrap(),
+            super::Launch::Forwarded
+        );
         assert_eq!(unsafe { WaitForSingleObject(event, 0) }, WAIT_OBJECT_0);
         unsafe { CloseHandle(event) };
     }

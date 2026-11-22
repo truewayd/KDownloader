@@ -49,7 +49,7 @@ async function until(check, timeout = 180000) {
 }
 async function exists(file) { return fs.stat(file).then(() => true, () => false); }
 
-const modes = ["update", "automatic-update", "health-rollback", "interrupted-rollback"];
+const modes = ["update", "automatic-update", "health-rollback", "missing-surface-rollback", "interrupted-rollback"];
 if (process.argv[4] && !modes.includes(process.argv[4])) throw new Error("Unknown acceptance mode");
 for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
   const directory = path.join(fixture, mode, "Application with spaces");
@@ -125,6 +125,9 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
       handoffStart = performance.now();
       outgoing = launch();
     } else {
+      // The native core can be healthy even when the main document never
+      // executes its readiness callback. Exercise that case in this profile.
+      if (mode === "missing-surface-rollback") env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--blink-settings=scriptEnabled=false";
       outgoing = launch();
       await until(async () => await build() === "1");
       const pending = await request("/system/update");
@@ -149,6 +152,9 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
       return true;
     }, 10000);
     const helperExitMs = Math.round(performance.now() - handoffStart);
+    if (mode === "missing-surface-rollback") {
+      assert.ok(helperExitMs < 90000, "the replacement should exit through the coordinator before the helper's hard timeout");
+    }
     const wanted = ["update", "automatic-update"].includes(mode) ? "2" : "1";
     await until(async () => {
       if (await build() !== wanted) return false;
@@ -171,6 +177,21 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
       assert.equal(await exists(archivePath), true, "rollback must preserve the failed update download");
     }
     if (!["update", "automatic-update"].includes(mode)) assert.match(saved.lastUpdateError, /restored the complete previous version/);
+    if (mode === "missing-surface-rollback") {
+      // Reopen the restored version with normal WebView settings.
+      await request("/system/exit", "POST");
+      await until(async () => !(await build()));
+      env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "";
+      // The listener closes before the shell finishes exiting.
+      await until(async () => {
+        const file = await fs.open(path.join(directory, "TrueDown.exe"), "r+").catch(() => null);
+        if (!file) return false;
+        await file.close();
+        return true;
+      });
+      launch();
+      await until(async () => await build() === "1");
+    }
     await until(() => fetch(`http://127.0.0.1:${debugPort}/json/version`).then(response => response.ok, () => false));
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
     const page = await until(() => browser.contexts().flatMap(context => context.pages()).find(page => page.url().includes("tauri.localhost")));

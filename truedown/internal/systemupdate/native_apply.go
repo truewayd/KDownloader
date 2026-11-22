@@ -442,6 +442,9 @@ func runNativeTransaction(path string, recoverOnly bool) error {
 		if updateErr == nil {
 			failure = "native update did not finish its startup health check"
 			updateErr = launchAndAwaitHealth(transaction)
+			if errors.Is(updateErr, errReplacementStillRunning) {
+				return updateErr
+			}
 		}
 		healthy = updateErr == nil
 	}

@@ -1363,7 +1363,7 @@ function renderSystemUpdateState() {
   els.truedownUpdateVersion.textContent = trueDown.build > 0
     ? `${trueDown.productVersion || trueDown.version} · build ${trueDown.build}` : `${trueDown.productVersion || trueDown.version} · 开发构建`;
   let trueDownStatus = trueDown.supported
-    ? (trueDown.lastCheckedAt ? "当前已是最新发布版本。" : "尚未检查更新。")
+    ? (trueDown.error ? "TrueDown 更新失败。" : trueDown.lastCheckedAt ? "当前已是最新发布版本。" : "尚未检查更新。")
     : "自动更新适用于 Windows 正式桌面安装包。";
   if (trueDown.restartRequired) {
     trueDownStatus = `已验证并暂存 ${trueDown.pendingVersion || `build ${trueDown.pendingBuild}`}。${trueDown.autoUpdate ? "等待任务空闲后自动重启更新。" : "自动更新已关闭，可手动重启更新。"}`;
@@ -1373,7 +1373,8 @@ function renderSystemUpdateState() {
     trueDownStatus += ` 上次检查：${formatUpdateTime(trueDown.lastCheckedAt)}。`;
   }
   if (busy === "truedown") trueDownStatus = "正在检查并验证 TrueDown 更新，更新包下载进度可在任务列表查看…";
-  if (trueDown.error) trueDownStatus += ` 最近一次更新操作：${trueDown.error}`;
+  if (busy === "program-update") trueDownStatus = "正在重启更新";
+  if (trueDown.error && !busy) trueDownStatus += ` 最近一次更新操作：${trueDown.error}`;
   els.truedownUpdateStatus.textContent = trueDownStatus;
   els.autoUpdateTruedown.checked = trueDown.autoUpdate;
   els.autoUpdateTruedown.disabled = !trueDown.supported || Boolean(busy);
@@ -1464,9 +1465,11 @@ async function checkTrueDownUpdate() {
       showToast("更新检查已开始，更新包进度可在任务列表查看。", "info");
       return;
     }
-    showToast(systemUpdateState.trueDown.restartRequired
-      ? (systemUpdateState.trueDown.autoUpdate ? "新版本已验证，任务空闲时自动重启更新。" : "新版本已验证，可手动重启更新。")
-      : "当前已是最新版本。")
+    const { trueDown } = systemUpdateState;
+    if (trueDown.error) showToast(`检查 TrueDown 更新失败：${trueDown.error}`, "error");
+    else if (trueDown.restartRequired) showToast(trueDown.autoUpdate ? "新版本已验证，任务空闲时自动重启更新。" : "新版本已验证，可手动重启更新。");
+    else if (trueDown.updateAvailable) showToast(`发现 ${trueDown.availableVersion || "新版本"}。`);
+    else showToast("当前已是最新版本。");
   } catch (error) {
     showToast(`检查 TrueDown 更新失败：${error.message}`, "error");
     await reloadSystemUpdateStateQuietly();

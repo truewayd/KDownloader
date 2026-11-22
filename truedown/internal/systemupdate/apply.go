@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -72,6 +73,10 @@ func (m *Manager) pendingUpdatePathLocked(pending *pendingAppUpdate) (string, er
 	return path, nil
 }
 
+// Keep the journal if the child cannot be reaped. Replacing files underneath
+// a possibly live shell would make a later recovery ambiguous.
+var errReplacementStillRunning = errors.New("updated TrueDown has not exited")
+
 func launchAndAwaitHealth(transaction nativeTransaction) error {
 	command := exec.Command(filepath.Join(transaction.Directory, "TrueDown.exe"), transaction.Arguments...)
 	command.Env = append(withoutUpdateEnvironment(os.Environ()),
@@ -101,8 +106,18 @@ func launchAndAwaitHealth(transaction nativeTransaction) error {
 				return nil
 			}
 		case <-timer.C:
-			_ = command.Process.Kill()
-			<-done
+			// The health file can arrive on the same tick as the deadline.
+			if healthTokenMatches(transaction.HealthPath, transaction.Token) {
+				return nil
+			}
+			if err := command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				return fmt.Errorf("%w: %v", errReplacementStillRunning, err)
+			}
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				return errReplacementStillRunning
+			}
 			return fmt.Errorf("updated TrueDown did not report healthy startup")
 		}
 	}
