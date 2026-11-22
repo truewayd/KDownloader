@@ -384,6 +384,16 @@ fn main() {
                         .storage
                         .configure(tauri::WebviewWindowBuilder::from_config(app, config)?),
                 );
+                #[cfg(all(windows, debug_assertions))]
+                let builder = if replacement
+                    && config.label == "main"
+                    && app.state::<windows::Windows>().suppress
+                    && std::env::var("TRUEDOWN_DESKTOP_TEST_MISSING_SURFACE").as_deref() == Ok("1")
+                {
+                    builder.disable_javascript()
+                } else {
+                    builder
+                };
                 let builder = if config.label == "main" {
                     if let Some(icon) = full_resolution_icon() {
                         builder.icon(icon)?

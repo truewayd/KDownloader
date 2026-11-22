@@ -127,7 +127,7 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
     } else {
       // The native core can be healthy even when the main document never
       // executes its readiness callback. Exercise that case in this profile.
-      if (mode === "missing-surface-rollback") env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--blink-settings=scriptEnabled=false";
+      if (mode === "missing-surface-rollback") env.TRUEDOWN_DESKTOP_TEST_MISSING_SURFACE = "1";
       outgoing = launch();
       await until(async () => await build() === "1");
       const pending = await request("/system/update");
@@ -156,6 +156,11 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
       assert.ok(helperExitMs < 90000, "the replacement should exit through the coordinator before the helper's hard timeout");
     }
     const wanted = ["update", "automatic-update"].includes(mode) ? "2" : "1";
+    const expectedPackage = wanted === "2" ? next : previous;
+    for (const name of names) {
+      assert.deepEqual(await metadata(directory, name), await metadata(expectedPackage, name),
+        `${mode}: installed ${name} after helper exit`);
+    }
     await until(async () => {
       if (await build() !== wanted) return false;
       if (mode !== "interrupted-rollback") {
@@ -165,7 +170,6 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
     });
     await until(() => outgoing.exitCode !== null);
     assert.equal(outgoing.exitCode, 0, `the outgoing shell must exit after update handoff: ${outgoing.diagnostics}`);
-    for (const name of names) assert.deepEqual(await metadata(directory, name), await metadata(["update", "automatic-update"].includes(mode) ? next : previous, name));
     assert.deepEqual(await metadata(directory, "aria2c.exe"), engine);
     const saved = JSON.parse(await fs.readFile(statePath, "utf8"));
     assert.equal(saved.autoUpdateTrueDown, mode !== "update", "rollback preserves the saved automatic update preference");
@@ -177,21 +181,6 @@ for (const mode of process.argv[4] ? [process.argv[4]] : modes) {
       assert.equal(await exists(archivePath), true, "rollback must preserve the failed update download");
     }
     if (!["update", "automatic-update"].includes(mode)) assert.match(saved.lastUpdateError, /restored the complete previous version/);
-    if (mode === "missing-surface-rollback") {
-      // Reopen the restored version with normal WebView settings.
-      await request("/system/exit", "POST");
-      await until(async () => !(await build()));
-      env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "";
-      // The listener closes before the shell finishes exiting.
-      await until(async () => {
-        const file = await fs.open(path.join(directory, "TrueDown.exe"), "r+").catch(() => null);
-        if (!file) return false;
-        await file.close();
-        return true;
-      });
-      launch();
-      await until(async () => await build() === "1");
-    }
     await until(() => fetch(`http://127.0.0.1:${debugPort}/json/version`).then(response => response.ok, () => false));
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
     const page = await until(() => browser.contexts().flatMap(context => context.pages()).find(page => page.url().includes("tauri.localhost")));
