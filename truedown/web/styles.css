@@ -1480,6 +1480,9 @@ label {
 .kd-context-item:hover, .kd-context-item:focus-visible { background: var(--kd-secondary-hover); }
 .kd-context-item:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -2px; }
 .kd-context-item.danger { color: var(--kd-danger-button-text); }
+.kd-context-item:has(> .icon) { justify-content: flex-start; gap: 10px; }
+:is(.kd-context-item, .popup-menu-item)[aria-checked="false"] > .icon { visibility: hidden; }
+:is(.kd-context-item, .popup-menu-item):disabled { color: var(--kd-muted); cursor: default; }
 .kd-context-shortcut { color: var(--kd-muted); font-size: 12px; }
 
 .overlay {

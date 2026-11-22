@@ -9,6 +9,7 @@ const assets = new URL("../../web/", import.meta.url);
 const output = path.resolve(process.argv[2] || "../dist/task-viewport-review");
 const groups = { revision: 1, groups: [{ id: "video", name: "Video", extensions: [".mp4"] }, { id: "other", name: "Other", extensions: [] }] };
 const tasks = Array.from({ length: 2400 }, (_, index) => ({ id: index + 1, name: `Movie ${index + 1}.mp4`, outputName: `Movie ${index + 1}.mp4`, category: "video", status: ["downloading", "error", "queued", "paused"][index] || "done", totalLength: 1024000, completedLength: 512000, downloadSpeed: 4096, link: `https://example.test/${index + 1}`, folder: "Downloads" }));
+Object.assign(tasks[0], { totalLength: 1023.9 * 1024 ** 3, downloadSpeed: 1023.9 * 1024 ** 2, createdAt: "2026-11-22T02:00:00Z" });
 const requests = [];
 let revision = 1;
 let rowsRevision = 1;
@@ -69,6 +70,29 @@ try {
     assert.equal(await page.locator('#tasks-wrap .kd-page-placeholder[data-variant="list"]').isVisible(), true);
     finishInitialRead(); pendingReads = null;
     await page.waitForFunction(() => currentTotal === 2400);
+    let englishStatusWidth;
+    for (const language of ["en", "zh-CN"]) {
+      await page.evaluate(language => window.TrueDownI18n.setLanguage(language), language);
+      await page.waitForFunction(label => document.querySelector('[data-sort-field="created"]').textContent.trim() === label,
+        language === "en" ? "Date added" : "添加时间");
+      const clipped = await page.locator(".tasks-table .sort-button").evaluateAll(buttons => buttons.filter(button => {
+        const range = document.createRange();
+        range.selectNodeContents(button.firstChild);
+        const label = range.getBoundingClientRect(), icon = button.lastElementChild.getBoundingClientRect();
+        const box = button.getBoundingClientRect();
+        return Math.min(label.left, icon.left) < box.left - 0.1 || Math.max(label.right, icon.right) > box.right + 0.1;
+      }).map(button => button.textContent.trim()));
+      assert.deepEqual(clipped, [], `${width}px: clipped ${language} headings`);
+      const clippedValues = await page.locator(".task-rows tr:first-child :is(.task-size, .task-speed, .task-remaining, .task-created), .task-rows tr:nth-child(5) .row-actions").evaluateAll(cells =>
+        cells.filter(cell => {
+          const range = document.createRange();
+          range.selectNodeContents(cell);
+          const content = range.getBoundingClientRect(), bounds = cell.getBoundingClientRect();
+          return content.left < bounds.left || content.right > bounds.right;
+        }).map(cell => cell.className));
+      assert.deepEqual(clippedValues, [], `${width}px: clipped ${language} task values or actions`);
+      if (language === "en") englishStatusWidth = await page.locator(".task-heading-status").evaluate(node => node.offsetWidth);
+    }
     assert.equal(await page.locator("#tasks-wrap .kd-page-placeholder").isVisible(), false);
     if (width === 1200) {
       let release;
@@ -104,9 +128,9 @@ try {
     assert.equal(await page.locator(".pagination, .metric-strip").count(), 0);
     assert.equal(await page.locator(".task-rows tr").count(), 100);
     assert.equal(await page.locator(".task-index, .col-index").count(), 0);
-    assert.equal(await page.locator(".tasks-table thead th").count(), 9);
-    assert.equal(await page.locator(".task-rows tr").first().locator("td").count(), 9);
-    assert.equal(await page.locator(".task-spacer td").first().getAttribute("colspan"), "9");
+    assert.equal(await page.locator(".tasks-table thead th:visible").count(), 9);
+    assert.equal(await page.locator(".task-rows tr").first().locator("td:visible").count(), 9);
+    assert.equal(await page.locator(".spacer-data").first().getAttribute("colspan"), "7");
     const statusFits = label => label.scrollWidth <= label.clientWidth
       && getComputedStyle(label).whiteSpace === "nowrap";
     assert.ok(await page.locator(".status-label").evaluateAll(labels => labels.every(label =>
@@ -134,6 +158,37 @@ try {
       await statusHeading.press("Alt+ArrowLeft");
       await statusHeading.click();
       assert.equal(await page.evaluate(() => currentSort + ":" + currentSortOrder), "status:desc", "clicking a heading still sorts tasks");
+      const resizer = page.locator(".task-heading-status .task-resizer");
+      assert.equal(await resizer.evaluate(node => getComputedStyle(node).cursor), "col-resize");
+      const handle = await resizer.boundingBox();
+      const x = handle.x + handle.width / 2, y = handle.y + handle.height / 2;
+      const initial = await statusHeading.evaluate(node => node.closest("th").offsetWidth);
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + 80, y, { steps: 5 });
+      await page.mouse.up();
+      assert.equal(await statusHeading.evaluate(node => node.closest("th").offsetWidth), initial + 80);
+      await resizer.press("ArrowLeft");
+      assert.equal(await statusHeading.evaluate(node => node.closest("th").offsetWidth), initial + 72);
+      const cancelHandle = await resizer.boundingBox();
+      await page.mouse.move(cancelHandle.x + 4, y);
+      await page.mouse.down();
+      await page.mouse.move(cancelHandle.x + 40, y);
+      await page.keyboard.press("Escape");
+      await page.mouse.up();
+      assert.equal(await statusHeading.evaluate(node => node.closest("th").offsetWidth), initial + 72);
+      assert.equal(await page.evaluate(() => currentSort + ":" + currentSortOrder), "status:desc");
+      await statusHeading.click({ button: "right" });
+      const progressItem = page.getByRole("menuitemcheckbox", { name: "进度", exact: true });
+      assert.equal(await progressItem.isChecked(), true);
+      const fixedActions = page.getByRole("menuitemcheckbox", { name: "操作", exact: true });
+      assert.equal(await fixedActions.isChecked(), true);
+      assert.equal(await fixedActions.isDisabled(), true);
+      assert.equal(await page.getByRole("menuitemcheckbox").last().textContent(), "操作");
+      await progressItem.click();
+      assert.equal(await page.locator(".task-rows .task-progress").first().isVisible(), false);
+      assert.equal(await page.locator(".spacer-data").first().getAttribute("colspan"), "6");
+      assert.equal(await firstCheckbox.isChecked(), true);
       const reopened = await context.newPage();
       await reopened.goto(page.url());
       await reopened.evaluate(() => window.TrueDownI18n.setLanguage("en"));
@@ -144,6 +199,23 @@ try {
         assert.equal(await text.evaluate(statusFits), true, `${label} fits on one line`);
       }
       assert.equal(await reopened.locator("[data-task-column]").first().getAttribute("data-task-column"), "status");
+      const savedStatus = reopened.locator('[data-sort-field="status"]');
+      assert.equal(await savedStatus.evaluate(node => node.closest("th").offsetWidth), initial + 72);
+      assert.equal(await reopened.locator(".task-heading-progress").isVisible(), false);
+      await savedStatus.press("Shift+F10");
+      const unchecked = reopened.getByRole("menuitemcheckbox", { name: "Progress", exact: true });
+      assert.equal(await unchecked.isChecked(), false);
+      assert.equal(await unchecked.locator(".icon").isVisible(), false);
+      await unchecked.click();
+      assert.equal(await reopened.locator(".task-heading-progress").isVisible(), true);
+      await savedStatus.click({ button: "right" });
+      await reopened.locator('[data-menu-action="columns-auto"]').click();
+      assert.equal(await savedStatus.evaluate(node => node.closest("th").offsetWidth), englishStatusWidth);
+      await statusHeading.click({ button: "right" });
+      await page.screenshot({ path: path.join(output, "task-header-menu.png") });
+      await page.locator('[data-menu-action="column-show-progress"]').click();
+      await statusHeading.click({ button: "right" });
+      await page.locator('[data-menu-action="columns-auto"]').click();
       assert.equal(await reopened.locator('.task-rows tr').first().locator('td').nth(1).locator('.status-badge').count(), 1);
       await reopened.route("**/i18n-en.js", async route => {
         const response = await route.fetch();
@@ -172,6 +244,55 @@ try {
       assert.ok(box && box.x >= 0 && box.x + box.width <= width, `${width}: unreachable ${selector}`);
     }
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    const scroll = page.locator("#tasks-wrap");
+    const expectShadows = (left, right) => page.waitForFunction(([left, right]) =>
+      [[".select-cell", "::after", left], [".task-actions-cell", "::before", right]].every(([selector, pseudo, visible]) =>
+        ["thead", ".task-rows", ".task-spacer"].every(section => {
+          const cell = document.querySelector(`${section} ${selector}`);
+          const shade = getComputedStyle(cell, pseudo);
+          return (shade.content !== "none") === visible && getComputedStyle(cell).boxShadow === "none"
+            && (!visible || (shade.backgroundImage.includes("linear-gradient") && shade.pointerEvents === "none"));
+        })), [left, right]);
+    if (await scroll.evaluate(node => node.scrollWidth > node.clientWidth)) {
+      const positions = () => page.evaluate(() => {
+        const box = selector => document.querySelector(selector).getBoundingClientRect().left;
+        return [box("thead .select-cell"), box(".task-rows .select-cell"), box(".task-actions-heading"), box(".task-rows .row-actions"), box(".task-heading-file")];
+      });
+      const before = await positions();
+      const pinnedHeadingsAreOnTop = () => page.evaluate(() =>
+        [".select-cell", ".task-actions-heading"].every(selector => {
+          const heading = document.querySelector(`thead ${selector}`);
+          const rect = heading.getBoundingClientRect();
+          return heading.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+        }));
+      assert.equal(await pinnedHeadingsAreOnTop(), true);
+      await expectShadows(false, true);
+      await scroll.evaluate(node => { node.scrollLeft = (node.scrollWidth - node.clientWidth) / 2; });
+      await expectShadows(true, true);
+      if (width === 960) {
+        const { x, y, width: clipWidth } = await scroll.boundingBox();
+        for (const colorScheme of ["light", "dark"]) {
+          await page.emulateMedia({ colorScheme });
+          await page.screenshot({ path: path.join(output, `pinned-shadows-${colorScheme}.png`), clip: { x, y, width: clipWidth, height: 230 } });
+        }
+      }
+      await scroll.evaluate(node => { node.scrollLeft = node.scrollWidth; });
+      await expectShadows(true, false);
+      const after = await positions();
+      assert.deepEqual(after.slice(0, 4), before.slice(0, 4), "selection and actions stay pinned");
+      assert.equal(await pinnedHeadingsAreOnTop(), true);
+      assert.ok(after[4] < before[4], "data columns scroll between the pinned edges");
+      const corner = page.locator(".tasks-table thead th:last-child");
+      const bounds = await corner.boundingBox();
+      await scroll.evaluate(node => { node.scrollTop = 480; });
+      assert.deepEqual(await corner.boundingBox(), bounds, "Actions stays in the top right on both axes");
+      assert.equal(await pinnedHeadingsAreOnTop(), true);
+      assert.equal(await page.locator(".task-rows tr").first().locator("td:last-child .row-actions").count(), 1);
+      await scroll.evaluate(node => { node.scrollTo(0, 0); });
+    } else if (width === 1200) {
+      await expectShadows(false, false);
+      assert.equal(await scroll.evaluate(node => node.scrollWidth), await scroll.evaluate(node => node.clientWidth));
+    }
     const height = await page.locator(".task-rows tr").first().evaluate(row => row.getBoundingClientRect().height);
     assert.equal(height, 64, "virtual offsets must match actual row heights");
     await page.screenshot({ path: path.join(output, `workspace-${width}.png`) });
@@ -198,7 +319,7 @@ try {
         hidden: cell.closest("tbody").getAttribute("aria-hidden"), controls: cell.querySelectorAll("button, input, a").length };
     });
     assert.ok(placeholder?.image.includes("data:image/svg+xml"), `slow reads must expose skeleton rows instead of blank space: ${JSON.stringify({ placeholder, errors })}`);
-    assert.equal(placeholder.size, "100% 64px");
+    assert.equal(placeholder.size, `${await page.locator(".tasks-table").evaluate(node => node.offsetWidth)}px 64px`);
     assert.equal(placeholder.hidden, "true");
     assert.equal(placeholder.controls, 0);
     const imageSource = decodeURIComponent(placeholder.image);
@@ -255,7 +376,8 @@ try {
     await page.waitForFunction(() => [...document.querySelectorAll(".task-remaining")].some(cell => /\d+ min$/.test(cell.textContent)));
     const compactHeights = await page.locator(".task-rows tr").evaluateAll(rows => [...new Set(rows.map(row => row.getBoundingClientRect().height))]);
     assert.deepEqual(compactHeights, [52], "all mounted compact rows match virtual geometry");
-    assert.equal(await page.locator(".task-spacer td").first().evaluate(cell => getComputedStyle(cell).backgroundSize), "100% 52px");
+    assert.equal(await page.locator(".task-spacer td").first().evaluate(cell => getComputedStyle(cell).backgroundSize),
+      `${await page.locator(".tasks-table").evaluate(node => node.offsetWidth)}px 52px`);
     await page.mouse.move(1, 1);
     await page.locator("#toast.is-visible").waitFor({ state: "detached" });
     await page.screenshot({ path: path.join(output, `workspace-${width}-compact.png`), animations: "disabled" });

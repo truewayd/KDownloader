@@ -270,13 +270,21 @@ try {
   await renderer.evaluate(() => {
     window.results = [];
     window.__TAURI__ = { core: { invoke: async (command, args) => {
-      if (command === "context_menu_init") return ["copy-link", "group-edit", "group-add", "group-manage", "pause-queue", "resume-queue", "retry-all", "clear-done", "open-downloads"];
+      if (command === "context_menu_init") return ["copy-link", "group-edit", "group-add", "group-manage", "pause-queue", "resume-queue", "retry-all", "clear-done", "column-hide-file", "column-show-status", "column-actions", "columns-auto", "open-downloads"];
       results.push({ command, args });
     } } };
   });
-  await renderer.addScriptTag({ content: await readFile(new URL("../../web/context-menu-window.js", import.meta.url), "utf8") });
+  for (const file of ["task-columns.js", "context-menu-window.js"]) {
+    await renderer.addScriptTag({ content: await readFile(new URL(`../../web/${file}`, import.meta.url), "utf8") });
+  }
   await renderer.waitForFunction(() => window.__popupActive);
-  assert.equal(await renderer.getByRole("menuitem").count(), 9);
+  assert.equal(await renderer.getByRole("menuitem").count(), 10);
+  const file = renderer.getByRole("menuitemcheckbox", {name: "文件", exact: true});
+  assert.equal(await file.isChecked(), true);
+  assert.equal(await file.isDisabled(), true, "the last visible data column stays checked");
+  assert.equal(await renderer.getByRole("menuitemcheckbox", {name: "状态"}).isChecked(), false);
+  assert.equal(await renderer.getByRole("menuitemcheckbox", {name: "操作"}).isDisabled(), true);
+  assert.equal(await renderer.locator('[data-action="columns-auto"]').textContent(), "恢复自动列宽");
   assert.equal(await renderer.locator('[data-action="copy-link"]').textContent(), "复制下载地址");
   assert.equal(await renderer.locator('[data-action="open-downloads"]').textContent(), "打开下载目录");
   assert.equal(await renderer.locator('[data-action="clear-done"]').evaluate(button => button.classList.contains("danger")), true);

@@ -99,10 +99,6 @@ let currentFilter = "all";
 let currentCategory = "";
 let currentModule = "";
 let currentSearch = "";
-const taskSortColumns = {
-  file: "文件", status: "状态", progress: "进度", size: "大小",
-  speed: "速度", remaining: "剩余", created: "添加时间",
-};
 let taskColumnOrder = Object.keys(taskSortColumns);
 let currentSort = "status";
 let currentSortOrder = "asc";
@@ -1254,19 +1250,23 @@ function renderTasks(tasks, epoch = "") {
   }
   let table = els.tasksContainer.querySelector(".tasks-table");
   if (!table) {
+    const spacer = '<tbody class="task-spacer" aria-hidden="true"><tr><td class="select-cell"></td><td class="spacer-data"></td><td class="task-actions-cell"></td></tr></tbody>';
     els.tasksContainer.innerHTML = `
     <table class="tasks-table">
       <colgroup>
-        <col class="col-select">${taskColumnOrder.map(field => `<col class="col-${field}">`).join("")}<col class="col-actions">
+        <col class="col-select">${taskColumnOrder.map(field => `<col class="col-${field}">`).join("")}<col class="col-fill"><col class="col-actions">
       </colgroup>
       <thead><tr>
         <th scope="col" class="select-cell"><input type="checkbox" data-select-page aria-label="全选当前筛选结果中的任务"></th>
         ${taskColumnOrder.map(field => sortableHeading(field, taskSortColumns[field])).join("")}
-        <th scope="col" class="task-actions-heading">操作</th>
+        <th class="col-fill" aria-hidden="true"></th>
+        <th scope="col" class="task-actions-cell task-actions-heading"><span>操作</span></th>
       </tr></thead>
-      <tbody class="task-spacer" aria-hidden="true"><tr><td colspan="9"></td></tr></tbody><tbody class="task-rows"></tbody><tbody class="task-spacer" aria-hidden="true"><tr><td colspan="9"></td></tr></tbody>
+      ${spacer}<tbody class="task-rows"></tbody>${spacer}
     </table>`;
     table = els.tasksContainer.querySelector(".tasks-table");
+    window.TrueDownI18n?.localize(table.tHead);
+    applyTaskColumnLayout(table);
   }
   const sortKey = `${currentSort}:${currentSortOrder}`;
   if (table.dataset.sort !== sortKey) {
@@ -1308,7 +1308,7 @@ function sortableHeading(field, label) {
   const ariaSort = active ? ` aria-sort="${currentSortOrder === "desc" ? "descending" : "ascending"}"` : "";
   const order = active ? currentSortOrder : "none";
   const icon = order === "asc" ? "arrow-up" : order === "desc" ? "arrow-down" : "arrow-up-down";
-  return `<th scope="col" class="task-heading-${field}" data-task-column="${field}"${ariaSort}><button class="sort-button" type="button" data-sort-field="${field}" data-sort-order="${order}" data-tooltip="拖动以调整列顺序" aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight" aria-label="按${label}${active && currentSortOrder === "asc" ? "降序" : "升序"}排列">${label}<span class="sort-indicator" aria-hidden="true">${iconMarkup(icon)}</span></button></th>`;
+  return `<th scope="col" class="task-heading-${field} col-${field}" data-task-column="${field}"${ariaSort}><button class="sort-button" type="button" data-sort-field="${field}" data-sort-order="${order}" data-tooltip="拖动以调整列顺序" aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight" aria-label="按${label}${active && currentSortOrder === "asc" ? "降序" : "升序"}排列">${label}<span class="sort-indicator" aria-hidden="true">${iconMarkup(icon)}</span></button><span class="task-resizer" role="separator" aria-orientation="vertical" aria-label="调整${label}列宽" tabindex="0"></span></th>`;
 }
 
 function onTaskSort(event) {
@@ -1341,19 +1341,20 @@ function taskRow(task) {
   if (status === "paused") actions.push(actionButton("resume", task.id, "继续", false, "play"));
   actions.push(actionButton("remove", task.id, "移除", true, "trash"));
   const cells = {
-    file: `<td><div class="task-file-cell">${iconMarkup(task.updateDownload ? "refresh" : taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="${status === "done" ? "preview" : "details"}" data-id="${task.id}" aria-label="${status === "done" ? "预览文件" : "任务详情"}：${esc(fileName)}" data-tooltip="${esc(fileName)}"><td-file-name aria-hidden="true">${esc(fileName)}</td-file-name></button><div class="task-folder">${task.updateDownload ? '<span class="update-task-label">应用更新</span> · ' + (status === "done" ? '下载完成，安装状态见设置' : status === "error" ? '请从设置重新发起' : '下载后自动校验') : esc(taskCategoryMeta(task.category).label)}</div></div></div></td>`,
-    status: `<td><span class="status-badge status-${status}" data-tooltip="${statusLabel}"><span class="status-label">${statusLabel}</span></span></td>`,
-    progress: `<td><div class="progress-line" data-tooltip="${esc(progress)}">${esc(taskProgressLabel(task))}</div><progress class="task-progress" max="100" value="${taskProgressPercent(task)}" aria-label="下载进度"></progress></td>`,
-    size: `<td class="task-size">${taskBytes(task.totalLength || task.sizeHint)}</td>`,
-    speed: `<td class="task-speed">${taskSpeed(task)}</td>`,
-    remaining: `<td class="task-remaining">${taskRemaining(task)}</td>`,
-    created: `<td class="task-created">${esc(taskDate(task.createdAt))}</td>`,
+    file: `<td class="col-file"><div class="task-file-cell">${iconMarkup(task.updateDownload ? "refresh" : taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="${status === "done" ? "preview" : "details"}" data-id="${task.id}" aria-label="${status === "done" ? "预览文件" : "任务详情"}：${esc(fileName)}" data-tooltip="${esc(fileName)}"><td-file-name aria-hidden="true">${esc(fileName)}</td-file-name></button><div class="task-folder">${task.updateDownload ? '<span class="update-task-label">应用更新</span> · ' + (status === "done" ? '下载完成，安装状态见设置' : status === "error" ? '请从设置重新发起' : '下载后自动校验') : esc(taskCategoryMeta(task.category).label)}</div></div></div></td>`,
+    status: `<td class="col-status"><span class="status-badge status-${status}" data-tooltip="${statusLabel}"><span class="status-label">${statusLabel}</span></span></td>`,
+    progress: `<td class="col-progress"><div class="progress-line" data-tooltip="${esc(progress)}">${esc(taskProgressLabel(task))}</div><progress class="task-progress" max="100" value="${taskProgressPercent(task)}" aria-label="下载进度"></progress></td>`,
+    size: `<td class="col-size task-size">${taskBytes(task.totalLength || task.sizeHint)}</td>`,
+    speed: `<td class="col-speed task-speed">${taskSpeed(task)}</td>`,
+    remaining: `<td class="col-remaining task-remaining">${taskRemaining(task)}</td>`,
+    created: `<td class="col-created task-created">${esc(taskDate(task.createdAt))}</td>`,
   };
   return `
     <tr data-task-id="${task.id}" data-update-download="${task.updateDownload === true}" data-status="${status}">
       <td class="select-cell"><input type="checkbox" data-select-task value="${task.id}" aria-label="选择任务 ${esc(fileName)}"${selectedTaskIDs.has(task.id) ? " checked" : ""}></td>
       ${taskColumnOrder.map(field => cells[field]).join("")}
-      <td><div class="row-actions">${actions.join("")}</div></td>
+      <td class="col-fill" aria-hidden="true"></td>
+      <td class="task-actions-cell"><div class="row-actions">${actions.join("")}</div></td>
     </tr>`;
 }
 

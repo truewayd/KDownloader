@@ -23,7 +23,7 @@
   }
   document.addEventListener("contextmenu", event => event.preventDefault());
   window.navigateContextMenu = key => {
-    const items = [...menu.querySelectorAll("button")];
+    const items = [...menu.querySelectorAll("button:enabled")];
     if (["Enter", " "].includes(key)) {
       if (items.includes(document.activeElement)) document.activeElement.click();
       return;
@@ -49,10 +49,10 @@
     if (!actions) return;
     const mac = window.__TRUEDOWN_PLATFORM__ === "macos";
     for (const action of actions) {
-      const [label, icon, shortcut] = definitions[action];
       const button = document.createElement("button");
       button.type = "button"; button.className = "popup-menu-item"; button.dataset.action = action;
       button.setAttribute("role", "menuitem"); button.tabIndex = -1;
+      const [label, icon, shortcut] = definitions[action] ?? taskColumnMenuItem(action, button, actions);
       if (["remove", "clear-done"].includes(action)) button.classList.add("danger");
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.classList.add("icon"); svg.setAttribute("aria-hidden", "true"); svg.setAttribute("focusable", "false");
@@ -64,7 +64,7 @@
       button.addEventListener("pointermove", () => button.focus({ preventScroll: true }));
       menu.append(button);
     }
-    menu.querySelector("button")?.focus();
+    menu.querySelector("button:enabled")?.focus();
     await invoke("context_menu_ready");
     initialized = true; window.__popupActive = true;
     } catch { answer(null); }

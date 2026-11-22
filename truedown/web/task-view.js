@@ -70,19 +70,21 @@ function initTaskViewport() {
     if (taskViewportFrame) return;
     taskViewportFrame = requestAnimationFrame(() => {
       taskViewportFrame = 0;
+      updateTaskScrollShadows(els.tasksWrap);
       readTaskViewport();
     });
   };
   els.tasksWrap.addEventListener("scroll", schedule, { passive: true });
   const update = () => {
     const table = els.tasksContainer.querySelector(".tasks-table");
-    if (table) { table.taskPlaceholderLayout = ""; updateTaskPlaceholders(table); }
+    if (table) { applyTaskColumnLayout(table); updateTaskPlaceholders(table); }
     schedule();
   };
   const observer = new ResizeObserver(update);
   observer.observe(els.tasksWrap);
   const theme = matchMedia("(prefers-color-scheme: dark)");
   theme.addEventListener("change", update);
+  window.addEventListener("truedown:language-changed", update);
   const updateDensity = () => {
     const previousHeight = taskRowHeight;
     const top = els.tasksWrap.scrollTop;
@@ -101,6 +103,7 @@ function initTaskViewport() {
     cancelAnimationFrame(taskViewportFrame);
     observer.disconnect();
     theme.removeEventListener("change", update);
+    window.removeEventListener("truedown:language-changed", update);
     window.removeEventListener("truedown:layout-density-changed", updateDensity);
   });
 }
@@ -108,6 +111,7 @@ function initTaskViewport() {
 const TASK_COLUMN_ORDER_KEY = "truedown-task-column-order-v1";
 
 function bindTaskColumnSorting(container, scroller) {
+  readTaskColumnLayout();
   try {
     const saved = JSON.parse(localStorage.getItem(TASK_COLUMN_ORDER_KEY));
     if (Array.isArray(saved) && saved.length === taskColumnOrder.length
@@ -117,6 +121,7 @@ function bindTaskColumnSorting(container, scroller) {
   } catch { /* Use the default order when storage is unavailable. */ }
 
   let drag = null;
+  let dragResize = null;
   let suppressClick = false;
   const heading = target => target?.closest("th[data-task-column]");
   const markDrop = () => {
@@ -146,7 +151,12 @@ function bindTaskColumnSorting(container, scroller) {
     if (!drag) return;
     const { source, table, pointer, frame, target, after, moved } = drag;
     drag = null;
-    if (!moved) return;
+    if (dragResize) {
+      container.classList.remove("task-resizing");
+      dragResize.finish(commit);
+      dragResize = null;
+    }
+    if (!moved && !container.hasPointerCapture(pointer)) return;
     cancelAnimationFrame(frame);
     source.classList.remove("task-column-dragging");
     target?.removeAttribute("data-column-drop");
@@ -157,13 +167,26 @@ function bindTaskColumnSorting(container, scroller) {
   };
   container.addEventListener("pointerdown", event => {
     const source = heading(event.target);
-    if (!source || drag || event.button !== 0 || !event.isPrimary || event.pointerType === "touch"
+    const resize = event.target.closest(".task-resizer");
+    if (!source || drag || event.button !== 0 || !event.isPrimary || (!resize && event.pointerType === "touch")
       || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     drag = { source, table: source.closest("table"), pointer: event.pointerId, startX: event.clientX, frame: 0 };
+    if (resize) {
+      event.preventDefault();
+      resize.focus({ preventScroll: true });
+      dragResize = beginTaskColumnResize(source);
+      container.setPointerCapture(event.pointerId);
+      container.classList.add("task-resizing");
+    }
   });
   window.addEventListener("pointermove", event => {
     if (drag?.pointer !== event.pointerId) return;
     if (!drag.source.isConnected) { finish(); return; }
+    if (dragResize) {
+      event.preventDefault();
+      dragResize.update(event.clientX - drag.startX);
+      return;
+    }
     if (!drag.moved) {
       if (Math.abs(event.clientX - drag.startX) < 6) return;
       container.setPointerCapture(event.pointerId);
@@ -177,14 +200,17 @@ function bindTaskColumnSorting(container, scroller) {
   });
   window.addEventListener("pointerup", event => {
     if (drag?.pointer !== event.pointerId) return;
-    if (container.hasPointerCapture(event.pointerId)) {
+    if (dragResize) {
+      if (!drag.source.isConnected) { finish(); return; }
+      dragResize.update(event.clientX - drag.startX);
+    } else if (container.hasPointerCapture(event.pointerId)) {
       drag.x = event.clientX;
       drag.y = event.clientY;
       markDrop();
     }
     finish(true);
   });
-  container.addEventListener("lostpointercapture", () => finish());
+  container.addEventListener("lostpointercapture", event => { if (drag?.pointer === event.pointerId) finish(); });
   window.addEventListener("pointercancel", event => { if (drag?.pointer === event.pointerId) finish(); });
   window.addEventListener("blur", () => finish());
   window.addEventListener("hashchange", () => finish());
@@ -193,15 +219,29 @@ function bindTaskColumnSorting(container, scroller) {
     if (suppressClick) { event.preventDefault(); event.stopImmediatePropagation(); }
   }, true);
   document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && drag) { event.preventDefault(); finish(); }
+    if (event.key === "Escape" && drag) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      finish();
+    }
   }, true);
   container.addEventListener("keydown", event => {
     const source = heading(event.target);
+    if (source && !drag && event.target.matches(".task-resizer") && !event.altKey && !event.ctrlKey && !event.metaKey
+      && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+      event.preventDefault();
+      const resize = beginTaskColumnResize(source);
+      resize.update(event.key === "ArrowRight" ? 8 : -8);
+      resize.finish(true);
+      return;
+    }
     if (!source || drag || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
       || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
     event.preventDefault();
     const after = event.key === "ArrowRight";
-    const target = after ? source.nextElementSibling : source.previousElementSibling;
+    const sibling = after ? "nextElementSibling" : "previousElementSibling";
+    let target = source[sibling];
+    while (target && hiddenTaskColumns.has(target.dataset.taskColumn)) target = target[sibling];
     if (target?.dataset.taskColumn) moveTaskColumn(source.closest("table"), source, target, after);
   });
 }
@@ -262,7 +302,7 @@ function updateTaskViewport(table) {
 }
 
 function updateTaskSpacers(table) {
-  const spacers = table.querySelectorAll(".task-spacer td");
+  const spacers = table.querySelectorAll(".task-spacer tr");
   spacers[0].style.height = `${taskViewportOffset * taskRowHeight}px`;
   spacers[1].style.height = `${Math.max(0, currentTotal - taskViewportOffset - currentTasks.length) * taskRowHeight}px`;
   updateTaskPlaceholders(table);
@@ -277,6 +317,8 @@ function updateTaskPlaceholders(table) {
   if (layout && table.taskPlaceholderLayout === layout) return;
   const bounds = row.getBoundingClientRect();
   if (!bounds.width) return;
+  const selectOffset = row.cells[0].getBoundingClientRect().left - bounds.left;
+  const actionsOffset = row.cells[row.cells.length - 1].getBoundingClientRect().right - bounds.right;
   table.taskPlaceholderLayout = layout;
   const shapes = [];
   // Measure the real row so column widths, responsive hiding and icon surfaces
@@ -300,7 +342,8 @@ function updateTaskPlaceholders(table) {
       const right = parseFloat(style.paddingRight) || 0;
       const height = lineHeight || box.height;
       const width = lineHeight ? Math.max(0, box.width - left - right) : box.width;
-      shapes.push(`<rect x="${number(box.left - bounds.left + (lineHeight ? left : 0))}" y="${number(box.top - bounds.top + (box.height - height) / 2)}" width="${number(width)}" height="${number(height)}" rx="${radius}"/>`);
+      const stickyOffset = node.closest(".select-cell") ? selectOffset : node.closest(".row-actions") ? actionsOffset : 0;
+      shapes.push(`<rect x="${number(box.left - bounds.left - stickyOffset + (lineHeight ? left : 0))}" y="${number(box.top - bounds.top + (box.height - height) / 2)}" width="${number(width)}" height="${number(height)}" rx="${radius}"/>`);
     }
   }
   const width = number(bounds.width);

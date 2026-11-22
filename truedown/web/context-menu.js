@@ -53,7 +53,9 @@
     if (current !== context) return;
     close();
     if (context.route !== location.hash || !available(context.target)) return;
-    if (context.row) {
+    if (context.header) {
+      runTaskColumnMenuAction(context.header.closest("table"), action);
+    } else if (context.row) {
       // Polling may remove the task or change which actions are allowed.
       if (context.row.dataset.taskId !== context.taskID) return;
       if (action === "copy-link") {
@@ -101,7 +103,7 @@
     const selection = window.getSelection();
     const selected = input ? input.selectionEnd > input.selectionStart
       : Boolean(selection?.toString() && selection.containsNode(target, true));
-    let row, group, actions = [];
+    let row, group, header, actions = [];
     if (editable || target.isContentEditable) {
       if (input?.readOnly) actions = input.type === "password" ? ["select-all"] : ["copy", "select-all"];
       else {
@@ -109,6 +111,8 @@
         if ((selected || ["email", "number"].includes(input?.type)) && input?.type !== "password") actions.push("cut", "copy");
         actions.push("paste", "select-all");
       }
+    } else if (["main", "browser"].includes(role()) && (header = target.closest(".tasks-table thead"))) {
+      actions = taskColumnMenuActions();
     } else if (selected && !input) actions = ["copy", "select-all"];
     else if (["main", "browser"].includes(role()) && (row = target.closest("tr[data-task-id]"))) {
       actions = taskButtons(row).map(button => button.dataset.action).filter(action => labels[action]);
@@ -138,7 +142,7 @@
     menu.setAttribute("aria-label", "\u64cd\u4f5c\u83dc\u5355");
     const topLayer = typeof menu.showPopover === "function";
     if (topLayer) menu.setAttribute("popover", "manual");
-    const context = { menu, target, input, row, taskID: row?.dataset.taskId, group, groupID: group?.dataset.taskCategory, route: location.hash, focus: input || group || (target.isContentEditable ? target : document.activeElement),
+    const context = { menu, target, input, header, row, taskID: row?.dataset.taskId, group, groupID: group?.dataset.taskCategory, route: location.hash, focus: input || group || (target.isContentEditable ? target : document.activeElement),
       viewport: { width: innerWidth, height: innerHeight, scale: devicePixelRatio },
       selection: input && typeof input.selectionStart === "number" ? [input.selectionStart, input.selectionEnd, input.selectionDirection] : null,
       ranges: selection ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index).cloneRange()) : [] };
@@ -176,7 +180,9 @@
       button.tabIndex = -1;
       if (["remove", "clear-done"].includes(action)) button.classList.add("danger");
       const label = document.createElement("span");
-      label.textContent = labels[action];
+      const columnItem = header && taskColumnMenuItem(action, button, actions);
+      if (columnItem) button.insertAdjacentHTML("beforeend", iconMarkup(columnItem[1]));
+      label.textContent = columnItem ? columnItem[0] : labels[action];
       button.append(label);
       if (shortcuts[action]) {
         const hint = document.createElement("span");
@@ -203,7 +209,7 @@
       if (!available(target) || !available(menu)) close(false);
     });
     context.observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["inert", "hidden", "open"] });
-    menu.querySelector("button").focus({ preventScroll: true });
+    menu.querySelector("button:enabled").focus({ preventScroll: true });
   }
 
   const contextmenu = event => open(event, event.button === 0 && event.clientX === 0 && event.clientY === 0);
@@ -228,7 +234,7 @@
     }
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
     event.preventDefault(); event.stopImmediatePropagation();
-    const items = [...current.menu.querySelectorAll("button")];
+    const items = [...current.menu.querySelectorAll("button:enabled")];
     const index = items.indexOf(document.activeElement);
     const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
     items[next].focus();

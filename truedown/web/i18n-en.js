@@ -26,6 +26,8 @@ window.TrueDownEnglish = Object.freeze({
   "出错": "Error",
   "已完成": "Done",
   "拖动以调整列顺序": "Drag to reorder columns",
+  "调整{0}列宽": "Resize {0} column",
+  "恢复自动列宽": "Restore automatic widths",
   "暂停": "Pause",
   "继续": "Resume",
   "重试": "Retry",

@@ -170,7 +170,7 @@ try {
         await page.locator('[data-task-filter="all"]').click();
         await page.waitForFunction(count => document.querySelectorAll("tr[data-task-id]").length === count, tasks.length);
         const checkHeaderLanguages = name === "native-1080-light-100";
-        const headings = page.locator(".tasks-table thead th");
+        const headings = page.locator(".tasks-table").getByRole("columnheader");
         if (checkHeaderLanguages) {
           assert.deepEqual(await headings.allTextContents(), ["", "文件", "状态", "进度", "大小", "速度", "剩余", "添加时间", "操作"]);
           await page.evaluate(() => TrueDownI18n.setLanguage("en"));

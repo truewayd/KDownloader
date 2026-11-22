@@ -7,7 +7,7 @@ function runtime() {
   const listeners = new Map();
   let observer;
   const context = vm.createContext({
-    window: { addEventListener() {} },
+    window: new EventTarget(), CustomEvent,
     document: { addEventListener: (name, callback) => listeners.set(name, callback), documentElement: {}, body: null, querySelector: () => null, getElementById: () => null },
     localStorage: { getItem: () => 'en' }, navigator: { language: 'en' },
     MutationObserver: class { constructor(callback) { observer = callback; } observe() {} },
@@ -25,6 +25,13 @@ test('MediaFire description translates whole sentences without mixed Chinese', (
   assert.equal(t(source, true), expected);
   assert.equal(t(source, true), expected, 'cached translation is identical');
   assert.equal(t('  ' + source + '\n', true), '  ' + expected + '\n');
+});
+
+test('task header actions use the localized column name', () => {
+  const { t } = runtime();
+  assert.equal(t('添加时间'), 'Date added');
+  assert.equal(t('剩余'), 'ETA');
+  assert.equal(t('调整文件列宽'), 'Resize File column');
 });
 
 test('attribute changes translate only that attribute, without scanning descendants', () => {
