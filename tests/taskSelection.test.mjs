@@ -4,19 +4,42 @@ import test from "node:test";
 import vm from "node:vm";
 
 const source = await readFile(new URL("../truedown/web/app.js", import.meta.url), "utf8");
+const metadataSource = source.slice(source.indexOf("function rememberTaskMetadata("), source.indexOf("async function runTaskAction("));
 const selectSource = source.slice(source.indexOf("async function onTaskSelection("), source.indexOf("async function runSelectedAction(")) + "\n" + source.match(/^function taskSelectionScope\(\).*$/m)[0];
-const batchSource = source.slice(source.indexOf("async function runSelectedAction("), source.indexOf("function setBatchBusy("));
+const batchSource = source.slice(source.indexOf("async function runSelectedAction("), source.indexOf("function setBatchBusy("))
+  + source.slice(source.indexOf("function renderBatchCount("), source.indexOf("function taskSelectionScope("));
 function context(extra = {}) {
-  return vm.createContext({
+  const state = vm.createContext({
     selectedTaskIDs: new Set(), taskStatusByID: new Map(), taskLinkByID: new Map(), updateTaskIDs: new Set(),
     taskSelectionLoading: false, taskSelectionSerial: 0, taskBatchRunning: false, taskBatchProgress: "",
     currentPage: "tasks", currentFilter: "all", currentSearch: "", currentCategory: "", currentModule: "", MAX_SELECTED_TASKS: 50000,
     URLSearchParams,
-    syncSelectionControls() {}, showToast() {}, clearTaskSelection() {},
+    currentTasks: [], syncSelectionControls() {}, showToast() {}, clearTaskSelection() {},
     ...extra,
   });
+  vm.runInContext(metadataSource, state);
+  return state;
 }
 function checkbox() { return { checked: true, matches: selector => selector === "[data-select-page]" }; }
+
+test("clearing a full snapshot immediately releases links and statuses outside the mounted page", () => {
+  const state = context({
+    currentTasks: [{ id: 27, status: "paused", link: "visible", updateDownload: true }],
+    els: { tasksContainer: { querySelectorAll: () => [] }, tasksWrap: { focus() {} } },
+  });
+  for (let id = 1; id <= 50000; id++) {
+    state.selectedTaskIDs.add(id);
+    state.taskStatusByID.set(id, "paused");
+    state.taskLinkByID.set(id, "https://example.test/" + id);
+    state.updateTaskIDs.add(id);
+  }
+  vm.runInContext(source.slice(source.indexOf("function clearTaskSelection("), source.indexOf("async function runTaskAction(")), state);
+  state.clearTaskSelection();
+  assert.equal(state.taskLinkByID.size, 1);
+  assert.deepEqual([...state.taskStatusByID], [[27, "paused"]]);
+  assert.equal(state.taskLinkByID.get(27), "visible");
+  assert.deepEqual([...state.updateTaskIDs], [27]);
+});
 
 test("select all obtains offscreen membership and links independently of rendered rows", async () => {
   let url;

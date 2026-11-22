@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright";
 import { readUIFixtureAsset } from "./ui-fixture-assets.mjs";
+import { checkWorkspaceMemory } from "./workspace-memory.mjs";
 
 const assets = new URL("../../web/", import.meta.url);
 const output = path.resolve(process.argv[2] || "../dist/task-viewport-review");
@@ -22,6 +23,10 @@ const changeWaiters = new Set();
 const server = http.createServer(async (request, response) => {
   response.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'");
   const url = new URL(request.url, "http://localhost");
+  if (url.pathname === "/tasks/selection") {
+    response.end(JSON.stringify({ tasks: tasks.map(({ id, status, link }) => ({ id, status, link })) }));
+    return;
+  }
   if (url.pathname === "/tasks/changes") {
     if (Number(url.searchParams.get("after")) === revision) await new Promise(resolve => {
       const done = () => { clearTimeout(timer); changeWaiters.delete(done); resolve(); };
@@ -74,6 +79,7 @@ try {
     finishInitialRead(); pendingReads = null;
     await page.waitForFunction(() => currentTotal === 2400);
     await page.waitForFunction(() => document.querySelector(".task-rows td-file-name")?.shadowRoot?.textContent);
+    if (width === 1200 && process.argv.includes("--memory")) await checkWorkspaceMemory(page, output);
     const filenames = await page.locator(".task-rows td-file-name").evaluateAll(nodes => nodes.slice(0, 3).map(node => {
       const range = document.createRange();
       range.selectNodeContents(node.shadowRoot);
@@ -102,6 +108,11 @@ try {
       await page.evaluate(language => window.TrueDownI18n.setLanguage(language), language);
       await page.waitForFunction(label => document.querySelector('[data-sort-field="created"]').textContent.trim() === label,
         language === "en" ? "Date added" : "添加时间");
+      const literal = tasks[2].name, thirdRow = page.locator('[data-task-id="3"]');
+      assert.equal(await thirdRow.locator(".task-name-button").getAttribute("aria-label"),
+        (language === "en" ? "Task details: " : "任务详情：") + literal);
+      assert.equal(await thirdRow.locator("[data-select-task]").getAttribute("aria-label"),
+        (language === "en" ? "Select task " : "选择任务 ") + literal);
       const clipped = await page.locator(".tasks-table .sort-button").evaluateAll(buttons => buttons.filter(button => {
         const range = document.createRange();
         range.selectNodeContents(button.firstChild);
@@ -122,6 +133,28 @@ try {
     }
     assert.equal(await page.locator("#tasks-wrap .kd-page-placeholder").isVisible(), false);
     if (width === 1200) {
+      const mediaChanges = await page.evaluate(() => {
+        const original = currentTasks;
+        const redraw = changes => renderTasks([{ ...original[0], revision: 19, ...changes }, ...original.slice(1)], "fixture");
+        const first = document.querySelector(".task-rows tr");
+        const label = first.querySelector(".progress-line"), bar = first.querySelector("progress");
+        const media = { duration: 10000, progress: 0.25 };
+        redraw({ media });
+        const observer = new MutationObserver(() => {});
+        observer.observe(first.closest("table"), { subtree: true, attributes: true, attributeFilter: ["aria-rowindex", "aria-rowcount"] });
+        const previous = bar.value;
+        redraw({ media: { ...media, progress: 0.5 } });
+        const next = bar.value;
+        redraw({ requiresMediaEngine: true, media });
+        const waiting = label.textContent;
+        redraw({ media: { live: true, completedDuration: 2700, state: "recording" } });
+        const live = [label.textContent, bar.hasAttribute("value")];
+        const indexWrites = observer.takeRecords().length;
+        observer.disconnect();
+        renderTasks(original, "fixture");
+        return { previous, next, waiting, live, indexWrites };
+      });
+      assert.deepEqual(mediaChanges, { previous: 25, next: 50, waiting: "等待 NEXT 3", live: ["正在录制 · 2 秒", false], indexWrites: 0 });
       let release;
       blockedOffset = 0;
       pendingReads = new Promise(resolve => { release = resolve; });
@@ -164,15 +197,69 @@ try {
       label.scrollWidth <= label.clientWidth && getComputedStyle(label).whiteSpace === "nowrap")));
     const firstCheckbox = page.locator(".task-rows [data-select-task]").first();
     await firstCheckbox.check();
+    assert.equal(await page.locator("#batch-selection-count").textContent(), "已选择 1 项");
     assert.equal(await page.evaluate(() => selectedTaskIDs.has(currentTasks[0].id)), true, "selection keeps using the task ID without a visible ordinal");
+    const selectedCell = page.locator(".task-rows tr.is-selected .select-cell").first();
+    await selectedCell.hover();
+    assert.notEqual(await selectedCell.evaluate(node => getComputedStyle(node).backgroundColor),
+      await page.locator(".task-rows tr:not(.is-selected) .select-cell").first().evaluate(node => getComputedStyle(node).backgroundColor));
+    if (width === 390) {
+      await page.locator("#tasks-wrap").evaluate(node => { node.scrollLeft = 0; });
+      const row = page.locator('tr[data-task-id="5"]');
+      const overflow = row.locator("[data-task-menu]");
+      assert.deepEqual(await row.locator(".row-actions button:visible").evaluateAll(buttons =>
+        buttons.map(button => button.dataset.action || "menu")), ["open-file", "menu"]);
+      const file = await row.locator("td-file-name").boundingBox();
+      const actions = await row.locator(".task-actions-cell").boundingBox();
+      assert.ok(file.x + file.width <= actions.x, "the pinned actions leave the filename suffix visible");
+      await overflow.press("Space");
+      await page.locator("#tasks-wrap").dispatchEvent("scroll");
+      assert.deepEqual(await page.locator("[data-menu-action]").evaluateAll(items => items.map(item => item.dataset.menuAction)),
+        ["preview", "open-file", "open-folder", "details", "remove", "copy-link"]);
+      assert.equal(await overflow.getAttribute("aria-expanded"), "true");
+      await page.keyboard.press("Escape");
+      assert.equal(await overflow.evaluate(button => button === document.activeElement), true);
+      assert.equal(await overflow.getAttribute("aria-expanded"), "false");
+      await page.setViewportSize({ width: 1200, height: 800 });
+      await page.waitForFunction(() => document.activeElement.matches('[data-task-id="5"] .row-actions [data-action="preview"]'));
+      await page.setViewportSize({ width, height: 800 });
+      await page.waitForFunction(() => document.activeElement.matches('[data-task-id="5"] [data-task-menu]'));
+      const header = await page.locator(".task-heading-file").boundingBox();
+      const pinned = await page.locator(".task-actions-heading").boundingBox();
+      const y = header.y + header.height / 2;
+      await page.mouse.move(header.x + 10, y);
+      await page.mouse.down();
+      await page.mouse.move(pinned.x - 4, y, { steps: 5 });
+      await page.waitForFunction(() => document.querySelector("#tasks-wrap").scrollLeft > 16);
+      await page.keyboard.press("Escape");
+      await page.mouse.up();
+      assert.equal(await page.locator("[data-drop-edge], [data-drag-kind], .pointer-drag-hint").count(), 0);
+      assert.equal(await page.locator("[data-task-column]").first().getAttribute("data-task-column"), "file");
+      await page.locator("#tasks-wrap").evaluate(node => { node.scrollLeft = 0; });
+    }
     if (width === 1200) {
       const fileHeading = page.locator('[data-sort-field="file"]');
       const statusHeading = page.locator('[data-sort-field="status"]');
+      const groupLink = page.locator("#file-group-navigation a").first();
+      await groupLink.dispatchEvent("pointerdown", { pointerType: "pen", pointerId: 71, isPrimary: true, button: 0, buttons: 1 });
+      assert.equal(await page.evaluate(() => isFileGroupDragging()), true);
+      await groupLink.dispatchEvent("pointermove", { pointerType: "pen", pointerId: 71, isPrimary: true, buttons: 0 });
+      assert.equal(await page.evaluate(() => isFileGroupDragging()), false, "a release outside the window frees the shared drag owner");
       const start = await fileHeading.boundingBox(), target = await statusHeading.boundingBox();
       await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
       await page.mouse.down();
       await page.mouse.move(target.x + target.width - 3, target.y + target.height / 2, { steps: 8 });
-      await page.waitForSelector('[data-task-column="status"][data-column-drop="after"]');
+      await page.waitForSelector('[data-task-column="status"][data-drop-edge="right"]');
+      await page.locator("#file-group-navigation a").first().dispatchEvent("pointerdown",
+        { pointerType: "pen", pointerId: 71, isPrimary: true, button: 0 });
+      assert.equal(await page.evaluate(() => isFileGroupDragging()), false, "a second pointer cannot claim the sidebar during a column drag");
+      assert.equal(await page.locator(".pointer-drag-hint").textContent(), "文件");
+      assert.equal(await page.locator(".pointer-drag-hint").evaluate(node => node.inert && getComputedStyle(node).pointerEvents === "none"), true);
+      await page.screenshot({path: path.join(output, "column-drag.png")});
+      await page.emulateMedia({forcedColors: "active"});
+      assert.equal(await page.locator('[data-drop-edge="right"]').evaluate(node =>
+        getComputedStyle(node, "::after").borderRightWidth), "3px");
+      await page.emulateMedia({forcedColors: "none"});
       await page.mouse.up();
       assert.equal(await page.locator("[data-task-column]").first().getAttribute("data-task-column"), "status");
       assert.equal(await page.locator(".tasks-table col").nth(1).getAttribute("class"), "col-status");
@@ -183,6 +270,9 @@ try {
       assert.equal(await page.locator("[data-task-column]").first().getAttribute("data-task-column"), "file");
       assert.equal(await statusHeading.evaluate(button => button === document.activeElement), true);
       await statusHeading.press("Alt+ArrowLeft");
+      await page.locator(".task-heading-status .task-resizer").press("Alt+ArrowRight");
+      assert.equal(await page.locator("[data-task-column]").first().getAttribute("data-task-column"), "file");
+      await page.locator(".task-heading-status .task-resizer").press("Alt+ArrowLeft");
       await statusHeading.click();
       assert.equal(await page.evaluate(() => currentSort + ":" + currentSortOrder), "status:desc", "clicking a heading still sorts tasks");
       const resizer = page.locator(".task-heading-status .task-resizer");
@@ -192,7 +282,22 @@ try {
       const initial = await statusHeading.evaluate(node => node.closest("th").offsetWidth);
       await page.mouse.move(x, y);
       await page.mouse.down();
+      const resizeFrames = await resizer.evaluate(node => {
+        const original = applyTaskColumnLayout;
+        let layouts = 0;
+        applyTaskColumnLayout = (...args) => { layouts++; return original(...args); };
+        const box = node.getBoundingClientRect();
+        for (let step = 1; step <= 30; step++) node.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true, isPrimary: true, pointerId: 1, pointerType: "mouse", buttons: 1,
+          clientX: box.x + step, clientY: box.y + box.height / 2,
+        }));
+        return new Promise(resolve => requestAnimationFrame(() => { applyTaskColumnLayout = original; resolve(layouts); }));
+      });
+      assert.equal(resizeFrames, 1, "30 pointer moves within a frame produce a single column layout");
       await page.mouse.move(x + 80, y, { steps: 5 });
+      await page.waitForFunction(expected => document.querySelector(".pointer-drag-hint")?.textContent === expected, `状态 · ${initial + 80} px`);
+      assert.equal(await page.locator(".pointer-drag-hint").textContent(), `状态 · ${initial + 80} px`);
+      await page.screenshot({path: path.join(output, "column-resize.png")});
       await page.mouse.up();
       assert.equal(await statusHeading.evaluate(node => node.closest("th").offsetWidth), initial + 80);
       await resizer.press("ArrowLeft");
@@ -372,6 +477,7 @@ try {
     assert.equal(await page.locator("#tasks-wrap").evaluate(node => node.scrollTop), 0, "late responses must not move a returned viewport");
     await page.locator("#tasks-wrap").evaluate(node => { node.scrollTop = 600 * 64; });
     await page.waitForFunction(() => currentOffset > 500 && currentTasks[0]?.id > 500);
+    assert.equal(await page.locator("#batch-selection-count").textContent(), "已选择 1 项（含未显示任务）");
     assert.equal(await page.locator(".task-rows tr").count(), 100);
     const at = await page.evaluate(() => ({ offset: currentOffset, top: els.tasksWrap.scrollTop }));
     assert.ok(at.top >= 600 * 64 - 1, "loading a new window must preserve scroll position");

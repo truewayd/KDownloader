@@ -72,8 +72,16 @@ function applyTaskColumnLayout(table) {
       + parseFloat(getComputedStyle(button).columnGap) + parseFloat(padding.paddingLeft) + parseFloat(padding.paddingRight);
     widths[field] = Math.max(widths[field], Math.ceil(contentWidth));
   }
-  const select = 32, actions = 148;
   const viewport = els.tasksWrap.clientWidth;
+  const focused = document.activeElement;
+  const actionGroup = focused?.closest(".row-actions");
+  const condensed = viewport < 600;
+  els.tasksWrap.toggleAttribute("data-condensed-actions", condensed);
+  if (actionGroup && table.contains(actionGroup) && !focused.checkVisibility()) {
+    const next = condensed ? actionGroup.querySelector("[data-task-menu]") : actionGroup.querySelector("button[data-action]:enabled");
+    (next || els.tasksWrap).focus({ preventScroll: true });
+  }
+  const select = 32, actions = parseFloat(getComputedStyle(table).getPropertyValue("--task-actions-width"));
   const minimum = select + actions + Object.values(widths).reduce((sum, width) => sum + width, 0);
   updateTaskScrollShadows(els.tasksWrap, minimum - viewport);
   let spare = Math.max(0, viewport - minimum);

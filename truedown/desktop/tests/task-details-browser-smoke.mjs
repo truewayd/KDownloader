@@ -91,7 +91,19 @@ try {
     assert.match(await page.locator('#task-piece-map').getAttribute('aria-label'), /42.*96/);
     assert.ok((await page.locator('#task-info-grid').textContent()).includes('未报告'));
     await page.screenshot({ path: path.join(screenshots, `details-${width}-${colorScheme}.png`) });
-    await page.evaluate(() => { fixtureTasks[0].transfer = { available: false }; loadTaskDetails(); });
+    await page.evaluate(async () => {
+      Object.assign(fixtureTasks[0], { updateDownload: true, outputName: "设置", error: "下载" });
+      TrueDownI18n.setLanguage("en");
+      await loadTaskDetails();
+    });
+    await page.waitForFunction(() => document.querySelector("#task-info-grid dd").textContent.startsWith("Application update"));
+    assert.equal(await page.locator("#task-info-grid dt", { hasText: "File name" }).locator("+ dd").textContent(), "设置");
+    assert.equal(await page.locator("#task-info-grid dd").last().textContent(), "下载");
+    await page.evaluate(() => {
+      Object.assign(fixtureTasks[0], { updateDownload: false, outputName: "Task 1.zip", error: "", transfer: { available: false } });
+      TrueDownI18n.setLanguage("zh-CN");
+      loadTaskDetails();
+    });
     await page.waitForFunction(() => document.getElementById('task-piece-map').hidden);
     assert.equal(await page.locator('#task-connections-body tr').count(), 0, 'unavailable reads clear stale connection speeds');
     await page.locator("#task-settings-tab").click();

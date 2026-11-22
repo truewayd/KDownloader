@@ -10,7 +10,7 @@
     ? (/^zh\b/i.test(navigator.language || '') ? 'zh-CN' : 'en') : preference;
   const originals = new WeakMap();
   // User-owned names, links, diagnostics and preview payloads remain literal.
-  const protectedSelector = 'script,style,pre,code,[contenteditable],.kd-selectable,#task-info-grid dd:first-of-type,#task-location-grid dd,.task-name,.task-link,.task-path,.task-detail-value,.detail-value,#preview-content,#preview-text,#logs-content,#app-log-content,.task-file-name,.task-info-value,[data-i18n-ignore]';
+  const protectedSelector = 'script,style,pre,code,[contenteditable],.kd-selectable,#task-location-grid dd,.task-name,.task-link,.task-path,.task-detail-value,.detail-value,#preview-content,#preview-text,#logs-content,#app-log-content,.task-file-name,.task-info-value,[data-i18n-ignore]';
   const attributes = ['title', 'aria-label', 'placeholder', 'data-tooltip', 'data-kd-notice-title'];
   const messages = window.TrueDownEnglish || {};
   const chinese = {

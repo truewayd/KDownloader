@@ -62,7 +62,10 @@ try {
     await page.screenshot({ path: path.join(output, `${width}-${colorScheme}-selection.png`) });
     const prior = writes;
     for (const selector of ['tr[data-task-id="1"] [data-action="pause"]', 'tr[data-task-id="1"] [data-action="remove"]', "#batch-pause-btn", "#batch-remove-btn", "#pause-queue-btn"]) {
-      await page.locator(selector).click();
+      if (selector.includes('[data-action="remove"]') && !await page.locator(selector).isVisible()) {
+        await page.locator('tr[data-task-id="1"] [data-task-menu]').click();
+        await page.locator('[data-menu-action="remove"]').click();
+      } else await page.locator(selector).click();
       await page.locator("#dialog-overlay.open").waitFor();
       assert.match(await page.locator("#dialog-message").textContent(), /更新/);
       await page.locator("#dialog-cancel-btn").click();

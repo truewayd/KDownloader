@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { dashboardSource as source } from "./helpers/truedownSource.mjs";
 import test from "node:test";
 import vm from "node:vm";
+import "../shared/components.js";
 
 function declaration(name) {
   const match = source.match(new RegExp(`(?:async )?function ${name}\\([^]*?\\n\\}`));
@@ -116,11 +117,13 @@ test("modal errors and normal status messages have distinct live-region semantic
 test("modal keyboard navigation recovers focus that starts outside the active dialog", () => {
   let focused = "";
   let prevented = false;
-  const first = { focus() { focused = "first"; }, getClientRects: () => [1], closest: () => null };
-  const last = { focus() { focused = "last"; }, getClientRects: () => [1], closest: () => null };
+  const visible = { tabIndex: 0, matches: () => false, getClientRects: () => [1], checkVisibility: () => true, closest: () => null };
+  const first = { ...visible, focus() { focused = "first"; } };
+  const last = { ...visible, focus() { focused = "last"; } };
   const closedOverlay = { classList: { contains: () => false } };
-  const overlay = { classList: { contains: () => true }, querySelectorAll: () => [first, last] };
+  const overlay = { classList: { contains: () => true }, getRootNode: () => ({ activeElement: null }), querySelectorAll: () => [first, last] };
   const context = vm.createContext({
+    KDComponents: globalThis.KDComponents,
     els: { dialogOverlay: closedOverlay, settingsOverlay: closedOverlay, overlay },
     document: { activeElement: {} },
     event: { key: "Tab", shiftKey: true, preventDefault() { prevented = true; } },
@@ -134,13 +137,14 @@ test("modal keyboard navigation recovers focus that starts outside the active di
 test("busy modal keyboard navigation keeps focus on the overlay while its form is inert", () => {
   let focused = false;
   let prevented = false;
-  const inertInput = { getClientRects: () => [1], closest: () => ({ inert: true }) };
+  const inertInput = { tabIndex: 0, matches: () => false, closest: () => ({ inert: true }) };
   const closedOverlay = { classList: { contains: () => false } };
   const overlay = {
-    classList: { contains: () => true }, querySelectorAll: () => [inertInput],
+    classList: { contains: () => true }, getRootNode: () => ({ activeElement: null }), querySelectorAll: () => [inertInput],
     focus() { focused = true; },
   };
   const context = vm.createContext({
+    KDComponents: globalThis.KDComponents,
     els: { dialogOverlay: closedOverlay, settingsOverlay: closedOverlay, overlay },
     event: { key: "Tab", preventDefault() { prevented = true; } },
   });
@@ -280,7 +284,7 @@ test("a changed task page preserves keyboard focus on the same row control", () 
     reconcileTaskRows() { context.document.activeElement = null; },
     updateTaskViewport() {},
   });
-  vm.runInContext(["renderTasks", "taskControlKey"].map(declaration).join("\n"), context);
+  vm.runInContext(["renderTasks", "taskControlKey", "rememberTaskMetadata"].map(declaration).join("\n"), context);
   context.renderTasks([{ id: 7, status: "downloading", progress: "25%" }]);
   assert.equal(restored, true);
 });

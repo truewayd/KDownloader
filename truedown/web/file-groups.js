@@ -34,9 +34,13 @@ function scheduleFileGroupsSave() {
   });
 }
 
+const defaultGroupLabels = new Map(Object.entries({
+  image: "图片", video: "视频", audio: "音乐", archive: "压缩包", application: "应用", document: "文档", project: "工程", other: "其他",
+}));
+
 function taskCategoryMeta(id) {
   const group = fileGroupsState.groups.find((value) => value.id === id);
-  return { label: group?.name || "\u5176\u4ed6", icon: group?.icon || "file" };
+  return { label: group?.name || "\u5176\u4ed6", icon: group?.icon || "file", userNamed: Boolean(group && defaultGroupLabels.get(id) !== group.name) };
 }
 
 function applyFileGroups(state) {
@@ -61,8 +65,10 @@ function renderFileGroupNavigation() {
     link.draggable = false;
     link.dataset.taskCategory = group.id;
     link.dataset.tooltip = group.name;
+    const category = taskCategoryMeta(group.id);
+    link.toggleAttribute("data-i18n-ignore", category.userNamed);
     link.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
-    link.innerHTML = iconMarkup(taskCategoryMeta(group.id).icon);
+    link.innerHTML = iconMarkup(category.icon);
     const label = document.createElement("span");
     label.className = "nav-label";
     label.textContent = group.name;

@@ -822,7 +822,8 @@ async function onTaskAction(event) {
       showToast("已打开任务下载目录。");
     }
     if (action === "remove") {
-      if (!update && taskStatusByID.get(id) !== "done" && !await confirmAction({
+      const status = taskStatusByID.get(id) ?? (taskDetailData?.id === id ? taskDetailData.status : undefined);
+      if (!update && status !== "done" && !await confirmAction({
         title: "移除下载任务",
         message: "正在下载的任务会停止，并删除未完成文件。此操作无法撤销。",
         confirmLabel: "移除任务",
@@ -849,10 +850,23 @@ async function confirmUpdateTaskAction(action) {
 function clearTaskSelection() {
   taskSelectionSerial++;
   taskSelectionLoading = false;
-  selectedTaskIDs.clear();
-  els.tasksContainer.querySelectorAll("[data-select-task]").forEach(input => { input.checked = false; });
+  resetTaskSelectionSnapshot();
   els.tasksWrap.focus({ preventScroll: true });
   syncSelectionControls();
+}
+
+function rememberTaskMetadata(task) {
+  taskStatusByID.set(task.id, task.status);
+  taskLinkByID.set(task.id, task.link || "");
+  if (task.updateDownload === true) updateTaskIDs.add(task.id); else updateTaskIDs.delete(task.id);
+}
+
+function resetTaskSelectionSnapshot() {
+  selectedTaskIDs.clear();
+  taskStatusByID.clear();
+  taskLinkByID.clear();
+  updateTaskIDs.clear();
+  currentTasks.forEach(rememberTaskMetadata);
 }
 
 async function runTaskAction(action, id, successMessage) {
@@ -896,12 +910,10 @@ async function onTaskSelection(event) {
       if (currentModule) params.set("module", currentModule);
       const result = await requestJSON(`/tasks/selection?${params}`);
       if (serial !== taskSelectionSerial || scope !== taskSelectionScope() || currentPage !== "tasks") return;
-      selectedTaskIDs.clear();
+      resetTaskSelectionSnapshot();
       for (const task of result.tasks) {
         selectedTaskIDs.add(task.id);
-        taskStatusByID.set(task.id, task.status);
-        taskLinkByID.set(task.id, task.link);
-        if (task.updateDownload) updateTaskIDs.add(task.id); else updateTaskIDs.delete(task.id);
+        rememberTaskMetadata(task);
       }
     } catch (error) {
       if (serial === taskSelectionSerial) showToast(`全选失败：${error.message}`, "error");
@@ -940,29 +952,25 @@ async function runSelectedAction(action, label, requiresConfirmation = false) {
   })) return;
   setBatchBusy(true);
   try {
-    const result = { succeeded: [], failed: [] };
+    let succeeded = 0, failed = 0, firstFailure;
     for (let offset = 0; offset < ids.length; offset += 1000) {
       const batch = await requestJSON("/tasks/batch", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ids: ids.slice(offset, offset + 1000) }),
       });
-      result.succeeded.push(...(batch.succeeded || []));
-      result.failed.push(...(batch.failed || []));
-      if (action === "remove") (batch.succeeded || []).forEach(id => selectedTaskIDs.delete(id));
-      taskBatchProgress = `已处理 ${Math.min(offset + 1000, ids.length)} / ${ids.length} 项`;
-      els.batchSelectionCount.textContent = taskBatchProgress;
-    }
-    if (action === "remove") {
-      (result.succeeded || []).forEach((id) => {
+      succeeded += batch.succeeded?.length || 0;
+      failed += batch.failed?.length || 0;
+      firstFailure ??= batch.failed?.[0];
+      if (action === "remove") for (const id of batch.succeeded || []) {
         selectedTaskIDs.delete(id);
         taskStatusByID.delete(id);
         taskLinkByID.delete(id);
         updateTaskIDs.delete(id);
-      });
+      }
+      taskBatchProgress = `已处理 ${Math.min(offset + 1000, ids.length)} / ${ids.length} 项`;
+      renderBatchCount(taskBatchProgress);
     }
-    const succeeded = result.succeeded?.length || 0;
-    const failed = result.failed?.length || 0;
-    const detail = failed ? `；${result.failed[0].error}` : "";
+    const detail = firstFailure ? `；${firstFailure.error}` : "";
     showToast(`${label}成功 ${succeeded} 项${failed ? `，失败 ${failed} 项${detail}` : ""}`, failed ? "error" : "success");
   } catch (error) {
     showToast(`${label}中断${taskBatchProgress ? `（${taskBatchProgress}）` : ""}：${error.message}；请检查任务状态后再操作。`, "error");
@@ -1063,7 +1071,10 @@ async function clearDone() {
   }
   try {
     const text = await requestText("/tasks/clear-done", { method: "POST" });
-    selectedTaskIDs.clear();
+    taskSelectionSerial++;
+    taskSelectionLoading = false;
+    resetTaskSelectionSnapshot();
+    syncSelectionControls();
     showToast(text.replace("OK", "已清理"));
     await loadTasks({ force: true });
   } catch (error) {
@@ -1203,18 +1214,15 @@ function renderTasks(tasks, epoch = "") {
   if (lastTaskRenderSignature && scope === lastTaskRenderScope && tasks === currentTasks) return;
   const focused = document.activeElement;
   const focusKey = els.tasksContainer.contains(focused) ? taskControlKey(focused) : "";
-  for (const id of taskStatusByID.keys()) {
+  for (const { id } of currentTasks) {
     if (!selectedTaskIDs.has(id)) { taskStatusByID.delete(id); taskLinkByID.delete(id); updateTaskIDs.delete(id); }
   }
-  tasks.forEach((task) => {
-    taskStatusByID.set(task.id, task.status);
-    taskLinkByID.set(task.id, task.link || "");
-    if (task.updateDownload === true) updateTaskIDs.add(task.id); else updateTaskIDs.delete(task.id);
-  });
+  tasks.forEach(rememberTaskMetadata);
   currentTasks = tasks;
   lastTaskRenderScope = scope;
-  const signature = scope + JSON.stringify(tasks.map((task) => [
-    task.id, task.status, task.outputName, task.name, task.folder, task.link, task.progress, task.error, task.category, task.totalLength, task.sizeHint, task.completedLength, task.downloadSpeed, task.createdAt, task.updateDownload,
+  const signature = scope + JSON.stringify(tasks.map((task) => Number.isSafeInteger(task.revision)
+    ? [task.id, task.revision, task.media, task.requiresMediaEngine] : [
+    task.id, task.status, task.outputName, task.name, task.folder, task.link, task.progress, task.error, task.category, task.totalLength, task.sizeHint, task.completedLength, task.downloadSpeed, task.createdAt, task.updateDownload, task.media, task.requiresMediaEngine,
   ]));
   if (signature === lastTaskRenderSignature) {
     syncSelectionControls();
@@ -1263,7 +1271,7 @@ function renderTasks(tasks, epoch = "") {
     }
     table.dataset.sort = sortKey;
   }
-  reconcileTaskRows(table.querySelector(".task-rows"), currentTasks, epoch);
+  reconcileTaskRows(table.querySelector(".task-rows"), currentTasks, epoch, fileGroupsState.revision);
   updateTaskViewport(table);
   syncSelectionControls();
   if (focusKey && document.activeElement !== focused) {
@@ -1280,6 +1288,7 @@ function taskControlKey(control) {
   if (control.dataset.selectPage !== undefined) return "page";
   const taskID = control.closest("[data-task-id]")?.dataset.taskId;
   if (!taskID) return "";
+  if (control.dataset.taskMenu !== undefined) return JSON.stringify([taskID, "menu"]);
   return JSON.stringify([taskID, control.dataset.action || "select"]);
 }
 
@@ -1307,11 +1316,20 @@ function onTaskSort(event) {
   refreshAndSchedule(true);
 }
 
+function taskNameLabels(preview, name) {
+  return {
+    open: TrueDownI18n.format(preview ? "预览文件：{0}" : "任务详情：{0}", name),
+    select: TrueDownI18n.format("选择任务 {0}", name),
+  };
+}
+
 function taskRow(task) {
   const status = statusMeta[task.status] ? task.status : "queued";
   const statusLabel = statusMeta[status].label;
   const progress = task.error ? `! ${formatTaskError(task)}` : task.progress || "-";
   const fileName = task.outputName || task.name || `任务 #${task.id}`;
+  const names = taskNameLabels(status === "done", fileName);
+  const category = taskCategoryMeta(task.category);
   const actions = [];
   if (status === "done") actions.push(actionButton("preview", task.id, "预览文件", false, "search"), actionButton("open-file", task.id, "打开文件", false, "file"));
   actions.push(actionButton("open-folder", task.id, "打开下载目录", false, "folder-open"));
@@ -1321,7 +1339,7 @@ function taskRow(task) {
   if (status === "paused") actions.push(actionButton("resume", task.id, "继续", false, "play"));
   actions.push(actionButton("remove", task.id, "移除", true, "trash"));
   const cells = {
-    file: `<td class="col-file"><div class="task-file-cell">${iconMarkup(task.updateDownload ? "refresh" : taskCategoryMeta(task.category).icon)}<div><button class="task-name task-name-button" type="button" data-action="${status === "done" ? "preview" : "details"}" data-id="${task.id}" aria-label="${status === "done" ? "预览文件" : "任务详情"}：${esc(fileName)}" data-tooltip="${esc(fileName)}"><td-file-name aria-hidden="true">${esc(fileName)}</td-file-name></button><div class="task-folder">${task.updateDownload ? '<span class="update-task-label">应用更新</span> · ' + (status === "done" ? '下载完成，安装状态见设置' : status === "error" ? '请从设置重新发起' : '下载后自动校验') : esc(taskCategoryMeta(task.category).label)}</div></div></div></td>`,
+    file: `<td class="col-file"><div class="task-file-cell">${iconMarkup(task.updateDownload ? "refresh" : category.icon)}<div><button class="task-name task-name-button" type="button" data-action="${status === "done" ? "preview" : "details"}" data-id="${task.id}" aria-label="${esc(names.open)}" data-tooltip="${esc(fileName)}"><td-file-name aria-hidden="true">${esc(fileName)}</td-file-name></button><div class="task-folder"${!task.updateDownload && category.userNamed ? " data-i18n-ignore" : ""}>${task.updateDownload ? '<span class="update-task-label">应用更新</span> · ' + (status === "done" ? '下载完成，安装状态见设置' : status === "error" ? '请从设置重新发起' : '下载后自动校验') : esc(category.label)}</div></div></div></td>`,
     status: `<td class="col-status"><span class="status-badge status-${status}" data-tooltip="${statusLabel}"><span class="status-label">${statusLabel}</span></span></td>`,
     progress: `<td class="col-progress"><div class="progress-line" data-tooltip="${esc(progress)}">${esc(taskProgressLabel(task))}</div><progress class="task-progress" max="100" value="${taskProgressPercent(task)}" aria-label="下载进度"></progress></td>`,
     size: `<td class="col-size task-size">${taskBytes(task.totalLength || task.sizeHint)}</td>`,
@@ -1331,10 +1349,10 @@ function taskRow(task) {
   };
   return `
     <tr data-task-id="${task.id}" data-update-download="${task.updateDownload === true}" data-status="${status}">
-      <td class="select-cell"><input type="checkbox" data-select-task value="${task.id}" aria-label="选择任务 ${esc(fileName)}"${selectedTaskIDs.has(task.id) ? " checked" : ""}></td>
+      <td class="select-cell"><input type="checkbox" data-select-task data-i18n-ignore value="${task.id}" aria-label="${esc(names.select)}"${selectedTaskIDs.has(task.id) ? " checked" : ""}></td>
       ${taskColumnOrder.map(field => cells[field]).join("")}
       <td class="col-fill" aria-hidden="true"></td>
-      <td class="task-actions-cell"><div class="row-actions">${actions.join("")}</div></td>
+      <td class="task-actions-cell"><div class="row-actions">${actions.join("")}<button class="text-button icon-only" type="button" data-task-menu aria-haspopup="menu" aria-expanded="false" aria-label="更多任务操作" data-tooltip="更多任务操作">${iconMarkup("more-horizontal")}</button></div></td>
     </tr>`;
 }
 
@@ -1364,16 +1382,18 @@ function syncSelectionControls() {
   const scope = taskSelectionScope();
   if (selectedTaskScope !== scope) {
     selectedTaskScope = scope;
-    selectedTaskIDs.clear();
+    resetTaskSelectionSnapshot();
     taskSelectionSerial++;
     taskSelectionLoading = false;
   }
+  let mountedSelected = 0;
+  const disabled = taskSelectionLoading || taskBatchRunning;
   els.tasksContainer.querySelectorAll("[data-select-task]").forEach(input => {
-    input.checked = selectedTaskIDs.has(Number(input.value));
-    input.disabled = taskSelectionLoading || taskBatchRunning;
-  });
-  els.tasksContainer.querySelectorAll("tr[data-task-id]").forEach(row => {
-    row.classList.toggle("is-selected", selectedTaskIDs.has(Number(row.dataset.taskId)));
+    const selected = selectedTaskIDs.has(Number(input.value));
+    if (selected) mountedSelected++;
+    if (input.checked !== selected) input.checked = selected;
+    if (input.disabled !== disabled) input.disabled = disabled;
+    input.closest("tr").classList.toggle("is-selected", selected);
   });
   const selectPage = els.tasksContainer.querySelector("[data-select-page]");
   if (selectPage) {
@@ -1383,7 +1403,15 @@ function syncSelectionControls() {
     KDComponents.setBusyState(selectPage, taskSelectionLoading, { manageDisabled: false, busyLabel: "正在选择全部筛选结果" });
   }
   els.batchToolbar.hidden = selectedTaskIDs.size === 0 && !taskBatchRunning;
-  els.batchSelectionCount.textContent = taskBatchProgress || `已选择 ${selectedTaskIDs.size} 项（含未显示任务）`;
+  const count = `已选择 ${selectedTaskIDs.size} 项`;
+  renderBatchCount(taskBatchProgress || (selectedTaskIDs.size > mountedSelected ? count + "（含未显示任务）" : count));
+}
+
+function renderBatchCount(text) {
+  const label = els.batchSelectionCount;
+  if (label.selectionText === text) return;
+  label.selectionText = text;
+  label.textContent = text;
 }
 
 function taskSelectionScope() { return JSON.stringify([currentFilter, currentSearch, currentCategory, currentModule]); }

@@ -92,7 +92,16 @@ function initTaskViewport() {
   observer.observe(els.tasksWrap);
   const theme = matchMedia("(prefers-color-scheme: dark)");
   theme.addEventListener("change", update);
-  window.addEventListener("truedown:language-changed", update);
+  const updateLanguage = () => {
+    for (const row of els.tasksContainer.querySelectorAll(".task-rows tr")) {
+      const button = row.querySelector(".task-name-button");
+      const names = taskNameLabels(button.dataset.action === "preview", button.dataset.tooltip);
+      button.setAttribute("aria-label", names.open);
+      row.querySelector("[data-select-task]").setAttribute("aria-label", names.select);
+    }
+    update();
+  };
+  window.addEventListener("truedown:language-changed", updateLanguage);
   const updateDensity = () => {
     const previousHeight = taskRowHeight;
     const top = els.tasksWrap.scrollTop;
@@ -111,7 +120,7 @@ function initTaskViewport() {
     cancelAnimationFrame(taskViewportFrame);
     observer.disconnect();
     theme.removeEventListener("change", update);
-    window.removeEventListener("truedown:language-changed", update);
+    window.removeEventListener("truedown:language-changed", updateLanguage);
     window.removeEventListener("truedown:layout-density-changed", updateDensity);
   });
 }
@@ -226,8 +235,12 @@ function prefetchTaskViewport() {
 function updateTaskViewport(table) {
   taskViewportOffset = currentOffset;
   updateTaskSpacers(table);
-  table.setAttribute("aria-rowcount", String(currentTotal + 1));
-  table.querySelectorAll(".task-rows tr").forEach((row, index) => row.setAttribute("aria-rowindex", String(currentOffset + index + 2)));
+  const count = String(currentTotal + 1);
+  if (table.getAttribute("aria-rowcount") !== count) table.setAttribute("aria-rowcount", count);
+  table.querySelectorAll(".task-rows tr").forEach((row, index) => {
+    const position = String(currentOffset + index + 2);
+    if (row.getAttribute("aria-rowindex") !== position) row.setAttribute("aria-rowindex", position);
+  });
 }
 
 function updateTaskSpacers(table) {
@@ -299,13 +312,19 @@ function updateTaskPlaceholders(table) {
   table.style.setProperty("--task-placeholder-animated", image(shimmer));
 }
 
-function reconcileTaskRows(body, tasks, epoch = "") {
+function reconcileTaskRows(body, tasks, epoch = "", groupsRevision = 0) {
   const rows = new Map(Array.from(body.children, (row) => [Number(row.dataset.taskId), row]));
   const keep = new Set(tasks.map((task) => task.id));
   for (const [id, row] of rows) if (!keep.has(id)) row.remove();
   tasks.forEach((task, index) => {
-    const shape = JSON.stringify([task.status, task.outputName, task.name, task.folder, task.link, task.error, task.category, taskCategoryMeta(task.category).label, taskCategoryMeta(task.category).icon, task.updateDownload]);
     let row = rows.get(task.id);
+    if (row && Number.isSafeInteger(task.revision) && row.taskEpoch === epoch && row.taskRevision === task.revision
+      && row.groupsRevision === groupsRevision && row.media === task.media && row.requiresMediaEngine === task.requiresMediaEngine) {
+      if (body.children[index] !== row) body.insertBefore(row, body.children[index] || null);
+      return;
+    }
+    const category = taskCategoryMeta(task.category);
+    const shape = JSON.stringify([task.status, task.outputName, task.name, task.folder, task.link, task.error, task.category, category.label, category.icon, task.updateDownload]);
     if (!row || row.taskShape !== shape) {
       const template = document.createElement("template");
       template.innerHTML = `<table><tbody>${taskRow(task)}</tbody></table>`;
@@ -324,10 +343,11 @@ function reconcileTaskRows(body, tasks, epoch = "") {
     };
     if (body.children[index] !== row) body.insertBefore(row, body.children[index] || null);
     nodes.checkbox.checked = selectedTaskIDs.has(task.id);
-    if (Number.isSafeInteger(task.revision) && row.taskEpoch === epoch && row.taskRevision === task.revision && row.taskRenderedShape === shape) return;
     row.taskEpoch = epoch;
     row.taskRevision = task.revision;
-    row.taskRenderedShape = shape;
+    row.groupsRevision = groupsRevision;
+    row.media = task.media;
+    row.requiresMediaEngine = task.requiresMediaEngine;
     row.dataset.updateDownload = String(task.updateDownload === true);
     row.dataset.status = task.status;
     const progress = taskProgressLabel(task);

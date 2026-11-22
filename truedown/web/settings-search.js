@@ -1,5 +1,5 @@
-// Index authored labels before settings reads can insert private profile values.
-document.addEventListener("DOMContentLoaded", () => {
+// This deferred script captures authored text before localization or profile reads.
+(() => {
   if (!["browser", "settings"].includes(nativeWindowRole)) return;
   const input = document.getElementById("settings-search");
   const clear = document.getElementById("settings-search-clear");
@@ -7,11 +7,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const navigation = document.querySelector(".settings-navigation-links");
   const status = document.getElementById("settings-search-status");
   const entries = [], targets = new Set();
-  for (const label of document.querySelectorAll('.settings-section label[for], .settings-section .field-label, .settings-section legend, .settings-section-heading, .update-card-heading, #file-groups-title, #settings-about-title')) {
+  for (const label of document.querySelectorAll('.settings-section label[for], .settings-section .log-follow, .settings-section .field-label, .settings-section legend, .settings-section-heading, .update-card-heading, #file-groups-title, #settings-about-title')) {
     const panel = label.closest("[data-settings-page]");
     const target = label.matches("legend") ? label.closest("fieldset") : label.closest(".setting-toggle, .field, .settings-section-heading") || label;
     if (!panel || targets.has(target)) continue;
-    const copy = label.cloneNode(true);
+    const copy = (label.matches(".update-card-heading") ? label.querySelector("strong") || label : label).cloneNode(true);
     copy.querySelectorAll("input, select, textarea, button, .hint, p").forEach(node => node.remove());
     const title = copy.textContent.replace(/\s+/g, " ").trim();
     if (!title) continue;
@@ -26,10 +26,18 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
     if (target.matches(".settings-section-heading")) help.push(...panel.querySelectorAll(":scope > .hint, :scope > p"));
-    const authoredHelp = help.filter(node => !node.closest('[role="status"], [aria-live]')).map(node => node.textContent).join(" ");
-    entries.push({ target, page, category, title, text: `${category} ${title} ${authoredHelp}`.toLocaleLowerCase() });
+    const authoredHelp = help.filter(node => !node.closest('[role="status"], [aria-live]')).map(node => node.textContent);
+    entries.push({ target, control: label.control, page, category, title, terms: [category, title, ...authoredHelp] });
   }
   let highlighted, highlightTimer, selection = 0;
+  function indexLanguage() {
+    for (const entry of entries) {
+      entry.text = entry.terms.map(term => TrueDownI18n.t(term, true)).join(" ").toLocaleLowerCase();
+    }
+    if (input.value) search();
+  }
+  indexLanguage();
+  window.addEventListener("truedown:language-changed", indexLanguage);
   function clearHighlight() {
     clearTimeout(highlightTimer);
     highlighted?.classList.remove("settings-search-highlight");
@@ -72,8 +80,13 @@ document.addEventListener("DOMContentLoaded", () => {
         highlighted = target;
         highlighted.classList.add("settings-search-highlight");
         highlighted.scrollIntoView({ block: "center" });
-        highlighted.tabIndex = -1;
-        highlighted.focus({ preventScroll: true });
+        const control = entry.control;
+        if (control?.checkVisibility() && !control.matches(":disabled") && !control.closest("[inert]")) {
+          control.focus({ preventScroll: true });
+        } else {
+          highlighted.tabIndex = -1;
+          highlighted.focus({ preventScroll: true });
+        }
         highlightTimer = setTimeout(clearHighlight, 3500);
       });
       results.append(button);
@@ -81,6 +94,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   input.addEventListener("input", search);
   input.addEventListener("keydown", event => {
+    if (event.isComposing) return;
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); input.value = ""; search(); }
     if (event.key === "ArrowDown") { event.preventDefault(); results.querySelector("button")?.focus(); }
     if (event.key === "Enter") { event.preventDefault(); results.querySelector("button")?.click(); }
@@ -88,6 +102,12 @@ document.addEventListener("DOMContentLoaded", () => {
   clear.addEventListener("click", () => { input.value = ""; search(); input.focus(); });
   results.addEventListener("keydown", event => {
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); input.value = ""; search(); input.focus(); }
+    const button = event.target.closest("button");
+    if (!button || !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const next = { ArrowUp: button.previousElementSibling || input, ArrowDown: button.nextElementSibling || button,
+      Home: results.firstElementChild, End: results.lastElementChild }[event.key];
+    next.focus();
   });
   window.addEventListener("pagehide", clearHighlight, { once: true });
-});
+})();

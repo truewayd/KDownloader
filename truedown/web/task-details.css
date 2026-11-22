@@ -48,7 +48,7 @@ tr:has(.status-paused) progress::-webkit-progress-value { background: var(--kd-w
 .task-detail-footer { display: flex; justify-content: flex-end; padding: 12px 24px; flex-shrink: 0; background: var(--kd-bg); }
 .task-transfer-section { margin-top: 16px; }
 .task-transfer-section summary { cursor: pointer; font-size: 13px; padding: 4px 0; }
-.task-transfer-section summary .hint { float: right; }
+.task-transfer-section summary .hint { float: right; margin: 0; font-variant-numeric: tabular-nums; }
 .task-transfer-section .hint { margin: 8px 0; font-size: 12px; }
 .task-transfer-section .hint:empty { display: none; }
 .task-transfer-section .task-info-grid { margin-top: 12px; }

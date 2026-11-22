@@ -1,6 +1,7 @@
 // Real layout, wheel, keyboard and settings interactions with an isolated API fixture.
 import assert from "node:assert/strict";
 import { readUIFixtureAsset } from "./ui-fixture-assets.mjs";
+import { readRendererHeap } from "./workspace-memory.mjs";
 import { promises as fs } from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -160,6 +161,44 @@ try {
     assert.equal(await page.locator("[data-settings-link]").count(), 7);
     assert.equal(await page.locator('[data-settings-link="general"] span').textContent(), "下载与网络");
     const search = page.getByRole("searchbox", { name: "搜索设置" });
+    if (native && colorScheme === "light" && process.argv.includes("--memory")) {
+      const cdp = await context.newCDPSession(page);
+      const samples = [];
+      try {
+        await cdp.send("HeapProfiler.enable");
+        for (let round = 0; round < 4; round++) {
+          await page.evaluate(() => { window.settingsProbes = []; });
+          for (let i = 0; i < 8; i++) {
+            await search.fill(i % 2 ? "自动更新" : "保存位置");
+            await page.locator(".settings-search-result").first().waitFor();
+            await page.evaluate(() => {
+              for (const node of document.querySelectorAll(".settings-search-result")) settingsProbes.push(new WeakRef(node));
+            });
+            await search.press("Escape");
+          }
+          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          await cdp.send("HeapProfiler.collectGarbage");
+          const probes = await page.evaluate(() => ({ tracked: settingsProbes.length,
+            retained: settingsProbes.flatMap((ref, index) => {
+              const node = ref.deref();
+              return node ? [{ index, label: node.textContent, connected: node.isConnected }] : [];
+            }) }));
+          const sample = { round: round + 1, ...(await cdp.send("Memory.getDOMCounters")), ...probes };
+          if (round === 0 || round === 3) Object.assign(sample, await readRendererHeap(cdp));
+          samples.push(sample);
+          assert.deepEqual(probes.retained, [], "closing settings search releases its old results and click handlers");
+        }
+        await fs.writeFile(path.join(screenshots, "memory.json"), JSON.stringify(samples, null, 2));
+      } finally {
+        await page.evaluate(() => { delete window.settingsProbes; });
+        await cdp.detach();
+      }
+    }
+    const indicator = await page.locator('[data-settings-link="general"]').evaluate(link => {
+      const style = getComputedStyle(link, "::before");
+      return style.display !== "none" && style.content !== "none" && parseFloat(style.width) > 0;
+    });
+    assert.ok(indicator, "current settings category displays an accent");
     await search.fill("保存位置");
     await page.locator(".settings-search-result").first().click();
     await page.waitForFunction(() => currentSettingsPage === "files" && settingsReady.has("files"));
@@ -167,6 +206,12 @@ try {
     await search.fill("自动更新");
     assert.equal(await page.locator(".settings-navigation-links").isVisible(), false);
     assert.ok(await page.locator(".settings-search-result").count() >= 2);
+    await search.press("ArrowDown");
+    await page.keyboard.press("End");
+    assert.equal(await page.locator(".settings-search-result").last().evaluate(button => button === document.activeElement), true);
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowUp");
+    assert.equal(await search.evaluate(field => field === document.activeElement), true);
     await page.screenshot({ path: path.join(screenshots, `${name}-search.png`) });
     await page.locator(".settings-search-result").filter({ hasText: "关于" }).first().click();
     await page.waitForFunction(() => currentSettingsPage === "about" && document.querySelector(".settings-content").dataset.loading === "true");
@@ -176,6 +221,11 @@ try {
     await page.waitForFunction(() => currentSettingsPage === "about" && document.querySelector(".settings-search-highlight"));
     assert.equal(await page.locator("#auto-update-truedown").isVisible(), true);
     assert.equal(await page.locator(".settings-navigation-links").isVisible(), true);
+    await search.fill("跟随最新日志");
+    await search.dispatchEvent("keydown", { key: "Enter", isComposing: true });
+    assert.equal(await search.inputValue(), "跟随最新日志", "confirming IME composition keeps the search open");
+    await search.press("Enter");
+    await page.waitForFunction(() => document.activeElement.id === "application-log-follow");
     for (const [query, title] of [["falloc", "文件预分配"], [".tar.gz", "文件分组"], ["工程分组", "文件过滤"], ["RPC", "额外 aria2 参数"], ["中间人解密", "Tracker 流量研究"], ["真实下载倍率区间", "真实下载倍率区间"]]) {
       await search.fill(query);
       await page.locator(".settings-search-result").filter({ hasText: title }).first().click();
@@ -566,6 +616,15 @@ try {
       await page.waitForFunction(() => !document.querySelector("#settings-form").inert);
     };
     await page.evaluate(() => window.TrueDownI18n.setLanguage('en'));
+    await page.locator("#settings-search").fill("automatic updates");
+    await page.locator(".settings-search-result").filter({ hasText: "About" }).first().click();
+    await page.waitForFunction(() => currentSettingsPage === "about" && document.querySelector(".settings-search-highlight"));
+    await page.evaluate(() => {
+      systemUpdateState.trueDown.error = "Fixture check failed";
+      renderSystemUpdateState();
+    });
+    assert.match(await page.locator("#truedown-update-status").textContent(), /Fixture check failed/);
+    assert.doesNotMatch(await page.locator("#truedown-update-status").textContent(), /latest release/i);
     for (const category of ['general', 'files', 'application', 'engine', 'experimental']) {
       await openSettingsCategory(category);
       const clipped = await page.locator('.settings-content .kd-button, .settings-content .field > label, .settings-nav-link span').evaluateAll(nodes => nodes.filter(node => {

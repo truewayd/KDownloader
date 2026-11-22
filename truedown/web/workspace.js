@@ -206,9 +206,20 @@ function updateTaskNavigation() {
     else link.removeAttribute("aria-current");
   });
   const title = document.getElementById("tasks-title");
-  if (title) title.textContent = { all: "全部下载", downloading: "正在下载", queued: "排队中", paused: "已暂停", done: "已完成", error: "下载失败" }[filter] || "下载任务";
-  if (title && currentCategory) title.textContent = `${taskCategoryMeta(currentCategory).label} · ${title.textContent}`;
-  if (title && currentModule) title.textContent = `${moduleNavItems.find(module => module.id === currentModule)?.name || currentModule} · ${title.textContent}`;
+  if (!title) return;
+  const status = { all: "全部下载", downloading: "正在下载", queued: "排队中", paused: "已暂停", done: "已完成", error: "下载失败" }[filter] || "下载任务";
+  const category = currentCategory && taskCategoryMeta(currentCategory);
+  const prefix = category?.label || (currentModule && (moduleNavItems.find(module => module.id === currentModule)?.name || currentModule));
+  const key = JSON.stringify([prefix, category?.userNamed, status]);
+  if (title.navigationKey === key) return;
+  title.navigationKey = key;
+  title.textContent = status;
+  if (prefix) {
+    const label = document.createElement("span");
+    label.toggleAttribute("data-i18n-ignore", Boolean(category?.userNamed));
+    label.textContent = prefix;
+    title.prepend(label, " · ");
+  }
 }
 
 function applyWorkspaceRoute(focus = true) {

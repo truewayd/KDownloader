@@ -144,7 +144,10 @@ function restoreTaskReturnFocus() {
   const id = taskDetailReturnID;
   taskDetailReturnID = 0;
   if (document.activeElement !== document.getElementById("tasks-title")) return;
-  els.tasksContainer.querySelector(`[data-action="details"][data-id="${id}"]`)?.focus({ preventScroll: true });
+  const row = els.tasksContainer.querySelector(`[data-task-id="${id}"]`);
+  const control = [...(row?.querySelectorAll('[data-action="details"], [data-task-menu]') || [])]
+    .find(button => button.checkVisibility() && !button.disabled);
+  control?.focus({ preventScroll: true });
 }
 
 function showTaskDetails(id, tab) {
@@ -196,7 +199,7 @@ async function loadTaskDetails() {
       && !document.getElementById("task-detail-status").textContent;
     if (detail.groups) applyFileGroups(detail.groups);
     taskDetailData = detail;
-    taskStatusByID.set(id, detail.status);
+    if (taskStatusByID.has(id)) taskStatusByID.set(id, detail.status);
     if (!unchanged) renderTaskDetails(detail);
     const content = document.querySelector(".task-detail-scroll");
     KDComponents.setPageLoading(content, false);
@@ -220,16 +223,17 @@ function renderTaskDetails(task) {
   document.querySelector("title").toggleAttribute("data-i18n-ignore", Boolean(name));
   heading.textContent = name || `任务 #${task.id}`;
   document.title = heading.textContent;
+  const errorMessage = task.error && formatTaskError(task);
   const facts = [
     ...(task.requiresMediaEngine ? [["引擎要求", "任务已保存，尚未开始。请在设置中启用支持媒体下载的 NEXT 3。"]] : []),
     ...(task.media ? [["媒体类型", `${task.media.protocol.toUpperCase()}${task.media.live ? " · 直播" : ""}`], ["已接收分片", taskDownloadedBytes(task.media.downloadedLength)]] : []),
     ...(task.updateDownload ? [["任务用途", "应用更新 · 下载完成后由更新服务校验，安装状态请在设置中查看"]] : []),
-    ["\u6587\u4ef6\u540d", task.outputName || task.name],
+    ["\u6587\u4ef6\u540d", task.outputName || task.name, true],
     ["\u72b6\u6001", statusMeta[task.status]?.label], ["\u6587\u4ef6\u5927\u5c0f", taskBytes(task.totalLength || task.sizeHint)],
     ["\u5df2\u4e0b\u8f7d", taskDownloadedBytes(task.status === "done" ? task.totalLength : task.completedLength || 0)],
     ["\u4e0b\u8f7d\u901f\u5ea6", taskSpeed(task)], ["\u5269\u4f59\u65f6\u95f4", taskRemaining(task)],
     ["续传支持", "未报告"],
-    ...(task.error ? [["\u9519\u8bef\u4fe1\u606f", formatTaskError(task)]] : []),
+    ...(errorMessage ? [["\u9519\u8bef\u4fe1\u606f", errorMessage, errorMessage === task.error]] : []),
   ];
   renderTaskFacts("task-info-grid", facts);
   renderTaskFacts("task-location-grid", [
@@ -245,11 +249,13 @@ function renderTaskDetails(task) {
 
 function renderTaskFacts(id, facts) {
   const grid = document.getElementById(id);
-  facts.forEach(([label, value], i) => {
+  facts.forEach(([label, value, literal = false], i) => {
     if (!grid.children[i * 2]) grid.append(document.createElement("dt"), document.createElement("dd"));
     if (grid.children[i * 2].textContent !== label) grid.children[i * 2].textContent = label;
     const text = String(value || "\u2014");
-    if (grid.children[i * 2 + 1].textContent !== text) grid.children[i * 2 + 1].textContent = text;
+    const field = grid.children[i * 2 + 1];
+    field.toggleAttribute("data-i18n-ignore", literal);
+    if (field.textContent !== text) field.textContent = text;
   });
   while (grid.children.length > facts.length * 2) grid.lastChild.remove();
 }

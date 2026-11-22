@@ -4,6 +4,9 @@ let workspaceNoticeCommand = null;
 let workspaceUpdateReadFailed = false;
 let workspaceDownloadLimitBps = 0;
 let workspaceLimitRead = null;
+let workspaceLimitDisplay = "";
+let workspaceNoticeDisplay = "";
+let workspaceAnnouncedTitle = "";
 
 // Read separately from editable settings so sidebar refreshes cannot replace drafts.
 function refreshWorkspaceLimit() {
@@ -25,8 +28,12 @@ function refreshWorkspaceLimit() {
 function renderWorkspaceLimit() {
   const button = document.getElementById("workspace-limit-action");
   if (!button) return;
-  button.hidden = currentSummary.downloading <= 0 || workspaceDownloadLimitBps <= 0;
+  const hidden = currentSummary.downloading <= 0 || workspaceDownloadLimitBps <= 0;
   const label = `全局限速 ${taskDownloadedBytes(workspaceDownloadLimitBps)}/s`;
+  const display = `${hidden}:${label}`;
+  if (display === workspaceLimitDisplay) return;
+  workspaceLimitDisplay = display;
+  button.hidden = hidden;
   document.getElementById("workspace-limit-label").textContent = label;
   button.dataset.tooltip = `${label}，点击调整下载速度限制`;
   button.setAttribute("aria-label", button.dataset.tooltip);
@@ -124,11 +131,18 @@ function renderWorkspaceNotice() {
     detail = "";
     tooltip = `下载速度 ${speed} · ${currentSummary.downloading} 个任务正在下载 · ${currentSummary.error} 个任务出错 · 查看全部任务`;
   }
-  host.hidden = traffic && currentSummary.downloading <= 0;
+  const hidden = traffic && currentSummary.downloading <= 0;
+  const pending = Boolean(workspaceNoticeCommand && (updateOperationsPending.has(workspaceNoticeCommand.kind) || restartingForUpdate || restartConfirmationPending));
+  const card = traffic || progress !== null || Boolean(state?.error);
+  const display = JSON.stringify([title, detail, tooltip, icon, progress, running, traffic, hidden,
+    workspaceNoticeCommand, pending, Boolean(state?.busy), restartingForUpdate, card]);
+  if (display === workspaceNoticeDisplay) return;
+  workspaceNoticeDisplay = display;
+  host.hidden = hidden;
   host.dataset.traffic = String(traffic);
   document.getElementById("workspace-traffic").hidden = !traffic || host.hidden;
   host.querySelector(".notice-copy").hidden = traffic;
-  document.getElementById("workspace-speed").textContent = speed;
+  if (traffic) document.getElementById("workspace-speed").textContent = speed;
   const button = document.getElementById("workspace-notice-action");
   const command = document.getElementById("workspace-notice-command");
   host.dataset.actionable = String(Boolean(workspaceNoticeCommand));
@@ -138,14 +152,13 @@ function renderWorkspaceNotice() {
     command.dataset.tooltip = workspaceNoticeCommand.label;
     command.setAttribute("aria-label", workspaceNoticeCommand.label);
     command.querySelector("use").setAttribute("href", "/icons.svg#icon-" + workspaceNoticeCommand.icon);
-    const pending = updateOperationsPending.has(workspaceNoticeCommand.kind) || restartingForUpdate || restartConfirmationPending;
     command.disabled = pending || Boolean(state?.busy);
     KDComponents.setBusyState(command, pending, { manageDisabled: false });
   }
   document.getElementById("workspace-notice-title").textContent = title;
   document.getElementById("workspace-notice-detail").textContent = detail;
   button.dataset.tooltip = tooltip || title;
-  button.dataset.tooltipKind = traffic || progress !== null || Boolean(state?.error) ? "card" : "label";
+  button.dataset.tooltipKind = card ? "card" : "label";
   KDComponents.setBusyState(button, restartingForUpdate);
   button.setAttribute("aria-label", restartingForUpdate ? "\u6b63\u5728\u91cd\u542f\u66f4\u65b0" : (traffic ? tooltip : title + (tooltip ? "\uff0c" + tooltip : "")));
   const statusIcon = button.querySelector(".icon");
@@ -160,7 +173,10 @@ function renderWorkspaceNotice() {
   ring.querySelector(".notice-progress-value").setAttribute("stroke-dasharray", (progress === null || progress < 0 ? 25 : progress) + " 100");
   // Announce phase changes without reading each progress tick aloud.
   const announcement = document.getElementById("workspace-notice-announcement");
-  if (announcement.textContent !== title) announcement.textContent = title;
+  if (workspaceAnnouncedTitle !== title) {
+    announcement.textContent = title;
+    workspaceAnnouncedTitle = title;
+  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {

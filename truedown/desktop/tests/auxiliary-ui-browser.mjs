@@ -6,7 +6,7 @@ import http from "node:http";
 import { chromium } from "playwright";
 
 const assets = new URL("../../web/", import.meta.url);
-const groupName = '<img data-audit-injected src="x">';
+const groupName = '下载进度 <img data-audit-injected src="x">';
 const groups = { revision: 1, groups: [{ id: "other", name: groupName, extensions: [], directory: "Other" }] };
 const startupReason = "Registered, but disabled by Windows Task Manager.";
 const fixture = {
@@ -54,6 +54,14 @@ try {
   await page.waitForFunction(() => document.querySelectorAll("tr[data-task-id]").length === 1);
   assert.equal(await page.locator("[data-audit-injected]").count(), 0, "group labels must not create HTML nodes");
   assert.equal(await page.locator(".task-file-cell .task-folder").textContent(), groupName, "group labels remain literal text");
+  const group = page.locator('[data-task-category="other"]');
+  await group.click();
+  await page.evaluate(() => TrueDownI18n.setLanguage("en"));
+  assert.equal(await group.locator(".nav-label").textContent(), groupName);
+  assert.equal(await group.getAttribute("data-tooltip"), groupName);
+  assert.equal(await page.locator(".task-folder").textContent(), groupName);
+  assert.equal(await page.locator("#tasks-title").textContent(), groupName + " · All downloads");
+  await page.evaluate(() => TrueDownI18n.setLanguage("zh-CN"));
   await page.locator('[data-settings-link="experimental"]').evaluate(element => { location.hash = element.hash; });
   await page.waitForFunction(() => settingsReady.has("experimental"));
   await page.locator("#tracker-minimum-leechers").fill("77");
@@ -143,6 +151,11 @@ try {
     }, long);
     await popup.goto(`${origin}/confirmation.html`);
     await popup.waitForFunction(() => window.readyHeight > 0);
+    await popup.locator("#confirm").focus();
+    await popup.keyboard.press("Tab");
+    assert.equal(await popup.evaluate(() => document.activeElement.id), "cancel");
+    await popup.keyboard.press("Shift+Tab");
+    assert.equal(await popup.evaluate(() => document.activeElement.id), "confirm");
     await popup.setViewportSize({ width: 440, height: await popup.evaluate(() => readyHeight) });
     const layout = await popup.evaluate(() => {
       const message = document.querySelector("#message"), footer = document.querySelector("footer");

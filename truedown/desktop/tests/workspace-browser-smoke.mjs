@@ -232,7 +232,7 @@ try {
         if (!native) {
           await page.mouse.wheel(1600, 0);
           await page.waitForFunction(() => document.querySelector(".table-scroll").scrollLeft > 0);
-          const action = await page.locator('tr[data-task-id="1"] [data-action="remove"]').boundingBox();
+          const action = await page.locator('tr[data-task-id="1"] .row-actions button:visible').last().boundingBox();
           assert.ok(action.x >= tableBox.x && action.x + action.width <= tableBox.x + tableBox.width, `${name}: horizontal wheel cannot expose row actions`);
         }
         await page.mouse.wheel(0, 1600);

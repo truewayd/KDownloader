@@ -96,6 +96,30 @@ try {
     const englishTooltip = "Download speed 1.0 MiB/s · 2 downloading · 0 errors · View all tasks";
     assert.equal(await trafficAction.getAttribute("data-tooltip"), englishTooltip);
     assert.equal(await trafficAction.getAttribute("aria-label"), englishTooltip);
+    const writes = await page.evaluate(() => {
+      const observer = new MutationObserver(() => {});
+      for (const id of ["workspace-limit-action", "workspace-notice"]) {
+        observer.observe(document.getElementById(id), { subtree: true, attributes: true, childList: true, characterData: true });
+      }
+      for (let index = 0; index < 25; index++) renderWorkspaceNotice();
+      const count = observer.takeRecords().length;
+      observer.disconnect();
+      return count;
+    });
+    assert.equal(writes, 0, "unchanged polls must preserve the localized status surface");
+    assert.equal(await page.evaluate(() => {
+      const live = document.getElementById("workspace-notice-announcement");
+      const observer = new MutationObserver(() => {});
+      observer.observe(live, { subtree: true, childList: true, characterData: true });
+      const previous = currentSummary;
+      currentSummary = { ...previous, downloadSpeed: previous.downloadSpeed * 2 };
+      renderWorkspaceNotice();
+      currentSummary = previous;
+      renderWorkspaceNotice();
+      const count = observer.takeRecords().length;
+      observer.disconnect();
+      return count;
+    }), 0, "speed changes do not announce the same phase again in English");
     assert.equal(await page.locator("#workspace-speed").textContent(), "1.0 MiB/s");
     await page.evaluate(() => TrueDownI18n.setLanguage("zh-CN"));
     assert.equal(await page.locator("#workspace-limit-label").textContent(), "全局限速 2.0 MiB/s");
