@@ -155,7 +155,9 @@ function showTaskDetails(id, tab) {
   const content = document.querySelector(".task-detail-scroll");
   KDComponents.setPageLoading(content, true);
   syncTaskSettingsBusy();
-  document.getElementById("task-detail-title").textContent = "\u4efb\u52a1\u4fe1\u606f";
+  const heading = document.getElementById("task-detail-title");
+  heading.removeAttribute("data-i18n-ignore");
+  heading.textContent = "任务信息";
   document.getElementById("task-info-grid").replaceChildren();
   document.getElementById("task-location-grid").replaceChildren();
   renderTaskTransfer(null);
@@ -212,8 +214,12 @@ async function loadTaskDetails() {
 }
 
 function renderTaskDetails(task) {
-  document.getElementById("task-detail-title").textContent = task.outputName || task.name || `\u4efb\u52a1 #${task.id}`;
-  document.title = document.getElementById("task-detail-title").textContent;
+  const name = task.outputName || task.name;
+  const heading = document.getElementById("task-detail-title");
+  heading.toggleAttribute("data-i18n-ignore", Boolean(name));
+  document.querySelector("title").toggleAttribute("data-i18n-ignore", Boolean(name));
+  heading.textContent = name || `任务 #${task.id}`;
+  document.title = heading.textContent;
   const facts = [
     ...(task.requiresMediaEngine ? [["引擎要求", "任务已保存，尚未开始。请在设置中启用支持媒体下载的 NEXT 3。"]] : []),
     ...(task.media ? [["媒体类型", `${task.media.protocol.toUpperCase()}${task.media.live ? " · 直播" : ""}`], ["已接收分片", taskDownloadedBytes(task.media.downloadedLength)]] : []),

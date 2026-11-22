@@ -6,6 +6,7 @@ function updateTorrentSelection() {
   const choose = document.getElementById("choose-torrent-btn");
   if (!input || !name || !clear || !choose) return;
   const file = input.files?.[0];
+  name.toggleAttribute("data-i18n-ignore", Boolean(file));
   name.textContent = file?.name || "未选择文件";
   name.dataset.tooltip = file?.name || "";
   clear.hidden = !file;

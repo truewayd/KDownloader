@@ -47,7 +47,12 @@
     await window.__TRUEDOWN_MATERIAL_READY__;
     await invoke("confirmation_ready", { height });
     initialized = true; window.__popupActive = true;
-    } catch (error) { console.error("confirmation_init", error); document.getElementById("message").textContent = "无法打开确认窗口，请关闭后重试。"; }
+    } catch (error) {
+      console.error("confirmation_init", error);
+      const status = document.getElementById("error");
+      status.textContent = "无法打开确认窗口，请关闭后重试。";
+      status.hidden = false;
+    }
     finally { initializing = false; if (refreshQueued) { refreshQueued = false; window.refreshConfirmation(); } }
   };
   window.__popupLoaded = true;

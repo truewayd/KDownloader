@@ -10,7 +10,7 @@
     ? (/^zh\b/i.test(navigator.language || '') ? 'zh-CN' : 'en') : preference;
   const originals = new WeakMap();
   // User-owned names, links, diagnostics and preview payloads remain literal.
-  const protectedSelector = 'script,style,textarea,pre,code,[contenteditable],.kd-selectable,#task-detail-title,#task-info-grid dd:first-of-type,#task-location-grid dd,.task-name,.task-link,.task-path,.task-detail-value,.detail-value,#preview-stage,#preview-content,#preview-text,#logs-content,#app-log-content,.task-file-name,.task-info-value,[data-i18n-ignore]';
+  const protectedSelector = 'script,style,pre,code,[contenteditable],.kd-selectable,#task-info-grid dd:first-of-type,#task-location-grid dd,.task-name,.task-link,.task-path,.task-detail-value,.detail-value,#preview-content,#preview-text,#logs-content,#app-log-content,.task-file-name,.task-info-value,[data-i18n-ignore]';
   const attributes = ['title', 'aria-label', 'placeholder', 'data-tooltip', 'data-kd-notice-title'];
   const messages = window.TrueDownEnglish || {};
   const chinese = {
@@ -82,6 +82,10 @@
     }
     return value.replace(trimmed, () => output);
   }
+  // Translate the template before inserting literal filenames or diagnostics.
+  function format(template, ...values) {
+    return translate(template).replace(/\{(\d+)\}/g, (_, index) => values[index]);
+  }
   function update(node, field, read, write) {
     const current = read();
     let fields = originals.get(node);
@@ -98,13 +102,13 @@
   function localize(root = document.body, insideCheckedParent = false) {
     if (!root) return;
     if (root.nodeType === 3) {
-      if (root.nodeValue.trim() && (insideCheckedParent || !root.parentElement?.closest(protectedSelector))) {
+      if (root.nodeValue.trim() && root.parentElement?.tagName !== 'TEXTAREA'
+        && (insideCheckedParent || !root.parentElement?.closest(protectedSelector))) {
         update(root, 'text', () => root.nodeValue, value => { root.nodeValue = value; });
       }
       return;
     }
     if (root.nodeType !== 1 && root.nodeType !== 9) return;
-    if (root.tagName === "TITLE" && root.textContent === document.getElementById("task-detail-title")?.textContent) return;
     if (root.nodeType === 1 && root.hasAttribute('data-i18n-text')) {
       const output = translate(root.getAttribute('data-i18n-text'));
       if (root.textContent !== output) root.textContent = output;
@@ -135,6 +139,7 @@
     localize(document.querySelector?.("title"));
     const select = document.getElementById('application-language');
     if (select) select.value = preference;
+    window.dispatchEvent(new CustomEvent('truedown:language-changed', { detail: currentLanguage }));
   }
   function setLanguage(value) {
     const next = normalize(value);
@@ -142,9 +147,8 @@
     localStorage.setItem(key, next);
     preference = next;
     apply();
-    window.dispatchEvent(new CustomEvent('truedown:language-changed', { detail: language() }));
   }
-  window.TrueDownI18n = Object.freeze({ get language() { return language(); }, get preference() { return preference; }, t: translate, localize, setLanguage });
+  window.TrueDownI18n = Object.freeze({ get language() { return language(); }, get preference() { return preference; }, t: translate, format, localize, setLanguage });
   document.addEventListener('DOMContentLoaded', () => {
     apply();
     const observer = new MutationObserver(records => {

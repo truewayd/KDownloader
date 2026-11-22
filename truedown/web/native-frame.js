@@ -66,6 +66,7 @@
   }
   const title = document.createElement("span");
   title.className = "native-window-title";
+  title.setAttribute("data-i18n-ignore", "");
   const syncTitle = () => {
     if (title.textContent === document.title) return;
     title.textContent = document.title;

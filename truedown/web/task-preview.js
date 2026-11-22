@@ -12,6 +12,7 @@
   };
   let target = null, controller = null, objectURL = null, picture = null, fit = true, scale = 1, disposed = false;
   let retryTimer = 0, retryDelay = 1000;
+  const caption = document.querySelector("title");
   let pan = null;
   const endPan = () => {
     if (pan && stage.hasPointerCapture(pan.id)) stage.releasePointerCapture(pan.id);
@@ -116,6 +117,7 @@
       || !Number.isSafeInteger(snapshot.id) || snapshot.id <= 0 || typeof snapshot.open !== "boolean") return;
     target = snapshot; release();
     retryDelay = 1000;
+    caption.removeAttribute("data-i18n-ignore");
     document.title = "下载预览";
     info.textContent = "";
     if (!snapshot.open) return;
@@ -171,6 +173,7 @@
       const actual = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(byte => byte.toString(16).padStart(2, "0")).join("");
       if (!current()) return;
       if (actual !== digest) throw new Error("文件在读取过程中发生变化，请重新打开预览。");
+      caption.setAttribute("data-i18n-ignore", "");
       document.title = String(metadata.name).replace(/[\u0000-\u001f\u007f-\u009f]/g, " ");
       info.textContent = `${metadata.name} · ${(metadata.size / 1024 / 1024).toFixed(2)} MiB`;
       if (metadata.mime === "text/plain") {
@@ -218,7 +221,12 @@
     const current = () => !disposed && target === snapshot && !abort.signal.aborted;
     stage.dataset.kind = "archive"; kindLabel.textContent = `${String(archive.format).toUpperCase()} 归档`;
     kindIcon.setAttribute("href", "/icons.svg#icon-archive");
-    info.textContent = `${archive.name} · ${(archive.size / 1024 / 1024).toFixed(2)} MiB · ${archive.files} 个文件 · ${archive.directories} 个目录`;
+    const renderInfo = () => {
+      info.textContent = window.TrueDownI18n.format("{0} · {1} MiB · {2} 个文件 · {3} 个目录",
+        archive.name, (archive.size / 1024 / 1024).toFixed(2), archive.files, archive.directories);
+    };
+    renderInfo();
+    window.addEventListener("truedown:language-changed", renderInfo, { signal: abort.signal });
     const table = document.createElement("div"); table.className = "archive-tree";
     table.setAttribute("role", "list"); table.setAttribute("aria-label", "归档条目");
     const append = page => {

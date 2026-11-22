@@ -240,6 +240,7 @@ function applyWorkspaceRoute(focus = true) {
   });
   updateTaskNavigation();
   const titles = { tasks: "下载任务", task: "任务信息", logs: "应用日志", settings: "设置" };
+  document.querySelector("title").removeAttribute("data-i18n-ignore");
   document.title = titles[currentPage];
   if (currentPage === "tasks") refreshAndSchedule();
   if (currentPage === "task") showTaskDetails(Number(category), tab);
