@@ -176,112 +176,20 @@ async function saveFileGroupOrder(ids, revision = fileGroupsState.revision) {
 }
 
 function bindNavigationSorting(nav, { key, ids, revision, busy, save, render }) {
-  const scroller = nav.closest(".primary-nav");
-  let dragState = null, suppressClick = false;
-  const linkFor = event => event.target.closest("a");
-  const finish = (commit = false) => {
-    const drag = dragState;
-    if (!drag) return;
-    dragState = null;
-    cancelAnimationFrame(drag.frame);
-    drag.preview?.remove();
-    if (nav.hasPointerCapture(drag.pointer)) nav.releasePointerCapture(drag.pointer);
-    nav.classList.remove("group-sorting");
-    drag.link.classList.remove("group-dragging");
-    if (drag.moved) {
-      suppressClick = true;
-      setTimeout(() => { suppressClick = false; }, 0);
-    }
-    if (commit && drag.moved && drag.revision === revision()) save([...nav.children].map(link => link.dataset[key]), drag.revision);
-    else if (drag.moved) render();
-    else if (drag.revision !== revision()) setTimeout(() => { if (!dragState) render(); }, 0);
-  };
-  nav.addEventListener("click", event => {
-    if (suppressClick) { event.preventDefault(); event.stopImmediatePropagation(); }
-  }, true);
-  nav.addEventListener("pointerdown", event => {
-    const link = linkFor(event);
-    if (!link || event.button !== 0 || event.pointerType === "touch" || !event.isPrimary || busy() || dragState
-      || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    dragState = { link, pointer: event.pointerId, x: event.clientX, y: event.clientY, revision: revision(), moved: false };
+  const rail = nav.closest(".primary-nav");
+  const sorting = KDComponents.drag.bindReorder(nav, {
+    axis: "y", item: "a", revision, busy, refresh: render,
+    label: link => link.querySelector(".nav-label").textContent,
+    icon: link => link.querySelector(".icon"),
+    scrollParent: () => rail.scrollHeight > rail.clientHeight && /auto|scroll/.test(getComputedStyle(rail).overflowY)
+      ? rail : nav.closest(".sidebar"),
+    move(source, target, after, version) {
+      const order = ids().filter(id => id !== source.dataset[key]);
+      order.splice(order.indexOf(target.dataset[key]) + Number(after), 0, source.dataset[key]);
+      save(order, version);
+    },
   });
-  nav.addEventListener("pointermove", event => {
-    const drag = dragState;
-    if (!drag || drag.pointer !== event.pointerId) return;
-    if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
-    if (!drag.moved) {
-      drag.moved = true;
-      nav.setPointerCapture(event.pointerId);
-      nav.classList.add("group-sorting");
-      drag.link.classList.add("group-dragging");
-      drag.link.focus({ preventScroll: true });
-      const rect = drag.link.getBoundingClientRect();
-      drag.preview = drag.link.cloneNode(true);
-      drag.preview.className = "group-drag-preview";
-      drag.preview.removeAttribute("href");
-      delete drag.preview.dataset[key];
-      drag.preview.removeAttribute("data-tooltip");
-      drag.preview.setAttribute("aria-hidden", "true");
-      drag.preview.inert = true;
-      drag.preview.style.width = `${rect.width}px`;
-      drag.preview.style.left = `${rect.left}px`;
-      drag.offsetY = drag.y - rect.top;
-      document.body.append(drag.preview);
-    }
-    event.preventDefault();
-    drag.currentY = event.clientY;
-    if (!drag.frame) drag.frame = requestAnimationFrame(() => updateDrag(drag));
-  });
-  function updateDrag(drag) {
-    drag.frame = 0;
-    const bounds = scroller.getBoundingClientRect();
-    const delta = drag.currentY < bounds.top + 28 ? -8 : drag.currentY > bounds.bottom - 28 ? 8 : 0;
-    const previousTop = scroller.scrollTop;
-    if (delta) scroller.scrollTop += delta;
-    const scrolled = scroller.scrollTop !== previousTop;
-    place(drag);
-    drag.preview.style.transform = `translateY(${drag.currentY - drag.offsetY}px)`;
-    if (scrolled) drag.frame = requestAnimationFrame(() => updateDrag(drag));
-  }
-  function place(drag) {
-    const next = [...nav.children].find(link => {
-      if (link === drag.link) return false;
-      const bounds = link.getBoundingClientRect();
-      return drag.currentY < bounds.top + bounds.height / 2;
-    });
-    if (drag.link.nextElementSibling !== (next || null)) nav.insertBefore(drag.link, next || null);
-  }
-  window.addEventListener("pointerup", event => {
-    const drag = dragState;
-    if (drag?.pointer !== event.pointerId) return;
-    const bounds = scroller.getBoundingClientRect();
-    const inside = event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
-    if (inside && drag.moved && (drag.frame || drag.currentY !== event.clientY)) {
-      drag.currentY = event.clientY;
-      place(drag);
-    }
-    finish(inside);
-  });
-  nav.addEventListener("lostpointercapture", () => finish());
-  window.addEventListener("pointercancel", () => finish());
-  window.addEventListener("blur", () => finish());
-  window.addEventListener("pagehide", () => finish());
-  window.addEventListener("hashchange", () => finish());
-  document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && dragState) { event.preventDefault(); finish(); }
-  }, true);
-  nav.addEventListener("keydown", event => {
-    if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key) || busy() || dragState) return;
-    const link = linkFor(event);
-    if (!link) return;
-    event.preventDefault();
-    const order = ids(), index = order.indexOf(link.dataset[key]);
-    const next = index + (event.key === "ArrowUp" ? -1 : 1);
-    if (index < 0 || next < 0 || next >= order.length) return;
-    [order[index], order[next]] = [order[next], order[index]];
-    save(order, revision());
-  });
-  return () => Boolean(dragState);
+  return () => sorting.active;
 }
 
 function markFileGroupsDraft() {

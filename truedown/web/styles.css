@@ -141,14 +141,39 @@ a[href^="#"], button, label, svg, img {
 }
 
 .file-group-navigation > a { touch-action: pan-y; }
-.file-group-navigation.group-sorting,
-.file-group-navigation.group-sorting * { cursor: grabbing; }
-.file-group-navigation .group-dragging { opacity: .3; outline: 1px dashed var(--kd-border-strong); outline-offset: -2px; }
-.group-drag-preview { position: fixed; top: 0; z-index: 1500; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 8px 12px; border-radius: var(--kd-control-radius); color: var(--kd-text); background: var(--kd-surface); box-shadow: var(--kd-shadow); outline: 1px solid var(--kd-border); opacity: .92; pointer-events: none; }
-.group-drag-preview .icon { flex: 0 0 18px; width: 18px; height: 18px; }
-.group-drag-preview .nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-collapsed .group-drag-preview { justify-content: center; padding-inline: 0; }
-.sidebar-collapsed .group-drag-preview :is(.nav-label, .nav-count) { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .primary-nav .file-group-navigation > a, .tasks-table .sort-button { cursor: grab; }
+}
+.pointer-drag-hint, .download-drop-label {
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px; max-width: min(280px, calc(100vw - 8px));
+  border: 1px solid var(--kd-border-strong); border-radius: var(--kd-control-radius);
+  background: var(--kd-surface); color: var(--kd-text); box-shadow: var(--kd-shadow);
+  font-size: 13px; font-weight: 600; line-height: 18px; pointer-events: none;
+}
+.pointer-drag-hint { position: fixed; inset: 0 auto auto 0; z-index: 1500; font-variant-numeric: tabular-nums; }
+.pointer-drag-hint span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(.pointer-drag-hint, .download-drop-label) .icon { flex: 0 0 16px; width: 16px; height: 16px; color: var(--kd-focus); }
+[data-drag-kind="sort"] > * { opacity: .55; }
+body:has([data-drag-kind]) .kd-tooltip { visibility: hidden; }
+body:has([data-drag-kind="sort"]) :is(.primary-nav, .tasks-table, .primary-nav *, .tasks-table *) { cursor: grabbing; }
+[data-drop-edge]::after {
+  content: ""; position: absolute; z-index: 1; border: solid var(--kd-focus); border-width: 0;
+  pointer-events: none;
+}
+[data-drop-edge="left"]::after { inset: 3px auto 3px 0; border-left-width: 3px; }
+[data-drop-edge="right"]::after { inset: 3px 0 3px auto; border-right-width: 3px; }
+[data-drop-edge="top"]::after { inset: 0 4px auto; border-top-width: 3px; }
+[data-drop-edge="bottom"]::after { inset: auto 4px 0; border-bottom-width: 3px; }
+#download-drop-hint:not([hidden]) {
+  position: fixed; inset: 8px; z-index: 1400; display: grid; align-items: end; justify-items: center;
+  padding: 12px; border: 2px dashed var(--kd-focus); border-radius: var(--kd-radius);
+  background: color-mix(in srgb, var(--kd-focus) 5%, transparent); pointer-events: none;
+}
+#download-drop-hint[data-drop-kind="invalid"] { border-color: var(--kd-border-strong); }
+@media (forced-colors: active) {
+  [data-drop-edge]::after { border-color: Highlight; forced-color-adjust: none; }
+  #download-drop-hint:not([hidden]) { border-color: Highlight; }
+}
 
 body {
   margin: 0;

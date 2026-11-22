@@ -34,17 +34,31 @@ pub fn links(value: String) -> Torrent {
     }
 }
 
-pub fn receive(window: &tauri::Window, paths: &[PathBuf]) {
+pub fn drag_event(window: &tauri::Window, event: &tauri::DragDropEvent) {
     if !["main", "new-task"].contains(&window.label()) {
         return;
     }
-    if paths.len() != 1 || !is_torrent(&paths[0]) {
+    let hover = match event {
+        tauri::DragDropEvent::Enter { paths, .. } => {
+            (!paths.is_empty()).then(|| single_torrent(paths).is_some())
+        }
+        tauri::DragDropEvent::Leave | tauri::DragDropEvent::Drop { .. } => None,
+        _ => return,
+    };
+    let _ = window.emit_to(window.label(), "truedown:drop-hover", hover);
+    if let tauri::DragDropEvent::Drop { paths, .. } = event {
+        receive(window, paths);
+    }
+}
+
+fn receive(window: &tauri::Window, paths: &[PathBuf]) {
+    let Some(path) = single_torrent(paths) else {
         let _ = window.emit(
             "truedown:drop-error",
             "Please drop one .torrent file (up to 4 MiB).",
         );
         return;
-    }
+    };
     let app = window.app_handle().clone();
     let state = app.state::<Drops>();
     let mut pending = state.pending.lock().unwrap();
@@ -55,7 +69,7 @@ pub fn receive(window: &tauri::Window, paths: &[PathBuf]) {
         );
         return;
     }
-    *pending = Some(Source::Torrent(paths[0].clone()));
+    *pending = Some(Source::Torrent(path.clone()));
     drop(pending);
     tauri::async_runtime::spawn(async move {
         if let Err(error) =
@@ -68,6 +82,13 @@ pub fn receive(window: &tauri::Window, paths: &[PathBuf]) {
         // navigation cannot lose a drop that precedes event registration.
         let _ = app.emit_to("new-task", "truedown:drop-ready", ());
     });
+}
+
+fn single_torrent(paths: &[PathBuf]) -> Option<&PathBuf> {
+    match paths {
+        [path] if is_torrent(path) => Some(path),
+        _ => None,
+    }
 }
 
 fn is_torrent(path: &std::path::Path) -> bool {
@@ -113,6 +134,14 @@ pub fn read_torrent(path: PathBuf) -> Result<Torrent, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hover_and_drop_accept_the_same_single_torrent_name() {
+        let path = PathBuf::from("sample.TORRENT");
+        assert!(single_torrent(&[]).is_none());
+        assert_eq!(single_torrent(std::slice::from_ref(&path)), Some(&path));
+        assert!(single_torrent(&[path.clone(), path]).is_none());
+        assert!(single_torrent(&[PathBuf::from("sample.torrent.zip")]).is_none());
+    }
     #[test]
     fn only_bounded_regular_torrents_are_read() {
         let root = tempfile::tempdir().unwrap();

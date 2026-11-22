@@ -135,6 +135,10 @@ try {
   const afterDrag = await scroll();
   assert.ok(Math.abs(afterDrag.x - beforeDrag.x - 80) < 2 && Math.abs(afterDrag.y - beforeDrag.y - 60) < 2, `drag pans the enlarged image on both axes: ${JSON.stringify({ beforeDrag, afterDrag })}`);
   assert.equal(await canvas.evaluate(element => element.classList.contains("is-panning")), false);
+  await page.mouse.down(); await page.mouse.move(point.x - 55, point.y - 40);
+  assert.equal(await canvas.evaluate(element => getComputedStyle(element).cursor), "grabbing");
+  await page.keyboard.press("Escape"); await page.mouse.up();
+  assert.deepEqual(await scroll(), afterDrag, "Escape restores the image position");
   for (const deltaMode of [0, 1, 2]) {
     await page.locator("#preview-actual").click();
     await canvas.dispatchEvent("wheel", { deltaY: -1, deltaMode, clientX: point.x, clientY: point.y });

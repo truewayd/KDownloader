@@ -71,7 +71,7 @@ function validateDroppedTorrent(file) {
 
 async function applyDroppedSource({ file = null, links = [] }) {
   if (dropDisposed) return;
-  if (applyingDrop || els.downloadForm.inert) throw new Error("请等待当前表单操作完成后再拖入");
+  if (applyingDrop || els.downloadForm.inert || els.dialogOverlay.classList.contains("open")) throw new Error("请等待当前表单操作完成后再拖入");
   applyingDrop = true;
   try {
     const originalLink = els.mLink.value;
@@ -139,60 +139,53 @@ async function drainNativeDrop() {
 function bindDownloadDrops() {
   // Internal navigation/icons have no payload to export. Keep text editing and
   // external-link drags native, but never reinterpret them as imported downloads.
-  let internalDrag = false;
-  const start = event => {
-    internalDrag = true;
-    if (event.target instanceof Element && !event.target.closest('input, textarea, [contenteditable="true"]')
-      && event.target.closest('a[href^="#"], button, label, svg, img, [data-native-drag]')) {
-      event.preventDefault();
-      internalDrag = false;
-    }
-  };
-  const end = () => { internalDrag = false; };
-  document.addEventListener("dragstart", start, true);
-  document.addEventListener("dragend", end, true);
-  window.addEventListener("pagehide", () => {
-    document.removeEventListener("dragstart", start, true);
-    document.removeEventListener("dragend", end, true);
-  }, { once: true });
-  if (!["browser", "main", "new-task"].includes(nativeWindowRole)) return;
-  const error = (cause) => { if (!dropDisposed) showToast(cause.message || String(cause), "error"); };
-  const over = (event) => {
-    if (event.defaultPrevented || internalDrag || !event.dataTransfer) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-  };
-  const drop = (event) => {
-    if (event.defaultPrevented || internalDrag) return;
-    event.preventDefault();
-    const transfer = event.dataTransfer;
-    if (!transfer) return;
-    try {
-      if (transfer.files.length) {
-        if (transfer.files.length !== 1) throw new Error("一次只能拖入一个 .torrent 文件");
-        const file = transfer.files[0];
-        validateDroppedTorrent(file);
-        applyDroppedSource({ file }).catch(error);
-      } else {
-        const links = parseDroppedLinks(transfer.getData("text/uri-list") || transfer.getData("text/plain"));
-        if (!links.length) throw new Error("请拖入 .torrent 文件、HTTP(S) 或 Magnet 链接");
-        applyDroppedSource({ links }).catch(error);
+  const enabled = ["browser", "main", "new-task"].includes(nativeWindowRole);
+  const hint = enabled ? document.getElementById("download-drop-hint") : null;
+  const messages = { file: "松开以导入 .torrent 文件", link: "松开以填入下载链接", invalid: "一次只能导入一个 .torrent 文件" };
+  const error = cause => { if (!dropDisposed) showToast(cause.message || String(cause), "error"); };
+  const target = KDComponents.drag.bindDropTarget(document, {
+    enabled,
+    blockNative: node => node instanceof Element && !node.closest('input, textarea, [contenteditable="true"]')
+      && node.closest('a[href^="#"], button, label, svg, img, [data-native-drag]'),
+    classify({ types }) {
+      if (types.includes("Files")) return "file";
+      return types.includes("text/uri-list") || types.includes("text/plain") ? "link" : "";
+    },
+    show(kind) {
+      if (applyingDrop || els.downloadForm.inert || els.dialogOverlay.classList.contains("open")) kind = "";
+      if (hint.dataset.dropKind !== kind) {
+        hint.dataset.dropKind = kind;
+        hint.hidden = !kind;
+        hint.querySelector("span").textContent = messages[kind] || "";
       }
-    } catch (cause) { error(cause); }
-  };
-  document.addEventListener("dragover", over);
-  document.addEventListener("drop", drop);
-  window.addEventListener("pagehide", () => {
-    dropDisposed = true;
-    document.removeEventListener("dragover", over);
-    document.removeEventListener("drop", drop);
-  }, { once: true });
+      return Boolean(kind && kind !== "invalid");
+    },
+    drop(transfer) {
+      try {
+        if (transfer.files.length) {
+          if (transfer.files.length !== 1) throw new Error("一次只能拖入一个 .torrent 文件");
+          const file = transfer.files[0];
+          validateDroppedTorrent(file);
+          applyDroppedSource({ file }).catch(error);
+        } else {
+          const links = parseDroppedLinks(transfer.getData("text/uri-list") || transfer.getData("text/plain"));
+          if (!links.length) throw new Error("请拖入 .torrent 文件、HTTP(S) 或 Magnet 链接");
+          applyDroppedSource({ links }).catch(error);
+        }
+      } catch (cause) { error(cause); }
+    },
+  });
+  if (!enabled) return;
+  window.addEventListener("pagehide", event => { dropDisposed = !event.persisted; });
   if (nativeWindowRole !== "browser") {
+    listenNativeEvent("truedown:drop-hover", ({ payload }) => {
+      target.nativeHover(payload === true ? "file" : payload === false ? "invalid" : "");
+    }).catch(error);
     listenNativeEvent("truedown:drop-error", ({ payload }) => error(new Error(payload))).catch(error);
     if (nativeWindowRole === "new-task") {
       listenNativeEvent("truedown:drop-ready", drainNativeDrop).then(() => drainNativeDrop()).catch(error);
       window.addEventListener("focus", drainNativeDrop);
-      window.addEventListener("pagehide", () => window.removeEventListener("focus", drainNativeDrop), { once: true });
+      window.addEventListener("pagehide", event => { if (!event.persisted) window.removeEventListener("focus", drainNativeDrop); });
     }
   }
 }

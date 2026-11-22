@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
+import { readFileSync } from "node:fs";
 import { dashboardSource as source } from "./helpers/truedownSource.mjs";
 
 function declarations(...names) {
@@ -107,10 +108,10 @@ test("hidden or disposed native detail windows never start a request", async () 
 
 test("detail windows do not register new-download drop handlers", () => {
   const events = [];
-  const context = vm.createContext({ nativeWindowRole: "task-details",
-    document: { addEventListener: name => events.push(name) },
-    window: { addEventListener: name => assert.equal(name, "pagehide") },
+  const context = vm.createContext({ nativeWindowRole: "task-details", AbortController,
+    document: { addEventListener: name => events.push(name), defaultView: { addEventListener: name => assert.equal(name, "pagehide") } },
   });
+  vm.runInContext(readFileSync(new URL("../shared/components.js", import.meta.url), "utf8"), context);
   vm.runInContext(declarations("bindDownloadDrops"), context);
   context.bindDownloadDrops();
   assert.deepEqual(events, ["dragstart", "dragend"], "drag policy is shared, download imports are not");

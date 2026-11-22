@@ -37,6 +37,11 @@ try {
           modules: { modules: [] },
         };
         window.__TAURI__ = {
+          event: { listen: async (name, callback) => {
+            const listener = event => callback({ payload: event.detail });
+            window.addEventListener(name, listener);
+            return () => window.removeEventListener(name, listener);
+          } },
           core: { invoke: async (command, args) => {
             window.nativeCalls.push({ command, args });
             if (command === "apply_material") return true;
@@ -152,6 +157,22 @@ try {
       await page.waitForFunction(() => document.querySelector("#modal-msg").textContent.includes("连接已恢复"));
       assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/draft.zip");
       if (role === "new-task") {
+        const hint = page.locator("#download-drop-hint");
+        await page.evaluate(() => window.dispatchEvent(new CustomEvent("truedown:drop-hover", {detail: true})));
+        assert.equal(await hint.innerText(), "松开以导入 .torrent 文件");
+        if (screenshots) await page.screenshot({path: path.join(screenshots, `torrent-hover-${colorScheme}.png`)});
+        await page.evaluate(() => window.dispatchEvent(new CustomEvent("truedown:drop-hover", {detail: false})));
+        assert.equal(await hint.innerText(), "一次只能导入一个 .torrent 文件");
+        await page.evaluate(() => window.dispatchEvent(new CustomEvent("truedown:drop-hover")));
+        assert.equal(await hint.isVisible(), false);
+        await page.evaluate(() => {
+          const dataTransfer = new DataTransfer();
+          dataTransfer.setData("text/uri-list", "https://example.test/drop.zip");
+          document.dispatchEvent(new DragEvent("dragenter", {dataTransfer, cancelable: true}));
+        });
+        assert.equal(await hint.innerText(), "松开以填入下载链接");
+        await page.evaluate(() => document.dispatchEvent(new DragEvent("dragleave")));
+        assert.equal(await hint.isVisible(), false);
         const chooser = page.waitForEvent("filechooser");
         await page.locator("#choose-torrent-btn").click();
         await (await chooser).setFiles({ name: "native-review.torrent", mimeType: "application/x-bittorrent", buffer: Buffer.from("fixture") });
@@ -303,6 +324,22 @@ try {
           return allowed;
         }), true, "input text dragging keeps native editing behavior");
         assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/drop.zip", "internal text drags cannot replace the download draft");
+        const resumed = await page.evaluate(() => {
+          const transfer = new DataTransfer();
+          transfer.setData("text/uri-list", "https://example.test/new.zip");
+          const hover = () => document.dispatchEvent(new DragEvent("dragover", { dataTransfer: transfer, cancelable: true }));
+          hover();
+          const hint = document.getElementById("download-drop-hint");
+          const before = hint.dataset.dropKind;
+          window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
+          const cleared = hint.hidden;
+          window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+          hover();
+          const after = hint.dataset.dropKind;
+          document.dispatchEvent(new DragEvent("dragend"));
+          return [before, cleared, after, dropDisposed];
+        });
+        assert.deepEqual(resumed, ["link", true, "link", false], "external drop feedback resumes with a cached document");
       }
       if (colorScheme === "light") {
         const confirmation = await context.newPage();

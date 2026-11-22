@@ -499,8 +499,8 @@ fn main() {
             {
                 return;
             }
-            if let WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
-                drops::receive(window, paths);
+            if let WindowEvent::DragDrop(event) = event {
+                drops::drag_event(window, event);
             }
             if let WindowEvent::ScaleFactorChanged { .. } = event {
                 placement::fit(window, false);

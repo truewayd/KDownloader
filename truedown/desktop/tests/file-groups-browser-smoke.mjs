@@ -125,10 +125,11 @@ try {
     await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
     await page.mouse.down();
     await page.mouse.move(end.x + end.width / 2, end.y + end.height - 2, { steps: 8 });
-    assert.equal(await page.locator(".group-drag-preview").count(), 1);
+    await page.waitForSelector('[data-task-category="video"][data-drop-edge="bottom"]');
+    assert.equal(await page.locator(".pointer-drag-hint").textContent(), await image.locator(".nav-label").textContent());
     await page.screenshot({ path: path.join(screenshots, `group-drag-${width}-${colorScheme}.png`) });
     await page.mouse.up();
-    assert.equal(await page.locator(".group-drag-preview").count(), 0);
+    assert.equal(await page.locator(".pointer-drag-hint, [data-drop-edge]").count(), 0);
     await page.waitForFunction(revision => fileGroupsState.revision > revision && !fileGroupOrderSaving, beforeDrag);
     assert.deepEqual(groups.groups.slice(0, 2).map(group => group.id), ["video", "image"]);
     assert.equal(await page.evaluate(() => currentCategory), "project", "sorting must not activate the dragged group");
@@ -143,7 +144,9 @@ try {
     await page.mouse.down();
     await page.mouse.move(cancelEnd.x + 12, cancelEnd.y + cancelEnd.height - 2, { steps: 4 });
     await page.keyboard.press("Escape");
+    await page.mouse.move(cancelStart.x + 12, cancelStart.y + 12, { steps: 3 });
     await page.mouse.up();
+    assert.equal(await page.evaluate(() => currentCategory), "project", "releasing over the source after Escape does not activate it");
     assert.equal(groups.revision, beforeCancel, "Escape cancels sorting without saving");
     assert.deepEqual(await page.locator('[data-task-category]').evaluateAll(links => links.slice(0, 2).map(link => link.dataset.taskCategory)), ["image", "video"]);
     if (width === 1200 && colorScheme === "light") {
@@ -347,6 +350,25 @@ try {
         if (viewport === 1200 || viewport === 390) {
           await page.locator(".sidebar").evaluate(sidebar => { sidebar.scrollTop = 0; });
           await page.screenshot({ path: path.join(screenshots, `sidebar-compact-${viewport}.png`) });
+          if (viewport === 390) {
+            await image.scrollIntoViewIfNeeded();
+            const source = await image.boundingBox(), destination = await video.boundingBox();
+            await page.mouse.move(source.x + 8, source.y + 8);
+            await page.mouse.down();
+            await page.mouse.move(destination.x + 8, destination.y + destination.height - 2, { steps: 5 });
+            await page.waitForSelector('[data-task-category="video"][data-drop-edge="bottom"]');
+            const hint = page.locator(".pointer-drag-hint");
+            assert.ok((await hint.textContent()).trim().length > 0, "collapsed navigation identifies the item");
+            await page.screenshot({path: path.join(screenshots, "collapsed-group-drag.png")});
+            await page.mouse.move(viewport - 1, height - 1, {steps: 3});
+            await page.waitForFunction(() => !document.querySelector("[data-drop-edge]"));
+            const box = await hint.boundingBox();
+            assert.ok(box.x >= 0 && box.x + box.width <= viewport && box.y + box.height <= height);
+            const revision = groups.revision;
+            await page.mouse.up();
+            assert.equal(await hint.count(), 0);
+            assert.equal(groups.revision, revision, "releasing outside the sortable list cancels the move");
+          }
         }
       }
       await page.evaluate(() => {
@@ -364,6 +386,8 @@ try {
     await page.mouse.move(dragStart.x + 12, dragStart.y + dragStart.height / 2);
     await page.mouse.down();
     await page.mouse.move(dragEnd.x + 12, dragEnd.y + 3, { steps: 8 });
+    await page.waitForSelector('[data-task-module="google-drive"][data-drop-edge="top"]');
+    assert.equal(await page.locator(".pointer-drag-hint").textContent(), "Dropbox");
     await page.mouse.up();
     assert.equal(await modules.first().getAttribute("data-task-module"), "dropbox");
     assert.equal(await page.evaluate(() => currentModule), "", "sorting does not activate a module");

@@ -13,15 +13,28 @@
   let target = null, controller = null, objectURL = null, picture = null, fit = true, scale = 1, disposed = false;
   let retryTimer = 0, retryDelay = 1000;
   const caption = document.querySelector("title");
-  let pan = null;
-  const endPan = () => {
-    if (pan && stage.hasPointerCapture(pan.id)) stage.releasePointerCapture(pan.id);
-    pan = null; stage.classList.remove("is-panning");
-  };
+  const panning = KDComponents.drag.bindPointer(stage, down => {
+    if (!picture || !stage.classList.contains("can-pan") || down.pointerType === "touch") return;
+    const bounds = stage.getBoundingClientRect();
+    if (down.clientX >= bounds.left + stage.clientWidth || down.clientY >= bounds.top + stage.clientHeight) return;
+    const left = stage.scrollLeft, top = stage.scrollTop;
+    return {
+      source: stage,
+      start() { stage.focus({ preventScroll: true }); stage.classList.add("is-panning"); },
+      move(event) {
+        stage.scrollLeft = left + down.clientX - event.clientX;
+        stage.scrollTop = top + down.clientY - event.clientY;
+      },
+      end(reason) {
+        stage.classList.remove("is-panning");
+        if (reason === "escape") stage.scrollTo(left, top);
+      },
+    };
+  });
   const message = text => { status.textContent = text; };
   const release = () => {
     clearTimeout(retryTimer);
-    endPan(); stage.classList.remove("can-pan");
+    panning.cancel(); stage.classList.remove("can-pan");
     controller?.abort(); controller = null;
     player?.dispose(); player = null;
     for (const media of stage.querySelectorAll("video, audio")) { media.pause(); media.removeAttribute("src"); media.load(); }
@@ -53,7 +66,7 @@
   };
   const setScale = (value, point) => {
     if (!picture) return;
-    endPan();
+    panning.cancel();
     const viewport = stage.getBoundingClientRect(), before = picture.getBoundingClientRect();
     const anchor = point || { x: viewport.left + stage.clientWidth / 2, y: viewport.top + stage.clientHeight / 2 };
     const x = Math.max(0, Math.min(1, (anchor.x - before.left) / before.width));
@@ -65,7 +78,7 @@
     stage.scrollTop += after.top + y * after.height - anchor.y;
   };
   const zoom = (factor, point) => setScale(scale * factor, point);
-  const fitImage = () => { endPan(); fit = true; resize(); stage.scrollLeft = stage.scrollTop = 0; };
+  const fitImage = () => { panning.cancel(); fit = true; resize(); stage.scrollLeft = stage.scrollTop = 0; };
   document.getElementById("preview-fit").onclick = fitImage;
   document.getElementById("preview-actual").onclick = () => setScale(1);
   document.getElementById("preview-out").onclick = () => zoom(1 / 1.25);
@@ -77,20 +90,6 @@
     const delta = Math.max(-120, Math.min(120, event.deltaY * unit));
     zoom(Math.exp(-delta / 400), { x: event.clientX, y: event.clientY });
   }, { passive: false });
-  stage.addEventListener("pointerdown", event => {
-    if (!picture || !stage.classList.contains("can-pan") || event.button !== 0 || !event.isPrimary || event.pointerType === "touch") return;
-    const bounds = stage.getBoundingClientRect();
-    if (event.clientX >= bounds.left + stage.clientWidth || event.clientY >= bounds.top + stage.clientHeight) return;
-    event.preventDefault(); stage.focus({ preventScroll: true });
-    pan = { id: event.pointerId, x: event.clientX, y: event.clientY, left: stage.scrollLeft, top: stage.scrollTop };
-    stage.setPointerCapture(event.pointerId); stage.classList.add("is-panning");
-  });
-  stage.addEventListener("pointermove", event => {
-    if (pan?.id !== event.pointerId) return;
-    stage.scrollLeft = pan.left + pan.x - event.clientX;
-    stage.scrollTop = pan.top + pan.y - event.clientY;
-  });
-  for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) stage.addEventListener(name, endPan);
   stage.addEventListener("keydown", event => {
     if (!picture || event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === "+" || event.key === "=") zoom(1.25);
@@ -246,7 +245,7 @@
     const more = document.createElement("button"); more.type = "button"; more.className = "kd-button secondary archive-more"; more.textContent = "加载更多";
     more.onclick = async () => {
       if (more.disabled || !current()) return;
-      more.disabled = true; more.setAttribute("aria-busy", "true");
+      KDComponents.setBusyState(more, true);
       try {
         const next = await requestJSON(`/tasks/archive-preview?id=${snapshot.id}&cursor=${archive.nextCursor}&version=${encodeURIComponent(archive.version)}`, { signal: abort.signal });
         if (!current()) return;
@@ -255,7 +254,7 @@
         if (more.hidden) { table.tabIndex = -1; table.focus({ preventScroll: true }); }
         summary();
       } catch (error) { if (current()) message(`无法读取归档目录：${error.message}`); }
-      finally { if (current()) { more.disabled = false; more.removeAttribute("aria-busy"); } }
+      finally { if (current()) KDComponents.setBusyState(more, false); }
     };
     stage.append(more);
   }

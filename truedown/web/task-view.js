@@ -128,129 +128,50 @@ function bindTaskColumnSorting(container, scroller) {
     }
   } catch { /* Use the default order when storage is unavailable. */ }
 
-  let drag = null;
-  let dragResize = null;
-  let suppressClick = false;
-  const heading = target => target?.closest("th[data-task-column]");
-  const markDrop = () => {
-    const candidate = heading(document.elementFromPoint(drag.x, drag.y));
-    const target = candidate && candidate !== drag.source && candidate.closest("table") === drag.table ? candidate : null;
-    const bounds = target?.getBoundingClientRect();
-    const after = Boolean(bounds && drag.x >= bounds.left + bounds.width / 2);
-    if (target === drag.target && after === drag.after) return;
-    drag.target?.removeAttribute("data-column-drop");
-    drag.target = target;
-    drag.after = after;
-    if (target) target.dataset.columnDrop = after ? "after" : "before";
-  };
-  const updateDrag = () => {
-    if (!drag) return;
-    drag.frame = 0;
-    markDrop();
-    const bounds = scroller.getBoundingClientRect();
-    const header = drag.source.getBoundingClientRect();
-    if (drag.y < header.top || drag.y > header.bottom || drag.x < bounds.left || drag.x > bounds.right) return;
-    const delta = drag.x < bounds.left + 24 ? -8 : drag.x > bounds.right - 24 ? 8 : 0;
-    const before = scroller.scrollLeft;
-    scroller.scrollLeft += delta;
-    if (scroller.scrollLeft !== before) drag.frame = requestAnimationFrame(updateDrag);
-  };
-  const finish = (commit = false) => {
-    if (!drag) return;
-    const { source, table, pointer, frame, target, after, moved } = drag;
-    drag = null;
-    if (dragResize) {
-      container.classList.remove("task-resizing");
-      dragResize.finish(commit);
-      dragResize = null;
-    }
-    if (!moved && !container.hasPointerCapture(pointer)) return;
-    cancelAnimationFrame(frame);
-    source.classList.remove("task-column-dragging");
-    target?.removeAttribute("data-column-drop");
-    if (container.hasPointerCapture(pointer)) container.releasePointerCapture(pointer);
-    suppressClick = true;
-    setTimeout(() => { suppressClick = false; }, 0);
-    if (commit && target && table.isConnected) moveTaskColumn(table, source, target, after);
-  };
-  container.addEventListener("pointerdown", event => {
-    const source = heading(event.target);
-    const resize = event.target.closest(".task-resizer");
-    if (!source || drag || event.button !== 0 || !event.isPrimary || (!resize && event.pointerType === "touch")
-      || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    drag = { source, table: source.closest("table"), pointer: event.pointerId, startX: event.clientX, frame: 0 };
-    if (resize) {
-      event.preventDefault();
-      resize.focus({ preventScroll: true });
-      dragResize = beginTaskColumnResize(source);
-      container.setPointerCapture(event.pointerId);
-      container.classList.add("task-resizing");
-    }
+  const sorting = KDComponents.drag.bindReorder(container, {
+    axis: "x", item: "th[data-task-column]", exclude: ".task-resizer",
+    label: source => source.querySelector(".sort-button").textContent.trim(),
+    scrollParent: () => scroller,
+    scrollEdges(source) {
+      const header = source.closest("thead");
+      return [header.querySelector(".select-cell").getBoundingClientRect().right,
+        header.querySelector(".task-actions-heading").getBoundingClientRect().left];
+    },
+    move(source, target, after) { moveTaskColumn(source.closest("table"), source, target, after); },
   });
-  window.addEventListener("pointermove", event => {
-    if (drag?.pointer !== event.pointerId) return;
-    if (!drag.source.isConnected) { finish(); return; }
-    if (dragResize) {
-      event.preventDefault();
-      dragResize.update(event.clientX - drag.startX);
-      return;
+  const resizing = KDComponents.drag.bindPointer(container, down => {
+    const handle = down.target.closest(".task-resizer");
+    if (!handle || down.altKey || down.ctrlKey || down.metaKey || down.shiftKey) return;
+    const source = handle.closest("th"), label = source.querySelector(".sort-button").textContent.trim();
+    const resize = beginTaskColumnResize(source);
+    function showWidth(event, feedback) {
+      const width = Math.round(source.getBoundingClientRect().width);
+      feedback.move(`${label} · ${width} px`, event.clientX, event.clientY);
     }
-    if (!drag.moved) {
-      if (Math.abs(event.clientX - drag.startX) < 6) return;
-      container.setPointerCapture(event.pointerId);
-      drag.source.classList.add("task-column-dragging");
-      drag.moved = true;
-    }
-    event.preventDefault();
-    drag.x = event.clientX;
-    drag.y = event.clientY;
-    if (!drag.frame) drag.frame = requestAnimationFrame(updateDrag);
+    return {
+      source, feedback: { kind: "resize" },
+      start(event, feedback) {
+        handle.focus({ preventScroll: true });
+        container.classList.add("task-resizing");
+        showWidth(event, feedback);
+      },
+      move(event, released, feedback) {
+        resize.update(event.clientX - down.clientX);
+        if (!released) showWidth(event, feedback);
+      },
+      end(reason) {
+        container.classList.remove("task-resizing");
+        resize.finish(reason === "release");
+      },
+    };
   });
-  window.addEventListener("pointerup", event => {
-    if (drag?.pointer !== event.pointerId) return;
-    if (dragResize) {
-      if (!drag.source.isConnected) { finish(); return; }
-      dragResize.update(event.clientX - drag.startX);
-    } else if (container.hasPointerCapture(event.pointerId)) {
-      drag.x = event.clientX;
-      drag.y = event.clientY;
-      markDrop();
-    }
-    finish(true);
-  });
-  container.addEventListener("lostpointercapture", event => { if (drag?.pointer === event.pointerId) finish(); });
-  window.addEventListener("pointercancel", event => { if (drag?.pointer === event.pointerId) finish(); });
-  window.addEventListener("blur", () => finish());
-  window.addEventListener("hashchange", () => finish());
-  window.addEventListener("pagehide", () => finish());
-  container.addEventListener("click", event => {
-    if (suppressClick) { event.preventDefault(); event.stopImmediatePropagation(); }
-  }, true);
-  document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && drag) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      finish();
-    }
-  }, true);
   container.addEventListener("keydown", event => {
-    const source = heading(event.target);
-    if (source && !drag && event.target.matches(".task-resizer") && !event.altKey && !event.ctrlKey && !event.metaKey
-      && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
-      event.preventDefault();
-      const resize = beginTaskColumnResize(source);
-      resize.update(event.key === "ArrowRight" ? 8 : -8);
-      resize.finish(true);
-      return;
-    }
-    if (!source || drag || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
-      || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    if (sorting.active || resizing.active || !event.target.matches(".task-resizer") || event.altKey || event.ctrlKey
+      || event.metaKey || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
     event.preventDefault();
-    const after = event.key === "ArrowRight";
-    const sibling = after ? "nextElementSibling" : "previousElementSibling";
-    let target = source[sibling];
-    while (target && hiddenTaskColumns.has(target.dataset.taskColumn)) target = target[sibling];
-    if (target?.dataset.taskColumn) moveTaskColumn(source.closest("table"), source, target, after);
+    const resize = beginTaskColumnResize(event.target.closest("th"));
+    resize.update(event.key === "ArrowRight" ? 8 : -8);
+    resize.finish(true);
   });
 }
 
