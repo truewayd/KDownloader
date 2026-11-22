@@ -1,12 +1,14 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extensionName__",
-  "version": "3.6.0",
+  "version": "3.7.0",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
   "permissions": [
     "storage",
     "contextMenus",
+    "activeTab",
+    "scripting",
     "unlimitedStorage",
     "cookies",
     "downloads",

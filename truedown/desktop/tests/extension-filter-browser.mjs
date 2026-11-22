@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
-const output = await fs.mkdtemp(path.join(os.tmpdir(), "kdownloader-filter-"));
+const output = process.argv[2] ? path.resolve(process.argv[2]) : await fs.mkdtemp(path.join(os.tmpdir(), "kdownloader-filter-"));
+await fs.mkdir(output, { recursive: true });
 const key = "f".repeat(32);
 const requests = [];
 let unauthorized = false;

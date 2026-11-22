@@ -1,8 +1,8 @@
 {
   "browserContextMenu": { "message": "Browser right-click downloads (ABDM / TrueDown)" },
-  "browserContextMenuHelp": { "message": "Send HTTP(S) links, media or selected URL text to ABDM / TrueDown. Off by default. Does not capture downloads automatically or send page cookies." },
+  "browserContextMenuHelp": { "message": "Right-click to send links, media, or links in selected text to ABDM / TrueDown. The selection is read only when you use the menu. Page cookies are omitted." },
   "browserDownloadLink": { "message": "Send link to ABDM / TrueDown" },
-  "browserDownloadSelection": { "message": "Send selected URLs to ABDM / TrueDown" },
+  "browserDownloadSelection": { "message": "Send selected links to ABDM / TrueDown" },
   "browserDownloadAccepted": { "message": "Download links accepted" },
   "browserDownloadAcceptedHelp": { "message": "The backend accepted the links for processing. This does not mean the files have finished downloading." },
   "browserDownloadFailed": { "message": "Could not send download links" },

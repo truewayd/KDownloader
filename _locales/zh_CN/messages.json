@@ -1,8 +1,8 @@
 {
   "browserContextMenu": { "message": "浏览器右键下载（ABDM / TrueDown）" },
-  "browserContextMenuHelp": { "message": "将 HTTP(S) 链接、媒体或选中的网址文本发送到 ABDM / TrueDown。默认关闭，不自动接管下载，也不发送页面 Cookie。" },
+  "browserContextMenuHelp": { "message": "右键可发送链接、媒体，以及选区中的网址和超链接。仅在使用此菜单时读取选区，发送时省略网页 Cookie。" },
   "browserDownloadLink": { "message": "发送链接到 ABDM / TrueDown" },
-  "browserDownloadSelection": { "message": "发送选中的网址到 ABDM / TrueDown" },
+  "browserDownloadSelection": { "message": "发送选中的链接到 ABDM / TrueDown" },
   "browserDownloadAccepted": { "message": "下载链接已受理" },
   "browserDownloadAcceptedHelp": { "message": "后端已接收链接并开始处理，不代表文件已下载完成。" },
   "browserDownloadFailed": { "message": "发送下载链接失败" },

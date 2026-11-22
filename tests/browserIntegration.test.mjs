@@ -51,3 +51,30 @@ test('browser handoff uses bounded authenticated ABDM batches without page crede
   t.mock.method(globalThis, 'fetch', async () => new Response('private error', { status: 503 }));
   await assert.rejects(sendBrowserDownloads({ menuItemId: LINK_MENU, linkUrl: 'https://example.test/file' }), /did not accept/);
 });
+
+test('selected anchors target the clicked frame and merge validated links with selected URL text', async t => {
+  config = { enabled: true, contextMenuEnabled: true };
+  const info = { menuItemId: SELECTION_MENU, frameId: 7, pageUrl: 'https://outer.test/', frameUrl: 'https://frame.test/',
+    selectionText: 'Manual https://files.test/text' };
+  let mode = 'anchors';
+  chrome.scripting = { async executeScript({ target, args }) {
+    assert.deepEqual(target, { tabId: 42, frameIds: [7] });
+    assert.deepEqual(args, [info.frameUrl, info.selectionText]);
+    if (mode === 'restricted') throw new Error('Cannot access frame');
+    if (mode === 'disabled') config.enabled = false;
+    return [{ result: mode === 'large' ? null : ['https://files.test/manual#part', 'javascript:void(0)', 'https://files.test/text'] }];
+  } };
+  const sent = [];
+  t.mock.method(globalThis, 'fetch', async (_url, { body }) => {
+    sent.push(JSON.parse(body).items.map(item => item.link));
+    return new Response('OK');
+  });
+  await sendBrowserDownloads(info, { id: 42 });
+  mode = 'restricted';
+  await sendBrowserDownloads(info, { id: 42 });
+  mode = 'large';
+  await assert.rejects(sendBrowserDownloads(info, { id: 42 }), RangeError);
+  mode = 'disabled';
+  assert.equal(await sendBrowserDownloads(info, { id: 42 }), false);
+  assert.deepEqual(sent, [['https://files.test/manual#part', 'https://files.test/text'], ['https://files.test/text']]);
+});

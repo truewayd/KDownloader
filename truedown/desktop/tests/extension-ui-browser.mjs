@@ -75,6 +75,37 @@ try {
     console.log(`${colorScheme}: real action popup read ordering, 360px width and overflow OK`);
   }
 
+  const selectionPage = await context.newPage();
+  const selectionURL = "https://kemono.cr/selected-links-fixture";
+  await selectionPage.route(selectionURL, route => route.fulfill({ contentType: "text/html",
+    body: '<a href="/outside">Outside</a><main><a href="/first#part">Guide</a> and <a href="/second">Manual</a><a hidden href="/hidden">Hidden</a></main>' }));
+  await selectionPage.goto(selectionURL);
+  const select = async partial => selectionPage.evaluate(partial => {
+    const range = document.createRange(), links = document.querySelectorAll("main a");
+    if (partial) {
+      range.setStart(links[0].firstChild, 1);
+      range.setEnd(links[0].firstChild, 3);
+    } else range.selectNodeContents(document.querySelector("main"));
+    const selection = getSelection();
+    selection.removeAllRanges(); selection.addRange(range);
+    return String(selection);
+  }, partial);
+  const extensionPage = await context.newPage();
+  await extensionPage.goto(`chrome-extension://${extensionId}/settings.html`);
+  const readSelection = expected => extensionPage.evaluate(async ({ url, expected }) => {
+    const [tab] = await chrome.tabs.query({ url });
+    const { selectedAnchorLinks } = await import(chrome.runtime.getURL("background/browserIntegration.js"));
+    const [frame] = await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] },
+      func: selectedAnchorLinks, args: [url, expected] });
+    return frame.result;
+  }, { url: selectionURL, expected });
+  assert.deepEqual(await readSelection(await select(false)), ["https://kemono.cr/first#part", "https://kemono.cr/second"]);
+  assert.deepEqual(await readSelection(await select(true)), ["https://kemono.cr/first#part"]);
+  assert.deepEqual(await readSelection("previous selection"), []);
+  await extensionPage.close();
+  await selectionPage.close();
+  console.log("Actual isolated-frame selection kept partial anchors, fragments and selection boundaries");
+
   const fixtures = [
     { name: "kemono", url: "https://kemono.cr/patreon/user/123", kind: "creator" },
     { name: "coomer", url: "https://coomer.st/onlyfans/user/123", kind: "creator" },

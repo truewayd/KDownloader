@@ -8,10 +8,48 @@ export const SELECTION_MENU = 'kd-send-selection';
 let menuQueue = Promise.resolve();
 const message = key => chrome.i18n.getMessage(key);
 
-export function browserDownloadLinks(info) {
+// Chrome serializes this function into the clicked frame's isolated world.
+export function selectedAnchorLinks(pageURL, expectedText) {
+  const selection = window.getSelection();
+  const normalize = text => text.trim().replace(/\s+/g, ' ');
+  if (location.href !== pageURL || !selection || selection.isCollapsed ||
+      normalize(selection.toString()) !== normalize(expectedText)) return [];
+  const links = new Set();
+  let visited = 0, size = 0;
+  for (let i = 0; i < selection.rangeCount; i++) {
+    const range = selection.getRangeAt(i);
+    const walker = document.createTreeWalker(range.commonAncestorContainer, NodeFilter.SHOW_ALL);
+    const start = range.startContainer;
+    walker.currentNode = start.childNodes[range.startOffset] || start;
+    // A boundary after an element's last child starts at its next sibling.
+    if (start.nodeType === Node.ELEMENT_NODE && range.startOffset === start.childNodes.length) {
+      while (!walker.nextSibling() && walker.parentNode()) { /* ascend to the next sibling */ }
+      if (walker.currentNode === range.commonAncestorContainer) continue;
+    }
+    do {
+      const node = walker.currentNode;
+      if (!range.intersectsNode(node)) break;
+      if ((node === start && node.nodeType === Node.TEXT_NODE && range.startOffset === node.length) ||
+          (node === range.endContainer && range.endOffset === 0)) continue;
+      if (++visited > 20000) return null;
+      const anchor = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)?.closest('a[href]');
+      if (anchor && anchor.getClientRects().length && !anchor.closest('[hidden],[inert]')) {
+        const href = anchor.href;
+        if (typeof href === 'string' && href.length <= 8192 && /^https?:\/\//i.test(href) && !links.has(href)) {
+          links.add(href);
+          size += href.length;
+          if (links.size > 256 || size > 1024 * 1024) return null;
+        }
+      }
+    } while (walker.nextNode());
+  }
+  return [...links];
+}
+
+export function browserDownloadLinks(info, anchors = []) {
   if (String(info.selectionText || '').length > 1024 * 1024) throw new RangeError('Selection too large');
   const values = info.menuItemId === SELECTION_MENU
-    ? String(info.selectionText || '').match(/https?:\/\/[^\s<>"']+/gi) || []
+    ? [...anchors, ...(String(info.selectionText || '').match(/https?:\/\/[^\s<>"']+/gi) || [])]
     : [info.linkUrl || info.srcUrl];
   const links = new Set();
   for (const value of values) {
@@ -30,7 +68,7 @@ export function refreshBrowserMenus() {
   const run = menuQueue.then(async () => {
     const config = await loadBackendConfig();
     await chrome.contextMenus.removeAll();
-    if (!config.enabled || !config.contextMenuEnabled || config.backendType !== 'abdm') return;
+    if (!menuEnabled(config)) return;
     for (const [id, title, contexts] of [
       [LINK_MENU, 'browserDownloadLink', ['link', 'image', 'audio', 'video']],
       [SELECTION_MENU, 'browserDownloadSelection', ['selection']],
@@ -47,10 +85,25 @@ export function refreshBrowserMenus() {
   return run;
 }
 
-export async function sendBrowserDownloads(info) {
-  const config = await loadBackendConfig();
-  if (!config.enabled || !config.contextMenuEnabled || config.backendType !== 'abdm') return false;
-  const links = browserDownloadLinks(info);
+const menuEnabled = config => config.enabled && config.contextMenuEnabled && config.backendType === 'abdm';
+
+export async function sendBrowserDownloads(info, tab) {
+  let config = await loadBackendConfig();
+  if (!menuEnabled(config)) return false;
+  let links = browserDownloadLinks(info);
+  const frameId = info.frameId ?? 0;
+  const pageURL = frameId ? info.frameUrl : info.pageUrl;
+  if (info.menuItemId === SELECTION_MENU && Number.isInteger(tab?.id) && /^https?:\/\//i.test(pageURL || '')) {
+    let results;
+    try {
+      results = await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [frameId] },
+        func: selectedAnchorLinks, args: [pageURL, info.selectionText || ''] });
+    } catch { /* Restricted frames still support URLs in the browser's selected text. */ }
+    if (results?.[0]?.result === null) throw new RangeError('Selection too large');
+    if (Array.isArray(results?.[0]?.result)) links = browserDownloadLinks(info, results[0].result);
+    config = await loadBackendConfig();
+    if (!menuEnabled(config)) return false;
+  }
   if (!links.length) throw new Error('No supported links');
   const headers = { 'Content-Type': 'application/json' };
   if (config.apiKey) headers['X-Api-Key'] = config.apiKey;
@@ -71,9 +124,9 @@ export function registerBrowserIntegration() {
   chrome.runtime.onInstalled.addListener(refresh);
   chrome.runtime.onStartup.addListener(refresh);
   chrome.storage.onChanged.addListener((changes, area) => { if (area === 'sync' && changes[BACKEND_CONFIG_KEY]) refresh(); });
-  chrome.contextMenus.onClicked.addListener(info => {
+  chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (![LINK_MENU, SELECTION_MENU].includes(info.menuItemId)) return;
-    sendBrowserDownloads(info).then(accepted => {
+    sendBrowserDownloads(info, tab).then(accepted => {
       if (accepted) return createNotification('browser-download', { kind: 'success', title: message('browserDownloadAccepted'), message: message('browserDownloadAcceptedHelp') });
     }).catch(() => createNotification('browser-download', { kind: 'error', title: message('browserDownloadFailed'), message: message('browserDownloadFailedHelp') })).catch(() => {});
   });

@@ -1,6 +1,16 @@
 # AB Download Manager API compatibility
 
-Reviewed on 2026-11-17 using upstream source, not only REST-API.yml:
+Reviewed the browser integration again on 2026-11-22. Its latest GitHub release
+remains v1.5.0 and master remains at package 1.5.2, commit
+`bf6811dd8a3ee2b47b94d70e13c2c7e70be7be05`. Its context menu reads the
+destinations of anchors in the selected range. KDownloader now collects these
+in the clicked tab and frame, together with literal selected URLs. A partial
+selection inside an anchor includes that link. Targeted execution uses
+`activeTab` and `scripting` on a menu click, with text-only fallback on
+restricted frames. The existing HTTP payload and bounds still apply.
+[Upstream selection reader](https://github.com/amir1376/ab-download-manager-browser-integration/blob/bf6811dd8a3ee2b47b94d70e13c2c7e70be7be05/src/utils/LinkExtractor.ts).
+
+Desktop and protocol review from 2026-11-17 follows.
 
 The latest desktop release is [v1.11.4](https://github.com/amir1376/ab-download-manager/releases/tag/v1.11.4).
 The [browser master comparison](https://github.com/amir1376/ab-download-manager-browser-integration/compare/658a0c70188d78033f478ba51c102a273322166f...bf6811dd8a3ee2b47b94d70e13c2c7e70be7be05)
