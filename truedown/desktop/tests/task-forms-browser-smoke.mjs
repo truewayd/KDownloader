@@ -42,6 +42,7 @@ try {
             if (command === "apply_material") return true;
             if (command === "frame_state") return { maximized: false };
             if (command === "confirm_action") return new Promise(resolve => { window.answerConfirmation = resolve; });
+            if (command === "confirmation_init") throw Error("Fixture confirmation unavailable");
             if (command === "choose_download_directory") return window.directoryChoice ?? null;
             if (command === "take_dropped_torrent") {
               const value = window.pendingDroppedTorrent;
@@ -63,7 +64,7 @@ try {
             else if (path === "/engine/capabilities" && method === "GET") body = { media: true, probe: true };
             else if (path === "/tasks/probe" && method === "POST") {
               if (window.holdProbe) await new Promise(resolve => { window.releaseProbe = resolve; });
-              body = { status: 206, filename: "<video>.zip", contentType: "application/zip", totalLength: 1024, resumable: true };
+              body = { status: 206, filename: "<video>下载.zip", contentType: "application/zip", totalLength: 1024, resumable: true };
             }
             else if (path === "/start-headless-download" && method === "POST") body = "OK 1";
             else throw Error(`Unexpected native form request: ${method} ${path}`);
@@ -181,8 +182,18 @@ try {
       await page.locator("#m-name").fill("My name.zip");
       await page.locator("#probe-link-btn").click();
       await page.waitForFunction(() => !document.getElementById("probe-link-result").hidden);
-      assert.match(await page.locator("#probe-link-result").textContent(), /<video>\.zip.*支持续传/);
+      assert.match(await page.locator("#probe-link-result").textContent(), /<video>下载\.zip.*支持续传/);
       assert.equal(await page.locator("#probe-link-result video").count(), 0, "metadata stays literal");
+      await page.evaluate(() => window.dispatchEvent(new StorageEvent("storage", {
+        key: "truedown-language-v1", newValue: "en",
+      })));
+      await page.waitForFunction(() => document.querySelector(".native-window-title").textContent === "New download");
+      assert.match(await page.locator("#m-link").getAttribute("placeholder"), /Paste text with multiple links/);
+      assert.equal(await page.locator("#m-extra").getAttribute("placeholder"), "Leave blank to use the value from the default options panel");
+      assert.match(await page.locator("#probe-link-result").textContent(), /Suggested file name: <video>下载\.zip.*supports resuming/);
+      await page.evaluate(() => window.TrueDownI18n.setLanguage("zh-CN"));
+      assert.match(await page.locator("#m-link").getAttribute("placeholder"), /可粘贴/);
+      assert.match(await page.locator("#probe-link-result").textContent(), /支持续传/);
       assert.equal(await page.locator("#m-name").inputValue(), "My name.zip");
       assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/draft.zip");
       assert.equal(await page.evaluate(() => nativeCalls.some(call => call.args?.request?.path === "/start-headless-download")), false);
@@ -292,6 +303,17 @@ try {
           return allowed;
         }), true, "input text dragging keeps native editing behavior");
         assert.equal(await page.locator("#m-link").inputValue(), "https://example.test/drop.zip", "internal text drags cannot replace the download draft");
+      }
+      if (colorScheme === "light") {
+        const confirmation = await context.newPage();
+        await confirmation.addInitScript(() => localStorage.setItem("truedown-language-v1", "en"));
+        await confirmation.route("**/i18n.js", async route => route.fulfill({
+          contentType: "text/javascript",
+          body: await fs.readFile(new URL("i18n.js", assets)),
+        }));
+        await confirmation.goto(`${origin}/confirmation.html`);
+        await confirmation.getByRole("alert").filter({ hasText: "Unable to open the confirmation window" }).waitFor();
+        await confirmation.close();
       }
       assert.deepEqual(errors, []);
       console.log(`${role} ${colorScheme}: DPI=200% frame/form boundaries, wheel, keyboard, file/directory selection, live defaults/modules, draft hide, submission OK`);

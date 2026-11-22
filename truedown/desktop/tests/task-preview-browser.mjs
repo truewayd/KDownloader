@@ -60,6 +60,7 @@ try {
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.addInitScript(({ image, audio, video }) => {
+    localStorage.setItem("truedown-language-v1", "zh-CN");
     window.__TRUEDOWN_PLATFORM__ = "windows";
     window.previewEvents = {}; window.previewRequests = [];
     window.__TAURI__ = {
@@ -72,7 +73,13 @@ try {
         if (command !== "core_request") return;
         window.previewRequests.push(args.request);
         const url = new URL(args.request.path, location.origin);
-        if (url.pathname === "/tasks/archive-preview") return { status: 415, body: "unsupported" };
+        if (url.pathname === "/tasks/archive-preview") {
+          if (url.searchParams.get("id") !== "6") return { status: 415, body: "unsupported" };
+          return { status: 200, body: JSON.stringify({
+            format: "zip", name: "下载.zip", size: 1024, files: 1, directories: 1, nextCursor: 1,
+            entries: [{ name: "目录", directory: true }],
+          }) };
+        }
         if (url.pathname !== "/tasks/preview") return { status: 200, body: "OK" };
         const id = Number(url.searchParams.get("id"));
         const offset = Number(url.searchParams.get("offset"));
@@ -254,6 +261,17 @@ try {
   }
   await page.evaluate(() => previewEvents["truedown:task-preview"]({ payload: { id: 5, revision: 8, open: false } }));
   assert.equal(await page.locator(".preview-player").count(), 0);
+  await page.evaluate(() => {
+    window.TrueDownI18n.setLanguage("en");
+    previewEvents["truedown:task-preview"]({ payload: { id: 6, revision: 9, open: true } });
+  });
+  await page.getByRole("button", { name: "Load more" }).waitFor();
+  assert.equal(await page.locator(".archive-tree").getAttribute("aria-label"), "Archive entry");
+  assert.equal(await page.locator(".archive-entry-name").textContent(), "目录");
+  assert.equal(await page.locator(".archive-entry-size").textContent(), "Directory");
+  assert.match(await page.locator("#preview-info").textContent(), /下载\.zip.*1 files · 1 directories/);
+  await page.evaluate(() => window.TrueDownI18n.setLanguage("zh-CN"));
+  assert.match(await page.locator("#preview-info").textContent(), /1 个文件 · 1 个目录/);
   assert.deepEqual(errors, []);
   console.log("Preview security, fit/zoom, inert text, custom media playback/seek/volume/rate/fullscreen, responsive controls and cleanup passed");
 } finally {
